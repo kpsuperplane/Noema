@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -265,5 +266,95 @@ func TestConversationTurnSerializesAndRecovers(t *testing.T) {
 		"SELECT agent_status FROM conversations WHERE conversation_id = ?", conversation.ID,
 	).Scan(&status); err != nil || status != "input_received" {
 		t.Fatalf("conversation status after recovery = %q, %v", status, err)
+	}
+}
+
+func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
+	database := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, user, err := database.BeginConversationTurn(ctx, conversation.ID, "Inspect it", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Commentary: "I will inspect it.",
+		Reasoning:  []json.RawMessage{json.RawMessage(`{"type":"reasoning.encrypted","data":"opaque"}`)},
+		Call: ConversationToolCallInput{
+			ProviderRound: 0, OutputIndex: 2, ProviderCallID: "provider-call-1",
+			ProviderName: "inspect", Name: "task.inspect",
+			Arguments: json.RawMessage(`{"task_id":"task:one"}`),
+		},
+	}, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 || items[0].Kind != ConversationReasoning ||
+		items[1].Kind != ConversationAssistantText || items[2].Kind != ConversationToolCall ||
+		items[2].ParentItemID != user.ID || items[2].Status != "running" {
+		t.Fatalf("tool round items = %#v", items)
+	}
+	if items[1].Metadata["stream_id"] != assistantStreamID(turn.ID) ||
+		items[1].Metadata["response_index"] != float64(0) {
+		t.Fatalf("commentary stream metadata = %#v", items[1].Metadata)
+	}
+	resultInput := ConversationToolResultInput{
+		CallItemID: items[2].ID, ProviderRound: 0, OutputIndex: 2,
+		ProviderCallID: "provider-call-1", ProviderName: "inspect", Name: "task.inspect",
+		Success: true, Payload: json.RawMessage(`{"task_id":"task:one","title":"One"}`),
+	}
+	result, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Kind != ConversationToolResult || result.ParentItemID != items[2].ID || result.Status != "completed" {
+		t.Fatalf("tool result = %#v", result)
+	}
+	action := result.Payload["metadata"].(map[string]any)["action"].(map[string]any)
+	callAction := items[2].Payload["metadata"].(map[string]any)["action"].(map[string]any)
+	if action["call_id"] != callAction["id"] {
+		t.Fatalf("result correlation = %#v, call = %#v", action["call_id"], callAction["id"])
+	}
+	repeated, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(3*time.Second))
+	if err != nil || repeated.ID != result.ID {
+		t.Fatalf("repeated result = %#v, %v", repeated, err)
+	}
+	resultInput.Payload = json.RawMessage(`{"different":true}`)
+	if _, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(4*time.Second)); err == nil {
+		t.Fatal("conflicting tool result repeat succeeded")
+	}
+	final, err := database.CompleteConversationTurnOutput(
+		ctx, turn, "Done", "Done", nil,
+		[]json.RawMessage{json.RawMessage(`{"type":"reasoning.summary","text":"Done"}`)}, 1,
+		now.Add(5*time.Second),
+	)
+	if err != nil || final.Metadata["provider_round"] != float64(1) {
+		t.Fatalf("final output = %#v, %v", final, err)
+	}
+	second, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Interrupt it", nil, now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, err := database.StartConversationToolRound(ctx, second, ConversationToolRound{
+		Call: ConversationToolCallInput{
+			ProviderRound: 0, OutputIndex: 0, ProviderCallID: "provider-call-2",
+			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:two"}`),
+		},
+	}, now.Add(7*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := database.RecoverConversationTurns(ctx, now.Add(8*time.Second)); err != nil || recovered != 1 {
+		t.Fatalf("recovered tool turn = %d, %v", recovered, err)
+	}
+	var recoveredStatus string
+	if err := database.db.QueryRow(
+		"SELECT status FROM conversation_items WHERE item_id = ?", running[len(running)-1].ID,
+	).Scan(&recoveredStatus); err != nil || recoveredStatus != "cancelled" {
+		t.Fatalf("recovered call status = %q, %v", recoveredStatus, err)
 	}
 }

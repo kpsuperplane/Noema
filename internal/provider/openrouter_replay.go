@@ -79,7 +79,8 @@ func lowerOpenRouterReplayCall(
 	call OpenRouterReplayToolCall,
 	toolNames openRouterToolNameMap,
 ) (openRouterToolCallPayload, error) {
-	if strings.TrimSpace(call.ProviderCallID) == "" || strings.TrimSpace(call.Name) == "" {
+	if strings.TrimSpace(call.ProviderCallID) == "" ||
+		len(call.ProviderCallID) > openRouterProviderCallIDLimit || strings.TrimSpace(call.Name) == "" {
 		return openRouterToolCallPayload{}, errors.New("OpenRouter replay tool call is invalid")
 	}
 	providerName := call.ProviderName
@@ -121,7 +122,8 @@ func lowerOpenRouterToolResultMessage(
 		}, true, nil
 	}
 	result := message.ToolResult
-	if strings.TrimSpace(result.ProviderCallID) == "" || strings.TrimSpace(result.Name) == "" {
+	if strings.TrimSpace(result.ProviderCallID) == "" ||
+		len(result.ProviderCallID) > openRouterProviderCallIDLimit || strings.TrimSpace(result.Name) == "" {
 		return openRouterMessagePayload{}, false, errors.New("OpenRouter tool result is invalid")
 	}
 	providerName := result.ProviderName

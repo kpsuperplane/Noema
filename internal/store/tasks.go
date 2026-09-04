@@ -54,6 +54,14 @@ type TaskEvent struct {
 	OccurredAt time.Time
 }
 
+// TaskStageID returns the current personal workflow stage identifier.
+func TaskStageID(state TaskState) string {
+	if state == TaskCaptured {
+		return "stage:personal:inbox"
+	}
+	return "stage:personal:" + string(state)
+}
+
 // NewTaskID creates one portable Task identifier.
 func NewTaskID() (string, error) {
 	return newID("task")

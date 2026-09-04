@@ -194,6 +194,23 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		return model.UserText{Text: item.ContentText}, nil
 	case store.ConversationAssistantText:
 		return model.AssistantText{Text: item.ContentText}, nil
+	case store.ConversationToolCall, store.ConversationToolResult:
+		id, _ := item.Payload["id"].(string)
+		kind, _ := item.Payload["activity_kind"].(string)
+		title, _ := item.Payload["title"].(string)
+		summary, _ := item.Payload["summary"].(string)
+		metadata, _ := item.Payload["metadata"].(map[string]any)
+		if id == "" || kind == "" || title == "" || metadata == nil {
+			return nil, errors.New("stored conversation activity is invalid")
+		}
+		status, err := activityStatusModel(item.Status)
+		if err != nil {
+			return nil, err
+		}
+		return model.Activity{
+			ID: id, ActivityKind: kind, Status: status, Title: title,
+			Summary: chatOptionalString(summary), Metadata: metadata,
+		}, nil
 	case store.ConversationErrorNotice:
 		message := item.ContentText
 		if stored, ok := item.Payload["message"].(string); ok {
@@ -203,6 +220,19 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		return model.ErrorNotice{Message: message, Recoverable: recoverable}, nil
 	default:
 		return nil, fmt.Errorf("conversation item kind %q is unsupported", item.Kind)
+	}
+}
+
+func activityStatusModel(status string) (model.TurnActivityStatus, error) {
+	switch status {
+	case "pending", "running":
+		return model.TurnActivityStatusStarted, nil
+	case "completed":
+		return model.TurnActivityStatusCompleted, nil
+	case "failed", "cancelled", "interrupted":
+		return model.TurnActivityStatusFailed, nil
+	default:
+		return "", errors.New("stored conversation activity status is invalid")
 	}
 }
 

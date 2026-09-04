@@ -28,6 +28,9 @@ type ConversationItemKind string
 const (
 	ConversationUserText      ConversationItemKind = "user_text"
 	ConversationAssistantText ConversationItemKind = "assistant_text"
+	ConversationToolCall      ConversationItemKind = "tool_call"
+	ConversationToolResult    ConversationItemKind = "tool_result"
+	ConversationReasoning     ConversationItemKind = "reasoning"
 	ConversationErrorNotice   ConversationItemKind = "error_notice"
 )
 
@@ -242,12 +245,38 @@ func (s *Store) CompleteConversationTurn(
 	usage *ProviderUsage,
 	now time.Time,
 ) (ConversationItem, error) {
+	return s.CompleteConversationTurnOutput(ctx, turn, text, providerText, usage, nil, 0, now)
+}
+
+// CompleteConversationTurnOutput atomically saves reasoning, text, and terminal state.
+func (s *Store) CompleteConversationTurnOutput(
+	ctx context.Context,
+	turn ConversationTurn,
+	text string,
+	providerText string,
+	usage *ProviderUsage,
+	reasoning []json.RawMessage,
+	providerRound int,
+	now time.Time,
+) (ConversationItem, error) {
 	if strings.TrimSpace(text) == "" || !utf8.ValidString(text) || len(text) > maxConversationText {
 		return ConversationItem{}, errors.New("assistant response is empty, invalid, or too large")
 	}
+	if providerRound < 0 {
+		return ConversationItem{}, errors.New("provider round is invalid")
+	}
+	for _, detail := range reasoning {
+		if !json.Valid(detail) {
+			return ConversationItem{}, errors.New("conversation reasoning is invalid")
+		}
+	}
+	streamID := assistantStreamID(turn.ID)
+	if providerRound > 0 {
+		streamID = "assistant_stream:" + turn.ID + ":continuation:response:0"
+	}
 	metadata := map[string]any{
 		"turn_index": turn.TurnIndex, "response_index": 0, "output_index": 0,
-		"provider_round": 0, "stream_id": assistantStreamID(turn.ID),
+		"provider_round": providerRound, "stream_id": streamID,
 		"phase": "final_answer", "provider_item_id": nil,
 	}
 	if usage != nil {
@@ -262,7 +291,10 @@ func (s *Store) CompleteConversationTurn(
 			"cached_input_tokens": usage.CachedInputTokens, "cache_hit_ratio": ratio,
 		}
 	}
-	return s.finishConversationTurn(ctx, turn, ConversationAssistantText, text, providerText, metadata, now)
+	return s.finishConversationTurn(
+		ctx, turn, ConversationAssistantText, text, providerText, metadata,
+		reasoning, providerRound, now,
+	)
 }
 
 // FailConversationTurn atomically saves a durable notice and marks the Chat failed.
@@ -286,7 +318,7 @@ func (s *Store) FailConversationTurn(
 	}
 	return s.finishConversationTurn(
 		ctx, turn, ConversationErrorNotice, message, "",
-		map[string]any{"turn_index": turn.TurnIndex, "recoverable": false}, now,
+		map[string]any{"turn_index": turn.TurnIndex, "recoverable": false}, nil, 0, now,
 	)
 }
 
@@ -382,6 +414,8 @@ func (s *Store) finishConversationTurn(
 	content string,
 	providerContent string,
 	metadata map[string]any,
+	reasoning []json.RawMessage,
+	providerRound int,
 	now time.Time,
 ) (ConversationItem, error) {
 	now = now.UTC()
@@ -408,7 +442,34 @@ SELECT item_id FROM conversation_items
 WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID); err != nil {
 		return ConversationItem{}, fmt.Errorf("find conversation user item: %w", err)
 	}
-	itemID := stableConversationItemID(turn.ID, string(kind))
+	if _, err := tx.ExecContext(ctx, `
+UPDATE conversation_items SET status = 'failed', updated_at_ms = ?
+WHERE turn_id = ? AND status IN ('pending', 'running')`, millis(now), turn.ID); err != nil {
+		return ConversationItem{}, fmt.Errorf("close unfinished conversation items: %w", err)
+	}
+	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	if len(reasoning) != 0 {
+		_, err := insertConversationOutputTx(ctx, tx, ConversationItem{
+			ID:             stableConversationOutputID(turn.ID, "reasoning", providerRound, 0),
+			ConversationID: turn.ConversationID, TurnID: turn.ID, ParentItemID: parentID,
+			Sequence: sequence, Kind: ConversationReasoning, Status: "completed",
+			AuthorActorID: "agent:primary", Payload: map[string]any{"provider_details": reasoning},
+			Metadata: map[string]any{
+				"turn_index": turn.TurnIndex, "output_index": 0,
+				"provider_round": providerRound, "source": "provider_reasoning",
+				"provider": "openrouter",
+			},
+			CreatedAt: now,
+		})
+		if err != nil {
+			return ConversationItem{}, err
+		}
+		sequence++
+	}
+	itemID := stableConversationOutputID(turn.ID, string(kind), providerRound, 0)
 	encodedMetadata, _ := json.Marshal(metadata)
 	payload := "{}"
 	itemStatus := "completed"
@@ -427,10 +488,8 @@ INSERT INTO conversation_items (
     item_id, conversation_id, turn_id, parent_item_id, sequence_index,
     kind, status, author_actor_id, content_text, provider_content_text,
     payload_json, metadata_json, created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, 1 + COALESCE((
-    SELECT MAX(sequence_index) FROM conversation_items WHERE conversation_id = ?
-), 0), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		itemID, turn.ConversationID, turn.ID, parentID, turn.ConversationID,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		itemID, turn.ConversationID, turn.ID, parentID, sequence,
 		kind, itemStatus, author, content, storedProvider, payload, string(encodedMetadata),
 		millis(now), millis(now)); err != nil {
 		return ConversationItem{}, fmt.Errorf("create final conversation item: %w", err)
@@ -568,6 +627,12 @@ func assistantStreamID(turnID string) string {
 }
 
 func stableConversationItemID(turnID string, kind string) string {
-	digest := sha256.Sum256([]byte(turnID + ":" + kind + ":0"))
+	return stableConversationOutputID(turnID, kind, 0, 0)
+}
+
+func stableConversationOutputID(turnID string, kind string, providerRound int, outputIndex int) string {
+	digest := sha256.Sum256([]byte(fmt.Sprintf(
+		"%s:%s:%d:%d", turnID, kind, providerRound, outputIndex,
+	)))
 	return "item:" + hex.EncodeToString(digest[:16])
 }

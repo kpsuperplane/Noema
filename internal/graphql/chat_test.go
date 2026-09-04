@@ -200,7 +200,7 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver.Chat, err = noemaruntime.NewChat(resolver.Store, generator)
+	resolver.Chat, err = noemaruntime.NewChat(resolver.Store, generator, resolver.home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +228,42 @@ func TestConversationTranscriptValidatesOwnershipAndLimit(t *testing.T) {
 	}
 }
 
+func TestConversationToolActivitiesPreserveStoredIdentityAndStatus(t *testing.T) {
+	payload := map[string]any{
+		"id": "tool_call:one", "activity_kind": "tool_call",
+		"title": "Tool call: task.inspect", "summary": "task.inspect",
+		"metadata": map[string]any{"provider": "openrouter"},
+	}
+	started, err := transcriptItemModel(store.ConversationItem{
+		Kind: store.ConversationToolCall, Status: "running", Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity, ok := started.(model.Activity)
+	if !ok || activity.ID != "tool_call:one" || activity.ActivityKind != "tool_call" ||
+		activity.Status != model.TurnActivityStatusStarted || activity.Summary == nil ||
+		*activity.Summary != "task.inspect" {
+		t.Fatalf("started activity = %#v", started)
+	}
+	payload["id"] = "tool_result:one"
+	payload["activity_kind"] = "tool_result"
+	payload["title"] = "Tool result: task.inspect"
+	completed, err := transcriptItemModel(store.ConversationItem{
+		Kind: store.ConversationToolResult, Status: "completed", Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity, ok = completed.(model.Activity)
+	if !ok || activity.ID != "tool_result:one" || activity.Status != model.TurnActivityStatusCompleted {
+		t.Fatalf("completed activity = %#v", completed)
+	}
+	if status, err := activityStatusModel("cancelled"); err != nil || status != model.TurnActivityStatusFailed {
+		t.Fatalf("cancelled activity status = %q, %v", status, err)
+	}
+}
+
 func openChatTestResolver(t *testing.T) *Resolver {
 	t.Helper()
 	resolver := openProviderTestResolver(t)
@@ -235,7 +271,7 @@ func openChatTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := noemaruntime.NewChat(resolver.Store, generator)
+	chat, err := noemaruntime.NewChat(resolver.Store, generator, resolver.home)
 	if err != nil {
 		t.Fatal(err)
 	}

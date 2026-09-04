@@ -63,6 +63,9 @@ func normalizeOpenRouterToolCalls(
 		if strings.TrimSpace(call.ID) == "" {
 			return nil, errors.New("OpenRouter native tool call is missing call id")
 		}
+		if len(call.ID) > openRouterProviderCallIDLimit {
+			return nil, errors.New("OpenRouter native tool call id is too long")
+		}
 		if strings.TrimSpace(call.Name) == "" {
 			return nil, errors.New("OpenRouter native tool call is missing name")
 		}

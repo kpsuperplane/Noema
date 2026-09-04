@@ -460,8 +460,23 @@ The OpenRouter native-tool provider unit passed on 2026-09-04. It includes:
 - safe errors, cancellation, secret handling, and request and response limits.
 
 The provider uses complete local replay. It does not depend on an OpenRouter
-continuation identifier. Runtime invocation and durable tool items remain the
-next unit 4 slice.
+continuation identifier.
+
+### First immediate tool runtime unit
+
+The `task.inspect` runtime unit passed on 2026-09-04. It includes:
+
+- one advertised immediate-read tool with a final source-schema check;
+- rooted access to the current Task row and `TASK.md`;
+- atomic call and result storage with repeat-safe completion;
+- exact stored results and bounded model-facing replay;
+- durable provider call, result, commentary, and reasoning history;
+- restart recovery that does not repeat an uncertain call;
+- one tool-free continuation request with combined provider usage;
+- existing GraphQL `Activity` delivery for live and stored tool items.
+
+This unit does not add Task writes, action requests, scheduling, or repeated
+tool rounds. Those capabilities remain later unit 4 slices.
 
 ## 11. Validation Strategy
 

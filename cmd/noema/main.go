@@ -92,7 +92,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
-	chatRuntime, err := noemaruntime.NewChat(taskStore, generator)
+	chatRuntime, err := noemaruntime.NewChat(taskStore, generator, root)
 	if err != nil {
 		return err
 	}

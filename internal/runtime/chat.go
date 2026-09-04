@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -94,6 +95,7 @@ type Chat struct {
 	cancel    context.CancelFunc
 	database  *store.Store
 	generator *provider.OpenRouterGenerator
+	home      *os.Root
 	turns     chan queuedTurn
 	done      chan struct{}
 	closeOnce sync.Once
@@ -107,8 +109,8 @@ type Chat struct {
 }
 
 // NewChat starts one text-only Chat runtime.
-func NewChat(database *store.Store, generator *provider.OpenRouterGenerator) (*Chat, error) {
-	if database == nil || generator == nil {
+func NewChat(database *store.Store, generator *provider.OpenRouterGenerator, homeRoot *os.Root) (*Chat, error) {
+	if database == nil || generator == nil || homeRoot == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
 	}
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
@@ -119,7 +121,7 @@ func NewChat(database *store.Store, generator *provider.OpenRouterGenerator) (*C
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	chat := &Chat{
-		ctx: ctx, cancel: cancel, database: database, generator: generator,
+		ctx: ctx, cancel: cancel, database: database, generator: generator, home: homeRoot,
 		turns: make(chan queuedTurn, turnQueueLimit), done: make(chan struct{}),
 		subscribers: make(map[uint64]subscriber),
 	}
@@ -272,25 +274,27 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	messages, err := c.database.ConversationProviderMessages(c.ctx, turn.ConversationID)
+	messages, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages := make([]provider.OpenRouterChatMessage, 0, len(messages)+1)
-	providerMessages = append(providerMessages, provider.OpenRouterChatMessage{
-		Role: "developer", Content: runtimeEnvironment(request.conversation, request.location, time.Now()),
-	})
-	for _, message := range messages {
-		providerMessages = append(providerMessages, provider.OpenRouterChatMessage{
-			Role: message.Role, Content: message.Content,
-		})
+	providerMessages, err := providerMessagesFromItems(messages)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
 	}
+	providerMessages = append([]provider.OpenRouterChatMessage{{
+		Role: "developer", Content: runtimeEnvironment(request.conversation, request.location, time.Now()),
+	}}, providerMessages...)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
 	result, err := c.generator.Generate(c.ctx, provider.OpenRouterGenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
 		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
+		Tools:         []provider.OpenRouterTool{taskInspectTool()},
+		ToolTransport: provider.OpenRouterToolTransportNative,
+		ToolChoice:    provider.OpenRouterToolChoiceAuto,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {
 			c.publish(Event{
@@ -303,37 +307,15 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	resultModel := result.Model
-	if resultModel == "" {
-		resultModel = assignment.ModelProfile
-	}
-	usage := &store.ProviderUsage{
-		Provider: "openrouter", Model: resultModel,
-		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
-		TotalTokens: result.Usage.TotalTokens, CachedInputTokens: result.Usage.CachedInputTokens,
-	}
-	item, err := c.database.CompleteConversationTurn(
-		c.ctx, turn, result.Text, result.Text, usage, time.Now(),
-	)
-	if err != nil {
-		if c.ctx.Err() != nil {
-			c.cancelTurn(request.input, turn)
-		} else {
-			c.publishTransientFailure(request.input, err)
-		}
+	if len(result.ToolCalls) == 0 {
+		c.finishGeneratedTurn(request.input, turn, assignment, result, 0, nil)
 		return
 	}
-	c.publish(Event{
-		Kind: EventConversationItem, ConversationID: turn.ConversationID,
-		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &item,
-	})
-	c.publish(Event{
-		Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle,
-	})
-	c.publish(Event{
-		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
-		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID,
-	})
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != taskInspectName {
+		c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
+		return
+	}
+	c.executeTaskInspectRound(request, turn, assignment, result)
 }
 
 func (c *Chat) primaryAssignment(ctx context.Context) (store.ModelAssignment, error) {

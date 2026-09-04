@@ -25,7 +25,8 @@ OpenRouter supports verified API keys, PKCE onboarding, durable model assignment
 Its provider path now preserves native tool schemas, calls, replay, reasoning, citations, and hosted-search metadata.
 Codex device login uses the current provider-auth GraphQL roots and protected token storage.
 One serialized Chat turn now streams through GraphQL and survives restart replay.
-Runtime tool execution, Task execution, commands, and notifications remain migration units.
+Chat can now run one immediate `task.inspect` call with durable replay and rooted Task document access.
+Task execution, commands, and notifications remain migration units.
 
 ## Current constraints
 

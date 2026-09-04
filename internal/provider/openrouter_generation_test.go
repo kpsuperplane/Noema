@@ -244,6 +244,7 @@ func TestOpenRouterResponseRejectsInvalidNativeCalls(t *testing.T) {
 	}{
 		{"disabled transport", OpenRouterToolTransportNone, []ToolCall{valid}},
 		{"missing id", OpenRouterToolTransportNative, []ToolCall{{Name: "search", Arguments: `{}`}}},
+		{"oversized id", OpenRouterToolTransportNative, []ToolCall{{ID: strings.Repeat("x", openRouterProviderCallIDLimit+1), Name: "search", Arguments: `{}`}}},
 		{"missing name", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Arguments: `{}`}}},
 		{"unadvertised", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Name: "other", Arguments: `{}`}}},
 		{"non-object", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Name: "search", Arguments: `[]`}}},

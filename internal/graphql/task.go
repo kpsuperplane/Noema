@@ -155,14 +155,13 @@ func taskDocumentPreview(document string) string {
 
 func taskStageModel(state store.TaskState) *model.WorkflowStage {
 	stage := &model.WorkflowStage{
-		StageID:    "stage:personal:" + string(state),
+		StageID:    store.TaskStageID(state),
 		WorkflowID: "workflow:personal:default",
 		Key:        string(state),
 		Name:       strings.ToUpper(string(state[:1])) + string(state[1:]),
 	}
 	switch state {
 	case store.TaskCaptured:
-		stage.StageID = "stage:personal:inbox"
 		stage.Key = "inbox"
 		stage.Name = "Inbox"
 		stage.Behavior = model.WorkflowStageBehaviorIntake

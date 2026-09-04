@@ -6,12 +6,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -128,6 +130,124 @@ func TestChatSerializesDetachedTurnsAndPublishesOrderedEvents(t *testing.T) {
 	}
 }
 
+func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
+	chat, database, conversation := chatFixture(t)
+	ctx := context.Background()
+	taskID, err := store.NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := strings.Repeat(`"`, 64<<10)
+	if _, err := home.CreatePendingTaskDocument(chat.home, taskID, document); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateTask(ctx, taskID, "Large Task", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(chat.home, taskID); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := chat.Subscribe(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	requests := make(chan map[string]any, 2)
+	var requestMu sync.Mutex
+	requestCount := 0
+	replaceDefaultTransport(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		requests <- body
+		requestMu.Lock()
+		requestCount++
+		current := requestCount
+		requestMu.Unlock()
+		if current == 1 {
+			arguments := strconvQuote(`{"task_id":"` + taskID + `"}`)
+			body := "data: {\"id\":\"inspect-1\",\"model\":\"openai/gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"I will inspect it.\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"inspect\",\"arguments\":" + arguments + "}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\ndata: [DONE]\n\n"
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		}
+		return openRouterStreamResponse("The Task is ready."), nil
+	}))
+
+	clientID := "inspect-client"
+	if _, err := chat.SendTurn(ctx, SendTurnInput{
+		ConversationID: conversation.ID, Input: "Inspect the Task", ClientMessageID: &clientID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	all := collectCompletedTurns(t, events, 1)
+	var visibleKinds []store.ConversationItemKind
+	for _, event := range all {
+		if event.Item != nil {
+			visibleKinds = append(visibleKinds, event.Item.Kind)
+		}
+	}
+	wantKinds := []store.ConversationItemKind{
+		store.ConversationUserText, store.ConversationAssistantText,
+		store.ConversationToolCall, store.ConversationToolResult, store.ConversationAssistantText,
+	}
+	if len(visibleKinds) != len(wantKinds) {
+		t.Fatalf("visible item kinds = %v", visibleKinds)
+	}
+	for index := range wantKinds {
+		if visibleKinds[index] != wantKinds[index] {
+			t.Fatalf("visible item kinds = %v, want %v", visibleKinds, wantKinds)
+		}
+	}
+	initial, continuation := <-requests, <-requests
+	tools, ok := initial["tools"].([]any)
+	if !ok || len(tools) != 1 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+		t.Fatalf("initial tool controls = %#v", initial)
+	}
+	function := tools[0].(map[string]any)["function"].(map[string]any)
+	if function["name"] != "inspect" {
+		t.Fatalf("advertised tool = %#v", function)
+	}
+	if _, exists := continuation["tools"]; exists {
+		t.Fatalf("continuation advertised tools: %#v", continuation["tools"])
+	}
+	messages := continuation["messages"].([]any)
+	var replayResult map[string]any
+	for _, raw := range messages {
+		message := raw.(map[string]any)
+		if message["role"] == "tool" {
+			replayResult = message
+		}
+	}
+	if replayResult == nil || replayResult["tool_call_id"] != "call_1" {
+		t.Fatalf("tool replay = %#v", replayResult)
+	}
+	var replayEnvelope map[string]any
+	if err := json.Unmarshal([]byte(replayResult["content"].(string)), &replayEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	bounded, _ := replayEnvelope["payload"].(map[string]any)
+	if bounded["truncated"] != true || len(replayResult["content"].(string)) >= modelToolResultLimit {
+		t.Fatalf("bounded replay length = %d", len(replayResult["content"].(string)))
+	}
+	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range page.Items {
+		if item.Kind != store.ConversationToolResult {
+			continue
+		}
+		action, _ := nestedAction(item.Payload)
+		payload, _ := action["payload"].(map[string]any)
+		if payload["task_document"] != document || payload["task_id"] != taskID {
+			t.Fatalf("stored inspect payload was not exact")
+		}
+		return
+	}
+	t.Fatal("stored tool result is missing")
+}
+
 func TestChatPersistsProviderFailureAndRejectsInvalidTimezone(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
 	events, err := chat.Subscribe(context.Background(), conversation.ID)
@@ -172,6 +292,43 @@ func TestChatPersistsProviderFailureAndRejectsInvalidTimezone(t *testing.T) {
 	}
 }
 
+func TestChatClosesTurnWhenProviderReturnsWhitespace(t *testing.T) {
+	chat, database, conversation := chatFixture(t)
+	events, err := chat.Subscribe(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	responses := 0
+	replaceDefaultTransport(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		responses++
+		if responses == 1 {
+			return openRouterStreamResponse("   "), nil
+		}
+		return openRouterStreamResponse("Recovered"), nil
+	}))
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{
+		ConversationID: conversation.ID, Input: "First",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{
+		ConversationID: conversation.ID, Input: "Second",
+	}); err != nil {
+		t.Fatalf("turn after whitespace response: %v", err)
+	}
+	collectCompletedTurns(t, events, 1)
+	page, err := database.ConversationItemPage(context.Background(), conversation.ID, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 4 || page.Items[1].Kind != store.ConversationErrorNotice ||
+		page.Items[3].ContentText != "Recovered" {
+		t.Fatalf("transcript after whitespace response = %#v", page.Items)
+	}
+}
+
 func TestChatCloseCancelsActiveProviderAndRejectsNewTurns(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
 	started := make(chan struct{})
@@ -207,7 +364,7 @@ func TestChatCloseCancelsActiveProviderAndRejectsNewTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := NewChat(database, chat.generator)
+	restarted, err := NewChat(database, chat.generator, chat.home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,6 +382,11 @@ func chatFixture(t *testing.T) (*Chat, *store.Store, store.Conversation) {
 	t.Helper()
 	ctx := context.Background()
 	root := t.TempDir()
+	homeRoot, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = homeRoot.Close() })
 	database, err := store.Open(ctx, filepath.Join(root, "noema.sqlite3"))
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +422,7 @@ func chatFixture(t *testing.T) (*Chat, *store.Store, store.Conversation) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := NewChat(database, generator)
+	chat, err := NewChat(database, generator, homeRoot)
 	if err != nil {
 		t.Fatal(err)
 	}

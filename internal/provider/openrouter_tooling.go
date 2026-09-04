@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	openRouterFunctionNameLimit = 64
+	openRouterFunctionNameLimit   = 64
+	openRouterProviderCallIDLimit = 255
 )
 
 // OpenRouterToolTransport selects the model tool channel.
