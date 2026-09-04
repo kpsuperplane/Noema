@@ -14,7 +14,9 @@ require (
 	github.com/ncruces/go-sqlite3 v0.35.4
 	github.com/rivo/uniseg v0.4.7
 	github.com/vektah/gqlparser/v2 v2.5.37
+	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.41.0
 )
 
 require (
@@ -43,7 +45,6 @@ require (
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 )
