@@ -49,8 +49,9 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Use a compact white surface on `--pine-50`, the existing browser app background wash.
 - Start with a 456-pixel surface. Expand only when the task requires more space.
 - Keep the card and wash on phones. Use 12-pixel outer insets and 16-pixel horizontal card padding.
-- Center the avatar above the card. Keep headings, body, fields, and actions on one left alignment.
+- Center the avatar and heading group, including the title, introduction, and setup step. Keep form content left aligned.
 - Show the full 80-pixel avatar with an 8-pixel white outline that joins the card. Do not hide it behind the card.
+- Give the exposed avatar outline the card’s same thin `border-subtle` border. Hide the lower arc inside the card.
 - Give the combined avatar/card outline one shadow. Neither element casts a separate shadow onto the other.
 - Reuse `IdentityAvatar` with the local agent seed, existing palette, and idle animation. Do not redraw the character.
 - Keep errors calm. Reserve the success check for confirmed completion.

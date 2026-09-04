@@ -34,9 +34,11 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 .sheet { position: relative; width: 100%; padding: var(--spacing-12) var(--spacing-8) var(--spacing-8); background: var(--background); border: 1px solid var(--border-subtle); border-radius: var(--radius-page); corner-shape: var(--corner-shape-page); }
 /* The 80px avatar sits in an 8px white mount. Its full face stays above the card paint. */
 .peek-avatar { position: relative; z-index: 1; width: 96px; height: 96px; padding: var(--spacing-2); margin-bottom: calc(-1 * var(--spacing-8)); background: var(--background); border-radius: var(--radius-full); pointer-events: none; }
+/* Border follows only the exposed arc; the lower edge merges into the card. */
+.peek-avatar::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--border-subtle); border-radius: inherit; clip-path: inset(0 0 var(--spacing-8) 0); }
 .peek-avatar > svg, .peek-avatar > img { display: block; width: 100%; height: 100%; }
 /* One owner per boundary: heading 8, task regions 24, related body groups 16. */
-.screen-heading { display: grid; gap: var(--spacing-2); }
+.screen-heading { display: grid; gap: var(--spacing-2); text-align: center; }
 .screen-body { display: flex; flex-direction: column; gap: var(--spacing-4); margin-top: var(--spacing-6); }
 .screen-body > * { margin: 0; }
 .screen-body > .actions:has(.primary), .screen-body > .decision-actions { margin-top: var(--spacing-2); }
