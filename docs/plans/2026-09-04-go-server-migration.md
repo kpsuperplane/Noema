@@ -320,6 +320,11 @@ must use fixed text.
 
 Each unit must pass its gate before the next unit starts.
 
+The table gives dependency order. It does not require serial implementation.
+Agents can build disjoint vertical slices in isolated worktrees.
+GraphQL generation and database schema changes merge one at a time.
+Each merged slice must pass its gate before dependent work starts.
+
 | Unit | Work | Exit gate |
 | --- | --- | --- |
 | 0. Baseline and spike | Complete sections 4 and 5. | Record a go or no-go decision. |
