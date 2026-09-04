@@ -22,13 +22,19 @@ const (
 
 var errOpenRouterGenerationTooLarge = errors.New("OpenRouter generation response is too large")
 
-// OpenRouterChatMessage is one text-only Chat Completions message.
+// OpenRouterChatMessage is one Chat Completions history message.
 type OpenRouterChatMessage struct {
-	Role    string
-	Content string
+	Role               string
+	Content            string
+	ToolCalls          []OpenRouterReplayToolCall
+	ToolResult         *OpenRouterReplayToolResult
+	ToolCallID         string
+	ReasoningDetails   []json.RawMessage
+	ReasoningID        string
+	EncryptedReasoning string
 }
 
-// OpenRouterGenerateRequest is one text-only OpenRouter generation request.
+// OpenRouterGenerateRequest is one OpenRouter generation request.
 type OpenRouterGenerateRequest struct {
 	AccountID       string
 	Model           string
@@ -37,18 +43,27 @@ type OpenRouterGenerateRequest struct {
 	MaxOutputTokens *uint32
 	Temperature     *float32
 	ConversationID  string
+	Tools           []OpenRouterTool
+	ToolTransport   OpenRouterToolTransport
+	ToolChoice      OpenRouterToolChoice
+	ParallelTools   bool
+	HostedWebSearch bool
 }
 
-// OpenRouterGenerationResult is one completed text generation.
+// OpenRouterGenerationResult is one completed generation.
 type OpenRouterGenerationResult struct {
 	ID           string
 	Model        string
 	Text         string
 	FinishReason string
 	Usage        Usage
+	ToolCalls    []OpenRouterToolCall
+	Reasoning    []OpenRouterReasoningItem
+	Citations    []Citation
+	Searches     []HostedSearch
 }
 
-// OpenRouterGenerator sends text-only Chat Completions requests.
+// OpenRouterGenerator sends Chat Completions requests.
 type OpenRouterGenerator struct {
 	accounts *AccountService
 	client   *http.Client
@@ -91,7 +106,7 @@ func (g *OpenRouterGenerator) Generate(
 	request OpenRouterGenerateRequest,
 	onEvent func(StreamEvent),
 ) (OpenRouterGenerationResult, error) {
-	body, err := openRouterGenerationBody(request)
+	body, toolNames, err := prepareOpenRouterGeneration(request)
 	if err != nil {
 		return OpenRouterGenerationResult{}, err
 	}
@@ -146,29 +161,13 @@ func (g *OpenRouterGenerator) Generate(
 	}
 
 	stream := newOpenRouterGenerationStream(response.Body)
-	parsed, err := ParseChatStream(ctx, stream, onEvent)
+	parsed, err := ParseChatStream(ctx, stream, dedupeOpenRouterStreamEvents(onEvent))
 	if err != nil {
 		return OpenRouterGenerationResult{}, safeOpenRouterGenerationError(ctx, err)
 	}
-	if len(parsed.ToolCalls) != 0 || parsed.Text == "" {
-		return OpenRouterGenerationResult{}, errors.New("OpenRouter response did not contain text")
-	}
-	if !validOpenRouterUsage(parsed.Usage) {
-		return OpenRouterGenerationResult{}, errors.New("OpenRouter returned invalid token usage")
-	}
-	return OpenRouterGenerationResult{
-		ID: parsed.ID, Model: parsed.Model, Text: parsed.Text,
-		FinishReason: openRouterFinishReason(stream.captured.Bytes()), Usage: parsed.Usage,
-	}, nil
-}
-
-func validOpenRouterUsage(usage Usage) bool {
-	if usage.InputTokens < 0 || usage.CachedInputTokens < 0 || usage.OutputTokens < 0 ||
-		usage.TotalTokens < 0 || usage.WebSearchRequests < 0 ||
-		usage.CachedInputTokens > usage.InputTokens {
-		return false
-	}
-	return usage.TotalTokens == 0 || usage.TotalTokens == usage.InputTokens+usage.OutputTokens
+	return normalizeOpenRouterGeneration(
+		request, parsed, toolNames, openRouterFinishReason(stream.captured.Bytes()),
+	)
 }
 
 type openRouterGenerationPayload struct {
@@ -179,13 +178,19 @@ type openRouterGenerationPayload struct {
 	Reasoning           *openRouterReasoning       `json:"reasoning,omitempty"`
 	PromptCacheKey      string                     `json:"prompt_cache_key,omitempty"`
 	CacheControl        map[string]string          `json:"cache_control,omitempty"`
+	Tools               []openRouterToolPayload    `json:"tools,omitempty"`
+	ToolChoice          string                     `json:"tool_choice,omitempty"`
+	ParallelToolCalls   *bool                      `json:"parallel_tool_calls,omitempty"`
 	Stream              bool                       `json:"stream"`
 	StreamOptions       openRouterStreamOptions    `json:"stream_options"`
 }
 
 type openRouterMessagePayload struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role             string                      `json:"role"`
+	Content          *string                     `json:"content,omitempty"`
+	ToolCalls        []openRouterToolCallPayload `json:"tool_calls,omitempty"`
+	ToolCallID       string                      `json:"tool_call_id,omitempty"`
+	ReasoningDetails []json.RawMessage           `json:"reasoning_details,omitempty"`
 }
 
 type openRouterReasoning struct {
@@ -197,35 +202,45 @@ type openRouterStreamOptions struct {
 }
 
 func openRouterGenerationBody(request OpenRouterGenerateRequest) ([]byte, error) {
+	body, _, err := prepareOpenRouterGeneration(request)
+	return body, err
+}
+
+func prepareOpenRouterGeneration(
+	request OpenRouterGenerateRequest,
+) ([]byte, openRouterToolNameMap, error) {
 	if request.AccountID != openRouterGenerationAccountID {
-		return nil, errors.New("OpenRouter generation requires the default account")
+		return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation requires the default account")
 	}
 	model := strings.TrimSpace(request.Model)
 	if model == "" {
-		return nil, errors.New("OpenRouter generation model is required")
+		return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation model is required")
+	}
+	toolNames, wireTools, err := prepareOpenRouterTools(request.Tools)
+	if err != nil {
+		return nil, openRouterToolNameMap{}, err
+	}
+	if len(wireTools) != 0 && request.ToolTransport != OpenRouterToolTransportNative {
+		return nil, openRouterToolNameMap{}, errors.New("OpenRouter tool transport is disabled")
 	}
 	messages := make([]openRouterMessagePayload, 0, len(request.Messages)+1)
 	for _, message := range request.Messages {
-		if strings.TrimSpace(message.Content) == "" {
+		lowered, keep, err := lowerOpenRouterMessage(message, toolNames)
+		if err != nil {
+			return nil, openRouterToolNameMap{}, err
+		}
+		if !keep {
 			continue
 		}
-		switch message.Role {
-		case "system", "user", "assistant":
-			messages = append(messages, openRouterMessagePayload{Role: message.Role, Content: message.Content})
-		case "developer":
-			messages = append(messages, openRouterMessagePayload{
-				Role: "user", Content: wrapOpenRouterApplicationContext(message.Content),
-			})
-		default:
-			return nil, errors.New("OpenRouter generation message role is invalid")
-		}
+		messages = append(messages, lowered)
 	}
 	if len(messages) == 0 {
-		return nil, errors.New("OpenRouter generation messages are required")
+		return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation messages are required")
 	}
 	if !appendOpenRouterApplicationInstruction(messages) {
+		content := openRouterApplicationInstruction
 		messages = append([]openRouterMessagePayload{{
-			Role: "system", Content: openRouterApplicationInstruction,
+			Role: "system", Content: &content,
 		}}, messages...)
 	}
 	payload := openRouterGenerationPayload{
@@ -233,26 +248,38 @@ func openRouterGenerationBody(request OpenRouterGenerateRequest) ([]byte, error)
 		MaxCompletionTokens: request.MaxOutputTokens, Temperature: request.Temperature,
 		PromptCacheKey: strings.TrimSpace(request.ConversationID), Stream: true,
 		StreamOptions: openRouterStreamOptions{IncludeUsage: true},
+		Tools:         wireTools,
 	}
 	if request.ReasoningEffort != "" {
 		switch request.ReasoningEffort {
 		case "none", "minimal", "low", "medium", "high", "xhigh":
 			payload.Reasoning = &openRouterReasoning{Effort: request.ReasoningEffort}
 		default:
-			return nil, errors.New("OpenRouter generation reasoning effort is invalid")
+			return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation reasoning effort is invalid")
 		}
+	}
+	toolChoice, parallel, err := openRouterToolControls(request, len(wireTools) != 0)
+	if err != nil {
+		return nil, openRouterToolNameMap{}, err
+	}
+	payload.ToolChoice = toolChoice
+	payload.ParallelToolCalls = parallel
+	if request.HostedWebSearch {
+		payload.Tools = append(payload.Tools, openRouterHostedSearchTool())
+		payload.ToolChoice = string(OpenRouterToolChoiceAuto)
+		payload.ParallelToolCalls = boolPointer(request.ParallelTools)
 	}
 	if strings.HasPrefix(strings.TrimPrefix(model, "~"), "anthropic/") {
 		payload.CacheControl = map[string]string{"type": "ephemeral"}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, errors.New("OpenRouter generation request is invalid")
+		return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation request is invalid")
 	}
 	if len(body) > openRouterGenerationRequestLimit {
-		return nil, errors.New("OpenRouter generation request is too large")
+		return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation request is too large")
 	}
-	return body, nil
+	return body, toolNames, nil
 }
 
 func appendOpenRouterApplicationInstruction(messages []openRouterMessagePayload) bool {
@@ -260,7 +287,11 @@ func appendOpenRouterApplicationInstruction(messages []openRouterMessagePayload)
 		if messages[index].Role != "system" {
 			continue
 		}
-		messages[index].Content += "\n\n" + openRouterApplicationInstruction
+		if messages[index].Content == nil {
+			continue
+		}
+		content := *messages[index].Content + "\n\n" + openRouterApplicationInstruction
+		messages[index].Content = &content
 		return true
 	}
 	return false

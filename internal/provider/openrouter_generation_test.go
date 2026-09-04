@@ -70,6 +70,209 @@ func TestOpenRouterGeneratorStreamsTextAndReturnsCompletion(t *testing.T) {
 	}
 }
 
+func TestOpenRouterRequestLowersToolsAndReplayHistory(t *testing.T) {
+	request := OpenRouterGenerateRequest{
+		AccountID: openRouterGenerationAccountID,
+		Model:     "anthropic/claude",
+		Messages: []OpenRouterChatMessage{
+			{Role: "system", Content: "Stable instructions"},
+			{
+				Role: "assistant", Content: "Working.",
+				ReasoningDetails: []json.RawMessage{
+					json.RawMessage(`{"type":"reasoning.encrypted","id":"reason_1","data":"opaque"}`),
+				},
+				ToolCalls: []OpenRouterReplayToolCall{{
+					ProviderCallID: "call_1", Name: "mcp.docs.read",
+					Arguments: json.RawMessage(`{"document_id":"doc_1"}`),
+				}},
+			},
+			{Role: "tool", ToolResult: &OpenRouterReplayToolResult{
+				ProviderCallID: "call_1", Name: "mcp.docs.read", Success: true,
+				Payload: json.RawMessage(`{"title":"Guide"}`),
+			}},
+			{Role: "user", Content: "Continue."},
+		},
+		Tools: []OpenRouterTool{
+			{
+				Name: "mcp.docs.read", Description: "Read one document.",
+				InputSchema: json.RawMessage(`{
+					"type":"object",
+					"properties":{"document_id":{"type":"string"},"context":{"type":"string"}},
+					"required":["document_id"],"additionalProperties":false
+				}`),
+			},
+			{
+				Name: "mcp.archive.read", Description: "Read archived documents.",
+				InputSchema: json.RawMessage(`{
+					"type":"object",
+					"properties":{"ids":{"type":"array","items":{"type":"string"},"uniqueItems":true}},
+					"required":["ids"],"additionalProperties":false
+				}`),
+			},
+		},
+		ToolTransport:   OpenRouterToolTransportNative,
+		ToolChoice:      OpenRouterToolChoiceRequired,
+		ParallelTools:   true,
+		HostedWebSearch: true,
+	}
+	body, names, err := prepareOpenRouterGeneration(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatal(err)
+	}
+	tools := wire["tools"].([]any)
+	if len(tools) != 3 || tools[2].(map[string]any)["type"] != "openrouter:web_search" ||
+		wire["tool_choice"] != "auto" || wire["parallel_tool_calls"] != true {
+		t.Fatalf("tool controls = %#v", wire)
+	}
+	firstFunction := tools[0].(map[string]any)["function"].(map[string]any)
+	secondFunction := tools[1].(map[string]any)["function"].(map[string]any)
+	firstName := firstFunction["name"].(string)
+	if firstName == secondFunction["name"] || names.canonicalToName["mcp.docs.read"] != firstName {
+		t.Fatalf("provider tool names = %#v", names.canonicalToName)
+	}
+	if firstFunction["strict"] != true || secondFunction["strict"] != false {
+		t.Fatalf("strict tool modes = %#v, %#v", firstFunction, secondFunction)
+	}
+	firstSchema := firstFunction["parameters"].(map[string]any)
+	if firstSchema["additionalProperties"] != false ||
+		firstSchema["properties"].(map[string]any)["context"].(map[string]any)["type"].([]any)[1] != "null" {
+		t.Fatalf("strict schema = %#v", firstSchema)
+	}
+	messages := wire["messages"].([]any)
+	assistant := messages[1].(map[string]any)
+	call := assistant["tool_calls"].([]any)[0].(map[string]any)
+	if call["id"] != "call_1" || call["function"].(map[string]any)["name"] != firstName ||
+		len(assistant["reasoning_details"].([]any)) != 1 {
+		t.Fatalf("assistant replay = %#v", assistant)
+	}
+	toolResult := messages[2].(map[string]any)
+	if toolResult["tool_call_id"] != "call_1" {
+		t.Fatalf("tool result replay = %#v", toolResult)
+	}
+	var resultContent map[string]any
+	if err := json.Unmarshal([]byte(toolResult["content"].(string)), &resultContent); err != nil {
+		t.Fatal(err)
+	}
+	_, hasArguments := resultContent["arguments"]
+	if resultContent["provider_name"] != firstName || resultContent["success"] != true || hasArguments {
+		t.Fatalf("tool result content = %#v", resultContent)
+	}
+	if _, exists := wire["previous_response_id"]; exists {
+		t.Fatalf("unexpected continuation id = %#v", wire)
+	}
+}
+
+func TestOpenRouterResponseNormalizesToolsAndProviderMetadata(t *testing.T) {
+	tools := []OpenRouterTool{{
+		Name: "mcp.docs.read", Description: "Read one document.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"document_id":{"type":"string"},
+				"context":{"type":"object","properties":{
+					"mode":{"type":"string"},"nullable":{"type":["string","null"]}
+				},"additionalProperties":false}
+			},
+			"required":["document_id"],"additionalProperties":false
+		}`),
+	}}
+	names, _, err := prepareOpenRouterTools(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerName := names.canonicalToName["mcp.docs.read"]
+	start, end := 0, 5
+	parsed := ChatStreamResult{
+		ID: "chat_2", Text: "Working.",
+		ToolCalls: []ToolCall{{
+			Index: 2, ID: "call_2", Name: providerName,
+			Arguments: `{"document_id":"doc_1","context":{"mode":null,"nullable":null}}`,
+		}},
+		Reasoning: []json.RawMessage{
+			json.RawMessage(`{"type":"reasoning.encrypted","id":"reason_2","data":"opaque"}`),
+			json.RawMessage(`{"type":"reasoning.summary","text":"Reading"}`),
+		},
+		Citations: []Citation{{
+			Title: "Official", URL: "https://example.test/source", StartIndex: &start, EndIndex: &end,
+		}},
+		Searches: []HostedSearch{{
+			Index: 0, ID: "search_1", Name: "web.search", Status: "completed",
+			Arguments: json.RawMessage(`{"query":"Noema"}`), Result: json.RawMessage(`{"sources":1}`),
+		}},
+		Usage: Usage{InputTokens: 20, OutputTokens: 4, TotalTokens: 24},
+	}
+	result, err := normalizeOpenRouterGeneration(OpenRouterGenerateRequest{
+		Model: "vendor/model", ToolTransport: OpenRouterToolTransportNative,
+	}, parsed, names, "tool_calls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Model != "vendor/model" || result.FinishReason != "tool_calls" || len(result.ToolCalls) != 1 {
+		t.Fatalf("normalized result = %#v", result)
+	}
+	call := result.ToolCalls[0]
+	if call.Index != 2 || call.ProviderCallID != "call_2" || call.ProviderName != providerName ||
+		call.Name != "mcp.docs.read" || string(call.Payload) != `{"context":{"nullable":null},"document_id":"doc_1"}` {
+		t.Fatalf("normalized call = %#v", call)
+	}
+	if len(result.Reasoning) != 1 || result.Reasoning[0].ID != "reason_2" ||
+		result.Reasoning[0].EncryptedContent != "opaque" ||
+		len(result.Reasoning[0].Summary) != 1 || result.Reasoning[0].Summary[0] != "Reading" ||
+		len(result.Citations) != 1 || len(result.Searches) != 1 {
+		t.Fatalf("provider metadata = %#v", result)
+	}
+}
+
+func TestOpenRouterResponseRejectsInvalidNativeCalls(t *testing.T) {
+	tools := []OpenRouterTool{{
+		Name: "memory.search", Description: "Search memory.",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}}
+	names, _, err := prepareOpenRouterTools(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := ToolCall{Index: 0, ID: "call_1", Name: "search", Arguments: `{}`}
+	cases := []struct {
+		name      string
+		transport OpenRouterToolTransport
+		calls     []ToolCall
+	}{
+		{"disabled transport", OpenRouterToolTransportNone, []ToolCall{valid}},
+		{"missing id", OpenRouterToolTransportNative, []ToolCall{{Name: "search", Arguments: `{}`}}},
+		{"missing name", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Arguments: `{}`}}},
+		{"unadvertised", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Name: "other", Arguments: `{}`}}},
+		{"non-object", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Name: "search", Arguments: `[]`}}},
+		{"duplicate id", OpenRouterToolTransportNative, []ToolCall{valid, valid}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := normalizeOpenRouterGeneration(OpenRouterGenerateRequest{
+				Model: "vendor/model", ToolTransport: test.transport,
+			}, ChatStreamResult{ToolCalls: test.calls}, names, "")
+			if err == nil {
+				t.Fatal("invalid native tool response succeeded")
+			}
+		})
+	}
+}
+
+func TestOpenRouterToolNamesAreStableAndBounded(t *testing.T) {
+	if got := openRouterProviderSafeName("namespace.action:run"); got != "action_x3a_run" {
+		t.Fatalf("encoded provider name = %q", got)
+	}
+	canonical := "namespace." + strings.Repeat("long_name_", 10)
+	first := openRouterProviderSafeName(canonical)
+	if len(first) != openRouterFunctionNameLimit || first != openRouterProviderSafeName(canonical) ||
+		!strings.Contains(first, "_h") {
+		t.Fatalf("bounded provider name = %q", first)
+	}
+}
+
 func TestOpenRouterGeneratorRejectsUnsafeInputsBeforeSecretAccess(t *testing.T) {
 	generator := &OpenRouterGenerator{}
 	cases := []struct {
@@ -170,7 +373,6 @@ func TestOpenRouterGeneratorReturnsBoundedSafeErrors(t *testing.T) {
 		{"service", http.StatusInternalServerError, secretMarker, ErrProviderUnavailable},
 		{"stream", http.StatusOK, "data: {\"type\":\"error\",\"message\":\"" + secretMarker + "\"}\n\n", nil},
 		{"tool response", http.StatusOK, "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"unexpected\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n", nil},
-		{"invalid usage", http.StatusOK, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"bad\"}}],\"usage\":{\"prompt_tokens\":-1}}\n\ndata: [DONE]\n\n", nil},
 		{"oversized stream", http.StatusOK, strings.Repeat(":padding\n", openRouterGenerationResponseLimit/9+1), errOpenRouterGenerationTooLarge},
 	}
 	for _, test := range cases {

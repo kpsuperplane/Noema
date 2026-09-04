@@ -22,9 +22,10 @@ The Go evidence gate passed. The current slice includes protected storage,
 Task documents, GraphQL contracts, provider streams, MCP calls, and diagnostics.
 Browser authentication, native OAuth, provider accounts, and primary Chat use Go schema version 8.
 OpenRouter supports verified API keys, PKCE onboarding, durable model assignments, and text generation.
+Its provider path now preserves native tool schemas, calls, replay, reasoning, citations, and hosted-search metadata.
 Codex device login uses the current provider-auth GraphQL roots and protected token storage.
 One serialized Chat turn now streams through GraphQL and survives restart replay.
-Tool turns, Task execution, commands, and notifications remain migration units.
+Runtime tool execution, Task execution, commands, and notifications remain migration units.
 
 ## Current constraints
 

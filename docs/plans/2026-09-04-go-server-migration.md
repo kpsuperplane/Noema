@@ -447,6 +447,22 @@ The first Chat runtime unit passed on 2026-09-04. It includes:
 This unit covers text-only OpenRouter turns. Native tools, reasoning records,
 citations, hosted search, and provider continuation remain required in unit 4.
 
+### OpenRouter native-tool provider unit
+
+The OpenRouter native-tool provider unit passed on 2026-09-04. It includes:
+
+- canonical and provider-safe tool names with collision handling;
+- strict schema conversion with safe fallback and optional-null restoration;
+- function-tool and hosted-search request controls;
+- complete native call, result, and reasoning replay;
+- bounded stream parsing for calls, reasoning, citations, searches, and usage;
+- validated native calls with exact advertised-name and call-ID checks;
+- safe errors, cancellation, secret handling, and request and response limits.
+
+The provider uses complete local replay. It does not depend on an OpenRouter
+continuation identifier. Runtime invocation and durable tool items remain the
+next unit 4 slice.
+
 ## 11. Validation Strategy
 
 Do not copy all 1,135 Rust tests mechanically.

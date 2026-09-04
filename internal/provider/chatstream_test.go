@@ -13,6 +13,7 @@ import (
 func TestParseChatStreamPreservesFragmentedOutput(t *testing.T) {
 	stream := strings.Join([]string{
 		": keepalive\n\n",
+		`data: {"reasoning_details":[42,{"type":"opaque","count":9007199254740993}]}` + "\n\n",
 		`data: {"id":"chat_1","model":"model_1","choices":[{"index":0,"delta":{"content":"Hel","reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"opa"}]}}]}` + "\n\n",
 		`data: {"choices":[{"index":0,"delta":{"content":"lo","tool_calls":[{"index":0,"type":"function","function":{"name":"search_memory","arguments":"{\"query\":\""}}]}}]}` + "\n\n",
 		`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"arguments":"trains\"}"}}],"reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"que"},{"type":"reasoning.server_tool_call","id":"ws_1","name":"web.search","status":"completed","arguments":{"query":"trains"},"result":{"sources":1}}],"annotations":[{"type":"url_citation","url_citation":{"title":"Official","url":"https://example.test/source","start_index":0,"end_index":5}}]}}]}` + "\n\n",
@@ -35,7 +36,9 @@ func TestParseChatStreamPreservesFragmentedOutput(t *testing.T) {
 		result.ToolCalls[0].Name != "search_memory" || result.ToolCalls[0].Arguments != `{"query":"trains"}` {
 		t.Fatalf("unexpected tool calls: %#v", result.ToolCalls)
 	}
-	if len(result.Reasoning) != 2 || !strings.Contains(string(result.Reasoning[0]), `"data":"opaque"`) || len(result.Searches) != 1 {
+	if len(result.Reasoning) != 4 || string(result.Reasoning[0]) != "42" ||
+		!strings.Contains(string(result.Reasoning[1]), `9007199254740993`) ||
+		!strings.Contains(string(result.Reasoning[2]), `"data":"opaque"`) || len(result.Searches) != 1 {
 		t.Fatalf("unexpected reasoning or searches: %#v", result)
 	}
 	if len(result.Citations) != 1 || result.Citations[0].URL != "https://example.test/source" {
@@ -46,6 +49,29 @@ func TestParseChatStreamPreservesFragmentedOutput(t *testing.T) {
 	}
 	if len(events) != 4 || events[0].Kind != TextDelta || events[2].Kind != ToolCallStarted || events[3].Kind != HostedSearchStarted {
 		t.Fatalf("unexpected events: %#v", events)
+	}
+}
+
+func TestParseChatStreamNormalizesHostedSearchAndRecursiveCitations(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"id":"chat_search","reasoning_details":[{"type":"reasoning.server_tool_call","id":"search_1","input":{"query":"trains"}}]}` + "\n\n",
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","id":"search_1","status":"completed","result":{"sources":1}}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{"annotations":{"group":[{"type":"url_citation","url":" https://example.test/source ","title":" ","start_index":1,"end_index":4},{"url_citation":{"url":"https://example.test/source","start_index":1,"end_index":4}}]}}}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"server_tool_use":{"web_search_requests":3}}}` + "\n\n",
+		"data: [DONE]\n\n",
+	}, "")
+	result, err := ParseChatStream(context.Background(), io.NopCloser(strings.NewReader(stream)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Usage.InputTokens != 10 || result.Usage.OutputTokens != 2 || len(result.Citations) != 1 ||
+		result.Citations[0].Title != "https://example.test/source" {
+		t.Fatalf("normalized usage and citations = %#v, %#v", result.Usage, result.Citations)
+	}
+	if len(result.Searches) != 3 || result.Searches[0].ID != "search_1" ||
+		result.Searches[0].Name != "web.search" || result.Searches[0].Status != "completed" ||
+		string(result.Searches[0].Arguments) != `{"query":"trains"}` ||
+		result.Searches[1].ID != "chat_search:web_search:1" {
+		t.Fatalf("normalized hosted searches = %#v", result.Searches)
 	}
 }
 
@@ -81,6 +107,55 @@ func TestParseChatStreamRejectsDuplicateJSONKeys(t *testing.T) {
 	}
 }
 
+func TestParseChatStreamPreservesHostedSearchFragmentsAndSeparatesAnonymousIDs(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","name":"custom.search","result":{"sources":1}}]}` + "\n\n",
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","id":"0:0","name":"first.search","result":{"sources":2}}]}` + "\n\n",
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","id":"0:0","status":"failed"}]}` + "\n\n",
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","id":"search_2","status":"in_progress"}]}` + "\n\n",
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","id":"search_2","status":"completed"}]}` + "\n\n",
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","id":"search_3","result":{"sources":3}}]}` + "\n\n",
+		`data: {"reasoning_details":[{"type":"reasoning.server_tool_call","id":"search_3","result":null}]}` + "\n\n",
+		"data: [DONE]\n\n",
+	}, "")
+	var events []StreamEvent
+	result, err := ParseChatStream(context.Background(), io.NopCloser(strings.NewReader(stream)), func(event StreamEvent) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Searches) != 4 || result.Searches[0].Name != "custom.search" ||
+		result.Searches[1].ID != "0:0" || result.Searches[1].Name != "first.search" ||
+		result.Searches[1].Status != "failed" || string(result.Searches[1].Result) != `{"sources":2}` ||
+		result.Searches[2].Status != "completed" || string(result.Searches[2].Result) != `{"status":"completed"}` ||
+		string(result.Searches[3].Result) != "null" {
+		t.Fatalf("hosted searches = %#v", result.Searches)
+	}
+	if len(events) != 4 || events[0].ID != "anonymous:0" || events[1].ID != "0:0" ||
+		events[2].ID != "search_2" || events[3].ID != "search_3" {
+		t.Fatalf("hosted search events = %#v", events)
+	}
+}
+
+func TestParseChatStreamIgnoresMalformedUsage(t *testing.T) {
+	for _, usage := range []string{
+		`{"prompt_tokens":1,"input_tokens":1}`,
+		`{"prompt_tokens":null,"input_tokens":1}`,
+		`{"prompt_tokens_details":{"cached_tokens":null}}`,
+	} {
+		stream := "data: {\"usage\":{\"prompt_tokens\":5}}\n\n" +
+			"data: {\"usage\":" + usage + "}\n\ndata: [DONE]\n\n"
+		result, err := ParseChatStream(context.Background(), io.NopCloser(strings.NewReader(stream)), nil)
+		if err != nil {
+			t.Fatalf("parse malformed usage %s: %v", usage, err)
+		}
+		if result.Usage != (Usage{}) {
+			t.Fatalf("usage %s produced %#v", usage, result.Usage)
+		}
+	}
+}
+
 func TestParseChatStreamHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	reader := newBlockingReadCloser(nil)
@@ -101,13 +176,14 @@ func TestParseChatStreamHonorsCancellation(t *testing.T) {
 }
 
 func TestParseChatStreamKeepsUnindexedCallsSeparateAndStopsAtDone(t *testing.T) {
-	stream := `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"id":"one","function":{"name":"first","arguments":"{}"}},{"id":"two","function":{"name":"second","arguments":"{}"}}]}}]}` + "\n\ndata: [DONE]\n\n"
+	stream := `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":-1,"id":"one","function":{"name":"first","arguments":"{}"}},{"id":"two","function":{"name":"second","arguments":"{}"}}]}}]}` + "\n\ndata: [DONE]\n\n"
 	reader := newBlockingReadCloser([]byte(stream))
 	result, err := ParseChatStream(context.Background(), reader, nil)
 	if err != nil {
 		t.Fatalf("parse stream: %v", err)
 	}
-	if len(result.ToolCalls) != 2 || result.ToolCalls[0].ID != "one" || result.ToolCalls[1].ID != "two" {
+	if len(result.ToolCalls) != 2 || result.ToolCalls[0].Index != 0 || result.ToolCalls[0].ID != "one" ||
+		result.ToolCalls[1].Index != 1 || result.ToolCalls[1].ID != "two" {
 		t.Fatalf("unexpected tool calls: %#v", result.ToolCalls)
 	}
 }
