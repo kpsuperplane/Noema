@@ -549,12 +549,12 @@ func (r *queryRootResolver) CapabilityTools(ctx context.Context, ref model.Capab
 
 // LocalStatus is the resolver for the localStatus field.
 func (r *queryRootResolver) LocalStatus(ctx context.Context) (*model.LocalStatus, error) {
-	panic(fmt.Errorf("not implemented: LocalStatus - localStatus"))
+	return localStatus(), nil
 }
 
 // LocalModelSetup is the resolver for the localModelSetup field.
 func (r *queryRootResolver) LocalModelSetup(ctx context.Context) (*model.LocalModelSetup, error) {
-	panic(fmt.Errorf("not implemented: LocalModelSetup - localModelSetup"))
+	return localModelSetup(), nil
 }
 
 // LocalModelCatalog is the resolver for the localModelCatalog field.
@@ -799,7 +799,7 @@ func (r *subscriptionRootResolver) ProviderAuthAttemptEvents(ctx context.Context
 
 // LocalModelEvents is the resolver for the localModelEvents field.
 func (r *subscriptionRootResolver) LocalModelEvents(ctx context.Context, after *string) (<-chan *model.LocalModelEvent, error) {
-	panic(fmt.Errorf("not implemented: LocalModelEvents - localModelEvents"))
+	return localModelEvents(ctx), nil
 }
 
 // ConversationEvents is the resolver for the conversationEvents field.
@@ -814,7 +814,7 @@ func (r *subscriptionRootResolver) MemoryEvents(ctx context.Context) (<-chan *mo
 
 // TasksEvents is the resolver for the tasksEvents field.
 func (r *subscriptionRootResolver) TasksEvents(ctx context.Context, workspaceID string, after *string) (<-chan *model.TasksEvent, error) {
-	panic(fmt.Errorf("not implemented: TasksEvents - tasksEvents"))
+	return tasksEvents(ctx), nil
 }
 
 // TaskEvents is the resolver for the taskEvents field.
