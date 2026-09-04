@@ -5,15 +5,16 @@
   const finish = (label, variant = 'primary') => `<button type="button" class="${variant}" data-finish>${label}</button>`;
   const actions = (...items) => `<section class="actions">${items.join('')}</section>`;
   const note = text => `<p class="note">${text}</p>`;
-  const status = (title, text = '', kind = '') => `<section class="status ${kind}"><span class="status-icon" aria-hidden="true">${kind === 'success' ? '✓' : kind === 'error' ? '!' : '·'}</span><section><p><strong>${title}</strong></p>${text ? `<p>${text}</p>` : ''}</section></section>`;
+  const check = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4 10-10"/></svg>';
+  const status = (title, text = '', kind = '') => `<section class="status ${kind}"><span class="status-icon" aria-hidden="true">${kind === 'success' ? check : kind === 'error' ? '!' : '·'}</span><section><p><strong>${title}</strong></p>${text ? `<p>${text}</p>` : ''}</section></section>`;
   const waiting = text => `<section class="status" role="status"><span class="spinner" aria-hidden="true"></span><p>${text}</p></section>`;
   const field = (id, label, placeholder, error = '') => `<section class="field"><label for="${id}">${label}</label><input id="${id}" type="text" placeholder="${placeholder}" readonly${error ? ` aria-invalid="true" aria-describedby="${id}-error"` : ''}>${error ? `<p class="field-error" id="${id}-error">${error}</p>` : ''}</section>`;
   const facts = rows => `<section class="facts">${rows.map(([label, value]) => `<p class="fact"><span>${label}</span><span>${value}</span></p>`).join('')}</section>`;
-  const option = (label, text, target, provider) => `<button type="button" class="option" data-go="${target}" data-provider="${provider}"><span class="option-copy"><strong>${label}</strong><small>${text}</small></span><span aria-hidden="true">›</span></button>`;
+  const option = (label, text, target, provider) => `<button type="button" class="option" data-go="${target}" data-provider="${provider}"><span class="option-copy"><strong>${label}</strong><small>${text}</small></span><svg class="option-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>`;
   const recoveryHelp = `<details><summary>Where do I find this code?</summary><p>The current code is in the server’s <code>config.yaml</code> file, under <code>web.recovery_code</code>.</p><p>Ask the person who manages Noema for help.</p></details>`;
   const recoveryRule = note('Each attempt replaces the code, even if it fails.');
-  const localFacts = facts([['Download', '4.9 GB'], ['Runs on', 'Your Noema server']]);
-  const localDetails = `<details><summary>Model details</summary><p>Noema selected this model for the available memory on your server.</p><p>Model files stay on the server.</p></details>`;
+  const localFacts = facts([['Model', 'Gemma 4 E4B IT'], ['Download', '5.3 GB'], ['Runs on', 'Your Noema server']]);
+  const localDetails = `<details><summary>Model details</summary>${facts([['License', 'Apache-2.0'], ['Model format', 'GGUF · Q4_K_M'], ['Runtime', 'Metal']])}<p>Model file: <code>gemma-4-E4B-it-Q4_K_M.gguf</code></p></details>`;
   const screens = [
     {
       id: 'access-login', group: 'Passkeys', label: 'Sign in', title: 'Unlock Noema',
@@ -88,8 +89,8 @@
     {
       id: 'provider-choice', group: 'Model setup', label: 'Choose provider', title: 'Choose how Noema thinks', step: 'Set up Noema · 1 of 2',
       intro: 'Connect one model provider to get started.',
-      body: `<section class="options">${option('Local', 'Download a model to your Noema server.', 'local-ready', 'Local')}${option('OpenRouter', 'Connect your OpenRouter account.', 'provider-openrouter', 'OpenRouter')}${option('Codex', 'Continue with your Codex sign-in.', 'provider-codex', 'Codex')}</section>` + note('You can add more providers later in Settings.'),
-      intent: 'Keep three peer choices in aligned rows. Use the actual server as the location for local computation.',
+      body: `<section class="options" aria-label="Model providers">${option('Local', 'Download a model to your Noema server.', 'local-ready', 'Local')}${option('OpenRouter', 'Connect your OpenRouter account.', 'provider-openrouter', 'OpenRouter')}${option('Codex', 'Continue with your Codex sign-in.', 'provider-codex', 'Codex')}</section>` + note('You can add more providers later in Settings.'),
+      intent: 'Reuse Astryx List and ListItem, as Settings does. Use the existing Noema hover and focus tokens. Descriptions must wrap on phones.',
       constraint: 'Account and payment requirements must come from verified provider information. Do not invent a universal recommendation.'
     },
     {
@@ -136,14 +137,14 @@
     {
       id: 'local-ready', group: 'Local models', label: 'Before download', title: 'Set up a local model', step: 'Set up Noema · 1 of 2',
       intro: 'Download the recommended model to your Noema server.',
-      body: localFacts + localDetails + actions(go('Download model · 4.9 GB', 'local-downloading', 'primary', 'Local'), go('Choose another provider', 'provider-choice', 'secondary')),
-      intent: 'Lead with download size and where the model runs. Disclose technical details.',
-      constraint: 'Download size is sample data. Replace it with the server-selected model, fit, size, and license.'
+      body: localFacts + localDetails + actions(go('Download model · 5.3 GB', 'local-downloading', 'primary', 'Local'), go('Choose another provider', 'provider-choice', 'secondary')),
+      intent: 'Name the model before download. Keep size and computation location visible; disclose license and exact build.',
+      constraint: 'This catalog example requires a compatible Metal server. Production must show the selected model’s actual name, size, license, and build.'
     },
     {
       id: 'local-downloading', group: 'Local models', label: 'Download in progress', title: 'Downloading your model',
       intro: 'The model is downloading to your Noema server.',
-      body: `<section class="progress"><progress aria-label="Model download" value="47" max="100">47%</progress>${facts([['2.3 GB of 4.9 GB', '47%']])}</section>` + note('Noema will check the model before you continue.') + actions(go('Cancel download', 'local-ready', 'secondary')),
+      body: `<section class="progress"><progress aria-label="Model download" value="47" max="100">47%</progress>${facts([['2.5 GB of 5.3 GB', '47%']])}</section>` + note('Noema will check the model before you continue.') + actions(go('Cancel download', 'local-ready', 'secondary')),
       intent: 'Keep progress, transferred bytes, and cancellation in one group.',
       constraint: 'Progress is a fixed example. Production uses transfer state. Do not show an invented time estimate.'
     },
@@ -211,35 +212,35 @@
       constraint: 'Do not use an unvalidated return address or expose callback credentials.'
     },
     {
-      id: 'service-reconnect', group: 'Service connection', label: 'Reconnect service', title: 'Reconnect Google Drive',
-      intro: 'Sign in again so Noema can use this connection.',
-      body: actions(go('Continue to Google', 'service-waiting'), finish('Cancel', 'secondary')) + note('Google opens in another tab.'),
-      intent: 'Keep the service and reason visible. Reuse the existing connection dialog for settings entry.',
+      id: 'service-reconnect', group: 'Chat connection card', surface: 'chat', label: 'Reconnect in Chat', title: 'Reconnect Google Drive',
+      intro: 'Sign in again to let Noema use Google Drive. Google opens in another tab.',
+      body: actions(finish('Cancel', 'secondary'), go('Continue to Google', 'service-waiting')),
+      intent: 'Chat keeps this request in HumanInterventionCard. Settings keeps its existing connection dialog. Do not add a service-connection page.',
       constraint: 'Google Drive is example data. Existing credentials, OAuth, and no-auth paths keep their supported behavior.'
     },
     {
-      id: 'service-waiting', group: 'Service connection', label: 'Waiting for provider', title: 'Finish connecting Google Drive',
+      id: 'service-waiting', group: 'Chat connection card', surface: 'chat', label: 'Waiting in Chat', title: 'Finish connecting Google Drive',
       intro: 'Complete sign-in in the other tab. Noema will update this connection automatically.',
-      body: waiting('Waiting for Google') + actions(finish('Open Google sign-in again', 'outline'), go('Cancel connection', 'service-reconnect', 'secondary')),
-      intent: 'Preserve the same status and cancellation pattern used in provider setup.',
+      body: waiting('Waiting for Google') + actions(go('Cancel', 'service-reconnect', 'secondary'), finish('Open Google sign-in again', 'outline')),
+      intent: 'Keep the pending connection inside the same HumanInterventionCard. The surrounding Chat remains available.',
       constraint: 'Use the server-selected action and exact attempt event. Do not infer success from a closed tab.'
     },
     {
-      id: 'service-connected', group: 'Service connection', label: 'Service connected', title: 'Google Drive is connected',
+      id: 'service-connected', group: 'Service callback results', label: 'Sign-in complete', title: 'Google sign-in is complete',
       intro: 'Return to Noema to review this connection’s tools and permissions.',
-      body: status('Connection complete', '', 'success') + actions(finish('Return to connection')),
-      intent: 'Return to the originating connection instead of dropping the user at Chat.',
+      body: status('Account connected', '', 'success') + actions(finish('Return to Noema')),
+      intent: 'This is a browser callback result. Return to its originating Chat card or Settings dialog to finish permissions.',
       constraint: 'Keep connection policy separate from provider authorization. Use only a validated same-origin destination.'
     },
     {
-      id: 'service-partial', group: 'Service connection', label: 'Sign-in complete, tools unavailable', title: 'Signed in, but tools are not ready',
+      id: 'service-partial', group: 'Service callback results', label: 'Sign-in complete, tools unavailable', title: 'Signed in, but tools are not ready',
       intro: 'Noema could not load the tools for this connection.',
       body: actions(finish('Review connection')) + note('You can retry from the connection settings.'),
       intent: 'Distinguish successful authentication from incomplete connection activation.',
       constraint: 'Do not label this state Connected or discard a valid grant solely because tool listing failed.'
     },
     {
-      id: 'service-failed', group: 'Service connection', label: 'Connection failed', title: 'This connection could not finish',
+      id: 'service-failed', group: 'Service callback results', label: 'Connection failed', title: 'This connection could not finish',
       intro: 'Return to Noema to review the connection and try again.',
       body: actions(finish('Review connection')) + `<details><summary>Technical details</summary><p>The provider did not accept this connection request.</p></details>`,
       intent: 'Use the same branded result page for provider and integration callback failures.',
@@ -282,7 +283,13 @@
     flowSelect.value = screen.group;
     stateSelect.replaceChildren(...screens.filter(item => item.group === screen.group).map(item => new Option(item.label, item.id)));
     stateSelect.value = screen.id;
-    screenRoot.innerHTML = `${screen.step ? `<p class="step">${screen.step}</p>` : ''}<h1 id="screen-title" tabindex="-1">${screen.title}</h1><p class="intro">${screen.intro}</p>${screen.id === 'provider-models' ? modelBody() : screen.body}`;
+    const body = screen.id === 'provider-models' ? modelBody() : screen.body;
+    preview.dataset.surface = screen.surface || 'page';
+    preview.dataset.tone = ['provider-choice', 'access-create'].includes(screen.id) ? 'welcome'
+      : ['recovery-complete', 'provider-complete', 'local-installed', 'oauth-connected', 'service-connected'].includes(screen.id) ? 'success' : 'default';
+    document.getElementById('chat-context').hidden = screen.surface !== 'chat';
+    document.getElementById('chat-composer').hidden = screen.surface !== 'chat';
+    screenRoot.innerHTML = `<header class="screen-heading">${screen.step ? `<p class="step">${screen.step}</p>` : ''}<h1 id="screen-title" tabindex="-1">${screen.title}</h1><p class="intro">${screen.intro}</p></header><section class="screen-body">${body}</section>`;
     document.getElementById('intent').textContent = screen.intent;
     document.getElementById('constraint').textContent = screen.constraint;
     document.title = `${screen.label} · Noema UI plan`;

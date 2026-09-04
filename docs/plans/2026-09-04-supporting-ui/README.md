@@ -5,7 +5,9 @@ Date: 2026-09-04. Source baseline: `main` at `53b15734`.
 
 ## Review the mocks
 
-Open [the gallery](index.html) in a browser. No server, build, or network connection is required.
+Open [the gallery](index.html) in a browser. An editor file link can show source instead of the rendered page.
+For browser review, serve this directory with `python3 -m http.server 8765 --bind 127.0.0.1`.
+Then open [the rendered gallery](http://127.0.0.1:8765/). No build or remote resources are required.
 Use the Flow and State controls to inspect each example.
 Use Width to compare desktop, phone, and narrow layouts.
 The address fragment identifies a screen. Browser Back restores the previous screen.
@@ -20,7 +22,8 @@ The gallery consolidates the earlier login, recovery, model review, and callback
 | Model setup | [Choose provider](index.html#provider-choice) | Provider choice, OpenRouter, Codex device code, waiting, expiration, model review, completion |
 | Local models | [Before download](index.html#local-ready) | Download choice, progress, verification, installed, failed, unavailable |
 | Native app connection | [Approve connection](index.html#oauth-consent) | Consent, connected, denied, expired, invalid request |
-| Service connection | [Reconnect service](index.html#service-reconnect) | Reconnect, waiting, connected, tools unavailable, failed |
+| Chat connection card | [Reconnect in Chat](index.html#service-reconnect) | Reconnect and waiting inside the existing human intervention surface |
+| Service callback results | [Sign-in complete](index.html#service-connected) | Browser callback: sign-in complete, tools unavailable, failed |
 | Unavailable states | [Server unavailable](index.html#system-unavailable) | Server authentication unavailable, fatal app load failure |
 
 ## User direction
@@ -28,7 +31,9 @@ The gallery consolidates the earlier login, recovery, model review, and callback
 - Keep the existing design system, including fonts, semantic type sizes, weights, and line heights.
 - Improve the supporting flows without redesigning Chat, Tasks, Memory, or Settings.
 - Make the interface polished, restrained, and understandable for a non-technical person.
-- Add character through the existing Noema mark, clear composition, and accurate completion feedback.
+- Add more character through the existing mark, stronger pine headers, responsive controls, and accurate completion feedback.
+- Use the existing list components for provider choices. Keep service setup in its current Chat card or Settings dialog.
+- Show concrete model details. Do not substitute a general memory-fit statement for the model identity.
 - Save these designs for later application. Do not implement product changes in this unit.
 
 ## Design model
@@ -46,11 +51,18 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Start with a 456-pixel surface. Expand only when the task requires more space.
 - On phones, remove the outer card treatment and use 24-pixel side insets.
 - Keep the mark, heading, body, fields, and actions on one alignment.
+- Use a pine-tinted brand band. Use deep pine for initial setup and successful completion.
+- Keep errors calm. Reserve the stronger completion color and check animation for confirmed success.
 - Use existing `text-heading-1`, `text-body`, `text-label`, and `text-supporting` roles.
 - Use the existing font assets. Do not add font imports, custom tracking, or another type scale.
 - Use `radius-container`, `radius-element`, and `shadow-low` from the current Noema theme.
-- Use existing spacing tokens: 4–8 pixels within groups, 12–16 between fields, and 24 between task regions.
-- Use 32 pixels only at the major brand boundary and desktop surface inset.
+- Assign one spacing owner per boundary: 8 pixels inside the header, 16 between body groups, and 24 before primary actions.
+- Keep label/control gaps at 6 pixels. Do not add child margins to a parent stack gap.
+- Use 32 pixels for the desktop surface inset. Use 24 pixels inside the brand band and below it.
+- Use Astryx `List` and `ListItem` for provider choices, with wrapping descriptions and a trailing chevron.
+- Settings already uses these components. Tasks uses `ListCardLink`; retain its familiar whole-row feedback.
+- Match the preview’s inset hover, pressed fill, and visible keyboard focus through existing theme tokens.
+- Keep model name, download size, and computation location visible. Disclose license, format, runtime, and exact file.
 - Give one action primary emphasis. Keep alternatives quiet and access consequences visible.
 - Use touch controls around 48 pixels high without making all product controls larger.
 - Use the shared motion presets. Keep loading geometry stable and preserve focus through transitions.
@@ -89,6 +101,9 @@ No credentials were submitted. No account, grant, or recovery code was changed.
 - Native consent must disclose complete Noema access before approval.
 - Preserve recent passkey verification, CSRF, PKCE, origin checks, and validated callback destinations.
 - Use saved attempt state to distinguish denial, expiration, failed activation, and successful connection.
+- Service setup and waiting remain inside `HumanInterventionCard` in Chat and existing dialogs in Settings.
+- Only browser callback results use separate service result pages. Return to the originating card or dialog.
+- `McpChatSetupCard` and API authentication cards own inline behavior; do not create another service setup route.
 - Keep successful sign-in separate from successful tool discovery. A partial result is not fully connected.
 - Use exact attempt events and the existing foreground query. Do not add polling.
 - Keep API-key, local, browser OAuth, device-code, credential, and no-auth paths where currently supported.
@@ -105,8 +120,8 @@ Estimates below are maximum net additions, not targets. Reassess against current
 | Unit | Existing authority to reuse | Estimate | Acceptance risk |
 | --- | --- | --- | --- |
 | 1. Access and recovery | `auth/AuthGate.tsx`, `components/shell/SetupFrame.tsx`, current theme, `components/shell/AppBootBoundary.tsx` | +160 production lines; no new UI tests | Recovery must work during native sign-in and PWA reauthentication; preserve session rules and focus |
-| 2. Connection pages | `components/onboarding/AuthAttempt.tsx`, current connection dialogs, server callback and consent renderers | +220 production lines; up to one server unit regression test | Every result must state the true access outcome and return safely |
-| 3. Setup | `components/onboarding/Onboarding.tsx`, `components/onboarding/ModelSetup.tsx`, existing model preference selectors | +120 production lines; no new UI tests | Defaults remain drafts; all assignments remain editable; local and cloud paths remain complete |
+| 2. Connection pages | `components/onboarding/AuthAttempt.tsx`, `components/actions/HumanInterventionCard.tsx`, current connection dialogs, server callback and consent renderers | +220 production lines; up to one server unit regression test | Every result must state the true access outcome and return safely |
+| 3. Setup | `components/onboarding/Onboarding.tsx`, `components/onboarding/ModelSetup.tsx`, Astryx `List`/`ListItem`, existing model preference selectors | +120 production lines; no new UI tests | Defaults remain drafts; all assignments remain editable; local and cloud paths remain complete |
 
 Paths above are relative to `apps/web/src` unless identified as server files.
 At this baseline, server renderers live in `crates/noema-server/src/web/router.rs` and `native_oauth.rs`.
@@ -137,6 +152,9 @@ This plan requires no database migration or persistent schema change.
 `assets/noema-theme.css` copies the existing theme without its original font-face paths.
 `assets/typography.css` snapshots the Astryx neutral 0.1.9 semantic type tokens.
 The three font files, their licenses, and `assets/noema.png` copy the existing Noema assets without modification.
+The local-model example comes from `crates/noema-providers/resources/local-models/catalog.toml` at the source baseline.
+It shows Gemma 4 E4B IT, its 5.3 GB Q4_K_M build, Apache-2.0 license, and Metal runtime.
+This is catalog example data, not a claim about the live server’s selected model.
 The gallery uses native HTML controls to remain independent of a build. It is not a new production component library.
 Use production components and current tokens when applying the plan. Do not copy snapshot CSS into the application.
 Only light appearance is specified. A new dark theme is outside this plan.
