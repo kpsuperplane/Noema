@@ -20,42 +20,42 @@
   const screens = [
     {
       id: 'access-login', group: 'Passkeys', label: 'Sign in', title: 'Unlock Noema',
-      intro: 'Continue with your saved passkey. Your device or password manager will guide you.',
+      intro: 'Use your saved passkey to continue.',
       body: actions(go('Continue with passkey', 'access-prompt'), go('Can’t use your passkey?', 'recovery-code', 'secondary')),
       intent: 'One primary action. Keep the return destination after sign-in.',
       constraint: 'The browser owns the passkey prompt. The mock does not recreate it.'
     },
     {
       id: 'access-create', group: 'Passkeys', label: 'First passkey', title: 'Create your Noema passkey',
-      intro: 'Save a passkey with your device or password manager to unlock Noema.',
+      intro: 'Your device will help you save it.',
       body: actions(go('Create passkey', 'provider-choice')),
       intent: 'Create the first passkey before model setup.',
       constraint: 'Initial claim needs no recovery code. This preview skips the browser ceremony.'
     },
     {
       id: 'access-prompt', group: 'Passkeys', label: 'Waiting for passkey', title: 'Unlock Noema',
-      intro: 'Continue with your saved passkey. Your device or password manager will guide you.',
+      intro: 'Use your saved passkey to continue.',
       body: waiting('Complete the passkey prompt to continue.') + actions(go('Cancel', 'access-cancelled', 'secondary')),
       intent: 'Keep the heading and action area stable while the browser prompt is open.',
       constraint: 'Successful sign-in returns to the original destination. Use the state picker to inspect other outcomes.'
     },
     {
       id: 'access-cancelled', group: 'Passkeys', label: 'Prompt cancelled', title: 'Unlock Noema',
-      intro: 'The passkey prompt was cancelled or timed out.',
+      intro: 'The prompt closed or timed out.',
       body: actions(go('Try passkey again', 'access-prompt'), go('Can’t use your passkey?', 'recovery-code', 'secondary')),
       intent: 'Treat cancellation calmly. Keep another attempt easy to find.',
       constraint: 'Keep cancellation distinct from server failure.'
     },
     {
       id: 'access-unsupported', group: 'Passkeys', label: 'Unsupported browser', title: 'Use a browser with passkey support',
-      intro: 'This browser cannot use the passkey required to unlock Noema.',
+      intro: 'This browser cannot use passkeys.',
       body: note('Open this Noema address in a browser that supports passkeys.') + actions(finish('Copy Noema address', 'outline')),
       intent: 'Give a useful next action instead of explaining WebAuthn APIs.',
       constraint: 'Recovery also requires a passkey ceremony. Do not imply that it bypasses browser support.'
     },
     {
       id: 'recovery-code', group: 'Recovery', label: 'Enter code', title: 'Recover access',
-      intro: 'Enter the current recovery code. Then create a new passkey to unlock Noema.',
+      intro: 'Enter a code to create a passkey.',
       body: field('recovery-code-input', 'Recovery code', 'Paste the current code') + recoveryHelp + recoveryRule + actions(go('Continue', 'recovery-enroll'), go('Back to sign in', 'access-login', 'secondary')),
       intent: 'Group code entry, help, consequences, and submission.',
       constraint: 'Fields are read-only in this gallery. Never enter real credentials into a mock.'
@@ -69,50 +69,50 @@
     },
     {
       id: 'recovery-enroll', group: 'Recovery', label: 'Create replacement passkey', title: 'Create a new passkey', step: 'Recovery code accepted',
-      intro: 'Save a new passkey with your device or password manager to finish recovery.',
+      intro: 'Save a new passkey to finish.',
       body: actions(go('Create passkey', 'recovery-complete')),
       intent: 'Show progress after code acceptance. Keep a clear retry action if enrollment is cancelled.',
       constraint: 'Production starts enrollment immediately. This screen remains available after a cancelled prompt; the setup session lasts five minutes.'
     },
     {
       id: 'recovery-expired', group: 'Recovery', label: 'Recovery session expired', title: 'Start recovery again',
-      intro: 'The time to create your new passkey has expired.',
+      intro: 'Your recovery session has expired.',
       body: note('Read the current recovery code before you continue.') + actions(go('Enter new code', 'recovery-code'), go('Back to sign in', 'access-login', 'secondary')),
       intent: 'Give a direct restart path without suggesting the original code still works.',
       constraint: 'Existing passkeys remain unchanged.'
     },
     {
       id: 'recovery-complete', group: 'Recovery', label: 'Access restored', title: 'Your access is restored',
-      intro: 'Your new passkey is ready. You can continue using Noema.',
+      intro: 'Your new passkey is ready.',
       body: status('New passkey saved', '', 'success') + note('You can review your other passkeys and connected apps in Settings.') + actions(finish('Continue to Noema')),
       intent: 'Give brief confirmation and preserve the user’s return destination.',
       constraint: 'Recovery adds access. It does not remove old passkeys or revoke native clients.'
     },
     {
       id: 'provider-choice', group: 'Model setup', label: 'Choose provider', title: 'Choose how Noema thinks', step: 'Set up Noema · 1 of 2',
-      intro: 'Connect one model provider to get started.',
+      intro: 'Choose a provider to get started.',
       body: `<section class="options" aria-label="Model providers">${option('Local', 'Download a model to your Noema server.', 'local-ready', 'Local')}${option('OpenRouter', 'Connect your OpenRouter account.', 'provider-openrouter', 'OpenRouter')}${option('Codex', 'Continue with your Codex sign-in.', 'provider-codex', 'Codex')}</section>` + note('You can add more providers later in Settings.'),
       intent: 'Use ListCardButton from components/ListCardLink.tsx. Match the Task card frame and text metrics, with wrapping descriptions and one action per card.',
       constraint: 'Account and payment requirements must come from verified provider information. Do not invent a universal recommendation.'
     },
     {
       id: 'provider-openrouter', group: 'Model setup', label: 'Connect OpenRouter', title: 'Connect OpenRouter', step: 'Set up Noema · 1 of 2',
-      intro: 'Sign in to OpenRouter to choose the models Noema can use.',
+      intro: 'Sign in to choose your models.',
       body: actions(go('Continue to OpenRouter', 'provider-waiting'), go('Choose another provider', 'provider-choice', 'secondary')) + note('OpenRouter opens in another tab. Return here after signing in.') + `<details><summary>Use an API key instead</summary>${field('provider-api-key', 'OpenRouter API key', 'Paste your API key')}${actions(go('Connect with API key', 'provider-models'))}</details>`,
       intent: 'Make browser sign-in primary. Keep API-key entry under disclosure.',
       constraint: 'The preview uses no external links and accepts no keys.'
     },
     {
       id: 'provider-codex', group: 'Model setup', label: 'Codex device sign-in', title: 'Sign in to Codex', step: 'Set up Noema · 1 of 2',
-      intro: 'Enter this code on the Codex sign-in page.',
+      intro: 'Enter this code on the sign-in page.',
       body: `<section class="device-code"><code id="device-example">DEMO-CODE</code>${button('Copy code', 'outline', 'data-copy')}</section>` + actions(go('Open Codex sign-in', 'provider-waiting', 'primary', 'Codex'), go('Cancel connection', 'provider-choice', 'secondary')) + note('Noema continues automatically after you finish signing in.'),
       intent: 'Keep the code beside its copy action. Name the external destination.',
       constraint: 'DEMO-CODE is an inert example. Production displays only the active device attempt’s code.'
     },
     {
       id: 'provider-waiting', group: 'Model setup', label: 'Waiting for sign-in', title: 'Finish signing in', step: 'Set up Noema · 1 of 2',
-      intro: 'Complete sign-in in the other tab. Noema will continue automatically.',
-      body: waiting('Waiting for sign-in') + actions(finish('Open sign-in page again', 'outline'), go('Cancel connection', 'provider-choice', 'secondary')),
+      intro: 'Finish sign-in in the other tab.',
+      body: waiting('Noema continues after you sign in.') + actions(finish('Open sign-in page again', 'outline'), go('Cancel connection', 'provider-choice', 'secondary')),
       intent: 'Keep the waiting state calm and explain which tab owns the next action.',
       constraint: 'Use the exact attempt event and foreground recovery query. Do not introduce polling or infer success from elapsed time.'
     },
@@ -125,62 +125,62 @@
     },
     {
       id: 'provider-models', group: 'Model setup', label: 'Review models', title: 'Ready for your first chat', step: 'Set up Noema · 2 of 2',
-      intro: 'Start with the recommended models. You can change them later in Settings.', body: '',
+      intro: 'Change your models later in Settings.', body: '',
       intent: 'Name each selected model once and show its jobs. Keep all nine assignments under customization; update the summary when choices change.',
       constraint: 'Selections remain drafts until explicit confirmation saves the complete setup. Local action reviews remain human approval.'
     },
     {
       id: 'provider-complete', group: 'Model setup', label: 'Setup complete', title: 'Noema is ready',
-      intro: 'Your model settings are saved. Opening Chat…',
+      intro: 'Settings saved. Opening Chat…',
       body: status('Setup complete', '', 'success') + actions(finish('Open Chat')),
       intent: 'Use a brief completion state without adding a required extra step.',
       constraint: 'Production continues to Chat automatically. The button is a return fallback, not a second confirmation.'
     },
     {
       id: 'local-ready', group: 'Local models', label: 'Before download', title: 'Set up a local model', step: 'Set up Noema · 1 of 2',
-      intro: 'Download the recommended model to your Noema server.',
+      intro: 'Download this model to get started.',
       body: localFacts + localDetails + actions(go('Download model · 5.3 GB', 'local-downloading', 'primary', 'Local'), go('Choose another provider', 'provider-choice', 'secondary')),
       intent: 'Name the model before download. Keep size and computation location visible; disclose license and exact build.',
       constraint: 'This catalog example requires a compatible Metal server. Production must show the selected model’s actual name, size, license, and build.'
     },
     {
       id: 'local-downloading', group: 'Local models', label: 'Download in progress', title: 'Downloading your model',
-      intro: 'The model is downloading to your Noema server.',
+      intro: 'Downloading to your Noema server.',
       body: `<section class="progress"><progress aria-label="Model download" value="47" max="100">47%</progress>${facts([['2.5 GB of 5.3 GB', '47%']])}</section>` + note('Noema will check the model before you continue.') + actions(go('Cancel download', 'local-ready', 'secondary')),
       intent: 'Keep progress, transferred bytes, and cancellation in one group.',
       constraint: 'Progress is a fixed example. Production uses transfer state. Do not show an invented time estimate.'
     },
     {
       id: 'local-verifying', group: 'Local models', label: 'Checking download', title: 'Checking your model',
-      intro: 'The download is complete. Noema is checking that the model is ready to use.',
+      intro: 'The download is complete.',
       body: waiting('Checking the downloaded file') + actions(go('Cancel setup', 'local-ready', 'secondary')),
       intent: 'Explain the work after download completion. Keep it distinct from a stalled transfer.',
       constraint: 'Use this state only while the server reports verification.'
     },
     {
       id: 'local-installed', group: 'Local models', label: 'Model installed', title: 'Your local model is ready',
-      intro: 'Continue to review the recommended settings for Chat and Tasks.',
+      intro: 'Review your settings to finish setup.',
       body: status('Model installed', 'Runs on your Noema server', 'success') + actions(go('Review model settings', 'provider-models', 'primary', 'Local')),
       intent: 'Connect installation completion to the final setup review.',
       constraint: 'Do not announce readiness before installation and verification succeed.'
     },
     {
       id: 'local-failed', group: 'Local models', label: 'Download failed', title: 'The download could not finish',
-      intro: 'Check the Noema server’s connection, then try again.',
+      intro: 'Check the server’s connection.',
       body: actions(go('Try download again', 'local-downloading', 'primary', 'Local'), go('Choose another provider', 'provider-choice', 'secondary')) + `<details><summary>Technical details</summary><p>Example: the download connection was interrupted.</p></details>`,
       intent: 'Keep the recovery action visible. Put exact diagnostics under disclosure.',
       constraint: 'Use the existing transfer retry behavior. Promise resume only when the current transfer supports it.'
     },
     {
       id: 'local-unavailable', group: 'Local models', label: 'No compatible model', title: 'Choose another model provider',
-      intro: 'No recommended local model fits this Noema server yet.',
+      intro: 'No recommended model fits this server.',
       body: actions(go('Choose another provider', 'provider-choice')) + `<details><summary>Why is Local unavailable?</summary><p>This server does not have enough available memory for the recommended models.</p></details>`,
       intent: 'Give an exit from an unavailable setup path.',
       constraint: 'Do not offer unsupported downloads or describe a phone as the Noema server.'
     },
     {
       id: 'oauth-consent', group: 'Native app connection', label: 'Approve connection', title: 'Connect Noema Desktop?',
-      intro: 'Connect only if you started this request in the Noema app.',
+      intro: 'Only connect if you started this request.',
       body: `<section class="details"><h2>Complete Noema access</h2><p>Noema Desktop can access all data and actions available through Noema.</p><p>You can revoke this app’s access in Settings.</p></section><section class="decision-actions">${go('Deny', 'oauth-denied', 'outline')}${go('Connect app', 'oauth-connected')}</section>`,
       intent: 'Keep app identity, access consequences, and the decision together.',
       constraint: 'Keep full-access disclosure visible. Preserve recent passkey verification, CSRF, PKCE, and validated return destinations.'
@@ -194,49 +194,49 @@
     },
     {
       id: 'oauth-denied', group: 'Native app connection', label: 'Connection denied', title: 'No new access was granted',
-      intro: 'Noema Desktop was not connected by this request.',
+      intro: 'This request did not connect the app.',
       body: note('You can close this tab and return to the app.') + actions(finish('Return to Noema Desktop', 'outline')),
       intent: 'Confirm the user’s decision without presenting denial as a failure.',
       constraint: 'Denying this request does not imply that earlier app grants were revoked.'
     },
     {
       id: 'oauth-expired', group: 'Native app connection', label: 'Request expired', title: 'This connection link has expired',
-      intro: 'Return to the Noema app to start the connection again.',
+      intro: 'Start again from the Noema app.',
       body: note('This attempt did not grant new access.') + actions(finish('Return to Noema Desktop')),
       intent: 'Replace protocol language with the state and next action.',
       constraint: 'Show expiration only when the server identifies an expired request.'
     },
     {
       id: 'oauth-invalid', group: 'Native app connection', label: 'Invalid request', title: 'This connection could not start',
-      intro: 'The connection request is invalid or incomplete.',
+      intro: 'The request is invalid or incomplete.',
       body: note('Close this tab. Start the connection again from the Noema app.') + note('This attempt did not grant new access.'),
       intent: 'Provide a complete branded state for malformed authorization requests.',
       constraint: 'Do not use an unvalidated return address or expose callback credentials.'
     },
     {
       id: 'service-connected', group: 'Service callback results', label: 'Sign-in complete', title: 'Google sign-in is complete',
-      intro: 'Return to Noema to review this connection’s tools and permissions.',
+      intro: 'Review tools and permissions in Noema.',
       body: status('Account connected', '', 'success') + actions(finish('Return to Noema')),
       intent: 'This is a browser callback result. Return to its originating Chat card or Settings dialog to finish permissions.',
       constraint: 'Keep connection policy separate from provider authorization. Use only a validated same-origin destination.'
     },
     {
       id: 'service-partial', group: 'Service callback results', label: 'Sign-in complete, tools unavailable', title: 'Signed in, but tools are not ready',
-      intro: 'Noema could not load the tools for this connection.',
+      intro: 'Noema could not load the tools.',
       body: actions(finish('Review connection')) + note('You can retry from the connection settings.'),
       intent: 'Distinguish successful authentication from incomplete connection activation.',
       constraint: 'Do not label this state Connected or discard a valid grant solely because tool listing failed.'
     },
     {
       id: 'service-failed', group: 'Service callback results', label: 'Connection failed', title: 'This connection could not finish',
-      intro: 'Return to Noema to review the connection and try again.',
+      intro: 'Review the connection in Noema.',
       body: actions(finish('Review connection')) + `<details><summary>Technical details</summary><p>The provider did not accept this connection request.</p></details>`,
       intent: 'Use the same branded result page for provider and integration callback failures.',
       constraint: 'Do not assert that no access was granted unless the saved attempt proves it.'
     },
     {
       id: 'system-unavailable', group: 'Unavailable states', label: 'Server unavailable', title: 'Noema is unavailable',
-      intro: 'Noema could not check your access. Check your connection, then try again.',
+      intro: 'Check your connection, then try again.',
       body: actions(go('Try again', 'access-login')) + `<details><summary>If Noema still does not open</summary><p>Ask the person who manages this Noema server to check that it is running.</p></details>`,
       intent: 'Explain an unavailable server without presenting it as a credential failure.',
       constraint: 'An authenticated PWA can retain its governed offline snapshot. Do not replace its offline behavior with this screen.'

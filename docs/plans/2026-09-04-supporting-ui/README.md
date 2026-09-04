@@ -50,7 +50,9 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Use a 456-pixel surface.
 - Keep the card and wash on phones. Use 12-pixel outer insets and 16-pixel horizontal card padding.
 - Center the avatar and heading group, including the title, introduction, and setup step. Keep form content left aligned.
-- Use `text-wrap: pretty` for all centered heading text, including subheadings.
+- Keep subheadings to one short sentence that fits one line at the normal card width.
+- Put necessary instructions and consequences beside their controls. Keep consent warnings explicit.
+- Use `text-wrap: pretty` for centered text. Allow wrapping on narrow screens or with larger text; do not truncate it.
 - Show the full 80-pixel avatar with an 8-pixel white outline that joins the card. Do not hide it behind the card.
 - Give the exposed avatar outline the card’s same thin `border-subtle` border. Hide the lower arc inside the card.
 - Give the combined avatar/card outline one shadow. Neither element casts a separate shadow onto the other.

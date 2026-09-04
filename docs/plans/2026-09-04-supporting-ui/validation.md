@@ -35,6 +35,8 @@ Scope: the saved design gallery. These results do not certify the production flo
 - One parent drop shadow followed the combined silhouette. The avatar and card had no separate box shadows.
 - The exposed avatar arc used the same one-pixel `border-subtle` border as the card. Its lower arc stayed hidden.
 - Titles, introductions, and setup steps were centered beneath the avatar and used `text-wrap: pretty`.
+- All 33 subheadings fit one line at desktop, 390-pixel, and 320-pixel preview widths with the default text size.
+- Consent warnings and recovery instructions remained explicit. Narrow layouts and larger text can still wrap naturally.
 - Action controls used markup rendered from Astryx Button, with its default padding, 32-pixel height, and Noema theme.
 - Paired desktop actions shared one row with equal widths, secondary left and primary right. Phone action groups remained stacked.
 - OpenRouter and Codex provider actions stayed in one group. Form content stayed left aligned.
