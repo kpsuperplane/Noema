@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kpsuperplane/noema/internal/artifact"
+	"github.com/kpsuperplane/noema/internal/documents"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -145,6 +146,20 @@ func (r *Resolver) artifactVersionDetail(ctx context.Context, versionID string) 
 	}
 	download := artifact.DownloadURL(version.ID)
 	detail.DownloadURL = &download
+	if version.MediaType != nil && documents.IsSpreadsheet(*version.MediaType) {
+		file, err := r.Artifacts.Read(stored.Artifact, version)
+		if err != nil {
+			return nil, err
+		}
+		content, converted := documents.SpreadsheetMarkdown(file.Bytes, *version.MediaType)
+		if converted {
+			detail.PreviewKind = model.ArtifactVersionPreviewKindMarkdown
+			detail.Markdown = &content
+		} else {
+			detail.PreviewKind = model.ArtifactVersionPreviewKindUnsupported
+		}
+		return detail, nil
+	}
 	switch localPreviewKind(version.MediaType) {
 	case model.ArtifactVersionPreviewKindImage, model.ArtifactVersionPreviewKindPDF:
 		detail.PreviewKind = localPreviewKind(version.MediaType)
@@ -234,7 +249,6 @@ func localPreviewKind(mediaType *string) model.ArtifactVersionPreviewKind {
 		return model.ArtifactVersionPreviewKindImage
 	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 		"application/vnd.ms-excel", "application/vnd.oasis.opendocument.spreadsheet":
-		// The document migration will convert these formats to bounded text.
 		return model.ArtifactVersionPreviewKindUnsupported
 	default:
 		return model.ArtifactVersionPreviewKindUnsupported

@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -171,13 +172,32 @@ func TestArtifactGraphQLOperations(t *testing.T) {
 	if err == nil {
 		t.Fatal("stale Task upload was accepted")
 	}
-	for _, mediaType := range []string{
-		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		"application/vnd.ms-excel", "application/vnd.oasis.opendocument.spreadsheet",
-	} {
-		if kind := localPreviewKind(&mediaType); kind != model.ArtifactVersionPreviewKindUnsupported {
-			t.Fatalf("spreadsheet preview before document migration = %s", kind)
-		}
+	spreadsheet, err := resolver.createTaskLocalArtifact(ctx, model.CreateTaskLocalArtifactInput{
+		TaskID: task.ID, ExpectedRevision: 1, ExpectedGeneration: 1,
+		Title: "Data", Filename: "data.xlsx",
+		MediaType:     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		ContentBase64: base64.StdEncoding.EncodeToString(spreadsheetXLSX(t)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spreadsheetDetail, err := resolver.artifactVersionDetail(ctx, spreadsheet.CurrentVersion.ArtifactVersionID)
+	if err != nil || spreadsheetDetail.PreviewKind != model.ArtifactVersionPreviewKindMarkdown ||
+		spreadsheetDetail.Markdown == nil || !strings.Contains(*spreadsheetDetail.Markdown, "| Name | Count |") {
+		t.Fatalf("spreadsheet detail = %#v, %v", spreadsheetDetail, err)
+	}
+	malformed, err := resolver.createTaskLocalArtifact(ctx, model.CreateTaskLocalArtifactInput{
+		TaskID: task.ID, ExpectedRevision: 1, ExpectedGeneration: 1,
+		Title: "Broken data", Filename: "broken.xlsx",
+		MediaType:     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte("not a workbook")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	malformedDetail, err := resolver.artifactVersionDetail(ctx, malformed.CurrentVersion.ArtifactVersionID)
+	if err != nil || malformedDetail.PreviewKind != model.ArtifactVersionPreviewKindUnsupported || malformedDetail.Markdown != nil {
+		t.Fatalf("malformed spreadsheet detail = %#v, %v", malformedDetail, err)
 	}
 }
 
@@ -587,6 +607,30 @@ func openTestResolver(t *testing.T) *Resolver {
 		t.Fatal(err)
 	}
 	return NewResolver(taskStore, root, nil, nil, nil, nil, nil, artifacts, nil)
+}
+
+func spreadsheetXLSX(t *testing.T) []byte {
+	t.Helper()
+	parts := map[string]string{
+		"xl/workbook.xml":            `<?xml version="1.0"?><workbook xmlns:r="relationships"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<?xml version="1.0"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<?xml version="1.0"?><worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Count</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Alpha</t></is></c><c r="B2"><v>2</v></c></row></sheetData></worksheet>`,
+	}
+	var content bytes.Buffer
+	archive := zip.NewWriter(&content)
+	for name, body := range parts {
+		file, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return content.Bytes()
 }
 
 func openProviderTestResolver(t *testing.T) *Resolver {

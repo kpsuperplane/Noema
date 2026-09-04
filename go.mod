@@ -4,6 +4,7 @@ go 1.26.6
 
 require (
 	github.com/99designs/gqlgen v0.17.95
+	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
 	github.com/adhocore/gronx v1.20.3
 	github.com/coder/websocket v1.8.15
 	github.com/go-oauth2/oauth2/v4 v4.6.0
@@ -32,8 +33,10 @@ require (
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sosodev/duration v1.4.0 // indirect
+	github.com/tealeg/xlsx v1.0.5 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/urfave/cli/v3 v3.11.0 // indirect
+	github.com/vstasn/ole2 v0.0.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
