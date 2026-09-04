@@ -14,6 +14,7 @@ The address fragment identifies a screen. Browser Back restores the previous scr
 Buttons change example states. Credential fields are read-only. `DEMO-CODE` is inert sample data.
 Model names, transfer values, accounts, and service names are examples unless identified as live evidence.
 The gallery consolidates the earlier login, recovery, model review, and callback concepts.
+The [adversarial audit](adversarial-audit.md) records seven open UX, copy, and flow findings. Resolve its implementation findings before applying the plan.
 
 | Flow | Entry | Included states |
 | --- | --- | --- |
