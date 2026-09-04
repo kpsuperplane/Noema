@@ -212,20 +212,6 @@
       constraint: 'Do not use an unvalidated return address or expose callback credentials.'
     },
     {
-      id: 'service-reconnect', group: 'Chat connection card', surface: 'chat', label: 'Reconnect in Chat', title: 'Reconnect Google Drive',
-      intro: 'Sign in again to let Noema use Google Drive. Google opens in another tab.',
-      body: actions(finish('Cancel', 'secondary'), go('Continue to Google', 'service-waiting')),
-      intent: 'Chat keeps this request in HumanInterventionCard. Settings keeps its existing connection dialog. Do not add a service-connection page.',
-      constraint: 'Google Drive is example data. Existing credentials, OAuth, and no-auth paths keep their supported behavior.'
-    },
-    {
-      id: 'service-waiting', group: 'Chat connection card', surface: 'chat', label: 'Waiting in Chat', title: 'Finish connecting Google Drive',
-      intro: 'Complete sign-in in the other tab. Noema will update this connection automatically.',
-      body: waiting('Waiting for Google') + actions(go('Cancel', 'service-reconnect', 'secondary'), finish('Open Google sign-in again', 'outline')),
-      intent: 'Keep the pending connection inside the same HumanInterventionCard. The surrounding Chat remains available.',
-      constraint: 'Use the server-selected action and exact attempt event. Do not infer success from a closed tab.'
-    },
-    {
       id: 'service-connected', group: 'Service callback results', label: 'Sign-in complete', title: 'Google sign-in is complete',
       intro: 'Return to Noema to review this connection’s tools and permissions.',
       body: status('Account connected', '', 'success') + actions(finish('Return to Noema')),
@@ -296,11 +282,6 @@
     stateSelect.replaceChildren(...screens.filter(item => item.group === screen.group).map(item => new Option(item.label, item.id)));
     stateSelect.value = screen.id;
     const body = screen.id === 'provider-models' ? modelBody() : screen.body;
-    preview.dataset.surface = screen.surface || 'page';
-    preview.dataset.tone = ['provider-choice', 'access-create'].includes(screen.id) ? 'welcome'
-      : ['recovery-complete', 'provider-complete', 'local-installed', 'oauth-connected', 'service-connected'].includes(screen.id) ? 'success' : 'default';
-    document.getElementById('chat-context').hidden = screen.surface !== 'chat';
-    document.getElementById('chat-composer').hidden = screen.surface !== 'chat';
     screenRoot.innerHTML = `<header class="screen-heading">${screen.step ? `<p class="step">${screen.step}</p>` : ''}<h1 id="screen-title" tabindex="-1">${screen.title}</h1><p class="intro">${screen.intro}</p></header><section class="screen-body">${body}</section>`;
     document.getElementById('intent').textContent = screen.intent;
     document.getElementById('constraint').textContent = screen.constraint;

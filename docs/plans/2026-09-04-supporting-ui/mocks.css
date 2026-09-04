@@ -8,7 +8,7 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--noema-paper-50); font: var(--text-body-weight) var(--text-body-size)/var(--text-body-leading) var(--font-family-body); color: var(--foreground); }
+body { margin: 0; background: var(--pine-50); font: var(--text-body-weight) var(--text-body-size)/var(--text-body-leading) var(--font-family-body); color: var(--foreground); }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: default; }
 a { color: var(--text-accent); cursor: pointer; }
@@ -27,11 +27,11 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 #preview { container-type: inline-size; width: 100%; margin: var(--spacing-6) auto 0; }
 #preview[data-width="phone"] { max-width: 390px; }
 #preview[data-width="narrow"] { max-width: 320px; }
-.stage { display: grid; justify-items: center; align-content: start; padding: var(--spacing-8) var(--spacing-6) var(--spacing-12); background: var(--noema-paper-50); min-height: 600px; }
-.sheet { width: min(456px, 100%); padding: var(--spacing-8); background: var(--background); border: 1px solid var(--border-subtle); border-radius: var(--radius-container); box-shadow: var(--shadow-low); corner-shape: var(--corner-shape-container); }
-.brand { display: flex; align-items: center; gap: var(--spacing-2); margin: calc(-1 * var(--spacing-8)) calc(-1 * var(--spacing-8)) var(--spacing-6); padding: var(--spacing-6) var(--spacing-8); background: var(--noema-pine-50); color: var(--noema-pine-700); border-radius: var(--radius-container) var(--radius-container) 0 0; font: var(--text-large-weight) var(--text-large-size)/var(--text-large-leading) var(--font-family-heading); }
-.brand img { border-radius: var(--radius-element); }
-#preview[data-tone="welcome"] .brand, #preview[data-tone="success"] .brand { background: var(--noema-pine-700); color: var(--primary-foreground); }
+.stage { display: grid; justify-items: center; align-content: start; padding: var(--spacing-8) var(--spacing-6) var(--spacing-12); background: var(--pine-50); min-height: 600px; }
+.sheet { position: relative; z-index: 1; width: min(456px, 100%); padding: var(--spacing-8); background: var(--background); border: 1px solid var(--border-subtle); border-radius: var(--radius-container); box-shadow: var(--shadow-low); corner-shape: var(--corner-shape-container); }
+/* 80px is the deliberate avatar display size; the card hides its lower 16px. */
+.peek-avatar { width: 80px; height: 80px; margin-bottom: calc(-1 * var(--spacing-4)); pointer-events: none; }
+.peek-avatar > svg, .peek-avatar > img { display: block; width: 100%; height: 100%; }
 /* One owner per boundary: heading 8, task regions 24, related body groups 16. */
 .screen-heading { display: grid; gap: var(--spacing-2); }
 .screen-body { display: flex; flex-direction: column; gap: var(--spacing-4); margin-top: var(--spacing-6); }
@@ -104,29 +104,12 @@ progress::-moz-progress-bar { background: var(--primary); }
 .review-context { max-width: 760px; margin: 0 auto; padding: var(--spacing-6); border-top: 1px solid var(--border-subtle); color: var(--muted-foreground); }
 .review-context p + p { margin-top: var(--spacing-2); }
 #review-status { min-height: 28px; text-align: center; padding-inline: var(--spacing-4); color: var(--noema-pine-700); }
-/* Context for existing Chat intervention placement, not a proposed Chat redesign. */
-#preview[data-surface="chat"] .sheet { width: min(640px, 100%); }
-#preview[data-surface="chat"] .brand, #preview[data-surface="chat"] .server-name { display: none; }
-.chat-heading { display: flex; justify-content: space-between; gap: var(--spacing-3); padding-bottom: var(--spacing-4); border-bottom: 1px solid var(--border-subtle); }
-.chat-heading span { color: var(--muted-foreground); }
-.chat-request { margin-block: var(--spacing-6); margin-left: var(--spacing-6); padding: var(--spacing-3); border-radius: var(--radius-element); background: var(--surface-sunken); }
-#preview[data-surface="chat"] #screen { padding: var(--spacing-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-element); box-shadow: var(--shadow-low); }
-#preview[data-surface="chat"] .screen-heading { gap: var(--spacing-1); }
-#preview[data-surface="chat"] h1 { font: var(--text-label-weight) 13px/1.35 var(--font-family-body); text-wrap: pretty; }
-#preview[data-surface="chat"] .intro { font-size: var(--text-supporting-size); line-height: 1.45; }
-#preview[data-surface="chat"] .screen-body { margin-top: var(--spacing-3); gap: var(--spacing-3); }
-#preview[data-surface="chat"] .actions { display: flex; flex-wrap: wrap; justify-content: end; gap: var(--spacing-1); margin: 0; }
-#preview[data-surface="chat"] .actions button { min-height: 44px; padding: var(--spacing-2) var(--spacing-3); }
-#preview[data-surface="chat"] .status { padding: 0; background: transparent; font-size: var(--text-supporting-size); }
-#chat-composer { display: flex; justify-content: space-between; gap: var(--spacing-3); margin-top: var(--spacing-3); padding: var(--spacing-4); color: var(--muted-foreground); border: 1px solid var(--border-subtle); border-radius: var(--radius-container); }
 @keyframes arrive { from { opacity: 0; transform: translateY(var(--spacing-1)); } to { opacity: 1; transform: none; } }
 @keyframes complete { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
 @keyframes turn { to { transform: rotate(360deg); } }
 @container (max-width: 500px) {
-  .stage { background: var(--background); padding: var(--spacing-8) var(--spacing-6); min-height: 560px; }
-  .sheet { padding: 0; border: 0; box-shadow: none; border-radius: 0; }
-  .brand { margin: calc(-1 * var(--spacing-8)) calc(-1 * var(--spacing-6)) var(--spacing-6); padding: var(--spacing-6); border-radius: 0; }
-  .server-name { text-align: left; width: 100%; }
+  .stage { padding: var(--spacing-6) var(--spacing-3) var(--spacing-8); min-height: 560px; }
+  .sheet { padding: var(--spacing-6) var(--spacing-4); }
   .field input { font-size: max(16px, 1em); }
 }
 @media (max-width: 540px) {

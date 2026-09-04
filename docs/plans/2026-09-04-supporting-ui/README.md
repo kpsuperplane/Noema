@@ -22,7 +22,6 @@ The gallery consolidates the earlier login, recovery, model review, and callback
 | Model setup | [Choose provider](index.html#provider-choice) | Provider choice, OpenRouter, Codex device code, waiting, expiration, model review, completion |
 | Local models | [Before download](index.html#local-ready) | Download choice, progress, verification, installed, failed, unavailable |
 | Native app connection | [Approve connection](index.html#oauth-consent) | Consent, connected, denied, expired, invalid request |
-| Chat connection card | [Reconnect in Chat](index.html#service-reconnect) | Reconnect and waiting inside the existing human intervention surface |
 | Service callback results | [Sign-in complete](index.html#service-connected) | Browser callback: sign-in complete, tools unavailable, failed |
 | Unavailable states | [Server unavailable](index.html#system-unavailable) | Server authentication unavailable, fatal app load failure |
 
@@ -31,8 +30,8 @@ The gallery consolidates the earlier login, recovery, model review, and callback
 - Keep the existing design system, including fonts, semantic type sizes, weights, and line heights.
 - Improve the supporting flows without redesigning Chat, Tasks, Memory, or Settings.
 - Make the interface polished, restrained, and understandable for a non-technical person.
-- Add more character through the existing mark, stronger pine headers, responsive controls, and accurate completion feedback.
-- Use the existing list components for provider choices. Keep service setup in its current Chat card or Settings dialog.
+- Remove the logo/text header. Center the existing animated Noema avatar above the card, with its lower edge behind the card.
+- Use the existing list components for provider choices. Human intervention cards and their flows are outside this plan.
 - Show concrete model details. Do not substitute a general memory-fit statement for the model identity.
 - Save these designs for later application. Do not implement product changes in this unit.
 
@@ -47,18 +46,19 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 
 ## Visual treatment
 
-- Use a compact white surface on the existing warm paper ground at desktop widths.
+- Use a compact white surface on `--pine-50`, the existing browser app background wash.
 - Start with a 456-pixel surface. Expand only when the task requires more space.
-- On phones, remove the outer card treatment and use 24-pixel side insets.
-- Keep the mark, heading, body, fields, and actions on one alignment.
-- Use a pine-tinted brand band. Use deep pine for initial setup and successful completion.
-- Keep errors calm. Reserve the stronger completion color and check animation for confirmed success.
+- Keep the card and wash on phones. Use 12-pixel outer insets and 16-pixel horizontal card padding.
+- Center the avatar above the card. Keep headings, body, fields, and actions on one left alignment.
+- Show the avatar at 80 pixels, with the card covering its lower 16 pixels. Keep the face visible.
+- Reuse `IdentityAvatar` with the local agent seed, existing palette, and idle animation. Do not redraw the character.
+- Keep errors calm. Reserve the success check for confirmed completion.
 - Use existing `text-heading-1`, `text-body`, `text-label`, and `text-supporting` roles.
 - Use the existing font assets. Do not add font imports, custom tracking, or another type scale.
 - Use `radius-container`, `radius-element`, and `shadow-low` from the current Noema theme.
 - Assign one spacing owner per boundary: 8 pixels inside the header, 16 between body groups, and 24 before primary actions.
 - Keep label/control gaps at 6 pixels. Do not add child margins to a parent stack gap.
-- Use 32 pixels for the desktop surface inset. Use 24 pixels inside the brand band and below it.
+- Use 32 pixels for the desktop card inset and 24 pixels for vertical card padding on phones.
 - Use Astryx `List` and `ListItem` for provider choices, with wrapping descriptions and a trailing chevron.
 - Settings already uses these components. Tasks uses `ListCardLink`; retain its familiar whole-row feedback.
 - Match the preview’s inset hover, pressed fill, and visible keyboard focus through existing theme tokens.
@@ -66,7 +66,8 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Give one action primary emphasis. Keep alternatives quiet and access consequences visible.
 - Use touch controls around 48 pixels high without making all product controls larger.
 - Use the shared motion presets. Keep loading geometry stable and preserve focus through transitions.
-- Honor reduced motion. Do not add timed success delays, confetti, decorative gradients, or looping mark animation.
+- Honor reduced motion in the existing avatar and other feedback. Do not add a separate bobbing or bouncing animation.
+- Keep the avatar outside keyboard navigation. It does not communicate authentication or download state.
 
 ## Audit evidence
 
@@ -101,9 +102,8 @@ No credentials were submitted. No account, grant, or recovery code was changed.
 - Native consent must disclose complete Noema access before approval.
 - Preserve recent passkey verification, CSRF, PKCE, origin checks, and validated callback destinations.
 - Use saved attempt state to distinguish denial, expiration, failed activation, and successful connection.
-- Service setup and waiting remain inside `HumanInterventionCard` in Chat and existing dialogs in Settings.
-- Only browser callback results use separate service result pages. Return to the originating card or dialog.
-- `McpChatSetupCard` and API authentication cards own inline behavior; do not create another service setup route.
+- Service setup and human intervention flows are outside scope. Only browser callback results remain in this plan.
+- Callback return actions preserve their existing destinations; this plan does not redesign those destinations.
 - Keep successful sign-in separate from successful tool discovery. A partial result is not fully connected.
 - Use exact attempt events and the existing foreground query. Do not add polling.
 - Keep API-key, local, browser OAuth, device-code, credential, and no-auth paths where currently supported.
@@ -123,15 +123,15 @@ Estimates below are maximum net additions, not targets. Reassess against current
 | Unit | Existing authority to reuse | Estimate | Acceptance risk |
 | --- | --- | --- | --- |
 | 1. Access and recovery | `auth/AuthGate.tsx`, `components/shell/SetupFrame.tsx`, current theme, `components/shell/AppBootBoundary.tsx` | +160 production lines; no new UI tests | Recovery must work during native sign-in and PWA reauthentication; preserve session rules and focus |
-| 2. Connection pages | `components/onboarding/AuthAttempt.tsx`, `components/actions/HumanInterventionCard.tsx`, current connection dialogs, server callback and consent renderers | +220 production lines; up to one server unit regression test | Every result must state the true access outcome and return safely |
+| 2. Connection pages | `components/onboarding/AuthAttempt.tsx`, server callback and consent renderers | +220 production lines; up to one server unit regression test | Every result must state the true access outcome and return safely |
 | 3. Setup | `components/onboarding/Onboarding.tsx`, `components/onboarding/ModelSetup.tsx`, Astryx `List`/`ListItem`, existing model preference selectors | +120 production lines; no new UI tests | Defaults remain drafts; all assignments remain editable; local and cloud paths remain complete |
 
 Paths above are relative to `apps/web/src` unless identified as server files.
 At this baseline, server renderers live in `crates/noema-server/src/web/router.rs` and `native_oauth.rs`.
 A separate Go migration is active. Recheck the production renderer before applying unit 2; do not duplicate renderer work across retired implementations.
-Prefer extending the existing setup frame and consolidating result rendering over adding a second presentation framework.
+Extend the existing setup frame and reuse `components/IdentityAvatar.tsx` in the application. Keep public result renderers independent.
 Do not require the authenticated SPA to render a public callback or fatal startup error.
-Keep server result pages small and usable independently of the app bundle.
+Keep server result pages usable independently of the app bundle. Render a static avatar when animation code is unavailable.
 
 ## Validation and stop conditions
 
@@ -159,6 +159,10 @@ The local-model example comes from `crates/noema-providers/resources/local-model
 It shows Gemma 4 E4B IT, its 5.3 GB Q4_K_M build, Apache-2.0 license, and Metal runtime.
 The model review examples also use `crates/noema-providers/src/recommendations.rs` from the same baseline.
 These are source examples, not claims about the live server’s selected models or current provider availability.
-The gallery uses native HTML controls to remain independent of a build. It is not a new production component library.
+The gallery uses native HTML controls. Its avatar uses the existing `@kpsuperplane/boring-avatars` 0.1.6 component.
+`assets/avatar-preview.jsx` copies the local agent identity settings from `IdentityAvatar`; it does not define new animation behavior.
+`avatar-preview.js` bundles that entry with installed React dependencies using Bun’s production browser build.
+`avatar-still.svg` is a static render of the same component. Dependency licenses are included beside these files.
+These assets support offline review. Reuse production components instead of shipping this preview bundle.
 Use production components and current tokens when applying the plan. Do not copy snapshot CSS into the application.
 Only light appearance is specified. A new dark theme is outside this plan.
