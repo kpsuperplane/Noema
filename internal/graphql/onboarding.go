@@ -160,7 +160,7 @@ func (r *Resolver) ensurePrimaryConversation(
 	if err != nil {
 		return nil, err
 	}
-	return primaryConversationModel(conversation), nil
+	return r.primaryConversationModel(ctx, conversation)
 }
 
 func (r *Resolver) primaryModelProviderKind(ctx context.Context) (string, error) {

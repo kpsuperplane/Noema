@@ -7,6 +7,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/provider"
+	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -17,6 +18,7 @@ type Resolver struct {
 	home             *os.Root
 	ProviderAccounts *provider.AccountService
 	OpenRouter       *provider.OpenRouterService
+	Chat             *runtime.Chat
 
 	subscriptionsMu sync.Mutex
 	subscriptions   map[string]map[chan *model.TasksEvent]struct{}
@@ -29,6 +31,7 @@ func NewResolver(
 	authentication *auth.Server,
 	providerAccounts *provider.AccountService,
 	openRouter *provider.OpenRouterService,
+	chat *runtime.Chat,
 ) *Resolver {
 	return &Resolver{
 		Store:            taskStore,
@@ -36,6 +39,7 @@ func NewResolver(
 		home:             homeRoot,
 		ProviderAccounts: providerAccounts,
 		OpenRouter:       openRouter,
+		Chat:             chat,
 		subscriptions:    make(map[string]map[chan *model.TasksEvent]struct{}),
 	}
 }

@@ -2,15 +2,22 @@ package graphql
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/provider"
+	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
 func TestPrimaryConversationServesEmptyReadyChat(t *testing.T) {
-	resolver := openTestResolver(t)
+	resolver := openChatTestResolver(t)
 	ctx := context.Background()
 	if conversation, err := resolver.primaryConversation(ctx); err != nil || conversation != nil {
 		t.Fatalf("fresh primary conversation = %#v, %v", conversation, err)
@@ -67,6 +74,144 @@ query ReadyChat($input: ConversationTranscriptPageInput!) {
 	}
 }
 
+func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
+	resolver := openChatTestResolver(t)
+	ctx := context.Background()
+	secret, err := provider.NewSecret("graphql-chat-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles := []provider.ModelProfile{{
+		ID: "openai/gpt-5.6-luna", Label: "GPT-5.6 Luna",
+		ReasoningEfforts: []string{"high"}, DefaultReasoningEffort: "high",
+	}, {
+		ID: "openai/gpt-5.6-sol", Label: "GPT-5.6 Sol",
+		ReasoningEfforts: []string{"medium"}, DefaultReasoningEffort: "medium",
+	}}
+	account, err := resolver.ProviderAccounts.PublishVerifiedSecret(
+		ctx, "provider_account:openrouter:default", 0, provider.AuthSecretInput,
+		secret, profiles, time.Now(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignments := make([]store.ModelAssignment, 0, len(store.HostedModelRoles()))
+	for _, role := range store.HostedModelRoles() {
+		assignments = append(assignments, store.ModelAssignment{
+			Role: role, ProviderKind: "openrouter", ProviderAccountID: account.ID,
+			SelectionMode: store.ModelSelectionNoemaRecommended,
+		})
+	}
+	if created, err := resolver.Store.ConfirmHostedModelAssignments(ctx, account.ID, assignments); err != nil || !created {
+		t.Fatalf("confirm model assignments = %t, %v", created, err)
+	}
+	conversation, err := resolver.Store.EnsurePrimaryConversation(ctx, "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requestBody := make(chan map[string]any, 1)
+	replaceChatTransport(t, chatRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") != "Bearer graphql-chat-key" {
+			t.Fatalf("provider authorization = %q", request.Header.Get("Authorization"))
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		requestBody <- body
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"id\":\"graphql-chat\",\"model\":\"openai/gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello \"}}]}\n\n" +
+					"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"back\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\ndata: [DONE]\n\n",
+			)),
+			Request: request,
+		}, nil
+	}))
+
+	eventContext, cancelEvents := context.WithCancel(ctx)
+	defer cancelEvents()
+	events, err := resolver.conversationEvents(eventContext, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := (<-events).(model.SubscriptionReadyEvent); !ok {
+		t.Fatal("first Chat event was not readiness")
+	}
+	clientID, zone := "graphql-client-message", "America/New_York"
+	accepted, err := resolver.sendConversationTurn(ctx, model.SendConversationTurnInput{
+		ConversationID: conversation.ID, Input: "Hello", ClientMessageID: &clientID,
+		ClientTimeZone: &zone,
+	})
+	if err != nil || accepted.ClientMessageID == nil || *accepted.ClientMessageID != clientID {
+		t.Fatalf("accepted turn = %#v, %v", accepted, err)
+	}
+
+	wantTypes := []string{
+		"status:INPUT_RECEIVED", "status:THINKING", "item:user", "delta", "delta",
+		"item:assistant", "status:IDLE", "completed",
+	}
+	gotTypes := make([]string, 0, len(wantTypes))
+	deadline := time.After(5 * time.Second)
+	for len(gotTypes) < len(wantTypes) {
+		select {
+		case event := <-events:
+			switch value := event.(type) {
+			case model.AgentStatusEvent:
+				gotTypes = append(gotTypes, "status:"+value.Status.String())
+			case model.ConversationItemEvent:
+				switch value.Item.(type) {
+				case model.UserText:
+					gotTypes = append(gotTypes, "item:user")
+				case model.AssistantText:
+					gotTypes = append(gotTypes, "item:assistant")
+				}
+			case model.AssistantTextDeltaEvent:
+				gotTypes = append(gotTypes, "delta")
+			case model.TurnCompletedEvent:
+				gotTypes = append(gotTypes, "completed")
+			}
+		case <-deadline:
+			t.Fatalf("Chat events timed out after %v", gotTypes)
+		}
+	}
+	if strings.Join(gotTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("Chat event order = %v, want %v", gotTypes, wantTypes)
+	}
+	body := <-requestBody
+	if body["model"] != "openai/gpt-5.6-luna" || body["prompt_cache_key"] != conversation.ID ||
+		body["max_completion_tokens"] != float64(8192) {
+		t.Fatalf("provider request = %#v", body)
+	}
+
+	page, err := resolver.conversationTranscriptPage(ctx, model.ConversationTranscriptPageInput{
+		ConversationID: conversation.ID,
+	})
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("stored transcript = %#v, %v", page, err)
+	}
+	firstID, secondID := page.Items[0].ItemID, page.Items[1].ItemID
+	if err := resolver.Chat.Close(); err != nil {
+		t.Fatal(err)
+	}
+	generator, err := provider.NewOpenRouterGenerator(resolver.ProviderAccounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.Chat, err = noemaruntime.NewChat(resolver.Store, generator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := resolver.conversationTranscriptPage(ctx, model.ConversationTranscriptPageInput{
+		ConversationID: conversation.ID,
+	})
+	if err != nil || len(replayed.Items) != 2 || replayed.Items[0].ItemID != firstID || replayed.Items[1].ItemID != secondID {
+		t.Fatalf("replayed transcript = %#v, %v", replayed, err)
+	}
+}
+
 func TestConversationTranscriptValidatesOwnershipAndLimit(t *testing.T) {
 	resolver := openTestResolver(t)
 	limit := 201
@@ -81,4 +226,33 @@ func TestConversationTranscriptValidatesOwnershipAndLimit(t *testing.T) {
 	}); err == nil {
 		t.Fatal("unknown conversation read succeeded")
 	}
+}
+
+func openChatTestResolver(t *testing.T) *Resolver {
+	t.Helper()
+	resolver := openProviderTestResolver(t)
+	generator, err := provider.NewOpenRouterGenerator(resolver.ProviderAccounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := noemaruntime.NewChat(resolver.Store, generator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.Chat = chat
+	t.Cleanup(func() { _ = resolver.Chat.Close() })
+	return resolver
+}
+
+type chatRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function chatRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func replaceChatTransport(t *testing.T, transport http.RoundTripper) {
+	t.Helper()
+	previous := http.DefaultTransport
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = previous })
 }

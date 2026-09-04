@@ -14,7 +14,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 6
+const schemaVersion = 8
 
 // Store is one open Noema database.
 type Store struct {
@@ -88,82 +88,24 @@ func (s *Store) initialize(ctx context.Context) error {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	switch version {
-	case 0:
+	if version == 0 {
 		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
-			return fmt.Errorf("record schema version: %w", err)
-		}
-	case 1:
-		if _, err := tx.ExecContext(ctx, schemaV2SQL); err != nil {
-			return fmt.Errorf("apply schema version 2: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV3SQL); err != nil {
-			return fmt.Errorf("apply schema version 3: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
-			return fmt.Errorf("apply schema version 4: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
-			return fmt.Errorf("apply schema version 5: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
-			return fmt.Errorf("apply schema version 6: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
-			return fmt.Errorf("record schema version: %w", err)
-		}
-	case 2:
-		if _, err := tx.ExecContext(ctx, schemaV3SQL); err != nil {
-			return fmt.Errorf("apply schema version 3: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
-			return fmt.Errorf("apply schema version 4: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
-			return fmt.Errorf("apply schema version 5: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
-			return fmt.Errorf("apply schema version 6: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
-			return fmt.Errorf("record schema version: %w", err)
-		}
-	case 3:
-		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
-			return fmt.Errorf("apply schema version 4: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
-			return fmt.Errorf("apply schema version 5: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
-			return fmt.Errorf("apply schema version 6: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
-			return fmt.Errorf("record schema version: %w", err)
-		}
-	case 4:
-		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
-			return fmt.Errorf("apply schema version 5: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
-			return fmt.Errorf("apply schema version 6: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
-			return fmt.Errorf("record schema version: %w", err)
-		}
-	case 5:
-		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
-			return fmt.Errorf("apply schema version 6: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
-			return fmt.Errorf("record schema version: %w", err)
-		}
-	case schemaVersion:
-	default:
+	} else if version < 1 || version > schemaVersion {
 		return fmt.Errorf("unsupported Go schema version %d", version)
+	} else {
+		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL}
+		for next := version + 1; next <= schemaVersion; next++ {
+			if _, err := tx.ExecContext(ctx, migrations[next]); err != nil {
+				return fmt.Errorf("apply schema version %d: %w", next, err)
+			}
+		}
+	}
+	if version != schemaVersion {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 8"); err != nil {
+			return fmt.Errorf("record schema version: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -193,7 +135,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL
+` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -366,4 +308,152 @@ CREATE TABLE hosted_model_assignments (
             AND model_profile IS NOT NULL AND trim(model_profile) <> '')
     )
 ) STRICT;
+`
+
+const schemaV7SQL = `
+ALTER TABLE conversations ADD COLUMN agent_status TEXT NOT NULL DEFAULT 'idle'
+    CHECK (agent_status IN (
+        'idle', 'input_received', 'thinking', 'tool_running',
+        'waiting_for_previous_turn_completion', 'interrupting', 'error'
+    ));
+
+CREATE TABLE conversation_turns (
+    turn_id TEXT PRIMARY KEY
+        CHECK (length(turn_id) = 37 AND substr(turn_id, 1, 5) = 'turn:'),
+    conversation_id TEXT NOT NULL
+        REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    trigger_item_id TEXT REFERENCES conversation_items(item_id) ON DELETE RESTRICT,
+    status TEXT NOT NULL CHECK (status IN (
+        'input_received', 'running', 'waiting_for_tool', 'interrupted',
+        'completed', 'failed', 'cancelled'
+    )),
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(metadata_json) AND json_type(metadata_json) = 'object'),
+    started_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX conversation_turns_conversation
+ON conversation_turns(conversation_id, created_at_ms);
+
+CREATE TABLE conversation_items (
+    item_id TEXT PRIMARY KEY
+        CHECK (length(item_id) = 37 AND substr(item_id, 1, 5) = 'item:'),
+    conversation_id TEXT NOT NULL
+        REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    turn_id TEXT REFERENCES conversation_turns(turn_id) ON DELETE RESTRICT,
+    parent_item_id TEXT REFERENCES conversation_items(item_id) ON DELETE RESTRICT,
+    sequence_index INTEGER NOT NULL CHECK (sequence_index > 0),
+    kind TEXT NOT NULL CHECK (kind IN (
+        'user_text', 'assistant_text', 'activity', 'a2ui_card',
+        'multiple_choice_prompt', 'multiple_choice_selection', 'tool_call',
+        'tool_result', 'reasoning', 'model_context_update', 'approval_request',
+        'approval_result', 'error_notice', 'artifact_reference', 'task_reference'
+    )),
+    status TEXT NOT NULL CHECK (status IN (
+        'pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted'
+    )),
+    author_actor_id TEXT NOT NULL CHECK (length(author_actor_id) BETWEEN 1 AND 128),
+    content_text TEXT,
+    provider_content_text TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(payload_json) AND json_type(payload_json) = 'object'),
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(metadata_json) AND json_type(metadata_json) = 'object'),
+    deleted_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE (conversation_id, sequence_index)
+) STRICT;
+
+CREATE INDEX conversation_items_conversation_sequence
+ON conversation_items(conversation_id, sequence_index);
+`
+
+const schemaV8SQL = `
+PRAGMA defer_foreign_keys = ON;
+
+CREATE TABLE conversation_turns_v8 (
+    turn_id TEXT PRIMARY KEY
+        CHECK (length(turn_id) = 37 AND substr(turn_id, 1, 5) = 'turn:'),
+    conversation_id TEXT NOT NULL
+        REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    trigger_item_id TEXT,
+    status TEXT NOT NULL CHECK (status IN (
+        'input_received', 'running', 'waiting_for_tool', 'interrupted',
+        'completed', 'failed', 'cancelled'
+    )),
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(metadata_json) AND json_type(metadata_json) = 'object'),
+    started_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE (conversation_id, turn_id),
+    FOREIGN KEY (conversation_id, trigger_item_id)
+        REFERENCES conversation_items_v8(conversation_id, item_id) ON DELETE NO ACTION
+) STRICT;
+
+CREATE TABLE conversation_items_v8 (
+    item_id TEXT PRIMARY KEY
+        CHECK (length(item_id) = 37 AND substr(item_id, 1, 5) = 'item:'),
+    conversation_id TEXT NOT NULL
+        REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    turn_id TEXT,
+    parent_item_id TEXT,
+    sequence_index INTEGER NOT NULL CHECK (sequence_index > 0),
+    kind TEXT NOT NULL CHECK (kind IN (
+        'user_text', 'assistant_text', 'activity', 'a2ui_card',
+        'multiple_choice_prompt', 'multiple_choice_selection', 'tool_call',
+        'tool_result', 'reasoning', 'model_context_update', 'approval_request',
+        'approval_result', 'error_notice', 'artifact_reference', 'task_reference'
+    )),
+    status TEXT NOT NULL CHECK (status IN (
+        'pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted'
+    )),
+    author_actor_id TEXT NOT NULL CHECK (length(author_actor_id) BETWEEN 1 AND 128),
+    content_text TEXT,
+    provider_content_text TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(payload_json) AND json_type(payload_json) = 'object'),
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(metadata_json) AND json_type(metadata_json) = 'object'),
+    deleted_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE (conversation_id, item_id),
+    UNIQUE (conversation_id, sequence_index),
+    CHECK (
+        provider_content_text IS NULL OR (
+            kind = 'assistant_text' AND content_text IS NOT NULL
+            AND provider_content_text <> content_text
+        )
+    ),
+    FOREIGN KEY (conversation_id, turn_id)
+        REFERENCES conversation_turns_v8(conversation_id, turn_id) ON DELETE NO ACTION,
+    FOREIGN KEY (conversation_id, parent_item_id)
+        REFERENCES conversation_items_v8(conversation_id, item_id) ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO conversation_turns_v8 SELECT * FROM conversation_turns;
+INSERT INTO conversation_items_v8 SELECT * FROM conversation_items;
+
+UPDATE conversation_turns SET trigger_item_id = NULL;
+UPDATE conversation_items SET parent_item_id = NULL;
+DELETE FROM conversation_items;
+DELETE FROM conversation_turns;
+DROP TABLE conversation_items;
+DROP TABLE conversation_turns;
+ALTER TABLE conversation_turns_v8 RENAME TO conversation_turns;
+ALTER TABLE conversation_items_v8 RENAME TO conversation_items;
+
+CREATE INDEX conversation_turns_conversation
+ON conversation_turns(conversation_id, created_at_ms);
+CREATE UNIQUE INDEX conversation_turns_one_active
+ON conversation_turns(conversation_id)
+WHERE status IN ('input_received', 'running', 'waiting_for_tool');
+CREATE INDEX conversation_items_conversation_sequence
+ON conversation_items(conversation_id, sequence_index);
 `

@@ -415,7 +415,36 @@ OpenRouter secrets remain in protected files. SQLite contains only safe
 account metadata, compatible model profiles, and credential revisions.
 
 The Go server now reaches an empty ready Chat from a fresh home through
-OpenRouter. Chat turns and live transcript delivery remain in the runtime unit.
+OpenRouter. The first text turn is complete in the runtime unit below.
+
+### Codex device authentication unit
+
+The Codex device authentication unit passed on 2026-09-04. It includes:
+
+- the current OpenAI device authorization wire contract;
+- bounded polling with cancellation and expiry;
+- authorization-code exchange;
+- protected access and refresh token storage;
+- credential revision checks and rollback;
+- safe authentication events and errors.
+
+The provider layer is complete. GraphQL onboarding and Codex generation remain
+later provider runtime work.
+
+### First Chat runtime unit
+
+The first Chat runtime unit passed on 2026-09-04. It includes:
+
+- schema version 7 for turns, items, and conversation status;
+- schema version 8 for safe links, cascade deletion, and one active turn;
+- startup and shutdown recovery for interrupted turns;
+- bounded OpenRouter text generation with safe credential use;
+- serialized detached turn execution and timezone context;
+- GraphQL acceptance, status, delta, item, completion, and replay behavior;
+- durable provider failures and restart-stable transcript identifiers.
+
+This unit covers text-only OpenRouter turns. Native tools, reasoning records,
+citations, hosted search, and provider continuation remain required in unit 4.
 
 ## 11. Validation Strategy
 

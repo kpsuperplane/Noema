@@ -3,8 +3,10 @@ package graphql
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -18,7 +20,7 @@ func (r *Resolver) primaryConversation(ctx context.Context) (*model.PrimaryConve
 	} else if providerKind != "" {
 		conversation.Provider = providerKind
 	}
-	return primaryConversationModel(*conversation), nil
+	return r.primaryConversationModel(ctx, *conversation)
 }
 
 func (r *Resolver) conversationTranscriptPage(
@@ -32,39 +34,200 @@ func (r *Resolver) conversationTranscriptPage(
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("conversationTranscriptPage limit must be within 1..200")
 	}
-	if _, err := r.Store.Conversation(ctx, input.ConversationID); err != nil {
+	cursor := ""
+	if input.Cursor != nil {
+		cursor = *input.Cursor
+	}
+	page, err := r.Store.ConversationItemPage(ctx, input.ConversationID, cursor, limit)
+	if err != nil {
 		return nil, err
 	}
-	return emptyTranscriptPage(), nil
+	return conversationTranscriptPageModel(page)
+}
+
+func (r *Resolver) sendConversationTurn(
+	ctx context.Context,
+	input model.SendConversationTurnInput,
+) (*model.TurnAccepted, error) {
+	if r.Chat == nil {
+		return nil, errors.New("Chat runtime is unavailable")
+	}
+	accepted, err := r.Chat.SendTurn(ctx, runtime.SendTurnInput{
+		ConversationID: input.ConversationID, Input: input.Input,
+		ClientMessageID: input.ClientMessageID, ClientTimeZone: input.ClientTimeZone,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &model.TurnAccepted{
+		ConversationID: accepted.ConversationID, ClientMessageID: accepted.ClientMessageID,
+	}, nil
 }
 
 func (r *Resolver) conversationEvents(
 	ctx context.Context,
 	conversationID string,
 ) (<-chan model.ConversationEvent, error) {
-	if _, err := r.Store.Conversation(ctx, conversationID); err != nil {
+	if r.Chat == nil {
+		return nil, errors.New("Chat runtime is unavailable")
+	}
+	runtimeEvents, err := r.Chat.Subscribe(ctx, conversationID)
+	if err != nil {
 		return nil, err
 	}
-	events := make(chan model.ConversationEvent, 1)
-	events <- model.SubscriptionReadyEvent{ConversationID: conversationID}
+	events := make(chan model.ConversationEvent, 16)
 	go func() {
 		defer close(events)
-		<-ctx.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-runtimeEvents:
+				if !ok {
+					return
+				}
+				mapped, mapErr := conversationEventModel(event)
+				if mapErr != nil {
+					return
+				}
+				select {
+				case events <- mapped:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
 	}()
 	return events, nil
 }
 
-func primaryConversationModel(conversation store.Conversation) *model.PrimaryConversation {
-	return &model.PrimaryConversation{
-		ConversationID:       conversation.ID,
-		Provider:             conversation.Provider,
-		LatestTranscriptPage: emptyTranscriptPage(),
+func conversationEventModel(event runtime.Event) (model.ConversationEvent, error) {
+	switch event.Kind {
+	case runtime.EventSubscriptionReady:
+		return model.SubscriptionReadyEvent{ConversationID: event.ConversationID}, nil
+	case runtime.EventAgentStatus:
+		status, err := agentStatusModel(event.Status)
+		if err != nil {
+			return nil, err
+		}
+		return model.AgentStatusEvent{ConversationID: event.ConversationID, Status: status}, nil
+	case runtime.EventAssistantDelta:
+		return model.AssistantTextDeltaEvent{
+			ConversationID: event.ConversationID, TurnID: event.TurnID,
+			StreamID: event.StreamID, ResponseIndex: event.ResponseIndex, Delta: event.Delta,
+		}, nil
+	case runtime.EventConversationItem:
+		if event.Item == nil {
+			return nil, errors.New("Chat item event is missing its item")
+		}
+		item, err := transcriptItemModel(*event.Item)
+		if err != nil {
+			return nil, err
+		}
+		cursor := event.Item.Cursor
+		turnID := chatOptionalString(event.Item.TurnID)
+		return model.ConversationItemEvent{
+			ConversationID: event.ConversationID, ClientMessageID: event.ClientMessageID,
+			ItemID: event.Item.ID, Cursor: &cursor, TurnID: turnID,
+			Metadata: event.Item.Metadata, Item: item,
+		}, nil
+	case runtime.EventTurnCompleted:
+		return model.TurnCompletedEvent{
+			ConversationID: event.ConversationID, ClientMessageID: event.ClientMessageID,
+		}, nil
+	case runtime.EventTransientError:
+		correlation := "uncorrelated"
+		if event.ClientMessageID != nil && *event.ClientMessageID != "" {
+			correlation = *event.ClientMessageID
+		}
+		return model.ConversationItemEvent{
+			ConversationID: event.ConversationID, ClientMessageID: event.ClientMessageID,
+			ItemID:   "graphql_runtime_error:" + event.ConversationID + ":" + correlation,
+			Metadata: map[string]any{},
+			Item:     model.ErrorNotice{Message: event.TransientMessage, Recoverable: false},
+		}, nil
+	default:
+		return nil, errors.New("Chat runtime event is unsupported")
 	}
 }
 
-func emptyTranscriptPage() *model.ConversationTranscriptPage {
-	return &model.ConversationTranscriptPage{
-		Items:    []*model.ConversationItem{},
-		PageInfo: &model.ConversationTranscriptPageInfo{HasMoreBefore: false},
+func agentStatusModel(status runtime.AgentStatus) (model.AgentStatus, error) {
+	switch status {
+	case runtime.AgentStatusIdle:
+		return model.AgentStatusIdle, nil
+	case runtime.AgentStatusInputReceived:
+		return model.AgentStatusInputReceived, nil
+	case runtime.AgentStatusThinking:
+		return model.AgentStatusThinking, nil
+	case runtime.AgentStatusError:
+		return model.AgentStatusError, nil
+	default:
+		return "", errors.New("Chat agent status is unsupported")
 	}
+}
+
+func conversationTranscriptPageModel(
+	page store.ConversationItemPage,
+) (*model.ConversationTranscriptPage, error) {
+	items := make([]*model.ConversationItem, 0, len(page.Items))
+	for _, stored := range page.Items {
+		item, err := transcriptItemModel(stored)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, &model.ConversationItem{
+			ItemID: stored.ID, Cursor: stored.Cursor, TurnID: chatOptionalString(stored.TurnID),
+			Metadata: stored.Metadata, Item: item,
+		})
+	}
+	return &model.ConversationTranscriptPage{
+		Items: items,
+		PageInfo: &model.ConversationTranscriptPageInfo{
+			BeforeCursor: chatOptionalString(page.BeforeCursor), HasMoreBefore: page.HasMoreBefore,
+		},
+	}, nil
+}
+
+func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, error) {
+	switch item.Kind {
+	case store.ConversationUserText:
+		return model.UserText{Text: item.ContentText}, nil
+	case store.ConversationAssistantText:
+		return model.AssistantText{Text: item.ContentText}, nil
+	case store.ConversationErrorNotice:
+		message := item.ContentText
+		if stored, ok := item.Payload["message"].(string); ok {
+			message = stored
+		}
+		recoverable, _ := item.Payload["recoverable"].(bool)
+		return model.ErrorNotice{Message: message, Recoverable: recoverable}, nil
+	default:
+		return nil, fmt.Errorf("conversation item kind %q is unsupported", item.Kind)
+	}
+}
+
+func chatOptionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	copy := value
+	return &copy
+}
+
+func (r *Resolver) primaryConversationModel(
+	ctx context.Context,
+	conversation store.Conversation,
+) (*model.PrimaryConversation, error) {
+	page, err := r.Store.ConversationItemPage(ctx, conversation.ID, "", 80)
+	if err != nil {
+		return nil, err
+	}
+	transcript, err := conversationTranscriptPageModel(page)
+	if err != nil {
+		return nil, err
+	}
+	return &model.PrimaryConversation{
+		ConversationID: conversation.ID, Provider: conversation.Provider,
+		LatestTranscriptPage: transcript,
+	}, nil
 }

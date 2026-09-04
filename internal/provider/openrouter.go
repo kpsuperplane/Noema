@@ -31,6 +31,12 @@ var (
 	ErrProviderUnavailable = errors.New("provider unavailable")
 	// ErrAuthenticationRejected means OpenRouter rejected a credential or code.
 	ErrAuthenticationRejected = errors.New("provider authentication rejected")
+	// ErrProviderRateLimited means a provider refused work because of a rate limit.
+	ErrProviderRateLimited = errors.New("provider rate limited")
+	// ErrProviderRequestRejected means a provider rejected the request or account state.
+	ErrProviderRequestRejected = errors.New("provider request rejected")
+	// ErrProviderPaymentRequired means a provider account cannot fund the request.
+	ErrProviderPaymentRequired = errors.New("provider payment required")
 	// ErrAuthAttemptNotCurrent means an attempt cannot change current credentials.
 	ErrAuthAttemptNotCurrent = errors.New("provider authentication attempt is not current")
 )

@@ -397,7 +397,7 @@ func (r *mutationRootResolver) EnsurePrimaryConversation(ctx context.Context, cw
 
 // SendConversationTurn is the resolver for the sendConversationTurn field.
 func (r *mutationRootResolver) SendConversationTurn(ctx context.Context, input model.SendConversationTurnInput) (*model.TurnAccepted, error) {
-	panic(fmt.Errorf("not implemented: SendConversationTurn - sendConversationTurn"))
+	return r.sendConversationTurn(ctx, input)
 }
 
 // SendMultipleChoiceSelection is the resolver for the sendMultipleChoiceSelection field.

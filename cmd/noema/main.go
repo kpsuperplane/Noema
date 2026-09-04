@@ -16,6 +16,7 @@ import (
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/provider"
+	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/kpsuperplane/noema/internal/web"
 )
@@ -82,6 +83,15 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	generator, err := provider.NewOpenRouterGenerator(providerAccounts)
+	if err != nil {
+		return err
+	}
+	chatRuntime, err := noemaruntime.NewChat(taskStore, generator)
+	if err != nil {
+		return err
+	}
+	defer chatRuntime.Close()
 
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -93,7 +103,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}
 
 	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
-		taskStore, root, browserAuth, providerAccounts, openRouter,
+		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime,
 	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)

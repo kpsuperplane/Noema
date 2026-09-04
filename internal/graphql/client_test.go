@@ -68,7 +68,7 @@ func TestNativeClientGraphQLListsCurrentAndRevokesIt(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	handler := authentication.Handler(NewHandler(NewResolver(taskStore, root, authentication, nil, nil)))
+	handler := authentication.Handler(NewHandler(NewResolver(taskStore, root, authentication, nil, nil, nil)))
 	list := nativeGraphQLRequest(t, access, `{ clients { clientId displayName createdAt revokedAt isCurrent } }`)
 	listed := httptest.NewRecorder()
 	handler.ServeHTTP(listed, list)

@@ -19,8 +19,8 @@ func TestHostedModelAssignmentsFreshSchema(t *testing.T) {
 	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 6 {
-		t.Fatalf("schema version = %d, want 6", version)
+	if version != schemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, schemaVersion)
 	}
 	var exists bool
 	if err := database.db.QueryRow(`
@@ -52,7 +52,7 @@ func TestHostedModelAssignmentsUpgradeFromVersionFive(t *testing.T) {
 	}
 	defer upgraded.Close()
 	var version int
-	if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
+	if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("upgraded schema version = %d, %v", version, err)
 	}
 	assignments, err := upgraded.HostedModelAssignments(context.Background())
