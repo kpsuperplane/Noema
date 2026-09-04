@@ -496,7 +496,7 @@ func (s *Server) serveGraphQL(
 		return
 	}
 	if !isWebSocket(r) {
-		application.ServeHTTP(w, r)
+		application.ServeHTTP(w, r.WithContext(withBrowserSession(r.Context(), browser.digest)))
 		return
 	}
 	select {
@@ -516,7 +516,7 @@ func (s *Server) serveGraphQL(
 		writeAuthError(w, http.StatusUnauthorized, "authentication_required")
 		return
 	}
-	application.ServeHTTP(w, r.WithContext(ctx))
+	application.ServeHTTP(w, r.WithContext(withBrowserSession(ctx, browser.digest)))
 }
 
 func (s *Server) serveNativeWebSocket(

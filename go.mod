@@ -7,6 +7,7 @@ require (
 	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
 	github.com/adhocore/gronx v1.20.3
 	github.com/coder/websocket v1.8.15
+	github.com/ergochat/webpush-go/v2 v2.0.0
 	github.com/giraffesyo/pdf v0.6.0
 	github.com/go-oauth2/oauth2/v4 v4.6.0
 	github.com/go-webauthn/webauthn v0.18.0
@@ -15,6 +16,7 @@ require (
 	github.com/ncruces/go-sqlite3 v0.35.4
 	github.com/rivo/uniseg v0.4.7
 	github.com/vektah/gqlparser/v2 v2.5.37
+	github.com/yuin/goldmark v1.8.6
 	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/text v0.41.0

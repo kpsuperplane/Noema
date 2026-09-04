@@ -63,6 +63,11 @@ func (p Paths) NativeOAuthRetries() string {
 	return filepath.Join(p.root, "run", "native-oauth-retries.json")
 }
 
+// WebPushVAPID returns the protected browser Push signing-key path.
+func (p Paths) WebPushVAPID() string {
+	return filepath.Join(p.root, "notifications", "web-push-vapid.json")
+}
+
 // Open creates the home and returns rooted filesystem access.
 func (p Paths) Open() (*os.Root, error) {
 	if p.root == "" {

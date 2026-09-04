@@ -610,7 +610,7 @@ func openTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewResolver(taskStore, root, nil, nil, nil, nil, nil, artifacts, nil)
+	return NewResolver(taskStore, root, nil, nil, nil, nil, nil, artifacts, nil, nil)
 }
 
 func spreadsheetXLSX(t *testing.T) []byte {
@@ -670,7 +670,7 @@ func openProviderTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewResolver(taskStore, root, nil, accounts, openRouter, nil, nil, artifacts, nil)
+	return NewResolver(taskStore, root, nil, accounts, openRouter, nil, nil, artifacts, nil, nil)
 }
 
 func postGraphQL(

@@ -55,12 +55,12 @@ func (r *mutationRootResolver) DisableClientLiveActivities(ctx context.Context) 
 
 // RegisterWebPushSubscription is the resolver for the registerWebPushSubscription field.
 func (r *mutationRootResolver) RegisterWebPushSubscription(ctx context.Context, input model.RegisterWebPushSubscriptionInput) (*model.WebPushStatus, error) {
-	panic(fmt.Errorf("not implemented: RegisterWebPushSubscription - registerWebPushSubscription"))
+	return r.registerWebPushSubscription(ctx, input)
 }
 
 // RemoveWebPushSubscription is the resolver for the removeWebPushSubscription field.
 func (r *mutationRootResolver) RemoveWebPushSubscription(ctx context.Context, subscriptionID string) (bool, error) {
-	panic(fmt.Errorf("not implemented: RemoveWebPushSubscription - removeWebPushSubscription"))
+	return r.removeWebPushSubscription(ctx, subscriptionID)
 }
 
 // RevokeClient is the resolver for the revokeClient field.
@@ -528,7 +528,7 @@ func (r *queryRootResolver) ClientLiveActivityStatus(ctx context.Context) (*mode
 
 // WebPushStatus is the resolver for the webPushStatus field.
 func (r *queryRootResolver) WebPushStatus(ctx context.Context, endpoint *string) (*model.WebPushStatus, error) {
-	panic(fmt.Errorf("not implemented: WebPushStatus - webPushStatus"))
+	return r.webPushStatus(ctx, endpoint)
 }
 
 // Clients is the resolver for the clients field.
@@ -793,7 +793,7 @@ func (r *subscriptionRootResolver) ClientNotificationPresence(ctx context.Contex
 
 // WebPushPresence is the resolver for the webPushPresence field.
 func (r *subscriptionRootResolver) WebPushPresence(ctx context.Context, subscriptionID string) (<-chan *model.WebPushPresenceEvent, error) {
-	panic(fmt.Errorf("not implemented: WebPushPresence - webPushPresence"))
+	return r.webPushPresence(ctx, subscriptionID)
 }
 
 // ProviderAuthAttemptEvents is the resolver for the providerAuthAttemptEvents field.

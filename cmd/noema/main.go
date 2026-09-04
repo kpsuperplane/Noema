@@ -18,6 +18,7 @@ import (
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
+	"github.com/kpsuperplane/noema/internal/notification"
 	"github.com/kpsuperplane/noema/internal/provider"
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -88,6 +89,10 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	go browserAuth.RunCleanup(ctx)
+	webPush, err := notification.New(paths, taskStore, authConfig.Origin)
+	if err != nil {
+		return fmt.Errorf("open Web Push service: %w", err)
+	}
 	providerAccounts, err := provider.NewAccountService(paths.Root(), taskStore)
 	if err != nil {
 		return err
@@ -122,6 +127,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer chatRuntime.Close()
+	go webPush.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -134,7 +140,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 
 	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
 		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
-		artifacts, nativeMemory,
+		artifacts, nativeMemory, webPush,
 	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)

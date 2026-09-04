@@ -180,6 +180,16 @@ func (c *Chat) Subscribe(ctx context.Context, conversationID string) (<-chan Eve
 	if _, err := c.database.Conversation(ctx, conversationID); err != nil {
 		return nil, err
 	}
+	return c.subscribe(ctx, conversationID, true)
+}
+
+// SubscribeAll returns live events for the notification projection.
+func (c *Chat) SubscribeAll(ctx context.Context) <-chan Event {
+	events, _ := c.subscribe(ctx, "", false)
+	return events
+}
+
+func (c *Chat) subscribe(ctx context.Context, conversationID string, ready bool) (<-chan Event, error) {
 	events := make(chan Event, subscriberQueueLimit)
 
 	c.subMu.Lock()
@@ -191,7 +201,9 @@ func (c *Chat) Subscribe(ctx context.Context, conversationID string) (<-chan Eve
 	c.nextSubID++
 	id := c.nextSubID
 	c.subscribers[id] = subscriber{conversationID: conversationID, events: events}
-	events <- Event{Kind: EventSubscriptionReady, ConversationID: conversationID}
+	if ready {
+		events <- Event{Kind: EventSubscriptionReady, ConversationID: conversationID}
+	}
 	c.subMu.Unlock()
 
 	go func() {
@@ -425,7 +437,7 @@ func (c *Chat) publish(event Event) {
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
 	for id, current := range c.subscribers {
-		if current.conversationID != event.ConversationID {
+		if current.conversationID != "" && current.conversationID != event.ConversationID {
 			continue
 		}
 		select {

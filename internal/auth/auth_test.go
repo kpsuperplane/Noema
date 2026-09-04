@@ -339,7 +339,11 @@ func TestPasskeyManagementAndGraphQLRevocationUseStoredSessions(t *testing.T) {
 
 	handlerReturned := make(chan struct{})
 	handlerStarted := make(chan struct{})
+	var missingBrowserBinding atomic.Bool
 	application := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if digest, ok := BrowserSessionHash(r.Context()); !ok || digest != secondDigest {
+			missingBrowserBinding.Store(true)
+		}
 		if r.URL.Path == "/graphql/ws" {
 			close(handlerStarted)
 			<-r.Context().Done()
@@ -381,6 +385,9 @@ func TestPasskeyManagementAndGraphQLRevocationUseStoredSessions(t *testing.T) {
 	authorized.AddCookie(cookie)
 	if result := serve(handler, authorized); result.Code != http.StatusNoContent {
 		t.Fatalf("authenticated GraphQL = %d", result.Code)
+	}
+	if missingBrowserBinding.Load() {
+		t.Fatal("authenticated GraphQL did not receive its browser binding")
 	}
 
 	restartedSessions, err := newSessionSecurity(paths, taskStore, false)
