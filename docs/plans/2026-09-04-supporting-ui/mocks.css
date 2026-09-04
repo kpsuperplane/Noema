@@ -50,7 +50,7 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 /* Button visuals come from Astryx. This selector controls layout only. */
 .actions > .astryx-button, .decision-actions > .astryx-button { width: 100%; min-width: 0; }
 .decision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-2); }
-.note { color: var(--muted-foreground); }
+.note { color: var(--muted-foreground); text-align: center; text-wrap: pretty; }
 .status { display: flex; align-items: center; gap: var(--spacing-3); padding: var(--spacing-4); background: var(--surface-sunken); border-radius: var(--radius-element); }
 .status.success { background: var(--noema-pine-50); color: var(--noema-pine-700); }
 .status.error { background: var(--noema-red-100); color: var(--noema-red-700); }
