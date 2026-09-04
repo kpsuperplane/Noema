@@ -1,6 +1,6 @@
 # Hypothetical Go Server Migration
 
-- **Status:** Approved and in progress
+- **Status:** Approved. Evidence gate passed. Migration in progress.
 - **Mode:** Implement
 - **Date:** 2026-09-04
 - **Scope:** Replace the Rust server with a Go server
@@ -95,8 +95,7 @@ schema writing, old migrations, and removed legacy paths.
 
 ### First foundation result
 
-The foundation base is complete. Task document handling remains before the
-evidence gate can produce its final result.
+The foundation and evidence slice are complete. The evidence gate result is Go.
 
 The slice contains:
 
@@ -104,6 +103,7 @@ The slice contains:
 - transaction-based Task state and durable Task events;
 - the complete generated GraphQL schema and its WebSocket transport;
 - Task capture, Task read, and replayable Task events;
+- durable `TASK.md` writes with staged crash recovery and current previews;
 - validation for every checked-in web and iOS GraphQL operation;
 - bounded provider SSE parsing, cancellation, and continuation details;
 - bounded MCP stdio calls with environment and process-tree isolation;
@@ -114,8 +114,8 @@ An adversarial review found path, permission, stream, and output-bound risks.
 The corrected slice escapes SQLite paths and applies private operating-system access controls.
 It also bounds provider results and diagnostics files.
 
-Authored production code is 2,187 lines. Tests are 1,225 lines across 20 test
-functions. Generated GraphQL code is 80,449 lines.
+Authored production code is 2,712 lines. Tests are 1,393 lines across 20 test
+functions. Generated GraphQL code is 80,445 lines.
 
 The first measurements used Go 1.26.0 on Linux amd64. The host had four AMD
 EPYC Rome virtual processors and 7.6 GiB of memory.
@@ -199,6 +199,13 @@ The slice passes only when all these gates pass:
 
 Do not expand the port while this slice fails a build or security gate. Correct
 the slice or select a different Go dependency.
+
+The slice passed every gate on 2026-09-04. Task creation writes a staged
+document before the SQLite transaction. Startup recovery promotes committed
+documents and removes documents without a Task row.
+
+Windows directory metadata flushes use a write-capable directory handle.
+Native Windows WAL stress and cold-reopen integrity tests remain cutover gates.
 
 ### Spike budget
 
@@ -330,6 +337,31 @@ Each unit must pass its gate before the next unit starts.
 Run live acceptance only after explicit approval. Record every waived provider
 or platform case.
 
+### First authentication unit
+
+After the evidence gate passes, implement complete browser authentication.
+This unit includes:
+
+- exact Host and Origin checks;
+- the zero-passkey setup barrier;
+- initial passkey claim and normal passkey login;
+- bounded persistent browser sessions;
+- recovery-code rotation and recovery enrollment;
+- passkey listing, addition, removal, and final-passkey protection;
+- current-session and global logout;
+- GraphQL HTTP and WebSocket admission;
+- WebSocket closure after session revocation.
+
+Native OAuth follows in the next unit. Do not weaken or remove its current
+routes, token lifetimes, rotation, replay, or client revocation contracts.
+
+Use go-webauthn and the standard library. Do not add a session framework.
+Append schema version 2 for passkeys and browser session digests.
+
+The browser authentication budget is 2,000 production lines and 1,000 test
+lines. Add nine tests for authority, ceremonies, races, persistence, recovery,
+passkey management, and GraphQL admission.
+
 ## 11. Validation Strategy
 
 Do not copy all 1,135 Rust tests mechanically.
@@ -353,8 +385,8 @@ Use the real in-memory SQLite store where practical.
 Run these checks for each candidate unit:
 
 ```text
-gofmt check
-go vet ./...
+gofmt check for `cmd` and `internal`
+go vet ./cmd/... ./internal/...
 go test ./cmd/... ./internal/...
 go test -race ./cmd/... ./internal/...
 staticcheck ./cmd/... ./internal/...

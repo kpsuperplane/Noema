@@ -51,6 +51,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer taskStore.Close()
+	if err := home.RecoverTaskDocuments(root, func(taskID string) (bool, error) {
+		return taskStore.TaskExists(ctx, taskID)
+	}); err != nil {
+		return fmt.Errorf("recover Task documents: %w", err)
+	}
 
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -61,7 +66,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 
-	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(taskStore))
+	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(taskStore, root))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)

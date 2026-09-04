@@ -13,8 +13,15 @@ func TestTaskStateAndEventsCommitTogether(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
 	createdAt := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	if _, err := store.CreateTask(ctx, "task:../outside", "Invalid identifier", createdAt); err == nil {
+		t.Fatal("invalid Task ID must fail")
+	}
 
-	task, err := store.CreateTask(ctx, "Migrate the server", createdAt)
+	taskID, err := NewTaskID()
+	if err != nil {
+		t.Fatalf("create task ID: %v", err)
+	}
+	task, err := store.CreateTask(ctx, taskID, "Migrate the server", createdAt)
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
@@ -63,7 +70,11 @@ func TestStaleRunCannotFinishTask(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
-	task, err := store.CreateTask(ctx, "Keep current run authority", now)
+	taskID, err := NewTaskID()
+	if err != nil {
+		t.Fatalf("create task ID: %v", err)
+	}
+	task, err := store.CreateTask(ctx, taskID, "Keep current run authority", now)
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
@@ -103,7 +114,11 @@ func TestStoreReopensFreshGoSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	task, err := store.CreateTask(context.Background(), "Persist a task", time.Now())
+	taskID, err := NewTaskID()
+	if err != nil {
+		t.Fatalf("create task ID: %v", err)
+	}
+	task, err := store.CreateTask(context.Background(), taskID, "Persist a task", time.Now())
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}

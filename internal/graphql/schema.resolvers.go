@@ -609,11 +609,7 @@ func (r *queryRootResolver) AcpAgents(ctx context.Context) ([]*model.AcpAgent, e
 
 // Task is the resolver for the task field.
 func (r *queryRootResolver) Task(ctx context.Context, taskID string) (*model.TaskDetail, error) {
-	task, err := r.Store.Task(ctx, taskID)
-	if err != nil {
-		return nil, err
-	}
-	return taskDetailModel(task), nil
+	return r.task(ctx, taskID)
 }
 
 // TaskWorkspaceFile is the resolver for the taskWorkspaceFile field.

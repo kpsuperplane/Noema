@@ -54,8 +54,16 @@ type TaskEvent struct {
 	OccurredAt time.Time
 }
 
+// NewTaskID creates one portable Task identifier.
+func NewTaskID() (string, error) {
+	return newID("task")
+}
+
 // CreateTask stores one captured Task and its first event.
-func (s *Store) CreateTask(ctx context.Context, title string, now time.Time) (Task, error) {
+func (s *Store) CreateTask(ctx context.Context, id string, title string, now time.Time) (Task, error) {
+	if !validTaskID(id) {
+		return Task{}, errors.New("invalid task id")
+	}
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Task{}, errors.New("task title cannot be empty")
@@ -64,10 +72,6 @@ func (s *Store) CreateTask(ctx context.Context, title string, now time.Time) (Ta
 		return Task{}, errors.New("task title is too long")
 	}
 
-	id, err := newID("task")
-	if err != nil {
-		return Task{}, err
-	}
 	now = now.UTC()
 	task := Task{
 		ID:        id,
@@ -106,6 +110,22 @@ SELECT task_id, title, state, COALESCE(current_run_id, ''), revision,
        created_at_ms, updated_at_ms
 FROM tasks
 WHERE task_id = ?`, id))
+}
+
+// TaskExists reports whether one Task row is committed.
+func (s *Store) TaskExists(ctx context.Context, id string) (bool, error) {
+	if !validTaskID(id) {
+		return false, errors.New("invalid task id")
+	}
+	var exists bool
+	if err := s.db.QueryRowContext(
+		ctx,
+		"SELECT EXISTS(SELECT 1 FROM tasks WHERE task_id = ?)",
+		id,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("inspect task existence: %w", err)
+	}
+	return exists, nil
 }
 
 // StartTask assigns one current run to a captured Task.
@@ -268,6 +288,15 @@ func newID(prefix string) (string, error) {
 		return "", fmt.Errorf("create %s id: %w", prefix, err)
 	}
 	return prefix + ":" + hex.EncodeToString(value[:]), nil
+}
+
+func validTaskID(id string) bool {
+	value, ok := strings.CutPrefix(id, "task:")
+	if !ok || len(value) != 32 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && hex.EncodeToString(decoded) == value
 }
 
 func millis(value time.Time) int64 {

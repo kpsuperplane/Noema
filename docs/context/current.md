@@ -18,6 +18,10 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
+The Go evidence gate passed. The current slice includes protected storage,
+Task documents, GraphQL contracts, provider streams, MCP calls, and diagnostics.
+The next migration unit implements complete browser authentication.
+
 ## Current constraints
 
 ### Security and storage
@@ -270,12 +274,14 @@ The Rust server remains the production authority until the final cutover.
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
-- Product decisions remain open for integration substrates, full-parity clients,
-  task roles, and secondary vertical systems.
+- The Go migration keeps all current production capabilities and client outcomes.
+  Native Windows WAL stress remains a cutover gate.
 
 ## Validation defaults
 
 - Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`,
   and `cargo gate-test`. Use `cargo validate` for focused commands.
+- Go: use `go test ./cmd/... ./internal/...`, `go vet`, `staticcheck`, and
+  `govulncheck`. Use `CGO_ENABLED=0` for shipped builds.
 - Web: run `bun run lint` and `bun run build` from `apps/web`.
 - Run unit tests only unless smoke or fixture tests are explicitly requested.

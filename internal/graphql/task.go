@@ -2,8 +2,6 @@ package graphql
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -11,10 +9,13 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
 const personalWorkspaceID = "workspace:personal"
+
+const taskDocumentPreviewLimit = 280
 
 func (r *Resolver) captureTask(
 	ctx context.Context,
@@ -26,17 +27,28 @@ func (r *Resolver) captureTask(
 	if input.WorkspaceID != personalWorkspaceID {
 		return nil, errors.New("this migration slice supports only workspace:personal")
 	}
-	if input.TaskDocument != "" || input.ProjectID != nil || input.Schedule != nil ||
+	if input.ProjectID != nil || input.Schedule != nil ||
 		(input.ExecutorAgentID != nil && *input.ExecutorAgentID != "agent:task-executor") ||
 		input.CwdOverride != nil {
-		return nil, errors.New("this migration slice supports title-only Task capture")
+		return nil, errors.New("this migration slice does not support Task placement or scheduling")
 	}
 	if input.ClientMutationID == "" {
 		return nil, errors.New("clientMutationId cannot be empty")
 	}
 
-	task, err := r.Store.CreateTask(ctx, input.Title, time.Now())
+	taskID, err := store.NewTaskID()
 	if err != nil {
+		return nil, err
+	}
+	document, err := home.CreatePendingTaskDocument(r.home, taskID, input.TaskDocument)
+	if err != nil {
+		return nil, err
+	}
+	task, err := r.Store.CreateTask(ctx, taskID, input.Title, time.Now())
+	if err != nil {
+		return nil, errors.Join(err, r.reconcileFailedTaskCreate(taskID))
+	}
+	if err := home.CommitTaskDocument(r.home, taskID); err != nil {
 		return nil, err
 	}
 	events, err := r.Store.TaskEvents(ctx, task.ID, 0)
@@ -47,22 +59,34 @@ func (r *Resolver) captureTask(
 		return nil, fmt.Errorf("expected one capture event, got %d", len(events))
 	}
 
-	event := taskEventModel(events[0], task, input.WorkspaceID)
+	event := taskEventModel(events[0], task, input.WorkspaceID, document.Content)
 	r.publishTaskEvent(task.ID, event)
 	return &model.TaskCommandPayload{
-		Task:             taskDetailModel(task),
+		Task:             taskDetailModel(task, document),
 		EventCursor:      event.Cursor,
 		ClientMutationID: input.ClientMutationID,
 	}, nil
 }
 
-func taskDetailModel(task store.Task) *model.TaskDetail {
-	digest := sha256.Sum256(nil)
+func (r *Resolver) reconcileFailedTaskCreate(taskID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stored, err := r.Store.TaskExists(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("reconcile failed Task create: %w", err)
+	}
+	if stored {
+		return home.CommitTaskDocument(r.home, taskID)
+	}
+	return home.DiscardPendingTaskDocument(r.home, taskID)
+}
+
+func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDetail {
 	detail := &model.TaskDetail{
 		TaskID:                   task.ID,
 		Title:                    task.Title,
-		TaskDocument:             "",
-		TaskDocumentDigest:       hex.EncodeToString(digest[:]),
+		TaskDocument:             document.Content,
+		TaskDocumentDigest:       document.Digest,
 		ResultMetadata:           map[string]any{},
 		WorkspaceFiles:           []*model.TaskWorkspaceFile{},
 		Stage:                    taskStageModel(task.State),
@@ -86,7 +110,19 @@ func taskDetailModel(task store.Task) *model.TaskDetail {
 	return detail
 }
 
-func taskSummaryModel(task store.Task, workspaceID string) *model.TaskSummary {
+func (r *Resolver) task(ctx context.Context, taskID string) (*model.TaskDetail, error) {
+	task, err := r.Store.Task(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	document, err := home.ReadTaskDocument(r.home, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return taskDetailModel(task, document), nil
+}
+
+func taskSummaryModel(task store.Task, workspaceID string, document string) *model.TaskSummary {
 	return &model.TaskSummary{
 		TaskID: task.ID,
 		Workspace: &model.Workspace{
@@ -96,7 +132,7 @@ func taskSummaryModel(task store.Task, workspaceID string) *model.TaskSummary {
 			IsPersonal:  workspaceID == personalWorkspaceID,
 		},
 		Title:               task.Title,
-		TaskDocumentPreview: "",
+		TaskDocumentPreview: taskDocumentPreview(document),
 		Stage:               taskStageModel(task.State),
 		Revision:            int(task.Revision),
 		Generation:          1,
@@ -107,6 +143,14 @@ func taskSummaryModel(task store.Task, workspaceID string) *model.TaskSummary {
 		UpdatedAt:           task.UpdatedAt.Format(time.RFC3339Nano),
 		ValidActions:        validTaskActions(task.State),
 	}
+}
+
+func taskDocumentPreview(document string) string {
+	runes := []rune(document)
+	if len(runes) > taskDocumentPreviewLimit {
+		runes = runes[:taskDocumentPreviewLimit]
+	}
+	return string(runes)
 }
 
 func taskStageModel(state store.TaskState) *model.WorkflowStage {
@@ -162,7 +206,12 @@ func isTerminal(state store.TaskState) bool {
 	return state == store.TaskCompleted || state == store.TaskCancelled
 }
 
-func taskEventModel(event store.TaskEvent, task store.Task, workspaceID string) *model.TasksEvent {
+func taskEventModel(
+	event store.TaskEvent,
+	task store.Task,
+	workspaceID string,
+	document string,
+) *model.TasksEvent {
 	taskID := event.TaskID
 	cursor := strconv.FormatInt(event.ID, 10)
 	return &model.TasksEvent{
@@ -177,7 +226,7 @@ func taskEventModel(event store.TaskEvent, task store.Task, workspaceID string) 
 		Payload: map[string]any{
 			"revision": event.Revision,
 		},
-		Task: taskSummaryModel(task, workspaceID),
+		Task: taskSummaryModel(task, workspaceID, document),
 	}
 }
 
@@ -207,6 +256,10 @@ func (r *Resolver) taskEvents(
 
 	r.subscriptionsMu.Lock()
 	task, taskErr := r.Store.Task(ctx, taskID)
+	var document home.TaskDocument
+	if taskErr == nil {
+		document, taskErr = home.ReadTaskDocument(r.home, taskID)
+	}
 	var events []store.TaskEvent
 	if taskErr == nil {
 		events, taskErr = r.Store.TaskEvents(ctx, taskID, cursor)
@@ -225,7 +278,7 @@ func (r *Resolver) taskEvents(
 	}
 	r.subscriptions[taskID][channel] = struct{}{}
 	for _, event := range events {
-		channel <- taskEventModel(event, task, personalWorkspaceID)
+		channel <- taskEventModel(event, task, personalWorkspaceID, document.Content)
 	}
 	r.subscriptionsMu.Unlock()
 
