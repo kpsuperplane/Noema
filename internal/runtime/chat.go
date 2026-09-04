@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -97,6 +98,7 @@ type Chat struct {
 	openRouter provider.Generator
 	codex      provider.Generator
 	home       *os.Root
+	memory     *noemamemory.Store
 	turns      chan queuedTurn
 	done       chan struct{}
 	closeOnce  sync.Once
@@ -109,14 +111,15 @@ type Chat struct {
 	nextSubID   uint64
 }
 
-// NewChat starts one text-only Chat runtime.
+// NewChat starts one serialized Chat runtime.
 func NewChat(
 	database *store.Store,
 	openRouter provider.Generator,
 	codex provider.Generator,
 	homeRoot *os.Root,
+	memoryStore *noemamemory.Store,
 ) (*Chat, error) {
-	if database == nil || openRouter == nil || codex == nil || homeRoot == nil {
+	if database == nil || openRouter == nil || codex == nil || homeRoot == nil || memoryStore == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
 	}
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
@@ -128,7 +131,7 @@ func NewChat(
 	ctx, cancel := context.WithCancel(context.Background())
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, home: homeRoot,
+		openRouter: openRouter, codex: codex, home: homeRoot, memory: memoryStore,
 		turns: make(chan queuedTurn, turnQueueLimit), done: make(chan struct{}),
 		subscribers: make(map[uint64]subscriber),
 	}
@@ -296,15 +299,17 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages = append([]provider.GenerationMessage{{
-		Role: "developer", Content: runtimeEnvironment(request.conversation, request.location, time.Now()),
-	}}, providerMessages...)
+	memoryContext := c.memoryRootContext()
+	providerMessages = append(
+		developerMessages(runtimeEnvironment(request.conversation, request.location, time.Now()), memoryContext),
+		providerMessages...,
+	)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
 	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
 		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
-		Tools:         []provider.GenerationTool{taskInspectTool()},
+		Tools:         chatTools(),
 		ToolTransport: provider.ToolTransportNative,
 		ToolChoice:    provider.ToolChoiceAuto,
 		FastMode:      assignment.FastMode,
@@ -324,11 +329,11 @@ func (c *Chat) execute(request queuedTurn) {
 		c.finishGeneratedTurn(request.input, turn, assignment, result, 0, result.Usage)
 		return
 	}
-	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != taskInspectName {
+	if len(result.ToolCalls) != 1 || !supportsChatTool(result.ToolCalls[0].Name) {
 		c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
 		return
 	}
-	c.executeTaskInspectRound(request, turn, assignment, generator, result)
+	c.executeChatToolRounds(request, turn, assignment, generator, result, memoryContext)
 }
 
 func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {

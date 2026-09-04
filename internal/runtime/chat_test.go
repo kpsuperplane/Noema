@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,12 +10,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -203,15 +206,15 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
-	if !ok || len(tools) != 1 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+	if !ok || len(tools) != 3 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
 	}
 	function := tools[0].(map[string]any)["function"].(map[string]any)
 	if function["name"] != "inspect" {
 		t.Fatalf("advertised tool = %#v", function)
 	}
-	if len(firstContinuation["tools"].([]any)) != 1 || len(secondContinuation["tools"].([]any)) != 1 {
-		t.Fatal("normal continuations did not retain the Task tool")
+	if len(firstContinuation["tools"].([]any)) != 3 || len(secondContinuation["tools"].([]any)) != 3 {
+		t.Fatal("normal continuations did not retain the Chat tools")
 	}
 	messages := firstContinuation["messages"].([]any)
 	var replayResult map[string]any
@@ -270,6 +273,112 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	if final.Metadata["stream_id"] != store.ConversationAssistantStreamID(final.TurnID, 2) ||
 		providerUsage["total_tokens"] != float64(22) {
 		t.Fatalf("final round metadata = %#v", final.Metadata)
+	}
+}
+
+func TestMemoryToolsEnforceInputRulesAndSelectPages(t *testing.T) {
+	chat, _, _ := chatFixture(t)
+	root, err := chat.memory.ReadRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := chat.memory.Publish(noemamemory.ChangeSet{Upserts: []noemamemory.PageChange{
+		{ID: root.ID, ExpectedHash: root.Hash, Path: root.Path, Title: root.Title, Icon: root.Icon, Body: "People summary."},
+		{Path: "people.md", Title: "People", Icon: "users", Body: "Alice likes tea."},
+	}}, noemamemory.State{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []string{"people.md", "memory:human:people.md"} {
+		payload, success := chat.readMemoryPage(json.RawMessage(`{"page":` + strconv.Quote(selector) + `}`))
+		if !success || !bytes.Contains(payload, []byte(`"path":"people.md"`)) {
+			t.Fatalf("page selector %q = %s, %t", selector, payload, success)
+		}
+	}
+	for _, test := range []struct {
+		name, tool, arguments string
+	}{
+		{"read extra field", noemamemory.ReadPageToolName, `{"page":"people.md","extra":true}`},
+		{"search extra field", noemamemory.SearchToolName, `{"query":"Alice","extra":true}`},
+		{"search limit", noemamemory.SearchToolName, `{"query":"Alice","limit":17}`},
+	} {
+		payload, success := chat.executeChatTool(context.Background(), test.tool, json.RawMessage(test.arguments))
+		if success || !bytes.Contains(payload, []byte(`"code":"invalid_input"`)) {
+			t.Fatalf("%s = %s, %t", test.name, payload, success)
+		}
+	}
+	payload, success := chat.searchMemory(json.RawMessage(`{"query":""}`))
+	if !success || !bytes.Contains(payload, []byte(`"pages":[]`)) {
+		t.Fatalf("empty search = %s, %t", payload, success)
+	}
+}
+
+func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
+	original, database, conversation := chatFixture(t)
+	root, _ := original.memory.ReadRoot()
+	ordinary := "authorization_state=opaque-123"
+	if err := original.memory.Publish(noemamemory.ChangeSet{Upserts: []noemamemory.PageChange{
+		{ID: root.ID, ExpectedHash: root.Hash, Path: root.Path, Title: root.Title, Icon: root.Icon, Body: ordinary},
+		{Path: "people.md", Title: "People", Icon: "users", Body: "Alice likes tea and trains."},
+	}}, noemamemory.State{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := original.Close(); err != nil {
+		t.Fatal(err)
+	}
+	requests := make([]provider.GenerateRequest, 0, 3)
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		requests = append(requests, request)
+		switch len(requests) {
+		case 1:
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{
+				Index: 0, ProviderCallID: "memory_search_1", ProviderName: noemamemory.SearchToolName,
+				Name: noemamemory.SearchToolName, Payload: json.RawMessage(`{"query":"Alice","limit":1}`),
+			}}}, nil
+		case 2:
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{
+				Index: 0, ProviderCallID: "memory_read_1", ProviderName: noemamemory.ReadPageToolName,
+				Name: noemamemory.ReadPageToolName, Payload: json.RawMessage(`{"page":"memory:human:people.md"}`),
+			}}}, nil
+		default:
+			return provider.GenerationResult{Text: "Alice likes tea."}, nil
+		}
+	})
+	chat, err := NewChat(database, generator, original.codex, original.home, original.memory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = chat.Close() })
+	events, err := chat.Subscribe(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{
+		ConversationID: conversation.ID, Input: "What does Alice like?",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if len(requests) != 3 || len(requests[0].Tools) != 3 ||
+		requests[0].Tools[1].Name != "read_memory_page" || requests[0].Tools[2].Name != "search_memory" {
+		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
+	}
+	initialContext := requests[0].Messages[0].Content
+	if !strings.Contains(initialContext, ordinary) ||
+		!strings.Contains(initialContext, "People (people.md, memory:human:people.md)") {
+		t.Fatalf("root Memory context = %q", initialContext)
+	}
+	replayed := make(map[string]json.RawMessage)
+	for _, request := range requests[1:] {
+		for _, message := range request.Messages {
+			if message.ToolResult != nil {
+				replayed[message.ToolResult.Name] = message.ToolResult.Payload
+			}
+		}
+	}
+	if !bytes.Contains(replayed[noemamemory.SearchToolName], []byte(`"snippet":"Alice likes tea and trains"`)) ||
+		!bytes.Contains(replayed[noemamemory.ReadPageToolName], []byte(`"body":"Alice likes tea and trains."`)) {
+		t.Fatalf("Memory replay = %#v", replayed)
 	}
 }
 
@@ -336,7 +445,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
 		}, nil
 	})
-	chat, err := NewChat(database, openRouter, codex, homeRoot)
+	chat, err := NewChat(database, openRouter, codex, homeRoot, openChatMemory(t, homeRoot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,7 +732,7 @@ func TestTaskInspectFinalizationCompactsReplay(t *testing.T) {
 			},
 		)
 	}
-	compacted := compactTaskInspectFinalizationMessages(messages, modelToolPayloadLimit)
+	compacted := compactToolFinalizationMessages(messages, modelToolPayloadLimit)
 	if len(compacted) != 21 || compacted[0].Role != "user" || compacted[0].Content != "current" {
 		t.Fatalf("compacted replay shape = %#v", compacted)
 	}
@@ -734,7 +843,7 @@ func TestChatCloseCancelsActiveProviderAndRejectsNewTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := NewChat(database, chat.openRouter, chat.codex, chat.home)
+	restarted, err := NewChat(database, chat.openRouter, chat.codex, chat.home, chat.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -796,12 +905,22 @@ func chatFixture(t *testing.T) (*Chat, *store.Store, store.Conversation) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := NewChat(database, generator, codexGenerator, homeRoot)
+	chat, err := NewChat(database, generator, codexGenerator, homeRoot, openChatMemory(t, homeRoot))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = chat.Close() })
 	return chat, database, conversation
+}
+
+func openChatMemory(t *testing.T, root *os.Root) *noemamemory.Store {
+	t.Helper()
+	store, err := noemamemory.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
 func collectCompletedTurns(t *testing.T, events <-chan Event, count int) []Event {

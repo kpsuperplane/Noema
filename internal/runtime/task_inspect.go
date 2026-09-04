@@ -270,16 +270,17 @@ func textValue(value any) string {
 	return text
 }
 
-func (c *Chat) executeTaskInspectRound(
+func (c *Chat) executeChatToolRounds(
 	request queuedTurn,
 	turn store.ConversationTurn,
 	assignment store.ModelAssignment,
 	generator provider.Generator,
 	initial provider.GenerationResult,
+	memoryContext string,
 ) {
 	result := initial
 	usage := provider.Usage{}
-	progress := taskInspectProgress{
+	progress := toolProgress{
 		argumentCounts: make(map[string]int), results: make(map[string]struct{}),
 	}
 	for providerRound := 0; ; providerRound++ {
@@ -291,12 +292,12 @@ func (c *Chat) executeTaskInspectRound(
 			c.finishGeneratedTurn(request.input, turn, assignment, result, providerRound, usage)
 			return
 		}
-		if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != taskInspectName {
+		if len(result.ToolCalls) != 1 || !supportsChatTool(result.ToolCalls[0].Name) {
 			c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
 			return
 		}
 		call := result.ToolCalls[0]
-		toolPayload, success, err := c.persistTaskInspectRound(
+		toolPayload, success, err := c.persistChatToolRound(
 			request, turn, assignment, result, call, providerRound,
 		)
 		if err != nil {
@@ -309,8 +310,8 @@ func (c *Chat) executeTaskInspectRound(
 		}
 		nextRound := providerRound + 1
 		var forcedFinalization bool
-		result, forcedFinalization, err = c.generateTaskInspectContinuation(
-			request, turn, assignment, generator, nextRound, stopReason,
+		result, forcedFinalization, err = c.generateChatToolContinuation(
+			request, turn, assignment, generator, nextRound, stopReason, memoryContext,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
@@ -331,7 +332,7 @@ func (c *Chat) executeTaskInspectRound(
 	}
 }
 
-func (c *Chat) persistTaskInspectRound(
+func (c *Chat) persistChatToolRound(
 	request queuedTurn,
 	turn store.ConversationTurn,
 	assignment store.ModelAssignment,
@@ -367,7 +368,7 @@ func (c *Chat) persistTaskInspectRound(
 	if callItem.ID == "" {
 		return nil, false, errors.New("stored tool call is unavailable")
 	}
-	toolPayload, success := c.inspectTask(c.ctx, call.Payload)
+	toolPayload, success := c.executeChatTool(c.ctx, call.Name, call.Payload)
 	resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
 		CallItemID: callItem.ID, Provider: assignment.ProviderKind,
 		ProviderRound: providerRound, OutputIndex: call.Index,
@@ -384,13 +385,14 @@ func (c *Chat) persistTaskInspectRound(
 	return toolPayload, success, nil
 }
 
-func (c *Chat) generateTaskInspectContinuation(
+func (c *Chat) generateChatToolContinuation(
 	request queuedTurn,
 	turn store.ConversationTurn,
 	assignment store.ModelAssignment,
 	generator provider.Generator,
 	providerRound int,
 	stopReason string,
+	memoryContext string,
 ) (provider.GenerationResult, bool, error) {
 	stored, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
@@ -401,23 +403,22 @@ func (c *Chat) generateTaskInspectContinuation(
 		return provider.GenerationResult{}, false, err
 	}
 	environment := runtimeEnvironment(request.conversation, request.location, time.Now())
-	tools := []provider.GenerationTool{taskInspectTool()}
+	tools := chatTools()
 	transport := provider.ToolTransportNative
 	if stopReason != "" {
-		environment += "\n\n" + taskInspectFinalizationInstruction(stopReason)
-		messages = compactTaskInspectFinalizationMessages(messages, modelToolPayloadLimit)
+		environment += "\n\n" + toolFinalizationInstruction(stopReason)
+		messages = compactToolFinalizationMessages(messages, modelToolPayloadLimit)
 		tools = nil
 		transport = provider.ToolTransportNone
 	}
-	messages = append([]provider.GenerationMessage{{
-		Role: "developer", Content: environment,
-	}}, messages...)
+	developer := developerMessages(environment, memoryContext)
+	messages = append(developer, messages...)
 	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
 	generate := func() (provider.GenerationResult, error) {
 		return generator.Generate(c.ctx, provider.GenerateRequest{
 			AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
-			ConversationID: turn.ConversationID, MaxOutputTokens: taskInspectOutputTokens(stopReason != ""),
+			ConversationID: turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
 			FastMode: assignment.FastMode,
 		}, func(event provider.StreamEvent) {
@@ -445,17 +446,17 @@ func (c *Chat) generateTaskInspectContinuation(
 	if stopReason == "" {
 		stopReason = "provider replay limit reached"
 		environment = runtimeEnvironment(request.conversation, request.location, time.Now()) +
-			"\n\n" + taskInspectFinalizationInstruction(stopReason)
+			"\n\n" + toolFinalizationInstruction(stopReason)
 	}
-	messages = compactTaskInspectFinalizationMessages(messages[1:], payloadLimit)
-	messages = append([]provider.GenerationMessage{{Role: "developer", Content: environment}}, messages...)
+	messages = compactToolFinalizationMessages(messages[len(developer):], payloadLimit)
+	messages = append(developerMessages(environment, memoryContext), messages...)
 	tools = nil
 	transport = provider.ToolTransportNone
 	result, err = generate()
 	return result, true, err
 }
 
-func compactTaskInspectFinalizationMessages(
+func compactToolFinalizationMessages(
 	messages []provider.GenerationMessage,
 	payloadLimit int,
 ) []provider.GenerationMessage {
@@ -496,7 +497,7 @@ func compactTaskInspectFinalizationMessages(
 	return result
 }
 
-func taskInspectOutputTokens(finalization bool) *uint32 {
+func toolOutputTokens(finalization bool) *uint32 {
 	if !finalization {
 		return maxOutputTokens()
 	}
@@ -515,14 +516,14 @@ func boundedUTF8(value string, limit int) string {
 	return value
 }
 
-type taskInspectProgress struct {
+type toolProgress struct {
 	argumentCounts map[string]int
 	results        map[string]struct{}
 	repeated       int
 	failures       int
 }
 
-func (p *taskInspectProgress) observe(
+func (p *toolProgress) observe(
 	call provider.GenerationToolCall,
 	payload json.RawMessage,
 	success bool,
@@ -551,7 +552,7 @@ func (p *taskInspectProgress) observe(
 	return ""
 }
 
-func taskInspectFinalizationInstruction(reason string) string {
+func toolFinalizationInstruction(reason string) string {
 	return "The tool loop must stop because: " + reason +
 		". Give one concise final answer from the saved results. Do not call tools."
 }

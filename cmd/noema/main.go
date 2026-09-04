@@ -116,7 +116,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	chatRuntime, err := noemaruntime.NewChat(
-		taskStore, openRouterGenerator, codexGenerator, root,
+		taskStore, openRouterGenerator, codexGenerator, root, nativeMemory,
 	)
 	if err != nil {
 		return err

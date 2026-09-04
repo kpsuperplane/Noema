@@ -3,6 +3,7 @@ package memory
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -62,6 +63,58 @@ func TestMemoryPublishesHierarchyCitationsAndStableMove(t *testing.T) {
 	checkpoint, err := store.State()
 	if err != nil || checkpoint != state {
 		t.Fatalf("checkpoint = %#v, %v", checkpoint, err)
+	}
+}
+
+func TestMemorySearchIsStrictBoundedAndRebuilt(t *testing.T) {
+	store, _ := openMemoryTestStore(t)
+	changes := []PageChange{{
+		Path: "people.md", Title: "People", Icon: "users",
+		Body: "Alice recently completed several hikes and likes tea.",
+	}}
+	for index := range 17 {
+		changes = append(changes, PageChange{
+			Path: fmt.Sprintf("topic-%02d.md", index), Title: fmt.Sprintf("Topic %02d", index),
+			Icon: "file-text", Body: "Shared reference material.",
+		})
+	}
+	if err := store.Publish(ChangeSet{Upserts: changes}, State{}); err != nil {
+		t.Fatal(err)
+	}
+	for query, want := range map[string]string{
+		"Alice":                 "people.md",
+		"Alice \"":              "people.md",
+		"recent hike completed": "people.md",
+	} {
+		results, err := store.Search(query, 5)
+		if err != nil || len(results) != 1 || results[0].Path != want || !strings.Contains(results[0].Snippet, "Alice") {
+			t.Fatalf("search %q = %#v, %v", query, results, err)
+		}
+	}
+	for _, query := range []string{"", "\"", "unrelated Alice"} {
+		results, err := store.Search(query, 5)
+		if err != nil || len(results) != 0 {
+			t.Fatalf("empty or strict search %q = %#v, %v", query, results, err)
+		}
+	}
+	bounded, err := store.Search("shared", 100)
+	if err != nil || len(bounded) != maxSearchResults || bounded[0].Path != "topic-00.md" {
+		t.Fatalf("bounded search = %#v, %v", bounded, err)
+	}
+	people, err := store.ReadPage("people.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Publish(ChangeSet{Upserts: []PageChange{{
+		ID: people.ID, ExpectedHash: people.Hash, Path: people.Path,
+		Title: people.Title, Icon: people.Icon, Body: "Bob likes trains.",
+	}}}, State{}); err != nil {
+		t.Fatal(err)
+	}
+	oldResults, _ := store.Search("Alice", 5)
+	newResults, _ := store.Search("Bob", 5)
+	if len(oldResults) != 0 || len(newResults) != 1 || newResults[0].Path != "people.md" {
+		t.Fatalf("rebuilt search = old %#v, new %#v", oldResults, newResults)
 	}
 }
 

@@ -59,6 +59,11 @@ func (s *Store) Publish(changes ChangeSet, state State) error {
 	if err := s.apply(pending); err != nil {
 		return err
 	}
+	pages, err := s.pages()
+	if err != nil {
+		return fmt.Errorf("rebuild Memory search: %w", err)
+	}
+	s.searchPages = buildSearchPages(pages)
 	if err := writeRootFile(s.root, ".state.md", renderState(pending.State)); err != nil {
 		return fmt.Errorf("save Memory checkpoint: %w", err)
 	}

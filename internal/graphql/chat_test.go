@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -205,7 +206,7 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver.Chat, err = noemaruntime.NewChat(
-		resolver.Store, generator, codexGenerator, resolver.home,
+		resolver.Store, generator, codexGenerator, resolver.home, resolver.Memory,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -281,7 +282,13 @@ func openChatTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := noemaruntime.NewChat(resolver.Store, generator, codexGenerator, resolver.home)
+	nativeMemory, err := noemamemory.New(resolver.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.Memory = nativeMemory
+	t.Cleanup(func() { _ = nativeMemory.Close() })
+	chat, err := noemaruntime.NewChat(resolver.Store, generator, codexGenerator, resolver.home, nativeMemory)
 	if err != nil {
 		t.Fatal(err)
 	}

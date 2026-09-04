@@ -22,12 +22,14 @@ import (
 )
 
 const (
-	Owner          = "human:local"
-	Scope          = "human:local"
-	RootPagePath   = "root.md"
-	MaxWords       = 750
-	memoryRootPath = "memory/human"
-	pageReadLimit  = 1 << 20
+	Owner            = "human:local"
+	Scope            = "human:local"
+	RootPagePath     = "root.md"
+	ReadPageToolName = "read_memory_page"
+	SearchToolName   = "search_memory"
+	MaxWords         = 750
+	memoryRootPath   = "memory/human"
+	pageReadLimit    = 1 << 20
 )
 
 var (
@@ -49,7 +51,12 @@ type Citation struct {
 }
 
 type PageRef struct {
-	ID, Path, Title, Icon, Excerpt, Hash string
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Icon    string `json:"icon"`
+	Excerpt string `json:"excerpt"`
+	Hash    string `json:"hash"`
 }
 
 type Page struct {
@@ -57,6 +64,14 @@ type Page struct {
 	Citations                         []Citation
 	Parent                            string
 	Ancestors, Children               []PageRef
+}
+
+type SearchResult struct {
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Snippet string `json:"snippet"`
+	Hash    string `json:"hash"`
 }
 
 type State struct {
@@ -77,8 +92,9 @@ type ChangeSet struct {
 }
 
 type Store struct {
-	root *os.Root
-	mu   sync.RWMutex
+	root        *os.Root
+	mu          sync.RWMutex
+	searchPages []searchPage
 }
 
 func New(home *os.Root) (*Store, error) {
@@ -162,8 +178,12 @@ func (s *Store) initialize() error {
 	if err := s.recoverPending(); err != nil {
 		return fmt.Errorf("recover Memory publication: %w", err)
 	}
-	_, err := s.pages()
-	return err
+	pages, err := s.pages()
+	if err != nil {
+		return err
+	}
+	s.searchPages = buildSearchPages(pages)
+	return nil
 }
 
 type parsedPage struct {
