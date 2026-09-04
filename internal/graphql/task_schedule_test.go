@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -19,8 +20,13 @@ func TestTaskScheduleGraphQLCommandsAndRecurrenceAuthority(t *testing.T) {
 		Title: "Recurring", TaskDocument: "# Recurring\n", ClientMutationID: "capture-recurring",
 		Schedule: &model.NewTaskScheduleInput{ScheduledFor: first.Format(time.RFC3339), TimeZone: "UTC",
 			Recurrence: &model.NewTaskRecurrenceInput{StartsAt: first.Format(time.RFC3339), CronExpression: cron}}})
-	if err != nil || created.Task.Schedule == nil || created.Task.Schedule.RecurrenceID == nil {
+	if err != nil || created.Task.Schedule == nil || created.Task.Schedule.RecurrenceID == nil ||
+		created.Task.ExecutorBackend != "provider" {
 		t.Fatalf("created scheduled Task = %#v, %v", created, err)
+	}
+	recurrenceID := *created.Task.Schedule.RecurrenceID
+	if err := home.DeleteRecurrenceDocument(resolver.home, recurrenceID); err != nil {
+		t.Fatal(err)
 	}
 	replayed, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID,
 		Title: "Recurring", TaskDocument: "# Recurring\n", ClientMutationID: "capture-recurring",
@@ -29,7 +35,6 @@ func TestTaskScheduleGraphQLCommandsAndRecurrenceAuthority(t *testing.T) {
 	if err != nil || replayed.Task.TaskID != created.Task.TaskID {
 		t.Fatalf("replayed capture = %#v, %v", replayed, err)
 	}
-	recurrenceID := *created.Task.Schedule.RecurrenceID
 	recurrence, err := resolver.taskRecurrence(ctx, recurrenceID, nil)
 	if err != nil || recurrence.TaskDocument != "# Recurring\n" || len(recurrence.Occurrences) != 1 {
 		t.Fatalf("recurrence = %#v, %v", recurrence, err)
@@ -68,6 +73,18 @@ func TestTaskScheduleGraphQLCommandsAndRecurrenceAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	command.ExpectedRevision, command.ClientMutationID = 5, "run-extra"
+	manualCommand, err := newTaskCommand("run_task_recurrence_now", command.ClientMutationID, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualTaskID, _ := store.NewTaskID()
+	if err := home.StageRecurrenceDocumentToTask(resolver.home, recurrenceID, manualTaskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.RunTaskRecurrenceNow(ctx, recurrenceID, manualTaskID,
+		int64(command.ExpectedRevision), manualCommand, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	manual, err := resolver.runTaskRecurrenceNow(ctx, command)
 	if err != nil || manual.Task.TaskDocument != nextDocument || manual.Task.TaskID == created.Task.TaskID {
 		t.Fatalf("manual occurrence = %#v, %v", manual, err)

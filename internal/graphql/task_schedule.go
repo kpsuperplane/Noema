@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -69,6 +70,8 @@ func overlapPolicy(value model.OverlapPolicy) schedule.OverlapPolicy {
 func (r *Resolver) setTaskSchedule(
 	ctx context.Context, input model.ScheduleTaskInput, requireExisting bool,
 ) (*model.TaskCommandPayload, error) {
+	unlockSchedules := r.Store.LockTaskSchedules()
+	defer unlockSchedules()
 	if input.ExpectedGeneration != 1 || input.ClientMutationID == "" || input.Schedule == nil {
 		return nil, errors.New("invalid scheduled Task command")
 	}
@@ -103,12 +106,15 @@ func (r *Resolver) setTaskSchedule(
 			return nil, err
 		}
 	}
+	r.Store.NotifyWork()
 	return r.taskCommandPayload(ctx, result, input.ClientMutationID)
 }
 
 func (r *Resolver) unscheduleTask(
 	ctx context.Context, input model.UnscheduleTaskInput,
 ) (*model.TaskCommandPayload, error) {
+	unlockSchedules := r.Store.LockTaskSchedules()
+	defer unlockSchedules()
 	if input.ExpectedGeneration != 1 || input.ClientMutationID == "" {
 		return nil, errors.New("invalid unschedule command")
 	}
@@ -125,6 +131,7 @@ func (r *Resolver) unscheduleTask(
 			return nil, err
 		}
 	}
+	r.Store.NotifyWork()
 	return r.taskCommandPayload(ctx, result, input.ClientMutationID)
 }
 
@@ -142,12 +149,15 @@ func (r *Resolver) runScheduledTaskNow(
 	if err != nil {
 		return nil, taskScheduleError(err)
 	}
+	r.Store.NotifyWork()
 	return r.taskCommandPayload(ctx, result, input.ClientMutationID)
 }
 
 func (r *Resolver) updateTaskRecurrence(
 	ctx context.Context, input model.UpdateTaskRecurrenceInput,
 ) (*model.TaskCommandPayload, error) {
+	unlockSchedules := r.Store.LockTaskSchedules()
+	defer unlockSchedules()
 	if input.ClientMutationID == "" {
 		return nil, errors.New("clientMutationId cannot be empty")
 	}
@@ -190,21 +200,20 @@ func (r *Resolver) updateTaskRecurrence(
 	if replay, found, err := r.Store.LookupTaskCommandReceipt(ctx, command); err != nil {
 		return nil, taskScheduleError(err)
 	} else if found {
+		if err := r.recoverRecurrenceStage(replay, command); err != nil {
+			return nil, taskScheduleError(err)
+		}
+		r.Store.NotifyWork()
 		return r.taskCommandPayload(ctx, replay, input.ClientMutationID)
 	}
-	var previous, replacement home.TaskDocument
+	var stage home.RecurrenceDocumentStage
 	var documentChanged bool
 	if input.TaskDocument != nil {
 		if input.ExpectedTaskDocumentDigest == nil {
 			return nil, errors.New("expectedTaskDocumentDigest is required")
 		}
-		var err error
-		previous, err = home.ReadRecurrenceDocument(r.home, input.RecurrenceID)
-		if err != nil {
-			return nil, err
-		}
-		replacement, err = home.WriteRecurrenceDocument(r.home, input.RecurrenceID,
-			*input.TaskDocument, input.ExpectedTaskDocumentDigest)
+		stage, err = home.PrepareRecurrenceDocumentReplace(r.home, input.RecurrenceID,
+			*input.ExpectedTaskDocumentDigest, *input.TaskDocument, command.RequestDigest)
 		if err != nil {
 			return nil, taskScheduleError(err)
 		}
@@ -214,12 +223,27 @@ func (r *Resolver) updateTaskRecurrence(
 		int64(input.ExpectedRevision), changes, command, time.Now())
 	if err != nil {
 		if documentChanged {
-			_, rollbackErr := home.WriteRecurrenceDocument(r.home, input.RecurrenceID,
-				previous.Content, &replacement.Digest)
-			err = errors.Join(err, rollbackErr)
+			replay, found, receiptErr := r.Store.LookupTaskCommandReceipt(ctx, command)
+			if receiptErr != nil {
+				return nil, taskScheduleError(errors.Join(err, receiptErr))
+			}
+			if found {
+				if recoverErr := r.recoverRecurrenceStage(replay, command); recoverErr != nil {
+					return nil, taskScheduleError(recoverErr)
+				}
+				r.Store.NotifyWork()
+				return r.taskCommandPayload(ctx, replay, input.ClientMutationID)
+			}
+			err = errors.Join(err, home.DiscardRecurrenceDocumentStage(r.home, command.RequestDigest))
 		}
 		return nil, taskScheduleError(err)
 	}
+	if documentChanged {
+		if _, err := home.CommitRecurrenceDocumentStage(r.home, stage); err != nil {
+			return nil, taskScheduleError(err)
+		}
+	}
+	r.Store.NotifyWork()
 	return r.taskCommandPayload(ctx, result, input.ClientMutationID)
 }
 
@@ -238,6 +262,7 @@ func (r *Resolver) taskRecurrenceLifecycle(
 	if err != nil {
 		return nil, taskScheduleError(err)
 	}
+	r.Store.NotifyWork()
 	return r.taskCommandPayload(ctx, result, input.ClientMutationID)
 }
 
@@ -256,12 +281,15 @@ func (r *Resolver) skipTaskRecurrenceNext(
 	if err != nil {
 		return nil, taskScheduleError(err)
 	}
+	r.Store.NotifyWork()
 	return r.taskCommandPayload(ctx, result, input.ClientMutationID)
 }
 
 func (r *Resolver) runTaskRecurrenceNow(
 	ctx context.Context, input model.TaskRecurrenceCommandInput,
 ) (*model.TaskCommandPayload, error) {
+	unlockSchedules := r.Store.LockTaskSchedules()
+	defer unlockSchedules()
 	if input.ClientMutationID == "" {
 		return nil, errors.New("clientMutationId cannot be empty")
 	}
@@ -269,15 +297,58 @@ func (r *Resolver) runTaskRecurrenceNow(
 	if err != nil {
 		return nil, err
 	}
-	result, err := r.Store.RunTaskRecurrenceNow(ctx, input.RecurrenceID,
-		int64(input.ExpectedRevision), command, time.Now())
-	if err != nil {
+	if replay, found, err := r.Store.LookupTaskCommandReceipt(ctx, command); err != nil {
 		return nil, taskScheduleError(err)
+	} else if found {
+		if err := home.CopyRecurrenceDocumentToTask(r.home, input.RecurrenceID, replay.Task.ID); err != nil {
+			return nil, err
+		}
+		r.Store.NotifyWork()
+		return r.taskCommandPayload(ctx, replay, input.ClientMutationID)
 	}
-	if err := home.CopyRecurrenceDocumentToTask(r.home, input.RecurrenceID, result.Task.ID); err != nil {
+	taskID, err := store.NewTaskID()
+	if err != nil {
 		return nil, err
 	}
+	if err := home.StageRecurrenceDocumentToTask(r.home, input.RecurrenceID, taskID); err != nil {
+		return nil, err
+	}
+	result, err := r.Store.RunTaskRecurrenceNow(ctx, input.RecurrenceID, taskID,
+		int64(input.ExpectedRevision), command, time.Now())
+	if err != nil {
+		replay, found, receiptErr := r.Store.LookupTaskCommandReceipt(ctx, command)
+		if receiptErr != nil {
+			return nil, taskScheduleError(errors.Join(err, receiptErr))
+		}
+		if found && replay.Task.ID == taskID {
+			if publishErr := home.CommitTaskDocument(r.home, taskID); publishErr != nil {
+				return nil, publishErr
+			}
+			r.Store.NotifyWork()
+			return r.taskCommandPayload(ctx, replay, input.ClientMutationID)
+		}
+		return nil, taskScheduleError(errors.Join(err, home.DiscardPendingTaskDocument(r.home, taskID)))
+	}
+	if err := home.CommitTaskDocument(r.home, taskID); err != nil {
+		return nil, err
+	}
+	r.Store.NotifyWork()
 	return r.taskCommandPayload(ctx, result, input.ClientMutationID)
+}
+
+func (r *Resolver) recoverRecurrenceStage(result store.TaskCommandResult, command store.TaskCommand) error {
+	stage, err := home.ReadRecurrenceDocumentStage(r.home, command.RequestDigest)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if stage.RecurrenceID != result.RecurrenceID {
+		return errors.New("staged recurrence document does not match its command receipt")
+	}
+	_, err = home.CommitRecurrenceDocumentStage(r.home, stage)
+	return err
 }
 
 func (r *Resolver) taskCommandPayload(

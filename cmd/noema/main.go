@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -77,7 +78,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return fmt.Errorf("open Artifact service: %w", err)
 	}
-	scheduleErrors := runTaskSchedules(ctx, root, taskStore)
+	runTaskSchedules(ctx, root, taskStore, output)
 	authConfig, recovery, err := auth.LoadConfig(paths, address)
 	if err != nil {
 		return err
@@ -166,12 +167,32 @@ func run(ctx context.Context, address string, output *os.File) error {
 			return nil
 		}
 		return fmt.Errorf("serve HTTP: %w", err)
-	case err := <-scheduleErrors:
-		return fmt.Errorf("process Task schedules: %w", err)
 	}
 }
 
 func recoverRecurrenceDocuments(ctx context.Context, root *os.Root, database *store.Store) error {
+	stages, err := home.RecurrenceDocumentStages(root)
+	if err != nil {
+		return fmt.Errorf("list staged recurrence documents: %w", err)
+	}
+	for _, stage := range stages {
+		result, found, err := database.TaskRecurrenceReceiptResult(ctx, stage.RecurrenceID, stage.RequestDigest)
+		if err != nil {
+			return fmt.Errorf("inspect staged recurrence %s: %w", stage.RecurrenceID, err)
+		}
+		if !found {
+			if err := home.DiscardRecurrenceDocumentStage(root, stage.RequestDigest); err != nil {
+				return fmt.Errorf("discard uncommitted recurrence %s: %w", stage.RecurrenceID, err)
+			}
+			continue
+		}
+		if result.RecurrenceID != stage.RecurrenceID {
+			return fmt.Errorf("staged recurrence %s does not match its command receipt", stage.RecurrenceID)
+		}
+		if _, err := home.CommitRecurrenceDocumentStage(root, stage); err != nil {
+			return fmt.Errorf("recover recurrence %s: %w", stage.RecurrenceID, err)
+		}
+	}
 	values, err := database.RecurrenceTaskDocuments(ctx)
 	if err != nil {
 		return fmt.Errorf("list recurrence Task documents: %w", err)
@@ -195,31 +216,74 @@ func recoverRecurrenceDocuments(ctx context.Context, root *os.Root, database *st
 	return nil
 }
 
-func runTaskSchedules(ctx context.Context, root *os.Root, database *store.Store) <-chan error {
-	result := make(chan error, 1)
-	go func() {
-		if err := taskScheduleLoop(ctx, root, database); err != nil {
-			result <- err
-		}
-	}()
-	return result
+func runTaskSchedules(ctx context.Context, root *os.Root, database *store.Store, output io.Writer) {
+	go func() { _ = taskScheduleLoop(ctx, root, database, output) }()
 }
 
-func taskScheduleLoop(ctx context.Context, root *os.Root, database *store.Store) error {
+func taskScheduleLoop(ctx context.Context, root *os.Root, database *store.Store, output io.Writer) error {
 	wake := database.SubscribeWork(ctx)
 	recovering := true
+	retryDelay := 100 * time.Millisecond
+	needsRecovery := false
 	for {
-		_, err := database.ProcessDueTaskSchedules(ctx, time.Now(), recovering, func(value store.DueTask) error {
-			return home.CopyRecurrenceDocumentToTask(root, value.RecurrenceID, value.TaskID)
-		})
-		if err != nil {
-			return err
+		unlockSchedules := database.LockTaskSchedules()
+		var err error
+		if needsRecovery {
+			err = home.RecoverTaskDocuments(root, func(taskID string) (bool, error) {
+				return database.TaskExists(ctx, taskID)
+			})
+			if err == nil {
+				err = recoverRecurrenceDocuments(ctx, root, database)
+			}
 		}
+		var created []store.DueTask
+		var changed bool
+		if err == nil {
+			created, changed, err = database.ProcessDueTaskSchedules(ctx, time.Now(), recovering, func(value store.DueTask) error {
+				return home.StageRecurrenceDocumentToTask(root, value.RecurrenceID, value.TaskID)
+			})
+		}
+		if err == nil {
+			for _, value := range created {
+				if err = home.CommitTaskDocument(root, value.TaskID); err != nil {
+					break
+				}
+			}
+		}
+		if err == nil && changed {
+			database.NotifyWork()
+		}
+		var deadline *time.Time
+		if err == nil {
+			deadline, err = database.NextTaskScheduleDeadline(ctx)
+		}
+		unlockSchedules()
+		if err != nil {
+			needsRecovery = true
+			fmt.Fprintf(output, "Task schedule processing failed; retrying in %s: %v\n", retryDelay, err)
+			timer := time.NewTimer(retryDelay)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				return nil
+			case <-timer.C:
+			}
+			if retryDelay < 5*time.Second {
+				retryDelay *= 2
+				if retryDelay > 5*time.Second {
+					retryDelay = 5 * time.Second
+				}
+			}
+			continue
+		}
+		needsRecovery = false
+		retryDelay = 100 * time.Millisecond
 		recovering = false
-		deadline, err := database.NextTaskScheduleDeadline(ctx)
-		if err != nil {
-			return err
-		}
 		if deadline == nil {
 			select {
 			case <-ctx.Done():

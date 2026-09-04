@@ -79,7 +79,7 @@ func TestDueSchedulesApplyMissedAndOverlapPolicies(t *testing.T) {
 			TaskCreateOptions{Schedule: &value}, now.Add(-time.Hour)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := database.ProcessDueTaskSchedules(ctx, now, true, nil); err != nil {
+		if _, _, err := database.ProcessDueTaskSchedules(ctx, now, true, nil); err != nil {
 			t.Fatal(err)
 		}
 		task, _ := database.Task(ctx, id)
@@ -101,7 +101,7 @@ func TestDueSchedulesApplyMissedAndOverlapPolicies(t *testing.T) {
 		if _, err := database.StartTask(ctx, id, "run:early", now.Add(-time.Minute)); !errors.Is(err, ErrInvalidTransition) {
 			t.Fatalf("early scheduled start error = %v", err)
 		}
-		materialized, err := database.ProcessDueTaskSchedules(ctx, now, true, nil)
+		materialized, _, err := database.ProcessDueTaskSchedules(ctx, now, true, nil)
 		if err != nil || len(materialized) != 0 {
 			t.Fatalf("first due = %#v, %v", materialized, err)
 		}
@@ -116,7 +116,7 @@ func TestDueSchedulesApplyMissedAndOverlapPolicies(t *testing.T) {
 		if _, err := database.FinishTask(ctx, id, started.CurrentRunID, TaskCompleted, now); err != nil {
 			t.Fatal(err)
 		}
-		materialized, err = database.ProcessDueTaskSchedules(ctx, now, false, nil)
+		materialized, _, err = database.ProcessDueTaskSchedules(ctx, now, false, nil)
 		if err != nil || len(materialized) != 1 || materialized[0].RecurrenceID != created.RecurrenceID {
 			t.Fatalf("released due = %#v, %v", materialized, err)
 		}

@@ -39,6 +39,12 @@ type TaskCommandResult struct {
 	Replayed             bool
 }
 
+// LockTaskSchedules prevents a scheduler from observing a committed document publication gap.
+func (s *Store) LockTaskSchedules() func() {
+	s.taskScheduleMu.Lock()
+	return s.taskScheduleMu.Unlock
+}
+
 // TaskCommand identifies one repeat-safe Task schedule command.
 type TaskCommand struct {
 	Name, ClientMutationID, RequestDigest, CorrelationID string
@@ -178,7 +184,6 @@ VALUES (?, NULLIF(?, ''), ?, 'captured', NULL, 1, ?, ?, ?, ?, NULLIF(?, ''),
 	if err := tx.Commit(); err != nil {
 		return TaskCommandResult{}, fmt.Errorf("commit Task creation: %w", err)
 	}
-	s.NotifyWork()
 	return result, nil
 }
 
@@ -319,7 +324,6 @@ func (s *Store) taskScheduleCommand(
 	if err := tx.Commit(); err != nil {
 		return TaskCommandResult{}, err
 	}
-	s.NotifyWork()
 	return result, nil
 }
 
@@ -569,9 +573,9 @@ revision = ?, updated_at_ms = ? WHERE recurrence_id = ? AND revision = ?`, milli
 
 // RunTaskRecurrenceNow creates one manual occurrence when no child is active.
 func (s *Store) RunTaskRecurrenceNow(
-	ctx context.Context, id string, expectedRevision int64, command TaskCommand, now time.Time,
+	ctx context.Context, id, taskID string, expectedRevision int64, command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
-	if expectedRevision <= 0 || validateTaskCommand(command) != nil {
+	if expectedRevision <= 0 || !validTaskID(taskID) || validateTaskCommand(command) != nil {
 		return TaskCommandResult{}, ErrStaleRevision
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -598,7 +602,7 @@ func (s *Store) RunTaskRecurrenceNow(
 	if recurrence.Lifecycle == RecurrenceEnded || active {
 		return TaskCommandResult{}, ErrInvalidTransition
 	}
-	task, event, err := materializeOccurrenceTx(ctx, tx, &recurrence, now.UTC(), "manual", false,
+	task, event, err := materializeOccurrenceTx(ctx, tx, &recurrence, taskID, now.UTC(), "manual", false,
 		"actor:human:local", command.CorrelationID, now.UTC())
 	if err != nil {
 		return TaskCommandResult{}, err
@@ -610,7 +614,6 @@ func (s *Store) RunTaskRecurrenceNow(
 	if err := tx.Commit(); err != nil {
 		return TaskCommandResult{}, err
 	}
-	s.NotifyWork()
 	return result, nil
 }
 
@@ -660,7 +663,6 @@ func (s *Store) recurrenceCommand(
 	if err := tx.Commit(); err != nil {
 		return TaskCommandResult{}, err
 	}
-	s.NotifyWork()
 	return result, nil
 }
 
@@ -682,14 +684,14 @@ SELECT COALESCE(pending_coalesced_at_ms, next_run_at_ms) FROM task_recurrences r
 }
 
 // ProcessDueTaskSchedules resolves all deadlines due at now in one transaction.
-// It publishes new occurrence documents before it wakes event subscribers.
+// It stages new occurrence documents before the database commit.
 func (s *Store) ProcessDueTaskSchedules(
-	ctx context.Context, now time.Time, recovering bool, publish func(DueTask) error,
-) ([]DueTask, error) {
+	ctx context.Context, now time.Time, recovering bool, stage func(DueTask) error,
+) ([]DueTask, bool, error) {
 	now = now.UTC()
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	created := make([]DueTask, 0)
@@ -701,13 +703,13 @@ AND schedule_processed_at_ms IS NULL AND state = 'captured'
 ORDER BY scheduled_for_ms, task_id LIMIT 1`, millis(now)).Scan(&taskID)
 		if err == nil {
 			if err := processDueTaskTx(ctx, tx, taskID, now, recovering); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			changed = true
 			continue
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
+			return nil, false, err
 		}
 		var recurrenceID string
 		err = tx.QueryRowContext(ctx, `SELECT recurrence_id FROM task_recurrences recurrence
@@ -720,31 +722,28 @@ ORDER BY COALESCE(pending_coalesced_at_ms, next_run_at_ms), recurrence_id LIMIT 
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		createdTask, err := processDueRecurrenceTx(ctx, tx, recurrenceID, now, recovering)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if createdTask != "" {
 			created = append(created, DueTask{createdTask, recurrenceID})
 		}
 		changed = true
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	if publish != nil {
+	if stage != nil {
 		for _, value := range created {
-			if err := publish(value); err != nil {
-				return created, err
+			if err := stage(value); err != nil {
+				return created, changed, err
 			}
 		}
 	}
-	if changed {
-		s.NotifyWork()
+	if err := tx.Commit(); err != nil {
+		return created, changed, err
 	}
-	return created, nil
+	return created, changed, nil
 }
 
 func processDueTaskTx(ctx context.Context, tx *sql.Tx, id string, now time.Time, recovering bool) error {
@@ -792,7 +791,7 @@ func processDueRecurrenceTx(
 			return "", nil
 		}
 		due := *value.PendingCoalescedAt
-		task, _, err := materializeOccurrenceTx(ctx, tx, &value, due, "scheduled", true,
+		task, _, err := materializeOccurrenceTx(ctx, tx, &value, "", due, "scheduled", true,
 			"actor:system:scheduler", "correlation:schedule:"+id, now)
 		if err != nil {
 			return "", err
@@ -836,7 +835,7 @@ WHERE recurrence_id = ? AND local_slot = ?)`, id, slot).Scan(&duplicate); err !=
 	}
 	createdID := ""
 	if resolution == "materialized" {
-		task, _, err := materializeOccurrenceTx(ctx, tx, &value, due, "scheduled", false,
+		task, _, err := materializeOccurrenceTx(ctx, tx, &value, "", due, "scheduled", false,
 			"actor:system:scheduler", "correlation:schedule:"+id, now)
 		if err != nil {
 			return "", err
@@ -887,12 +886,15 @@ WHERE recurrence_id IS NOT NULL ORDER BY created_at_ms, task_id`)
 }
 
 func materializeOccurrenceTx(
-	ctx context.Context, tx *sql.Tx, value *TaskRecurrence, due time.Time, trigger string,
+	ctx context.Context, tx *sql.Tx, value *TaskRecurrence, id string, due time.Time, trigger string,
 	release bool, actor, correlation string, now time.Time,
 ) (Task, WorkEvent, error) {
-	id, err := newID("task")
-	if err != nil {
-		return Task{}, WorkEvent{}, err
+	var err error
+	if id == "" {
+		id, err = newID("task")
+		if err != nil {
+			return Task{}, WorkEvent{}, err
+		}
 	}
 	task := Task{ID: id, ProjectID: value.ProjectID, Title: value.Title, State: TaskCaptured,
 		Revision: 1, ExecutorAgentID: value.ExecutorAgentID,
@@ -1089,6 +1091,35 @@ func (s *Store) LookupTaskCommandReceipt(
 		return TaskCommandResult{}, false, err
 	}
 	return lookupTaskReceiptTx(ctx, s.db, command)
+}
+
+// TaskRecurrenceReceiptResult returns one committed recurrence document update.
+func (s *Store) TaskRecurrenceReceiptResult(
+	ctx context.Context, recurrenceID, requestDigest string,
+) (TaskCommandResult, bool, error) {
+	decoded, err := hex.DecodeString(requestDigest)
+	if recurrenceID == "" || err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != requestDigest {
+		return TaskCommandResult{}, false, errors.New("invalid recurrence receipt lookup")
+	}
+	var response string
+	err = s.db.QueryRowContext(ctx, `SELECT response_json FROM command_receipts
+WHERE actor_id = 'actor:human:local' AND command_name = 'update_task_recurrence'
+ AND request_digest = ? ORDER BY result_event_id DESC LIMIT 1`, requestDigest).Scan(&response)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskCommandResult{}, false, nil
+	}
+	if err != nil {
+		return TaskCommandResult{}, false, err
+	}
+	var result TaskCommandResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		return TaskCommandResult{}, true, err
+	}
+	if result.RecurrenceID != recurrenceID {
+		return TaskCommandResult{}, true, errors.New("recurrence receipt does not match its stage")
+	}
+	result.Replayed = true
+	return result, true, nil
 }
 
 func lookupTaskReceiptTx(

@@ -128,6 +128,52 @@ func TestAcpAgentConfigurationRevisionAndAuthentication(t *testing.T) {
 	}
 }
 
+func TestV13UpgradeAllowsDeletingAgentFromEndedRecurrence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "version-twelve.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const agentID = "agent:ended-recurrence"
+	if _, err := legacy.Exec(schemaAtVersion(12) + `
+INSERT INTO agents(agent_id, display_name, created_at_ms, updated_at_ms)
+VALUES ('` + agentID + `', 'Ended', 1, 1);
+INSERT INTO acp_agents(agent_id, command, created_at_ms, updated_at_ms)
+VALUES ('` + agentID + `', 'agent', 1, 1);
+INSERT INTO task_recurrences(
+ recurrence_id, workspace_id, title, executor_agent_id, starts_at_ms, cron_expression,
+ time_zone, missed_run_policy, overlap_policy, lifecycle, revision, created_at_ms, updated_at_ms)
+VALUES ('recurrence:ended', 'workspace:personal', 'Ended', '` + agentID + `', 1,
+ '* * * * *', 'UTC', 'run_once', 'skip', 'ended', 1, 1, 1);
+PRAGMA user_version = 12;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	deleted, err := database.DeleteAcpAgent(context.Background(), agentID, 1)
+	if err != nil || !deleted {
+		t.Fatalf("delete Agent after v13 upgrade = %v, %v", deleted, err)
+	}
+	var foreignKeyErrors int
+	rows, err := database.db.Query("PRAGMA foreign_key_check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		foreignKeyErrors++
+	}
+	if foreignKeyErrors != 0 || rows.Err() != nil {
+		t.Fatalf("foreign key errors = %d, %v", foreignKeyErrors, rows.Err())
+	}
+}
+
 func TestAgentPreferenceAndTaskModelPoolsShareAssignments(t *testing.T) {
 	database := openTestStore(t)
 	account := createReadyModelAccount(t, database)

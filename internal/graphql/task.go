@@ -25,6 +25,8 @@ func (r *Resolver) captureTask(
 	if r.Store == nil {
 		return nil, errors.New("GraphQL Task store is unavailable")
 	}
+	unlockSchedules := r.Store.LockTaskSchedules()
+	defer unlockSchedules()
 	if input.WorkspaceID != personalWorkspaceID {
 		return nil, errors.New("this migration slice supports only workspace:personal")
 	}
@@ -38,6 +40,10 @@ func (r *Resolver) captureTask(
 	if replay, found, err := r.Store.LookupTaskCommandReceipt(ctx, command); err != nil {
 		return nil, taskScheduleError(err)
 	} else if found {
+		if err := r.ensureRecurrenceDocument(replay); err != nil {
+			return nil, err
+		}
+		r.Store.NotifyWork()
 		return r.taskCommandPayload(ctx, replay, input.ClientMutationID)
 	}
 
@@ -74,6 +80,7 @@ func (r *Resolver) captureTask(
 			return nil, err
 		}
 	}
+	r.Store.NotifyWork()
 	cursor, err := store.EncodeWorkEventCursor(result.Event.ID)
 	if err != nil {
 		return nil, err
@@ -209,7 +216,19 @@ func taskExecutorBackend(task store.Task) string {
 	if task.ExecutorAcpConnectionRevision != nil {
 		return "acp"
 	}
-	return "go"
+	return "provider"
+}
+
+func (r *Resolver) ensureRecurrenceDocument(result store.TaskCommandResult) error {
+	if result.RecurrenceID == "" {
+		return nil
+	}
+	document, err := home.ReadTaskDocument(r.home, result.Task.ID)
+	if err != nil {
+		return err
+	}
+	_, err = home.EnsureRecurrenceDocument(r.home, result.RecurrenceID, document.Content)
+	return err
 }
 
 func taskScheduleModel(task store.Task) *model.TaskSchedule {

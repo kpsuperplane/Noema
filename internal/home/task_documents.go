@@ -109,6 +109,9 @@ func CommitTaskDocument(root *os.Root, taskID string) error {
 	if err := tasks.Rename(pendingPath, name); err != nil {
 		current, currentErr := readTaskDocumentAt(tasks, name)
 		staged, stagedErr := readTaskDocumentAt(pending, name)
+		if currentErr == nil && errors.Is(stagedErr, os.ErrNotExist) {
+			return nil
+		}
 		if currentErr == nil && stagedErr == nil && current == staged {
 			if removeErr := removeTaskDirectory(pending, name); removeErr != nil {
 				return removeErr
