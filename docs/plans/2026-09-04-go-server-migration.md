@@ -537,22 +537,27 @@ The Project authority unit passed on 2026-09-04. It includes:
 - Project and Task links, runtime actors, correlations, causation, and run identities;
 - Linux, macOS, and Windows pure-Go build coverage.
 
-This unit does not add Task placement, scheduling, recurrence, execution, or notifications.
-Those capabilities remain later migration units.
+Task placement and scheduling now use this event and document authority.
+Task execution and notifications remain later migration units.
 
-### Task schedule domain unit
+### Task scheduling authority unit
 
-The Task schedule domain unit passed on 2026-09-04. It includes:
+The Task scheduling authority unit uses Go schema versions 12 and 13. It includes:
 
 - elapsed one-time schedule retention for missed-run recovery;
 - five-field cron expressions, including `L`, `W`, `#`, and weekday `7`;
 - embedded IANA time-zone data on every target platform;
 - inclusive next-occurrence and bounded preview calculations;
 - daylight-saving gaps and repeated local-minute identities;
-- validated missed-run and overlap policies.
+- validated missed-run and overlap policies;
+- Task placement with Project, Executor, ACP revision, and working-directory snapshots;
+- durable schedule and recurrence commands with receipts and revision checks;
+- pause, resume, skip, end, run-now, history, and due occurrence release;
+- recurrence `TASK.md` staging before database commits;
+- startup reconciliation and bounded retry after publication failures;
+- event delivery only after required Task documents become readable.
 
-This unit does not persist schedules or start due Tasks. Task placement will
-connect this domain to stored Task and recurrence state.
+Task execution does not yet consume released Tasks.
 
 ### Agent settings unit
 
@@ -566,8 +571,43 @@ The Agent settings unit uses Go schema version 10. It includes:
 - bounded process output and process-tree cleanup on every target platform;
 - current Agent, ACP, and Task model-pool GraphQL operations.
 
-ACP Task execution remains a later unit. Task placement can use enabled ACP
-identities after run snapshots, approvals, recovery, and terminal tools exist.
+Task placement can use enabled ACP identities and revision snapshots.
+ACP Task execution remains a later unit.
+
+### Artifact authority unit
+
+The Artifact authority unit uses Go schema version 11. It includes:
+
+- conversation and Task ownership checks;
+- local files and HTTP or HTTPS external references;
+- immutable versions, metadata, byte counts, and SHA-256 integrity checks;
+- staged publication, startup cleanup, and rooted path validation;
+- authorized download, PDF, image, text, HTML, and spreadsheet preview behavior;
+- rejection of external URL user information before persistence;
+- platform-specific file durability without unsupported Windows directory flushes.
+
+Spreadsheet preview conversion supports XLS, XLSX, and ODS.
+
+### Native Memory read unit
+
+The first native Memory unit includes:
+
+- a Go-owned `memory/human` tree and version-two Markdown pages;
+- stable page IDs, hashes, hierarchy, citations, and bounded source excerpts;
+- root, page, settings, pending-count, and initial event GraphQL reads;
+- staged page publication and startup recovery;
+- rooted atomic replacement on Linux, macOS, and Windows.
+
+Search tools, update events, preference writes, and consolidation remain later units.
+
+### Bounded document conversion units
+
+Pure-Go document conversion now supports XLS, XLSX, ODS, DOCX, ODT, PPTX, ODP, and RTF.
+It enforces the 32 MiB input and 20,000-character output contracts.
+Archive expansion, XML depth, XML tokens, rows, cells, and parser failures remain bounded.
+
+Only spreadsheet conversion is connected to Artifact previews.
+The other converters await the `file.parse` runtime unit.
 
 ## 11. Validation Strategy
 

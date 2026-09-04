@@ -18,21 +18,16 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
-The Go evidence gate passed. The current slice includes protected storage,
-Task documents, GraphQL contracts, provider streams, MCP calls, and diagnostics.
-Browser authentication, native OAuth, provider accounts, and primary Chat use Go schema version 8.
-OpenRouter supports verified API keys, PKCE onboarding, durable model assignments, and text generation.
-Its provider path now preserves native tool schemas, calls, replay, reasoning, citations, and hosted-search metadata.
-Codex device login stores protected tokens and a selectable model catalog through the current GraphQL roots.
-Its Responses HTTP transport supports text, reasoning, native tools, replay, usage, Fast mode, and OAuth refresh.
-Primary Chat now selects OpenRouter or Codex from its stored assignment and keeps that route through tool continuations.
-One serialized Chat turn now streams through GraphQL and survives restart replay.
-Chat can run bounded repeated `task.inspect` calls with durable replay and rooted Task document access.
-Tool finalization keeps every bounded result and removes old provider reasoning from replay.
-Projects use Go schema version 9 with receipts, safe documents, and shared event replay.
-Task schedules now validate five-field cron, IANA zones, and DST behavior in pure Go.
-Agent settings use Go schema version 10 with model pools and configurable ACP processes.
-Task placement, execution, commands, and notifications remain migration units.
+The Go evidence gate passed. The replacement now uses Go schema version 13.
+It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, and Task scheduling.
+OpenRouter and Codex preserve text, tools, replay, reasoning, citations, usage, and current model assignments.
+Primary Chat supports durable restart recovery and bounded repeated `task.inspect` calls.
+Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
+Native Memory owns bounded page reads, citations, hierarchy, state, and crash-safe publication.
+Artifact storage owns safe local files, external URLs, versions, metadata, integrity checks, and authorized delivery.
+Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
+Reusable Go conversion supports DOCX, ODT, PPTX, ODP, and RTF for later `file.parse` integration.
+Task execution, governance, remaining tools, notifications, and Memory consolidation remain migration units.
 
 ## Current constraints
 
