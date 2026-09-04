@@ -3,6 +3,8 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,10 +60,11 @@ func (Secret) String() string { return "[REDACTED]" }
 
 // AccountService coordinates account metadata and protected credential files.
 type AccountService struct {
-	root        string
-	persistence AccountPersistence
-	gatesMu     sync.Mutex
-	gates       map[string]*sync.Mutex
+	root             string
+	persistence      AccountPersistence
+	gatesMu          sync.Mutex
+	gates            map[string]*sync.Mutex
+	codexRefreshGate chan struct{}
 }
 
 // NewAccountService creates one account service for an absolute Noema home.
@@ -72,9 +75,12 @@ func NewAccountService(root string, persistence AccountPersistence) (*AccountSer
 	if persistence == nil {
 		return nil, errors.New("provider account persistence is required")
 	}
-	return &AccountService{
+	service := &AccountService{
 		root: filepath.Clean(root), persistence: persistence, gates: make(map[string]*sync.Mutex),
-	}, nil
+		codexRefreshGate: make(chan struct{}, 1),
+	}
+	service.codexRefreshGate <- struct{}{}
+	return service, nil
 }
 
 // Initialize creates missing permanent provider account metadata.
@@ -300,31 +306,183 @@ func (s *AccountService) publishCodexTokens(
 
 // LoadCodexTokens returns the protected Codex token set.
 func (s *AccountService) LoadCodexTokens(ctx context.Context) (CodexTokens, error) {
+	_, tokens, err := s.loadCodexTokenSnapshot(ctx)
+	return tokens, err
+}
+
+// RefreshCodexTokens refreshes a Codex token that is close to expiry or was rejected.
+// It does not hold the account gate while the remote request is in progress.
+func (s *AccountService) RefreshCodexTokens(
+	ctx context.Context,
+	forcedAccessDigest *codexAccessTokenDigest,
+	now time.Time,
+	refresh func(context.Context, CodexTokens) (CodexTokens, error),
+) (CodexTokens, error) {
+	if refresh == nil {
+		return CodexTokens{}, errors.New("Codex token refresh is unavailable")
+	}
+	select {
+	case <-ctx.Done():
+		return CodexTokens{}, ctx.Err()
+	case <-s.codexRefreshGate:
+	}
+	defer func() { s.codexRefreshGate <- struct{}{} }()
+
+	account, tokens, err := s.loadCodexTokenSnapshot(ctx)
+	if err != nil {
+		return CodexTokens{}, err
+	}
+	var startingDigest codexAccessTokenDigest
+	var refreshNeeded bool
+	err = tokens.Use(func(accessToken string, _ string, _ uint64) error {
+		startingDigest = codexAccessTokenDigestFor(accessToken)
+		if forcedAccessDigest != nil {
+			refreshNeeded = startingDigest == *forcedAccessDigest
+			return nil
+		}
+		refreshNeeded = codexTokenNeedsRefresh(accessToken, now)
+		return nil
+	})
+	if err != nil {
+		return CodexTokens{}, err
+	}
+	if !refreshNeeded {
+		return tokens, nil
+	}
+
+	refreshed, err := refresh(ctx, tokens)
+	if err != nil {
+		return CodexTokens{}, err
+	}
+	if err := refreshed.Use(func(string, string, uint64) error { return nil }); err != nil {
+		return CodexTokens{}, errors.New("Codex token refresh is invalid")
+	}
+	refreshed.lastRefresh = uint64(now.UTC().Unix())
+	return s.publishRefreshedCodexTokens(
+		ctx, account, startingDigest, refreshed, now,
+	)
+}
+
+func (s *AccountService) loadCodexTokenSnapshot(ctx context.Context) (Account, CodexTokens, error) {
 	const id = "provider_account:codex:default"
 	gate := s.gate(id)
 	gate.Lock()
 	defer gate.Unlock()
 	account, err := s.persistence.ProviderAccount(ctx, id)
 	if err != nil {
+		return Account{}, CodexTokens{}, err
+	}
+	if !validCodexTokenAccount(account) {
+		return Account{}, CodexTokens{}, ErrAccountConflict
+	}
+	path, err := s.codexTokenPath(account)
+	if err != nil {
+		return Account{}, CodexTokens{}, err
+	}
+	data, err := home.ReadPrivateFile(path, credentialFileLimit)
+	if err != nil {
+		return Account{}, CodexTokens{}, errors.New("Codex tokens are unavailable")
+	}
+	var file codexTokenFile
+	if err := decodeProtectedJSON(data, &file); err != nil {
+		return Account{}, CodexTokens{}, errors.New("Codex tokens are unavailable")
+	}
+	tokens := file.tokens()
+	if !tokens.valid() {
+		return Account{}, CodexTokens{}, errors.New("Codex tokens are unavailable")
+	}
+	return account, tokens, nil
+}
+
+func (s *AccountService) publishRefreshedCodexTokens(
+	ctx context.Context,
+	starting Account,
+	startingAccessDigest codexAccessTokenDigest,
+	tokens CodexTokens,
+	now time.Time,
+) (CodexTokens, error) {
+	const id = "provider_account:codex:default"
+	gate := s.gate(id)
+	gate.Lock()
+	defer gate.Unlock()
+
+	account, err := s.persistence.ProviderAccount(ctx, id)
+	if err != nil {
 		return CodexTokens{}, err
+	}
+	if !validCodexTokenAccount(account) || account.Metadata.CredentialRevision() != starting.Metadata.CredentialRevision() {
+		return CodexTokens{}, ErrAccountConflict
 	}
 	path, err := s.codexTokenPath(account)
 	if err != nil {
 		return CodexTokens{}, err
 	}
-	data, err := home.ReadPrivateFile(path, credentialFileLimit)
+	snapshot, err := snapshotPrivateFile(path)
 	if err != nil {
-		return CodexTokens{}, errors.New("Codex tokens are unavailable")
+		return CodexTokens{}, err
 	}
-	var file codexTokenFile
-	if err := decodeProtectedJSON(data, &file); err != nil {
-		return CodexTokens{}, errors.New("Codex tokens are unavailable")
+	var current codexTokenFile
+	if err := decodeProtectedJSON(snapshot.data, &current); err != nil {
+		return CodexTokens{}, ErrAccountConflict
 	}
-	tokens := file.tokens()
-	if !tokens.valid() {
-		return CodexTokens{}, errors.New("Codex tokens are unavailable")
+	currentTokens := current.tokens()
+	var currentAccessDigest codexAccessTokenDigest
+	if err := currentTokens.Use(func(accessToken string, _ string, _ uint64) error {
+		currentAccessDigest = codexAccessTokenDigestFor(accessToken)
+		return nil
+	}); err != nil || currentAccessDigest != startingAccessDigest {
+		return CodexTokens{}, ErrAccountConflict
+	}
+	if err := writeCodexTokens(path, tokens); err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return CodexTokens{}, ErrCompensationFailed
+		}
+		return CodexTokens{}, err
+	}
+	if _, err := s.persistence.UpdateProviderCredential(
+		ctx, id, starting.Metadata.CredentialRevision(), AuthOAuthDeviceCode, true, account.Metadata, now.UTC(),
+	); err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return CodexTokens{}, ErrCompensationFailed
+		}
+		return CodexTokens{}, err
 	}
 	return tokens, nil
+}
+
+type codexAccessTokenDigest [sha256.Size]byte
+
+func codexAccessTokenDigestFor(accessToken string) codexAccessTokenDigest {
+	return sha256.Sum256([]byte(accessToken))
+}
+
+func validCodexTokenAccount(account Account) bool {
+	return account.ID == "provider_account:codex:default" && account.ProviderKind == "codex" &&
+		account.AccountKey == "default" && account.AuthMethod == AuthOAuthDeviceCode && account.IsActive
+}
+
+func codexTokenNeedsRefresh(accessToken string, now time.Time) bool {
+	parts := strings.Split(accessToken, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	var claims struct {
+		ExpiresAt json.Number `json:"exp"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if decoder.Decode(&claims) != nil {
+		return false
+	}
+	expiresAt, err := claims.ExpiresAt.Int64()
+	if err != nil || expiresAt <= 0 {
+		return false
+	}
+	return time.Unix(expiresAt, 0).UTC().Sub(now.UTC()) <= 120*time.Second
 }
 
 // LoadSecret returns one credential through a typed wrapper.

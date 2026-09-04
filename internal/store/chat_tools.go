@@ -16,6 +16,7 @@ import (
 type ConversationToolCallInput struct {
 	ProviderRound  int
 	OutputIndex    int
+	ProviderItemID string
 	ProviderCallID string
 	ProviderName   string
 	Name           string
@@ -192,8 +193,9 @@ WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.
 				"turn_index": turn.TurnIndex, "output_index": round.Call.OutputIndex,
 				"provider": "openrouter", "display": map[string]any{},
 				"action": map[string]any{
-					"id": activityID, "provider_call_id": round.Call.ProviderCallID,
-					"provider_name": round.Call.ProviderName, "name": round.Call.Name,
+					"id": activityID, "provider_item_id": round.Call.ProviderItemID,
+					"provider_call_id": round.Call.ProviderCallID,
+					"provider_name":    round.Call.ProviderName, "name": round.Call.Name,
 					"payload": arguments,
 				},
 			},

@@ -18,7 +18,7 @@ func TestOpenRouterGeneratorStreamsTextAndReturnsCompletion(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer generation-key" ||
 			request.Header.Get("HTTP-Referer") != "https://github.com/kpsuperplane/Noema" ||
 			request.Header.Get("X-OpenRouter-Title") != "Noema" {
-			t.Errorf("generation headers = %#v", request.Header)
+			t.Error("generation headers are invalid")
 		}
 		var body map[string]any
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
@@ -336,7 +336,7 @@ func TestOpenRouterGeneratorLimitsSecretHeaderLifetime(t *testing.T) {
 	var captured *http.Request
 	generator.client.Transport = generationRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Header.Get("Authorization") != "Bearer short-lived-key" {
-			t.Fatalf("transport authorization = %q", request.Header.Get("Authorization"))
+			t.Fatal("transport authorization is invalid")
 		}
 		captured = request
 		return &http.Response{

@@ -285,8 +285,9 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		Commentary: "I will inspect it.",
 		Reasoning:  []json.RawMessage{json.RawMessage(`{"type":"reasoning.encrypted","data":"opaque"}`)},
 		Call: ConversationToolCallInput{
-			ProviderRound: 0, OutputIndex: 2, ProviderCallID: "provider-call-1",
-			ProviderName: "inspect", Name: "task.inspect",
+			ProviderRound: 0, OutputIndex: 2, ProviderItemID: "provider-item-1",
+			ProviderCallID: "provider-call-1",
+			ProviderName:   "inspect", Name: "task.inspect",
 			Arguments: json.RawMessage(`{"task_id":"task:one"}`),
 		},
 	}, now.Add(time.Second))
@@ -317,7 +318,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	}
 	action := result.Payload["metadata"].(map[string]any)["action"].(map[string]any)
 	callAction := items[2].Payload["metadata"].(map[string]any)["action"].(map[string]any)
-	if action["call_id"] != callAction["id"] {
+	if action["call_id"] != callAction["id"] || callAction["provider_item_id"] != "provider-item-1" {
 		t.Fatalf("result correlation = %#v, call = %#v", action["call_id"], callAction["id"])
 	}
 	repeated, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(3*time.Second))

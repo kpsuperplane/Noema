@@ -295,6 +295,7 @@ func (c *Chat) execute(request queuedTurn) {
 		Tools:         []provider.GenerationTool{taskInspectTool()},
 		ToolTransport: provider.ToolTransportNative,
 		ToolChoice:    provider.ToolChoiceAuto,
+		FastMode:      assignment.FastMode,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {
 			c.publish(Event{

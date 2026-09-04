@@ -14,8 +14,9 @@ type GenerationMessage struct {
 
 // ReplayToolCall is one native tool call in replay history.
 type ReplayToolCall struct {
-	ProviderCallID, Name, ProviderName string
-	Arguments                          json.RawMessage
+	ProviderItemID, ProviderCallID string
+	Name, ProviderName             string
+	Arguments                      json.RawMessage
 }
 
 // ReplayToolResult is one native tool result in replay history.
@@ -39,6 +40,7 @@ type GenerateRequest struct {
 	ToolChoice       ToolChoice
 	ParallelTools    bool
 	HostedWebSearch  bool
+	FastMode         bool
 }
 
 // GenerationResult is one completed provider response.
@@ -56,9 +58,10 @@ type GenerationResult struct {
 
 // GenerationToolCall is one validated native tool call.
 type GenerationToolCall struct {
-	Index                              int
-	ProviderCallID, ProviderName, Name string
-	Payload                            json.RawMessage
+	Index                          int
+	ProviderItemID, ProviderCallID string
+	ProviderName, Name             string
+	Payload                        json.RawMessage
 }
 
 // GenerationReasoning holds provider reasoning for replay.

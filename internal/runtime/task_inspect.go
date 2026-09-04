@@ -220,6 +220,7 @@ func storedToolCall(item store.ConversationItem) (provider.ReplayToolCall, error
 		return provider.ReplayToolCall{}, errors.New("stored tool call is invalid")
 	}
 	call := provider.ReplayToolCall{
+		ProviderItemID: textValue(action["provider_item_id"]),
 		ProviderCallID: textValue(action["provider_call_id"]),
 		ProviderName:   textValue(action["provider_name"]), Name: textValue(action["name"]),
 		Arguments: arguments,
@@ -339,8 +340,9 @@ func (c *Chat) persistTaskInspectRound(
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
 		Commentary: generation.Text, Reasoning: generationReasoning(generation),
 		Call: store.ConversationToolCallInput{
-			ProviderRound: providerRound, OutputIndex: call.Index, ProviderCallID: call.ProviderCallID,
-			ProviderName: call.ProviderName, Name: call.Name, Arguments: call.Payload,
+			ProviderRound: providerRound, OutputIndex: call.Index, ProviderItemID: call.ProviderItemID,
+			ProviderCallID: call.ProviderCallID,
+			ProviderName:   call.ProviderName, Name: call.Name, Arguments: call.Payload,
 		},
 	}, time.Now())
 	if err != nil {
@@ -412,6 +414,7 @@ func (c *Chat) generateTaskInspectContinuation(
 			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
 			ConversationID: turn.ConversationID, MaxOutputTokens: taskInspectOutputTokens(stopReason != ""),
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
+			FastMode: assignment.FastMode,
 		}, func(event provider.StreamEvent) {
 			if event.Kind == provider.TextDelta {
 				c.publish(Event{

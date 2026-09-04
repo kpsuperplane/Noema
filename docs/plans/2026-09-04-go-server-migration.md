@@ -468,6 +468,20 @@ continuation identifier.
 Shared generation requests, responses, replay items, reasoning, and tool controls
 now use one provider-neutral Go contract. OpenRouter remains its first transport.
 
+### Codex Responses HTTP unit
+
+The Codex Responses HTTP transport includes:
+
+- structured message, reasoning, function-call, and function-result replay;
+- streamed text and one validated native function call;
+- encrypted reasoning, output identity, model identity, and usage;
+- stored client-version, workspace, session, and origin headers;
+- Fast mode through the priority service tier;
+- access-token refresh near expiry and one refresh retry after authentication rejection;
+- bounded requests, responses, errors, cancellation, and credential lifetime.
+
+WebSocket sessions and runtime provider selection remain later work.
+
 ### First immediate tool runtime unit
 
 The `task.inspect` runtime unit passed on 2026-09-04. It includes:
