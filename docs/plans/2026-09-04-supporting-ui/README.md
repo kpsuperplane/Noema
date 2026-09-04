@@ -30,7 +30,7 @@ The gallery consolidates the earlier login, recovery, model review, and callback
 - Keep the existing design system, including fonts, semantic type sizes, weights, and line heights.
 - Improve the supporting flows without redesigning Chat, Tasks, Memory, or Settings.
 - Make the interface polished, restrained, and understandable for a non-technical person.
-- Remove the logo/text header. Center the existing animated Noema avatar above the card, with its lower edge behind the card.
+- Remove the logo/text header. Center the existing animated Noema avatar above the card, as part of the same raised surface.
 - Use the existing list components for provider choices. Human intervention cards and their flows are outside this plan.
 - Show concrete model details. Do not substitute a general memory-fit statement for the model identity.
 - Save these designs for later application. Do not implement product changes in this unit.
@@ -50,15 +50,19 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Start with a 456-pixel surface. Expand only when the task requires more space.
 - Keep the card and wash on phones. Use 12-pixel outer insets and 16-pixel horizontal card padding.
 - Center the avatar above the card. Keep headings, body, fields, and actions on one left alignment.
-- Show the avatar at 80 pixels, with the card covering its lower 16 pixels. Keep the face visible.
+- Show the full 80-pixel avatar with an 8-pixel white outline that joins the card. Do not hide it behind the card.
+- Give the combined avatar/card outline one shadow. Neither element casts a separate shadow onto the other.
 - Reuse `IdentityAvatar` with the local agent seed, existing palette, and idle animation. Do not redraw the character.
 - Keep errors calm. Reserve the success check for confirmed completion.
 - Use existing `text-heading-1`, `text-body`, `text-label`, and `text-supporting` roles.
 - Use the existing font assets. Do not add font imports, custom tracking, or another type scale.
-- Use `radius-container`, `radius-element`, and `shadow-low` from the current Noema theme.
+- Match `AppShell.contentDeckPrimary`: use `radius-page` and `corner-shape-page` for the card.
+- Match `shadow-shell-frame` for the combined silhouette: pine at 16% opacity, with zero offset and the same blur width.
+- The preview converts the 24-pixel box-shadow blur to a 12-pixel drop-shadow deviation. This preserves the compound outline.
+- Keep `radius-element` for controls.
 - Assign one spacing owner per boundary: 8 pixels inside the header, 16 between body groups, and 24 before primary actions.
 - Keep label/control gaps at 6 pixels. Do not add child margins to a parent stack gap.
-- Use 32 pixels for the desktop card inset and 24 pixels for vertical card padding on phones.
+- Reserve 48 pixels above card content for the avatar junction. Use 32-pixel desktop insets and 24-pixel phone bottom padding.
 - Use Astryx `List` and `ListItem` for provider choices, with wrapping descriptions and a trailing chevron.
 - Settings already uses these components. Tasks uses `ListCardLink`; retain its familiar whole-row feedback.
 - Match the preview’s inset hover, pressed fill, and visible keyboard focus through existing theme tokens.

@@ -30,7 +30,9 @@ Scope: the saved design gallery. These results do not certify the production flo
 - Expanded model details showed the catalog model name, 5.3 GB size, license, format, runtime, and file.
 - Reduced motion stopped the waiting spinner, success check, and avatar animations.
 - The avatar used the existing beam component, local agent seed, and Noema palette.
-- The card covered the avatar’s lower 16 pixels while the face remained visible at desktop and phone widths.
+- The full avatar remained visible above the card paint, with an 8-pixel white outline joining the card.
+- One parent drop shadow followed the combined silhouette. The avatar and card had no separate box shadows.
+- Card corners matched the primary Chat surface: `radius-page` and `corner-shape-page`.
 - The page background used the browser app’s existing `--pine-50` token. The logo/text header was absent.
 - Blocking the avatar bundle preserved the static avatar and the usable gallery.
 - The reviewed sessions reported no uncaught JavaScript errors.
@@ -39,6 +41,8 @@ Scope: the saved design gallery. These results do not certify the production flo
 - `git diff --check` and the zero-change Rust size budget passed before commit.
 
 ## Saved visual references
+
+- [Shared avatar/card surface, desktop](screenshots/proposed-login-desktop.png)
 
 - [Provider row hover, desktop](screenshots/proposed-providers-hover-desktop.png)
 - [Expanded model details, phone](screenshots/proposed-local-details-phone.png)
