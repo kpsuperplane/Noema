@@ -43,6 +43,7 @@ Scope: the saved design gallery. These results do not certify the production flo
 - OpenRouter and Codex provider actions stayed in one group. Form content stayed left aligned.
 - Card corners matched the primary Chat surface: `radius-page` and `corner-shape-page`.
 - The page background used the browser app’s existing `--pine-50` token. The logo/text header was absent.
+- The server address footer was removed from every mock.
 - Blocking the avatar bundle preserved the static avatar and the usable gallery.
 - The reviewed sessions reported no uncaught JavaScript errors.
 - Heading inspection confirmed the existing 24-pixel, 600-weight semantic heading with normal letter spacing.

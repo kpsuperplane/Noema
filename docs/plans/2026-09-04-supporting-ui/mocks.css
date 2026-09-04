@@ -99,7 +99,6 @@ progress::-moz-progress-bar { background: var(--primary); }
 .device-code { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-3); padding: var(--spacing-3) var(--spacing-4); border-radius: var(--radius-element); background: var(--surface-sunken); }
 .device-code code { font-size: var(--font-size-lg); font-family: var(--font-family-code); letter-spacing: normal; }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--border-default); border-top-color: var(--primary); border-radius: var(--radius-full); animation: turn 1s linear infinite; flex: none; }
-.server-name { color: var(--muted-foreground); margin-top: var(--spacing-6); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); overflow-wrap: anywhere; }
 .review-context { max-width: 760px; margin: 0 auto; padding: var(--spacing-6); border-top: 1px solid var(--border-subtle); color: var(--muted-foreground); }
 .review-context p + p { margin-top: var(--spacing-2); }
 #review-status { min-height: 28px; text-align: center; padding-inline: var(--spacing-4); color: var(--noema-pine-700); }

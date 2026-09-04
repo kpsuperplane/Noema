@@ -48,6 +48,7 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 
 - Use a compact white surface on `--pine-50`, the existing browser app background wash.
 - Use a 456-pixel surface.
+- Omit the server address below the card.
 - Keep the card and wash on phones. Use 12-pixel outer insets and 16-pixel horizontal card padding.
 - Center the avatar and heading group, including the title, introduction, and setup step. Keep form content left aligned.
 - Keep subheadings to one short sentence that fits one line at the normal card width.
