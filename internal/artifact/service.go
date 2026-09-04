@@ -41,6 +41,7 @@ type LocalInput struct {
 	MediaType        *string
 	CreatedByActorID string
 	Source           store.ArtifactSource
+	Metadata         map[string]any
 }
 
 // ExternalInput describes one external Artifact creation.
@@ -128,7 +129,7 @@ func (s *Service) CreateLocal(ctx context.Context, input LocalInput) (store.Arti
 	result, err := s.store.CreateArtifact(ctx, store.Artifact{
 		ID: artifactID, Owner: input.Owner, Title: input.Title, Description: input.Description,
 		Kind: input.Kind, StorageKind: store.ArtifactLocalFile,
-		CreatedByActorID: input.CreatedByActorID, Source: input.Source,
+		CreatedByActorID: input.CreatedByActorID, Source: input.Source, Metadata: input.Metadata,
 	}, store.ArtifactVersion{
 		ID: versionID, LocalRelativePath: &publication.relativePath, MediaType: input.MediaType,
 		ByteSize: &publication.byteSize, ContentSHA256: &publication.digest,
@@ -148,6 +149,7 @@ func (s *Service) AppendLocal(
 	title, mediaType *string,
 	actor string,
 	source store.ArtifactSource,
+	metadata map[string]any,
 ) (store.ArtifactVersion, error) {
 	if err := SafeFilename(filename); err != nil {
 		return store.ArtifactVersion{}, err
@@ -174,7 +176,7 @@ func (s *Service) AppendLocal(
 	version, err := s.store.AppendArtifactVersion(ctx, artifactID, store.ArtifactVersion{
 		ID: versionID, Index: next, Title: title, LocalRelativePath: &publication.relativePath,
 		MediaType: mediaType, ByteSize: &publication.byteSize, ContentSHA256: &publication.digest,
-		CreatedByActorID: actor, Source: source,
+		CreatedByActorID: actor, Source: source, Metadata: metadata,
 	}, s.now())
 	if err != nil {
 		return store.ArtifactVersion{}, errors.Join(err, s.discardPublication(publication))
@@ -516,7 +518,8 @@ func validOperationID(value string) bool {
 // ValidateExternalURL normalizes one durable HTTP(S) URL.
 func ValidateExternalURL(value string) (string, error) {
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Host == "" || !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
+	if err != nil || parsed.Host == "" || parsed.User != nil ||
+		!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
 		return "", errors.New("invalid external Artifact URL")
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)

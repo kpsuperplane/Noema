@@ -146,6 +146,10 @@ func TestArtifactGraphQLOperations(t *testing.T) {
 	if local["storageKind"] != "LOCAL_FILE" || version["byteSize"] != float64(8) || version["downloadUrl"] == nil {
 		t.Fatalf("local Artifact = %#v", local)
 	}
+	storedUpload, err := resolver.Store.ArtifactWithVersionsByID(ctx, local["artifactId"].(string))
+	if err != nil || storedUpload.Artifact.Metadata["filename"] != "notes.md" {
+		t.Fatalf("Task upload metadata = %#v, %v", storedUpload.Artifact.Metadata, err)
+	}
 	listed := postGraphQL(t, server.URL, `query Artifacts($type: String!, $id: String!) {
   artifacts(ownerObjectType: $type, ownerObjectId: $id) { artifactId currentVersion { artifactVersionId } }
 }`, map[string]any{"type": "task", "id": task.ID})

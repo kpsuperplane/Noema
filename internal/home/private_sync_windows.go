@@ -3,31 +3,20 @@
 package home
 
 import (
+	"errors"
 	"fmt"
-
-	"golang.org/x/sys/windows"
+	"os"
 )
 
 func syncAbsoluteDirectory(path string) error {
-	name, err := windows.UTF16PtrFromString(path)
+	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("encode directory for sync: %w", err)
+		return fmt.Errorf("inspect publication directory: %w", err)
 	}
-	handle, err := windows.CreateFile(
-		name,
-		windows.GENERIC_WRITE,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil,
-		windows.OPEN_EXISTING,
-		windows.FILE_FLAG_BACKUP_SEMANTICS,
-		0,
-	)
-	if err != nil {
-		return fmt.Errorf("open directory for sync: %w", err)
+	if !info.IsDir() {
+		return errors.New("publication path is not a directory")
 	}
-	defer windows.CloseHandle(handle)
-	if err := windows.FlushFileBuffers(handle); err != nil {
-		return fmt.Errorf("sync directory: %w", err)
-	}
+	// Windows does not support FlushFileBuffers on directory handles.
+	// The caller syncs file data before atomic replacement.
 	return nil
 }

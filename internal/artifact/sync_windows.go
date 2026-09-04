@@ -3,32 +3,20 @@
 package artifact
 
 import (
+	"errors"
 	"fmt"
 	"os"
-
-	"golang.org/x/sys/windows"
 )
 
 func syncDirectory(directory *os.Root) error {
-	name, err := windows.UTF16PtrFromString(directory.Name())
+	info, err := directory.Stat(".")
 	if err != nil {
-		return fmt.Errorf("encode Artifact directory for sync: %w", err)
+		return fmt.Errorf("inspect Artifact publication directory: %w", err)
 	}
-	handle, err := windows.CreateFile(
-		name,
-		windows.GENERIC_WRITE,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil,
-		windows.OPEN_EXISTING,
-		windows.FILE_FLAG_BACKUP_SEMANTICS,
-		0,
-	)
-	if err != nil {
-		return fmt.Errorf("open Artifact directory for sync: %w", err)
+	if !info.IsDir() {
+		return errors.New("Artifact publication path is not a directory")
 	}
-	defer windows.CloseHandle(handle)
-	if err := windows.FlushFileBuffers(handle); err != nil {
-		return fmt.Errorf("sync Artifact directory: %w", err)
-	}
+	// Windows does not support FlushFileBuffers on directory handles.
+	// Artifact publication syncs file data before rooted renames.
 	return nil
 }

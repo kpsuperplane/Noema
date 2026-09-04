@@ -29,11 +29,14 @@ func TestPortableArtifactNamesRoutesAndExternalURLs(t *testing.T) {
 			t.Fatalf("unsafe filename accepted: %q", invalid)
 		}
 	}
-	normalized, err := ValidateExternalURL("HTTPS://example.com/a b")
-	if err != nil || normalized != "https://example.com/a%20b" {
+	normalized, err := ValidateExternalURL("HTTPS://example.com/a b?authorization=opaque")
+	if err != nil || normalized != "https://example.com/a%20b?authorization=opaque" {
 		t.Fatalf("normalized URL = %q, %v", normalized, err)
 	}
-	for _, invalid := range []string{"file:///tmp/report", "ssh://example.com/report", "not a URL"} {
+	for _, invalid := range []string{
+		"file:///tmp/report", "ssh://example.com/report", "not a URL",
+		"https://user:password@example.com/report",
+	} {
 		if _, err := ValidateExternalURL(invalid); err == nil {
 			t.Fatalf("invalid URL accepted: %q", invalid)
 		}
@@ -93,6 +96,7 @@ func TestLocalPublicationRecoveryIntegrityAndHTTPDelivery(t *testing.T) {
 		Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: task.ID},
 		Title: "Evidence", Kind: "source_file", Filename: "evidence.txt",
 		Bytes: []byte("version one"), MediaType: &mediaType, CreatedByActorID: "human:local",
+		Metadata: map[string]any{"filename": "evidence.txt"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -133,8 +137,11 @@ func TestLocalPublicationRecoveryIntegrityAndHTTPDelivery(t *testing.T) {
 		!strings.Contains(preview.Header().Get("Content-Security-Policy"), "default-src 'none'") {
 		t.Fatalf("PDF preview = %d, %#v", preview.Code, preview.Header())
 	}
-	second, err := service.AppendLocal(ctx, created.Artifact.ID, "evidence.txt", []byte("version two"), nil, &mediaType, "human:local", store.ArtifactSource{})
-	if err != nil || second.Index != 2 || second.ID == created.CurrentVersion.ID {
+	second, err := service.AppendLocal(
+		ctx, created.Artifact.ID, "evidence.txt", []byte("version two"), nil, &mediaType,
+		"human:local", store.ArtifactSource{}, map[string]any{"reason": "revision"},
+	)
+	if err != nil || second.Index != 2 || second.ID == created.CurrentVersion.ID || second.Metadata["reason"] != "revision" {
 		t.Fatalf("second version = %#v, %v", second, err)
 	}
 	if err := root.WriteFile(filepath.FromSlash(path), []byte("version evil"), 0o600); err != nil {

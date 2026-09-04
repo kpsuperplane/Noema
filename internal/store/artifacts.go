@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,8 +13,9 @@ import (
 var ErrArtifactNotFound = errors.New("artifact not found")
 
 const (
-	ArtifactLocalFile   = "local_file"
-	ArtifactExternalURL = "external_url"
+	ArtifactLocalFile        = "local_file"
+	ArtifactExternalURL      = "external_url"
+	maxArtifactMetadataBytes = 64 * 1024
 )
 
 // ArtifactOwner identifies the object that controls one Artifact.
@@ -40,6 +42,7 @@ type Artifact struct {
 	CurrentVersionID string
 	CreatedByActorID string
 	Source           ArtifactSource
+	Metadata         map[string]any
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
@@ -57,6 +60,7 @@ type ArtifactVersion struct {
 	ContentSHA256     *string
 	CreatedByActorID  string
 	Source            ArtifactSource
+	Metadata          map[string]any
 	CreatedAt         time.Time
 }
 
@@ -91,6 +95,10 @@ func (s *Store) CreateArtifact(
 	if err := validateArtifactVersion(version, artifact.ID, 1, artifact.StorageKind); err != nil {
 		return ArtifactWithVersions{}, err
 	}
+	artifactMetadata, err := encodeArtifactMetadata(artifact.Metadata)
+	if err != nil {
+		return ArtifactWithVersions{}, err
+	}
 	now = now.UTC()
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -110,11 +118,11 @@ INSERT INTO artifacts (
     artifact_kind, storage_kind, current_version_id, created_by_actor_id,
     source_conversation_id, source_turn_id, source_item_id, metadata_json,
     created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, '{}', ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
 		artifact.ID, artifact.Owner.ObjectType, artifact.Owner.ObjectID, strings.TrimSpace(artifact.Title),
 		nullableArtifactString(artifact.Description), strings.TrimSpace(artifact.Kind), artifact.StorageKind,
 		artifact.CreatedByActorID, nullableText(artifact.Source.ConversationID), nullableText(artifact.Source.TurnID),
-		nullableText(artifact.Source.ItemID), millis(now), millis(now)); err != nil {
+		nullableText(artifact.Source.ItemID), artifactMetadata, millis(now), millis(now)); err != nil {
 		return ArtifactWithVersions{}, fmt.Errorf("insert Artifact: %w", err)
 	}
 	version.Index = 1
@@ -132,6 +140,8 @@ UPDATE artifacts SET current_version_id = ? WHERE artifact_id = ?`, version.ID, 
 	}
 	artifact.Title = strings.TrimSpace(artifact.Title)
 	artifact.Kind = strings.TrimSpace(artifact.Kind)
+	artifact.Metadata = normalizedArtifactMetadata(artifact.Metadata)
+	version.Metadata = normalizedArtifactMetadata(version.Metadata)
 	artifact.CurrentVersionID = version.ID
 	artifact.CreatedAt, artifact.UpdatedAt = now, now
 	return ArtifactWithVersions{Artifact: artifact, CurrentVersion: version, Versions: []ArtifactVersion{version}}, nil
@@ -176,6 +186,7 @@ UPDATE artifacts SET current_version_id = ?, updated_at_ms = ? WHERE artifact_id
 	if err := tx.Commit(); err != nil {
 		return ArtifactVersion{}, fmt.Errorf("commit Artifact version: %w", err)
 	}
+	version.Metadata = normalizedArtifactMetadata(version.Metadata)
 	return version, nil
 }
 
@@ -301,18 +312,22 @@ func artifactOwnerAuthorized(ctx context.Context, query rowQueryer, owner Artifa
 }
 
 func insertArtifactVersion(ctx context.Context, tx *sql.Tx, version ArtifactVersion) error {
-	_, err := tx.ExecContext(ctx, `
+	metadata, err := encodeArtifactMetadata(version.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO artifact_versions (
     artifact_version_id, artifact_id, version_index, title, local_relative_path,
     external_url, media_type, byte_size, content_sha256, created_by_actor_id,
     source_conversation_id, source_turn_id, source_item_id, metadata_json, created_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		version.ID, version.ArtifactID, version.Index, nullableArtifactString(version.Title),
 		nullableArtifactString(version.LocalRelativePath), nullableArtifactString(version.ExternalURL),
 		nullableArtifactString(version.MediaType), nullableInt64(version.ByteSize),
 		nullableArtifactString(version.ContentSHA256), version.CreatedByActorID,
 		nullableText(version.Source.ConversationID), nullableText(version.Source.TurnID),
-		nullableText(version.Source.ItemID), millis(version.CreatedAt))
+		nullableText(version.Source.ItemID), metadata, millis(version.CreatedAt))
 	if err != nil {
 		return fmt.Errorf("insert Artifact version: %w", err)
 	}
@@ -323,23 +338,24 @@ const artifactSelect = `
 SELECT artifact_id, owner_object_type, owner_object_id, title, description,
        artifact_kind, storage_kind, COALESCE(current_version_id, ''), created_by_actor_id,
        COALESCE(source_conversation_id, ''), COALESCE(source_turn_id, ''),
-       COALESCE(source_item_id, ''), created_at_ms, updated_at_ms
+       COALESCE(source_item_id, ''), metadata_json, created_at_ms, updated_at_ms
 FROM artifacts `
 
 const artifactVersionSelect = `
 SELECT artifact_version_id, artifact_id, version_index, title, local_relative_path,
        external_url, media_type, byte_size, content_sha256, created_by_actor_id,
        COALESCE(source_conversation_id, ''), COALESCE(source_turn_id, ''),
-       COALESCE(source_item_id, ''), created_at_ms
+       COALESCE(source_item_id, ''), metadata_json, created_at_ms
 FROM artifact_versions `
 
 func scanArtifact(row rowScanner) (Artifact, error) {
 	var value Artifact
 	var description sql.NullString
+	var metadata string
 	var created, updated int64
 	err := row.Scan(&value.ID, &value.Owner.ObjectType, &value.Owner.ObjectID, &value.Title, &description,
 		&value.Kind, &value.StorageKind, &value.CurrentVersionID, &value.CreatedByActorID,
-		&value.Source.ConversationID, &value.Source.TurnID, &value.Source.ItemID, &created, &updated)
+		&value.Source.ConversationID, &value.Source.TurnID, &value.Source.ItemID, &metadata, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Artifact{}, ErrArtifactNotFound
 	}
@@ -347,6 +363,10 @@ func scanArtifact(row rowScanner) (Artifact, error) {
 		return Artifact{}, fmt.Errorf("scan Artifact: %w", err)
 	}
 	value.Description = nullStringPointer(description)
+	value.Metadata, err = decodeArtifactMetadata(metadata)
+	if err != nil {
+		return Artifact{}, err
+	}
 	value.CreatedAt, value.UpdatedAt = fromMillis(created), fromMillis(updated)
 	return value, nil
 }
@@ -354,11 +374,12 @@ func scanArtifact(row rowScanner) (Artifact, error) {
 func scanArtifactVersion(row rowScanner) (ArtifactVersion, error) {
 	var value ArtifactVersion
 	var title, localPath, externalURL, mediaType, digest sql.NullString
+	var metadata string
 	var size sql.NullInt64
 	var created int64
 	err := row.Scan(&value.ID, &value.ArtifactID, &value.Index, &title, &localPath, &externalURL,
 		&mediaType, &size, &digest, &value.CreatedByActorID, &value.Source.ConversationID,
-		&value.Source.TurnID, &value.Source.ItemID, &created)
+		&value.Source.TurnID, &value.Source.ItemID, &metadata, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ArtifactVersion{}, ErrArtifactNotFound
 	}
@@ -370,6 +391,10 @@ func scanArtifactVersion(row rowScanner) (ArtifactVersion, error) {
 	value.ExternalURL = nullStringPointer(externalURL)
 	value.MediaType = nullStringPointer(mediaType)
 	value.ContentSHA256 = nullStringPointer(digest)
+	value.Metadata, err = decodeArtifactMetadata(metadata)
+	if err != nil {
+		return ArtifactVersion{}, err
+	}
 	if size.Valid {
 		value.ByteSize = &size.Int64
 	}
@@ -445,4 +470,30 @@ func nullableInt64(value *int64) any {
 		return nil
 	}
 	return *value
+}
+
+func encodeArtifactMetadata(value map[string]any) (string, error) {
+	bytes, err := json.Marshal(normalizedArtifactMetadata(value))
+	if err != nil || len(bytes) > maxArtifactMetadataBytes {
+		return "", errors.New("invalid Artifact metadata")
+	}
+	return string(bytes), nil
+}
+
+func decodeArtifactMetadata(value string) (map[string]any, error) {
+	if len(value) > maxArtifactMetadataBytes {
+		return nil, errors.New("stored Artifact metadata exceeds its size limit")
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(value), &metadata); err != nil || metadata == nil {
+		return nil, errors.New("stored Artifact metadata is invalid")
+	}
+	return metadata, nil
+}
+
+func normalizedArtifactMetadata(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	return value
 }

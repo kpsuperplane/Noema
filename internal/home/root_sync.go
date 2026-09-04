@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// SyncRootDirectory durably records changes made through one rooted directory.
+// SyncRootDirectory completes the platform durability contract for one rooted directory.
+// Unix syncs the directory entry. Windows relies on synced file data and atomic replacement.
 func SyncRootDirectory(root *os.Root, path string) error {
 	return syncDirectory(root, path)
 }

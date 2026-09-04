@@ -88,7 +88,7 @@ func AtomicWritePrivate(path string, data []byte) error {
 	return syncAbsoluteDirectory(directory)
 }
 
-// RemovePrivateFile durably removes one absolute regular file when it exists.
+// RemovePrivateFile removes one absolute regular file when it exists.
 func RemovePrivateFile(path string) error {
 	if !filepath.IsAbs(path) {
 		return errors.New("private file path must be absolute")

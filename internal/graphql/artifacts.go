@@ -68,6 +68,7 @@ func (r *Resolver) createTaskLocalArtifact(
 		Title: input.Title, Description: &description, Kind: "source_file",
 		Filename: input.Filename, Bytes: bytes, MediaType: &input.MediaType,
 		CreatedByActorID: "human:local",
+		Metadata:         map[string]any{"filename": input.Filename},
 	})
 	if err != nil {
 		return nil, err
