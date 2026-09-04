@@ -244,14 +244,15 @@ func (s *AccountService) PublishVerifiedSecret(
 	return updated, nil
 }
 
-// PublishCodexTokens saves verified Codex tokens against their starting revision.
-func (s *AccountService) PublishCodexTokens(
+// publishCodexTokens saves verified Codex tokens and models against their starting revision.
+func (s *AccountService) publishCodexTokens(
 	ctx context.Context,
 	expectedRevision uint64,
 	tokens CodexTokens,
+	catalog codexModelCatalog,
 	now time.Time,
 ) (Account, error) {
-	if !tokens.valid() {
+	if !tokens.valid() || len(catalog.Profiles) == 0 || !validCodexClientVersion(catalog.ClientVersion) {
 		return Account{}, ErrAuthMethodMismatch
 	}
 	const id = "provider_account:codex:default"
@@ -266,6 +267,10 @@ func (s *AccountService) PublishCodexTokens(
 	if account.ProviderKind != "codex" || account.AccountKey != "default" || !account.IsActive ||
 		account.Metadata.CredentialRevision() != expectedRevision {
 		return Account{}, ErrAccountConflict
+	}
+	metadata, err := codexMetadataWithCatalog(account.Metadata, catalog, now)
+	if err != nil {
+		return Account{}, err
 	}
 	path, err := s.codexTokenPath(account)
 	if err != nil {
@@ -282,7 +287,7 @@ func (s *AccountService) PublishCodexTokens(
 		return Account{}, err
 	}
 	updated, err := s.persistence.UpdateProviderCredential(
-		ctx, id, expectedRevision, AuthOAuthDeviceCode, true, cloneMetadata(account.Metadata), now.UTC(),
+		ctx, id, expectedRevision, AuthOAuthDeviceCode, true, metadata, now.UTC(),
 	)
 	if err != nil {
 		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {

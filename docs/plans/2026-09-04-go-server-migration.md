@@ -424,13 +424,16 @@ The Codex device authentication unit passed on 2026-09-04. It includes:
 - the current OpenAI device authorization wire contract;
 - bounded polling with cancellation and expiry;
 - authorization-code exchange;
+- bounded model discovery with visible-profile filtering;
+- validated client-version discovery with a safe fallback;
 - protected access and refresh token storage;
-- credential revision checks and rollback;
+- atomic token and catalog publication with credential revision checks and rollback;
 - safe authentication events and errors.
 
 The current provider-auth GraphQL roots now route Codex and OpenRouter attempts.
 They preserve the existing web and iOS operation shapes. Graceful shutdown
-cancels detached Codex polling. Codex generation remains later provider work.
+cancels detached Codex polling and model discovery. Codex generation remains
+later provider work.
 
 ### First Chat runtime unit
 

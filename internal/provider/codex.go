@@ -23,6 +23,8 @@ const (
 	codexOAuthResponseLimit = 1 << 20
 	codexPollFloor          = 3 * time.Second
 	codexAttemptTTL         = 5 * time.Minute
+	codexModelsBaseURL      = "https://chatgpt.com/backend-api/codex"
+	codexVersionURL         = "https://registry.npmjs.org/@openai%2fcodex/latest"
 )
 
 // CodexTokens contains protected OAuth authority.
@@ -76,6 +78,8 @@ type CodexService struct {
 	client        *http.Client
 	issuer        string
 	tokenURL      string
+	modelsBaseURL string
+	versionURL    string
 	attemptTTL    time.Duration
 	pollFloor     time.Duration
 	now           func() time.Time
@@ -114,6 +118,7 @@ func newCodexService(
 	}
 	return &CodexService{
 		accounts: accounts, client: client, issuer: issuerURL.String(), tokenURL: token.String(),
+		modelsBaseURL: codexModelsBaseURL, versionURL: codexVersionURL,
 		attemptTTL: attemptTTL, pollFloor: pollFloor, now: time.Now,
 		attempts: make(map[string]*codexAttempt),
 	}, nil
@@ -313,21 +318,48 @@ func (s *CodexService) runAttempt(ctx context.Context, attempt *codexAttempt, de
 
 func (s *CodexService) publishTokens(ctx context.Context, attempt *codexAttempt, tokens CodexTokens) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	current := s.attempts[attempt.view.ID]
 	if current != attempt || s.latestAttempt != attempt.view.ID || terminalAttempt(attempt.view.Status) {
+		s.mu.Unlock()
 		return
 	}
 	if err := ctx.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			s.setExpiredLocked(attempt)
 		}
+		s.mu.Unlock()
 		return
 	}
-	_, err := s.accounts.PublishCodexTokens(ctx, attempt.expectedRevision, tokens, s.now())
+	s.mu.Unlock()
+
+	catalog, err := s.fetchModelCatalog(ctx, tokens)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current = s.attempts[attempt.view.ID]
+	if current != attempt || s.latestAttempt != attempt.view.ID || terminalAttempt(attempt.view.Status) {
+		return
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		s.setExpiredLocked(attempt)
+		return
+	}
+	if err != nil {
+		attempt.view.Status = AuthAttemptFailed
+		attempt.view.ErrorCode = "provider_model_catalog_failed"
+		attempt.view.ErrorMessage = safeCodexCatalogError(err)
+		s.publishLocked(attempt)
+		return
+	}
+	_, err = s.accounts.publishCodexTokens(
+		ctx, attempt.expectedRevision, tokens, catalog, s.now(),
+	)
 	if err == nil {
 		attempt.view.Status = AuthAttemptCompleted
 		s.publishLocked(attempt)
+		return
+	}
+	if !errors.Is(err, ErrCompensationFailed) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		s.setExpiredLocked(attempt)
 		return
 	}
 	attempt.view.Status = AuthAttemptFailed
@@ -341,6 +373,23 @@ func (s *CodexService) publishTokens(ctx context.Context, attempt *codexAttempt,
 		attempt.view.ErrorMessage = "Provider credentials could not be saved"
 	}
 	s.publishLocked(attempt)
+}
+
+func safeCodexCatalogError(err error) string {
+	var remote codexRemoteError
+	if !errors.As(err, &remote) {
+		return "Codex model catalog is unavailable"
+	}
+	switch remote.kind {
+	case codexNetwork:
+		return "Codex model catalog network request failed"
+	case codexMalformed:
+		return "Codex returned an invalid model catalog"
+	case codexRejected:
+		return "Codex model access was rejected"
+	default:
+		return "Codex model catalog is unavailable"
+	}
 }
 
 func (s *CodexService) finishExpired(attempt *codexAttempt) {

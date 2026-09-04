@@ -27,7 +27,8 @@ func TestCodexDeviceAuthPreservesWirePollingAndProtectedTokens(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		requests = append(requests, codexRecordedRequest{
-			path: r.URL.Path, contentType: r.Header.Get("Content-Type"), body: string(body), at: time.Now(),
+			path: r.URL.RequestURI(), contentType: r.Header.Get("Content-Type"), body: string(body),
+			authorized: r.Header.Get("Authorization") == "Bearer access-secret", at: time.Now(),
 		})
 		requestNumber := len(requests)
 		mu.Unlock()
@@ -43,6 +44,10 @@ func TestCodexDeviceAuthPreservesWirePollingAndProtectedTokens(t *testing.T) {
 			_, _ = w.Write([]byte(`{"authorization_code":"authorization-secret","code_verifier":"verifier-secret"}`))
 		case 5:
 			_, _ = w.Write([]byte(`{"access_token":"access-secret","refresh_token":"refresh-secret"}`))
+		case 6:
+			_, _ = w.Write([]byte(`{"version":"0.144.1"}`))
+		case 7:
+			_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5.6-terra","display_name":"GPT-5.6 Terra","visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":["low","medium","high","xhigh"]},{"slug":"hidden","visibility":"hide"}]}`))
 		default:
 			http.Error(w, `{}`, http.StatusInternalServerError)
 		}
@@ -54,7 +59,8 @@ func TestCodexDeviceAuthPreservesWirePollingAndProtectedTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	if production.issuer != "https://auth.openai.com" ||
-		production.tokenURL != "https://auth.openai.com/oauth/token" {
+		production.tokenURL != "https://auth.openai.com/oauth/token" ||
+		production.modelsBaseURL != "https://chatgpt.com/backend-api/codex" {
 		t.Fatalf("production Codex OAuth endpoints = %q, %q", production.issuer, production.tokenURL)
 	}
 
@@ -80,12 +86,13 @@ func TestCodexDeviceAuthPreservesWirePollingAndProtectedTokens(t *testing.T) {
 	mu.Lock()
 	got := append([]codexRecordedRequest(nil), requests...)
 	mu.Unlock()
-	if len(got) != 5 {
-		t.Fatalf("request count = %d, want 5", len(got))
+	if len(got) != 7 {
+		t.Fatalf("request count = %d, want 7", len(got))
 	}
 	wantPaths := []string{
 		"/api/accounts/deviceauth/usercode", "/api/accounts/deviceauth/token",
 		"/api/accounts/deviceauth/token", "/api/accounts/deviceauth/token", "/oauth/token",
+		"/latest", "/models?client_version=0.144.1",
 	}
 	for index, path := range wantPaths {
 		if got[index].path != path {
@@ -114,6 +121,22 @@ func TestCodexDeviceAuthPreservesWirePollingAndProtectedTokens(t *testing.T) {
 	}
 	if got[4].contentType != "application/x-www-form-urlencoded" {
 		t.Fatalf("token exchange content type = %q", got[4].contentType)
+	}
+	if !got[6].authorized {
+		t.Fatal("model catalog request did not use the transient access token")
+	}
+	account, err := accounts.LoadAccount(context.Background(), "provider_account:codex:default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles, err := account.Metadata.ModelProfiles()
+	if err != nil || len(profiles) != 1 || profiles[0].ID != "gpt-5.6-terra" ||
+		profiles[0].DefaultReasoningEffort != "medium" || len(profiles[0].ReasoningEfforts) != 4 {
+		t.Fatalf("stored Codex profiles = %#v, %v", profiles, err)
+	}
+	var clientVersion string
+	if json.Unmarshal(account.Metadata["models_client_version"], &clientVersion) != nil || clientVersion != "0.144.1" {
+		t.Fatalf("stored Codex client version = %q", clientVersion)
 	}
 	stored, err := accounts.LoadCodexTokens(context.Background())
 	if err != nil {
@@ -223,6 +246,10 @@ func TestCodexDeviceAuthRejectsStalePublication(t *testing.T) {
 			close(tokenRequest)
 			<-releaseToken
 			_, _ = w.Write([]byte(`{"access_token":"stale-access","refresh_token":"stale-refresh"}`))
+		case 4:
+			_, _ = w.Write([]byte(`{"version":"0.144.1"}`))
+		case 5:
+			_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-live","visibility":"list"}]}`))
 		}
 	}))
 	t.Cleanup(remote.Close)
@@ -291,6 +318,7 @@ type codexRecordedRequest struct {
 	path        string
 	contentType string
 	body        string
+	authorized  bool
 	at          time.Time
 }
 
@@ -316,7 +344,246 @@ func codexTestService(
 	if err != nil {
 		t.Fatal(err)
 	}
+	service.modelsBaseURL = baseURL
+	service.versionURL = baseURL + "/latest"
 	return service, accounts, filepath.Join(root, "providers", "codex", "default", "codex_tokens.json")
+}
+
+func TestCodexCatalogParsesVisibleModelsAndValidatesVersions(t *testing.T) {
+	profiles, err := codexProfiles([]byte(`{"models":[
+		{"slug":"gpt-live","display_name":"GPT Live","visibility":"list","default_reasoning_effort":"max"},
+		{"slug":"hidden","visibility":"hide"},
+		{"slug":"gpt-live","visibility":"list"},
+		{"slug":"","visibility":"list"}
+	]}`))
+	if err != nil || len(profiles) != 1 || profiles[0].ID != "gpt-live" ||
+		profiles[0].DefaultReasoningEffort != "xhigh" || len(profiles[0].ReasoningEfforts) != 4 {
+		t.Fatalf("Codex profiles = %#v, %v", profiles, err)
+	}
+	cases := map[string]bool{
+		"0.144.1": true, "0.144.1-alpha.1": true, "latest": false,
+		"0.144": false, "0.144.1+build": false, "0.144.1-": false,
+	}
+	for value, want := range cases {
+		if got := validCodexClientVersion(value); got != want {
+			t.Fatalf("validCodexClientVersion(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestCodexCatalogUsesSafeClientVersionFallback(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/latest":
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		case "/models":
+			if request.URL.Query().Get("client_version") != codexFallbackClientVersion ||
+				request.Header.Get("Authorization") != "Bearer access" {
+				t.Errorf("fallback catalog request was invalid: %s", request.URL.String())
+			}
+			_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-fallback","visibility":"list"}]}`))
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	t.Cleanup(remote.Close)
+	service, _, _ := codexTestService(t, remote.URL, time.Millisecond, time.Second)
+	catalog, err := service.fetchModelCatalog(context.Background(), CodexTokens{
+		accessToken: "access", refreshToken: "refresh", lastRefresh: 1,
+	})
+	if err != nil || catalog.ClientVersion != codexFallbackClientVersion ||
+		catalog.VersionFetchedAt != nil || len(catalog.Profiles) != 1 {
+		t.Fatalf("fallback catalog = %#v, %v", catalog, err)
+	}
+	metadata, err := codexMetadataWithCatalog(AccountMetadata{
+		"models_client_version_refreshed_at": json.RawMessage(`123`),
+	}, catalog, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := metadata["models_client_version_refreshed_at"]; exists {
+		t.Fatal("fallback catalog retained a timestamp from a different client version")
+	}
+}
+
+func TestCodexCatalogPublicationRestoresPriorTokens(t *testing.T) {
+	_, accounts, _ := codexTestService(t, "https://codex.invalid", time.Millisecond, time.Second)
+	now := time.Now().UTC()
+	firstCatalog := codexModelCatalog{
+		Profiles:      []ModelProfile{{ID: "gpt-first", Label: "GPT First"}},
+		ClientVersion: "0.144.1",
+	}
+	if _, err := accounts.publishCodexTokens(context.Background(), 0, CodexTokens{
+		accessToken: "first-access", refreshToken: "first-refresh", lastRefresh: 1,
+	}, firstCatalog, now); err != nil {
+		t.Fatal(err)
+	}
+	memory := accounts.persistence.(*memoryAccountPersistence)
+	failingAccounts, err := NewAccountService(accounts.root, &failingCodexPersistence{memory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = failingAccounts.publishCodexTokens(context.Background(), 1, CodexTokens{
+		accessToken: "new-access", refreshToken: "new-refresh", lastRefresh: 2,
+	}, codexModelCatalog{
+		Profiles: []ModelProfile{{ID: "gpt-new", Label: "GPT New"}}, ClientVersion: "0.144.2",
+	}, now.Add(time.Second))
+	if err == nil {
+		t.Fatal("failed Codex metadata publication succeeded")
+	}
+	stored, err := accounts.LoadCodexTokens(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stored.Use(func(access string, refresh string, _ uint64) error {
+		if access != "first-access" || refresh != "first-refresh" {
+			t.Fatal("Codex token rollback did not restore the prior tokens")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	account, err := accounts.LoadAccount(context.Background(), "provider_account:codex:default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles, err := account.Metadata.ModelProfiles()
+	if err != nil || len(profiles) != 1 || profiles[0].ID != "gpt-first" {
+		t.Fatalf("profiles after rollback = %#v, %v", profiles, err)
+	}
+}
+
+func TestCodexCatalogFailureDoesNotPublishTokens(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			_, _ = w.Write([]byte(`{"device_auth_id":"device","user_code":"CODE","interval":0}`))
+		case "/api/accounts/deviceauth/token":
+			_, _ = w.Write([]byte(`{"authorization_code":"authorization","code_verifier":"verifier"}`))
+		case "/oauth/token":
+			_, _ = w.Write([]byte(`{"access_token":"access","refresh_token":"refresh"}`))
+		case "/latest":
+			_, _ = w.Write([]byte(`{"version":"0.144.1"}`))
+		case "/models":
+			_, _ = w.Write([]byte(`{"models":[]}`))
+		}
+	}))
+	t.Cleanup(remote.Close)
+	service, accounts, tokenPath := codexTestService(t, remote.URL, time.Millisecond, time.Second)
+	attempt, err := service.StartAuth(
+		context.Background(), "codex", "provider_account:codex:default", AuthOAuthDeviceCode,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, _ := service.Subscribe(context.Background(), attempt.ID)
+	<-events
+	terminal := waitCodexAttempt(t, events)
+	if terminal.Status != AuthAttemptFailed || terminal.ErrorCode != "provider_model_catalog_failed" ||
+		terminal.ErrorMessage != "Codex returned an invalid model catalog" {
+		t.Fatalf("catalog failure terminal = %#v", terminal)
+	}
+	if _, err := os.Stat(tokenPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("catalog failure token file = %v", err)
+	}
+	account, err := accounts.LoadAccount(context.Background(), attempt.ProviderAccountID)
+	if err != nil || account.Status == StatusAuthenticated || account.Metadata.CredentialRevision() != 0 {
+		t.Fatalf("account after catalog failure = %#v, %v", account, err)
+	}
+}
+
+func TestCodexCatalogExpiryCannotPublishReturnedModels(t *testing.T) {
+	modelsStarted := make(chan struct{})
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			_, _ = w.Write([]byte(`{"device_auth_id":"device","user_code":"CODE","interval":0}`))
+		case "/api/accounts/deviceauth/token":
+			_, _ = w.Write([]byte(`{"authorization_code":"authorization","code_verifier":"verifier"}`))
+		case "/oauth/token":
+			_, _ = w.Write([]byte(`{"access_token":"access","refresh_token":"refresh"}`))
+		case "/latest":
+			_, _ = w.Write([]byte(`{"version":"0.144.1"}`))
+		case "/models":
+			close(modelsStarted)
+			<-request.Context().Done()
+		}
+	}))
+	t.Cleanup(remote.Close)
+	service, _, tokenPath := codexTestService(t, remote.URL, time.Millisecond, 30*time.Millisecond)
+	attempt, err := service.StartAuth(
+		context.Background(), "codex", "provider_account:codex:default", AuthOAuthDeviceCode,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, _ := service.Subscribe(context.Background(), attempt.ID)
+	<-events
+	<-modelsStarted
+	terminal := waitCodexAttempt(t, events)
+	if terminal.Status != AuthAttemptExpired || terminal.ErrorCode != "provider_auth_expired" {
+		t.Fatalf("catalog expiry terminal = %#v", terminal)
+	}
+	if _, err := os.Stat(tokenPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired catalog token file = %v", err)
+	}
+}
+
+func TestCodexPublicationDeadlineExpiresAndRestoresTokens(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			_, _ = w.Write([]byte(`{"device_auth_id":"device","user_code":"CODE","interval":0}`))
+		case "/api/accounts/deviceauth/token":
+			_, _ = w.Write([]byte(`{"authorization_code":"authorization","code_verifier":"verifier"}`))
+		case "/oauth/token":
+			_, _ = w.Write([]byte(`{"access_token":"access","refresh_token":"refresh"}`))
+		case "/latest":
+			_, _ = w.Write([]byte(`{"version":"0.144.1"}`))
+		case "/models":
+			_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-live","visibility":"list"}]}`))
+		}
+	}))
+	t.Cleanup(remote.Close)
+	service, accounts, tokenPath := codexTestService(t, remote.URL, time.Millisecond, 30*time.Millisecond)
+	memory := accounts.persistence.(*memoryAccountPersistence)
+	deadlineAccounts, err := NewAccountService(accounts.root, &deadlineCodexPersistence{memory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.accounts = deadlineAccounts
+	attempt, err := service.StartAuth(
+		context.Background(), "codex", "provider_account:codex:default", AuthOAuthDeviceCode,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, _ := service.Subscribe(context.Background(), attempt.ID)
+	<-events
+	terminal := waitCodexAttempt(t, events)
+	if terminal.Status != AuthAttemptExpired || terminal.ErrorCode != "provider_auth_expired" {
+		t.Fatalf("publication deadline terminal = %#v", terminal)
+	}
+	if _, err := os.Stat(tokenPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("publication deadline token file = %v", err)
+	}
+}
+
+type failingCodexPersistence struct{ *memoryAccountPersistence }
+
+func (*failingCodexPersistence) UpdateProviderCredential(
+	context.Context, string, uint64, AuthMethod, bool, AccountMetadata, time.Time,
+) (Account, error) {
+	return Account{}, errors.New("injected Codex metadata failure")
+}
+
+type deadlineCodexPersistence struct{ *memoryAccountPersistence }
+
+func (*deadlineCodexPersistence) UpdateProviderCredential(
+	ctx context.Context, _ string, _ uint64, _ AuthMethod, _ bool, _ AccountMetadata, _ time.Time,
+) (Account, error) {
+	<-ctx.Done()
+	return Account{}, ctx.Err()
 }
 
 func waitCodexAttempt(t *testing.T, events <-chan AuthAttempt) AuthAttempt {
