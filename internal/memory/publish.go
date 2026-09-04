@@ -402,7 +402,7 @@ func writeRootFile(root *os.Root, name string, data []byte) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	if err := root.Rename(temporary, name); err != nil {
+	if err := noemahome.ReplaceRootFile(root, temporary, name); err != nil {
 		return err
 	}
 	committed = true
