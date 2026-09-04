@@ -22,6 +22,8 @@ github.com/fxamacker/cbor/v2 v2.9.3 h1:oQBnFATpNdY8gJHTndDDv5Xl4QqNaz51G5LLEPhng
 github.com/fxamacker/cbor/v2 v2.9.3/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/gavv/httpexpect v2.0.0+incompatible h1:1X9kcRshkSKEjNJJxX9Y9mQ5BRfbxU5kORdjhlA1yX8=
 github.com/gavv/httpexpect v2.0.0+incompatible/go.mod h1:x+9tiU1YnrOvnB725RkpoLv1M62hOWzwo5OXotisrKc=
+github.com/giraffesyo/pdf v0.6.0 h1:umrFu2GDks50kBm2pTg11ERzBXFNBSJvKDLHoIM0nrE=
+github.com/giraffesyo/pdf v0.6.0/go.mod h1:Muaw8z05VWSvOjy7vjRxjcfDV8busvU53J4eoUps0DI=
 github.com/go-oauth2/oauth2/v4 v4.6.0 h1:g1M92LQh9NbDmovPNG2iJ25rtbXPXBrRv+lorehLc44=
 github.com/go-oauth2/oauth2/v4 v4.6.0/go.mod h1:BXiOY+QZtZy2ewbsGk2B5P8TWmtz/Rf7ES5ZttQFxfQ=
 github.com/go-viper/mapstructure/v2 v2.5.0 h1:vM5IJoUAy3d7zRSVtIwQgBj7BiWtMPfmPEgAXnvj1Ro=

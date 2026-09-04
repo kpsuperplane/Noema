@@ -7,6 +7,7 @@ require (
 	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
 	github.com/adhocore/gronx v1.20.3
 	github.com/coder/websocket v1.8.15
+	github.com/giraffesyo/pdf v0.6.0
 	github.com/go-oauth2/oauth2/v4 v4.6.0
 	github.com/go-webauthn/webauthn v0.18.0
 	github.com/goccy/go-yaml v1.19.2

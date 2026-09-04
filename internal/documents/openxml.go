@@ -341,9 +341,12 @@ func (document *markdownDocument) table(rows [][]string) {
 				values[column] = escapeCell(row[column])
 			}
 		}
-		document.append("| " + strings.Join(values, " | ") + " |\n")
+		if index > 0 {
+			document.append("\n")
+		}
+		document.append("| " + strings.Join(values, " | ") + " |")
 		if index == 0 {
-			document.append("| " + strings.TrimSuffix(strings.Repeat("--- | ", width), " ") + "\n")
+			document.append("\n| " + strings.TrimSuffix(strings.Repeat("--- | ", width), " "))
 		}
 		if document.count >= maxPreviewCharacters {
 			break

@@ -16,6 +16,8 @@ const (
 	MediaPPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	MediaODP  = "application/vnd.oasis.opendocument.presentation"
 	MediaRTF  = "application/rtf"
+	MediaPDF  = "application/pdf"
+	MediaEPUB = "application/epub+zip"
 
 	maxDocumentInputBytes    = 32 * 1024 * 1024
 	maxDocumentEntries       = 10_000
@@ -33,7 +35,7 @@ var errInvalidDocument = errors.New("invalid document")
 func IsDocument(mediaType string) bool {
 	switch normalizedMediaType(mediaType) {
 	case MediaXLSX, MediaXLS, MediaODS, MediaDOCX, MediaODT, MediaPPTX, MediaODP,
-		MediaRTF, "text/rtf", "application/x-rtf":
+		MediaRTF, "text/rtf", "application/x-rtf", MediaPDF, MediaEPUB:
 		return true
 	default:
 		return false
@@ -69,6 +71,10 @@ func DocumentMarkdown(data []byte, mediaType string) (content string, converted 
 		result, err = parseODF(data, true)
 	case MediaRTF, "text/rtf", "application/x-rtf":
 		result, err = parseRTF(data)
+	case MediaPDF:
+		result, err = parsePDF(data)
+	case MediaEPUB:
+		result, err = parseEPUB(data)
 	default:
 		return "", false
 	}
