@@ -465,6 +465,9 @@ The OpenRouter native-tool provider unit passed on 2026-09-04. It includes:
 The provider uses complete local replay. It does not depend on an OpenRouter
 continuation identifier.
 
+Shared generation requests, responses, replay items, reasoning, and tool controls
+now use one provider-neutral Go contract. OpenRouter remains its first transport.
+
 ### First immediate tool runtime unit
 
 The `task.inspect` runtime unit passed on 2026-09-04. It includes:

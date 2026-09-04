@@ -473,7 +473,7 @@ func TestProviderUsageAggregationRejectsOverflow(t *testing.T) {
 }
 
 func TestTaskInspectFinalizationCompactsReplay(t *testing.T) {
-	messages := []provider.OpenRouterChatMessage{
+	messages := []provider.GenerationMessage{
 		{Role: "user", Content: "old"},
 		{Role: "assistant", Content: "old response"},
 		{Role: "user", Content: "current"},
@@ -481,15 +481,15 @@ func TestTaskInspectFinalizationCompactsReplay(t *testing.T) {
 	for index := range 10 {
 		callID := fmt.Sprintf("call_%d", index)
 		messages = append(messages,
-			provider.OpenRouterChatMessage{
+			provider.GenerationMessage{
 				Role: "assistant", Content: strings.Repeat("c", 9<<10),
 				ReasoningDetails: []json.RawMessage{json.RawMessage(`{"type":"reasoning","data":"opaque"}`)},
-				ToolCalls: []provider.OpenRouterReplayToolCall{{
+				ToolCalls: []provider.ReplayToolCall{{
 					ProviderCallID: callID, Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:1"}`),
 				}},
 			},
-			provider.OpenRouterChatMessage{
-				Role: "tool", ToolResult: &provider.OpenRouterReplayToolResult{
+			provider.GenerationMessage{
+				Role: "tool", ToolResult: &provider.ReplayToolResult{
 					ProviderCallID: callID, Name: "task.inspect", Success: true,
 					Payload: json.RawMessage(fmt.Sprintf(`{"round":%d}`, index)),
 				},

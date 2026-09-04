@@ -16,32 +16,6 @@ const (
 	openRouterProviderCallIDLimit = 255
 )
 
-// OpenRouterToolTransport selects the model tool channel.
-type OpenRouterToolTransport string
-
-const (
-	// OpenRouterToolTransportNone disables native tools.
-	OpenRouterToolTransportNone OpenRouterToolTransport = "none"
-	// OpenRouterToolTransportNative enables native function tools.
-	OpenRouterToolTransportNative OpenRouterToolTransport = "native"
-)
-
-// OpenRouterToolChoice selects provider tool use.
-type OpenRouterToolChoice string
-
-const (
-	OpenRouterToolChoiceAuto     OpenRouterToolChoice = "auto"
-	OpenRouterToolChoiceNone     OpenRouterToolChoice = "none"
-	OpenRouterToolChoiceRequired OpenRouterToolChoice = "required"
-)
-
-// OpenRouterTool is one canonical model-visible function.
-type OpenRouterTool struct {
-	Name        string
-	Description string
-	InputSchema json.RawMessage
-}
-
 type openRouterToolNameMap struct {
 	providerToRule  map[string]openRouterToolRule
 	canonicalToName map[string]string
@@ -77,7 +51,7 @@ type openRouterToolCallFunctionPayload struct {
 }
 
 func prepareOpenRouterTools(
-	tools []OpenRouterTool,
+	tools []GenerationTool,
 ) (openRouterToolNameMap, []openRouterToolPayload, error) {
 	names := make([]string, len(tools))
 	groups := make(map[string][]int)
@@ -161,15 +135,15 @@ func openRouterHostedSearchTool() openRouterToolPayload {
 }
 
 func openRouterToolControls(
-	request OpenRouterGenerateRequest,
+	request GenerateRequest,
 	hasFunctions bool,
 ) (string, *bool, error) {
 	choice := request.ToolChoice
 	if choice == "" {
-		choice = OpenRouterToolChoiceAuto
+		choice = ToolChoiceAuto
 	}
-	if choice != OpenRouterToolChoiceAuto && choice != OpenRouterToolChoiceNone &&
-		choice != OpenRouterToolChoiceRequired {
+	if choice != ToolChoiceAuto && choice != ToolChoiceNone &&
+		choice != ToolChoiceRequired {
 		return "", nil, errors.New("OpenRouter tool choice is invalid")
 	}
 	if !hasFunctions {

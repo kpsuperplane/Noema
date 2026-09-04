@@ -284,17 +284,17 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages = append([]provider.OpenRouterChatMessage{{
+	providerMessages = append([]provider.GenerationMessage{{
 		Role: "developer", Content: runtimeEnvironment(request.conversation, request.location, time.Now()),
 	}}, providerMessages...)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
-	result, err := c.generator.Generate(c.ctx, provider.OpenRouterGenerateRequest{
+	result, err := c.generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
 		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
-		Tools:         []provider.OpenRouterTool{taskInspectTool()},
-		ToolTransport: provider.OpenRouterToolTransportNative,
-		ToolChoice:    provider.OpenRouterToolChoiceAuto,
+		Tools:         []provider.GenerationTool{taskInspectTool()},
+		ToolTransport: provider.ToolTransportNative,
+		ToolChoice:    provider.ToolChoiceAuto,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {
 			c.publish(Event{

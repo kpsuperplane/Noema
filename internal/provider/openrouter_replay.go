@@ -6,26 +6,8 @@ import (
 	"strings"
 )
 
-// OpenRouterReplayToolCall is one native tool call in replay history.
-type OpenRouterReplayToolCall struct {
-	ProviderCallID string
-	Name           string
-	ProviderName   string
-	Arguments      json.RawMessage
-}
-
-// OpenRouterReplayToolResult is one native tool result in replay history.
-type OpenRouterReplayToolResult struct {
-	ProviderCallID string
-	Name           string
-	ProviderName   string
-	Arguments      json.RawMessage
-	Success        bool
-	Payload        json.RawMessage
-}
-
 func lowerOpenRouterMessage(
-	message OpenRouterChatMessage,
+	message GenerationMessage,
 	toolNames openRouterToolNameMap,
 ) (openRouterMessagePayload, bool, error) {
 	if message.Role == "developer" {
@@ -76,7 +58,7 @@ func lowerOpenRouterMessage(
 }
 
 func lowerOpenRouterReplayCall(
-	call OpenRouterReplayToolCall,
+	call ReplayToolCall,
 	toolNames openRouterToolNameMap,
 ) (openRouterToolCallPayload, error) {
 	if strings.TrimSpace(call.ProviderCallID) == "" ||
@@ -105,7 +87,7 @@ func lowerOpenRouterReplayCall(
 }
 
 func lowerOpenRouterToolResultMessage(
-	message OpenRouterChatMessage,
+	message GenerationMessage,
 	toolNames openRouterToolNameMap,
 ) (openRouterMessagePayload, bool, error) {
 	if len(message.ToolCalls) != 0 || len(message.ReasoningDetails) != 0 ||
@@ -151,7 +133,7 @@ func lowerOpenRouterToolResultMessage(
 	}, true, nil
 }
 
-func lowerOpenRouterReasoning(message OpenRouterChatMessage) ([]json.RawMessage, error) {
+func lowerOpenRouterReasoning(message GenerationMessage) ([]json.RawMessage, error) {
 	if len(message.ReasoningDetails) != 0 {
 		details := make([]json.RawMessage, 0, len(message.ReasoningDetails))
 		for _, detail := range message.ReasoningDetails {

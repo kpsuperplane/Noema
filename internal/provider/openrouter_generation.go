@@ -25,47 +25,6 @@ var errOpenRouterGenerationTooLarge = errors.New("OpenRouter generation response
 // ErrOpenRouterGenerationRequestTooLarge means local replay exceeded the provider request bound.
 var ErrOpenRouterGenerationRequestTooLarge = errors.New("OpenRouter generation request is too large")
 
-// OpenRouterChatMessage is one Chat Completions history message.
-type OpenRouterChatMessage struct {
-	Role               string
-	Content            string
-	ToolCalls          []OpenRouterReplayToolCall
-	ToolResult         *OpenRouterReplayToolResult
-	ToolCallID         string
-	ReasoningDetails   []json.RawMessage
-	ReasoningID        string
-	EncryptedReasoning string
-}
-
-// OpenRouterGenerateRequest is one OpenRouter generation request.
-type OpenRouterGenerateRequest struct {
-	AccountID       string
-	Model           string
-	Messages        []OpenRouterChatMessage
-	ReasoningEffort string
-	MaxOutputTokens *uint32
-	Temperature     *float32
-	ConversationID  string
-	Tools           []OpenRouterTool
-	ToolTransport   OpenRouterToolTransport
-	ToolChoice      OpenRouterToolChoice
-	ParallelTools   bool
-	HostedWebSearch bool
-}
-
-// OpenRouterGenerationResult is one completed generation.
-type OpenRouterGenerationResult struct {
-	ID           string
-	Model        string
-	Text         string
-	FinishReason string
-	Usage        Usage
-	ToolCalls    []OpenRouterToolCall
-	Reasoning    []OpenRouterReasoningItem
-	Citations    []Citation
-	Searches     []HostedSearch
-}
-
 // OpenRouterGenerator sends Chat Completions requests.
 type OpenRouterGenerator struct {
 	accounts *AccountService
@@ -106,20 +65,20 @@ func newOpenRouterGenerator(
 // Generate streams text deltas and returns the completed response.
 func (g *OpenRouterGenerator) Generate(
 	ctx context.Context,
-	request OpenRouterGenerateRequest,
+	request GenerateRequest,
 	onEvent func(StreamEvent),
-) (OpenRouterGenerationResult, error) {
+) (GenerationResult, error) {
 	body, toolNames, err := prepareOpenRouterGeneration(request)
 	if err != nil {
-		return OpenRouterGenerationResult{}, err
+		return GenerationResult{}, err
 	}
 	secret, err := g.accounts.LoadSecret(ctx, request.AccountID)
 	if err != nil {
-		return OpenRouterGenerationResult{}, err
+		return GenerationResult{}, err
 	}
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, g.chatURL, bytes.NewReader(body))
 	if err != nil {
-		return OpenRouterGenerationResult{}, errors.New("OpenRouter generation request is invalid")
+		return GenerationResult{}, errors.New("OpenRouter generation request is invalid")
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Accept", "text/event-stream")
@@ -139,34 +98,34 @@ func (g *OpenRouterGenerator) Generate(
 	})
 	if err != nil {
 		if ctx.Err() != nil {
-			return OpenRouterGenerationResult{}, ctx.Err()
+			return GenerationResult{}, ctx.Err()
 		}
-		return OpenRouterGenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, ErrProviderUnavailable
 	}
 	if response == nil {
-		return OpenRouterGenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, ErrProviderUnavailable
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		_ = response.Body.Close()
 		switch response.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return OpenRouterGenerationResult{}, ErrAuthenticationRejected
+			return GenerationResult{}, ErrAuthenticationRejected
 		case http.StatusTooManyRequests:
-			return OpenRouterGenerationResult{}, ErrProviderRateLimited
+			return GenerationResult{}, ErrProviderRateLimited
 		case http.StatusPaymentRequired:
-			return OpenRouterGenerationResult{}, ErrProviderPaymentRequired
+			return GenerationResult{}, ErrProviderPaymentRequired
 		case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict,
 			http.StatusUnprocessableEntity:
-			return OpenRouterGenerationResult{}, ErrProviderRequestRejected
+			return GenerationResult{}, ErrProviderRequestRejected
 		default:
-			return OpenRouterGenerationResult{}, ErrProviderUnavailable
+			return GenerationResult{}, ErrProviderUnavailable
 		}
 	}
 
 	stream := newOpenRouterGenerationStream(response.Body)
 	parsed, err := ParseChatStream(ctx, stream, dedupeOpenRouterStreamEvents(onEvent))
 	if err != nil {
-		return OpenRouterGenerationResult{}, safeOpenRouterGenerationError(ctx, err)
+		return GenerationResult{}, safeOpenRouterGenerationError(ctx, err)
 	}
 	return normalizeOpenRouterGeneration(
 		request, parsed, toolNames, openRouterFinishReason(stream.captured.Bytes()),
@@ -204,13 +163,13 @@ type openRouterStreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-func openRouterGenerationBody(request OpenRouterGenerateRequest) ([]byte, error) {
+func openRouterGenerationBody(request GenerateRequest) ([]byte, error) {
 	body, _, err := prepareOpenRouterGeneration(request)
 	return body, err
 }
 
 func prepareOpenRouterGeneration(
-	request OpenRouterGenerateRequest,
+	request GenerateRequest,
 ) ([]byte, openRouterToolNameMap, error) {
 	if request.AccountID != openRouterGenerationAccountID {
 		return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation requires the default account")
@@ -223,7 +182,7 @@ func prepareOpenRouterGeneration(
 	if err != nil {
 		return nil, openRouterToolNameMap{}, err
 	}
-	if len(wireTools) != 0 && request.ToolTransport != OpenRouterToolTransportNative {
+	if len(wireTools) != 0 && request.ToolTransport != ToolTransportNative {
 		return nil, openRouterToolNameMap{}, errors.New("OpenRouter tool transport is disabled")
 	}
 	messages := make([]openRouterMessagePayload, 0, len(request.Messages)+1)
@@ -269,7 +228,7 @@ func prepareOpenRouterGeneration(
 	payload.ParallelToolCalls = parallel
 	if request.HostedWebSearch {
 		payload.Tools = append(payload.Tools, openRouterHostedSearchTool())
-		payload.ToolChoice = string(OpenRouterToolChoiceAuto)
+		payload.ToolChoice = string(ToolChoiceAuto)
 		payload.ParallelToolCalls = boolPointer(request.ParallelTools)
 	}
 	if strings.HasPrefix(strings.TrimPrefix(model, "~"), "anthropic/") {

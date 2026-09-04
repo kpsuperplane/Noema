@@ -6,41 +6,24 @@ import (
 	"strings"
 )
 
-// OpenRouterToolCall is one validated native tool call.
-type OpenRouterToolCall struct {
-	Index          int
-	ProviderCallID string
-	ProviderName   string
-	Name           string
-	Payload        json.RawMessage
-}
-
-// OpenRouterReasoningItem holds provider reasoning for replay.
-type OpenRouterReasoningItem struct {
-	ID               string
-	EncryptedContent string
-	Summary          []string
-	ProviderDetails  []json.RawMessage
-}
-
 func normalizeOpenRouterGeneration(
-	request OpenRouterGenerateRequest,
+	request GenerateRequest,
 	parsed ChatStreamResult,
 	toolNames openRouterToolNameMap,
 	finishReason string,
-) (OpenRouterGenerationResult, error) {
+) (GenerationResult, error) {
 	toolCalls, err := normalizeOpenRouterToolCalls(parsed.ToolCalls, request.ToolTransport, toolNames)
 	if err != nil {
-		return OpenRouterGenerationResult{}, err
+		return GenerationResult{}, err
 	}
 	if parsed.Text == "" && len(toolCalls) == 0 {
-		return OpenRouterGenerationResult{}, errors.New("OpenRouter response did not contain assistant content or tool calls")
+		return GenerationResult{}, errors.New("OpenRouter response did not contain assistant content or tool calls")
 	}
 	model := parsed.Model
 	if model == "" {
 		model = strings.TrimSpace(request.Model)
 	}
-	return OpenRouterGenerationResult{
+	return GenerationResult{
 		ID: parsed.ID, Model: model, Text: parsed.Text, FinishReason: finishReason,
 		Usage: parsed.Usage, ToolCalls: toolCalls,
 		Reasoning: normalizeOpenRouterReasoning(parsed.Reasoning),
@@ -51,13 +34,13 @@ func normalizeOpenRouterGeneration(
 
 func normalizeOpenRouterToolCalls(
 	calls []ToolCall,
-	transport OpenRouterToolTransport,
+	transport ToolTransport,
 	names openRouterToolNameMap,
-) ([]OpenRouterToolCall, error) {
-	if len(calls) != 0 && transport != OpenRouterToolTransportNative {
+) ([]GenerationToolCall, error) {
+	if len(calls) != 0 && transport != ToolTransportNative {
 		return nil, errors.New("OpenRouter returned native tool calls when native tools were disabled")
 	}
-	result := make([]OpenRouterToolCall, 0, len(calls))
+	result := make([]GenerationToolCall, 0, len(calls))
 	seen := make(map[string]struct{}, len(calls))
 	for _, call := range calls {
 		if strings.TrimSpace(call.ID) == "" {
@@ -88,7 +71,7 @@ func normalizeOpenRouterToolCalls(
 		if err != nil {
 			return nil, errors.New("OpenRouter native tool arguments are invalid")
 		}
-		result = append(result, OpenRouterToolCall{
+		result = append(result, GenerationToolCall{
 			Index: call.Index, ProviderCallID: call.ID, ProviderName: call.Name,
 			Name: rule.canonical, Payload: encoded,
 		})
@@ -96,11 +79,11 @@ func normalizeOpenRouterToolCalls(
 	return result, nil
 }
 
-func normalizeOpenRouterReasoning(details []json.RawMessage) []OpenRouterReasoningItem {
+func normalizeOpenRouterReasoning(details []json.RawMessage) []GenerationReasoning {
 	if len(details) == 0 {
 		return nil
 	}
-	item := OpenRouterReasoningItem{ProviderDetails: cloneRawMessages(details)}
+	item := GenerationReasoning{ProviderDetails: cloneRawMessages(details)}
 	for _, detail := range details {
 		value, err := decodeOpenRouterJSON(detail)
 		if err != nil {
@@ -121,7 +104,7 @@ func normalizeOpenRouterReasoning(details []json.RawMessage) []OpenRouterReasoni
 			}
 		}
 	}
-	return []OpenRouterReasoningItem{item}
+	return []GenerationReasoning{item}
 }
 
 func dedupeOpenRouterStreamEvents(onEvent func(StreamEvent)) func(StreamEvent) {

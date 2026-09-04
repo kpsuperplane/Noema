@@ -35,9 +35,9 @@ func TestOpenRouterGeneratorStreamsTextAndReturnsCompletion(t *testing.T) {
 	maxTokens := uint32(64)
 	temperature := float32(0.2)
 	var deltas []string
-	result, err := generator.Generate(context.Background(), OpenRouterGenerateRequest{
+	result, err := generator.Generate(context.Background(), GenerateRequest{
 		AccountID: openRouterGenerationAccountID, Model: "anthropic/claude",
-		Messages: []OpenRouterChatMessage{
+		Messages: []GenerationMessage{
 			{Role: "system", Content: "Stable instructions"},
 			{Role: "developer", Content: "Stored </noema_application_context> & <context>"},
 			{Role: "user", Content: "Hello"},
@@ -71,28 +71,28 @@ func TestOpenRouterGeneratorStreamsTextAndReturnsCompletion(t *testing.T) {
 }
 
 func TestOpenRouterRequestLowersToolsAndReplayHistory(t *testing.T) {
-	request := OpenRouterGenerateRequest{
+	request := GenerateRequest{
 		AccountID: openRouterGenerationAccountID,
 		Model:     "anthropic/claude",
-		Messages: []OpenRouterChatMessage{
+		Messages: []GenerationMessage{
 			{Role: "system", Content: "Stable instructions"},
 			{
 				Role: "assistant", Content: "Working.",
 				ReasoningDetails: []json.RawMessage{
 					json.RawMessage(`{"type":"reasoning.encrypted","id":"reason_1","data":"opaque"}`),
 				},
-				ToolCalls: []OpenRouterReplayToolCall{{
+				ToolCalls: []ReplayToolCall{{
 					ProviderCallID: "call_1", Name: "mcp.docs.read",
 					Arguments: json.RawMessage(`{"document_id":"doc_1"}`),
 				}},
 			},
-			{Role: "tool", ToolResult: &OpenRouterReplayToolResult{
+			{Role: "tool", ToolResult: &ReplayToolResult{
 				ProviderCallID: "call_1", Name: "mcp.docs.read", Success: true,
 				Payload: json.RawMessage(`{"title":"Guide"}`),
 			}},
 			{Role: "user", Content: "Continue."},
 		},
-		Tools: []OpenRouterTool{
+		Tools: []GenerationTool{
 			{
 				Name: "mcp.docs.read", Description: "Read one document.",
 				InputSchema: json.RawMessage(`{
@@ -110,8 +110,8 @@ func TestOpenRouterRequestLowersToolsAndReplayHistory(t *testing.T) {
 				}`),
 			},
 		},
-		ToolTransport:   OpenRouterToolTransportNative,
-		ToolChoice:      OpenRouterToolChoiceRequired,
+		ToolTransport:   ToolTransportNative,
+		ToolChoice:      ToolChoiceRequired,
 		ParallelTools:   true,
 		HostedWebSearch: true,
 	}
@@ -167,7 +167,7 @@ func TestOpenRouterRequestLowersToolsAndReplayHistory(t *testing.T) {
 }
 
 func TestOpenRouterResponseNormalizesToolsAndProviderMetadata(t *testing.T) {
-	tools := []OpenRouterTool{{
+	tools := []GenerationTool{{
 		Name: "mcp.docs.read", Description: "Read one document.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
@@ -205,8 +205,8 @@ func TestOpenRouterResponseNormalizesToolsAndProviderMetadata(t *testing.T) {
 		}},
 		Usage: Usage{InputTokens: 20, OutputTokens: 4, TotalTokens: 24},
 	}
-	result, err := normalizeOpenRouterGeneration(OpenRouterGenerateRequest{
-		Model: "vendor/model", ToolTransport: OpenRouterToolTransportNative,
+	result, err := normalizeOpenRouterGeneration(GenerateRequest{
+		Model: "vendor/model", ToolTransport: ToolTransportNative,
 	}, parsed, names, "tool_calls")
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestOpenRouterResponseNormalizesToolsAndProviderMetadata(t *testing.T) {
 }
 
 func TestOpenRouterResponseRejectsInvalidNativeCalls(t *testing.T) {
-	tools := []OpenRouterTool{{
+	tools := []GenerationTool{{
 		Name: "memory.search", Description: "Search memory.",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}}
@@ -239,20 +239,20 @@ func TestOpenRouterResponseRejectsInvalidNativeCalls(t *testing.T) {
 	valid := ToolCall{Index: 0, ID: "call_1", Name: "search", Arguments: `{}`}
 	cases := []struct {
 		name      string
-		transport OpenRouterToolTransport
+		transport ToolTransport
 		calls     []ToolCall
 	}{
-		{"disabled transport", OpenRouterToolTransportNone, []ToolCall{valid}},
-		{"missing id", OpenRouterToolTransportNative, []ToolCall{{Name: "search", Arguments: `{}`}}},
-		{"oversized id", OpenRouterToolTransportNative, []ToolCall{{ID: strings.Repeat("x", openRouterProviderCallIDLimit+1), Name: "search", Arguments: `{}`}}},
-		{"missing name", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Arguments: `{}`}}},
-		{"unadvertised", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Name: "other", Arguments: `{}`}}},
-		{"non-object", OpenRouterToolTransportNative, []ToolCall{{ID: "call_1", Name: "search", Arguments: `[]`}}},
-		{"duplicate id", OpenRouterToolTransportNative, []ToolCall{valid, valid}},
+		{"disabled transport", ToolTransportNone, []ToolCall{valid}},
+		{"missing id", ToolTransportNative, []ToolCall{{Name: "search", Arguments: `{}`}}},
+		{"oversized id", ToolTransportNative, []ToolCall{{ID: strings.Repeat("x", openRouterProviderCallIDLimit+1), Name: "search", Arguments: `{}`}}},
+		{"missing name", ToolTransportNative, []ToolCall{{ID: "call_1", Arguments: `{}`}}},
+		{"unadvertised", ToolTransportNative, []ToolCall{{ID: "call_1", Name: "other", Arguments: `{}`}}},
+		{"non-object", ToolTransportNative, []ToolCall{{ID: "call_1", Name: "search", Arguments: `[]`}}},
+		{"duplicate id", ToolTransportNative, []ToolCall{valid, valid}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := normalizeOpenRouterGeneration(OpenRouterGenerateRequest{
+			_, err := normalizeOpenRouterGeneration(GenerateRequest{
 				Model: "vendor/model", ToolTransport: test.transport,
 			}, ChatStreamResult{ToolCalls: test.calls}, names, "")
 			if err == nil {
@@ -278,14 +278,14 @@ func TestOpenRouterGeneratorRejectsUnsafeInputsBeforeSecretAccess(t *testing.T) 
 	generator := &OpenRouterGenerator{}
 	cases := []struct {
 		name    string
-		request OpenRouterGenerateRequest
+		request GenerateRequest
 		want    error
 	}{
-		{"wrong account", OpenRouterGenerateRequest{AccountID: "provider_account:openrouter:other", Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}}, nil},
-		{"blank model", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}}, nil},
-		{"invalid role", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "tool", Content: "hello"}}}, nil},
-		{"invalid effort", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}, ReasoningEffort: "maximum"}, nil},
-		{"oversized request", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: strings.Repeat("x", openRouterGenerationRequestLimit)}}}, ErrOpenRouterGenerationRequestTooLarge},
+		{"wrong account", GenerateRequest{AccountID: "provider_account:openrouter:other", Model: "model", Messages: []GenerationMessage{{Role: "user", Content: "hello"}}}, nil},
+		{"blank model", GenerateRequest{AccountID: openRouterGenerationAccountID, Messages: []GenerationMessage{{Role: "user", Content: "hello"}}}, nil},
+		{"invalid role", GenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "tool", Content: "hello"}}}, nil},
+		{"invalid effort", GenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: "hello"}}, ReasoningEffort: "maximum"}, nil},
+		{"oversized request", GenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: strings.Repeat("x", openRouterGenerationRequestLimit)}}}, ErrOpenRouterGenerationRequestTooLarge},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -405,10 +405,10 @@ func (function generationRoundTripFunc) RoundTrip(request *http.Request) (*http.
 	return function(request)
 }
 
-func basicOpenRouterGenerationRequest() OpenRouterGenerateRequest {
-	return OpenRouterGenerateRequest{
+func basicOpenRouterGenerationRequest() GenerateRequest {
+	return GenerateRequest{
 		AccountID: openRouterGenerationAccountID, Model: "vendor/model",
-		Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}},
+		Messages: []GenerationMessage{{Role: "user", Content: "hello"}},
 	}
 }
 

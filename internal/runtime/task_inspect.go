@@ -31,8 +31,8 @@ var taskInspectSchema = json.RawMessage(`{
   "additionalProperties":false
 }`)
 
-func taskInspectTool() provider.OpenRouterTool {
-	return provider.OpenRouterTool{
+func taskInspectTool() provider.GenerationTool {
+	return provider.GenerationTool{
 		Name:        taskInspectName,
 		Description: "Read one exact owner-authorized Task and its current documents.",
 		InputSchema: append(json.RawMessage(nil), taskInspectSchema...),
@@ -123,14 +123,14 @@ func boundedModelToolPayload(payload json.RawMessage, limit int) json.RawMessage
 	}
 }
 
-func providerMessagesFromItems(items []store.ConversationItem) ([]provider.OpenRouterChatMessage, error) {
+func providerMessagesFromItems(items []store.ConversationItem) ([]provider.GenerationMessage, error) {
 	results := make(map[string]store.ConversationItem)
 	for _, item := range items {
 		if item.Kind == store.ConversationToolResult && item.ParentItemID != "" {
 			results[item.ParentItemID] = item
 		}
 	}
-	messages := make([]provider.OpenRouterChatMessage, 0, len(items))
+	messages := make([]provider.GenerationMessage, 0, len(items))
 	rounds := make([]int, 0, len(items))
 	var reasoning []json.RawMessage
 	for _, item := range items {
@@ -142,14 +142,14 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.OpenR
 			}
 			reasoning = append(reasoning, details...)
 		case store.ConversationUserText:
-			messages = append(messages, provider.OpenRouterChatMessage{Role: "user", Content: item.ContentText})
+			messages = append(messages, provider.GenerationMessage{Role: "user", Content: item.ContentText})
 			rounds = append(rounds, providerRound(item))
 		case store.ConversationAssistantText:
 			content := item.ContentText
 			if item.ProviderContentText != "" {
 				content = item.ProviderContentText
 			}
-			messages = append(messages, provider.OpenRouterChatMessage{
+			messages = append(messages, provider.GenerationMessage{
 				Role: "assistant", Content: content, ReasoningDetails: reasoning,
 			})
 			rounds = append(rounds, providerRound(item))
@@ -162,7 +162,7 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.OpenR
 			round := providerRound(item)
 			last := len(messages) - 1
 			if last < 0 || messages[last].Role != "assistant" || rounds[last] != round {
-				messages = append(messages, provider.OpenRouterChatMessage{
+				messages = append(messages, provider.GenerationMessage{
 					Role: "assistant", ReasoningDetails: reasoning,
 				})
 				rounds = append(rounds, round)
@@ -175,18 +175,18 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.OpenR
 				if err != nil {
 					return nil, err
 				}
-				messages = append(messages, provider.OpenRouterChatMessage{Role: "tool", ToolResult: &result})
+				messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &result})
 				rounds = append(rounds, round)
 			} else {
 				payload := toolFailure(
 					"tool_execution_interrupted",
 					"Tool execution ended before Noema recorded a result. Its outcome is unknown, and the action was not retried.",
 				)
-				result := provider.OpenRouterReplayToolResult{
+				result := provider.ReplayToolResult{
 					ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
 					Name: call.Name, Arguments: call.Arguments, Success: false, Payload: payload,
 				}
-				messages = append(messages, provider.OpenRouterChatMessage{Role: "tool", ToolResult: &result})
+				messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &result})
 				rounds = append(rounds, round)
 			}
 		}
@@ -210,42 +210,42 @@ func storedReasoning(item store.ConversationItem) ([]json.RawMessage, error) {
 	return result, nil
 }
 
-func storedToolCall(item store.ConversationItem) (provider.OpenRouterReplayToolCall, error) {
+func storedToolCall(item store.ConversationItem) (provider.ReplayToolCall, error) {
 	action, ok := nestedAction(item.Payload)
 	if !ok {
-		return provider.OpenRouterReplayToolCall{}, errors.New("stored tool call is invalid")
+		return provider.ReplayToolCall{}, errors.New("stored tool call is invalid")
 	}
 	arguments, err := json.Marshal(action["payload"])
 	if err != nil {
-		return provider.OpenRouterReplayToolCall{}, errors.New("stored tool call is invalid")
+		return provider.ReplayToolCall{}, errors.New("stored tool call is invalid")
 	}
-	call := provider.OpenRouterReplayToolCall{
+	call := provider.ReplayToolCall{
 		ProviderCallID: textValue(action["provider_call_id"]),
 		ProviderName:   textValue(action["provider_name"]), Name: textValue(action["name"]),
 		Arguments: arguments,
 	}
 	if strings.TrimSpace(call.ProviderCallID) == "" || strings.TrimSpace(call.Name) == "" {
-		return provider.OpenRouterReplayToolCall{}, errors.New("stored tool call is invalid")
+		return provider.ReplayToolCall{}, errors.New("stored tool call is invalid")
 	}
 	return call, nil
 }
 
-func storedToolResult(item store.ConversationItem) (provider.OpenRouterReplayToolResult, error) {
+func storedToolResult(item store.ConversationItem) (provider.ReplayToolResult, error) {
 	action, ok := nestedAction(item.Payload)
 	if !ok {
-		return provider.OpenRouterReplayToolResult{}, errors.New("stored tool result is invalid")
+		return provider.ReplayToolResult{}, errors.New("stored tool result is invalid")
 	}
 	payload, err := json.Marshal(action["payload"])
 	if err != nil {
-		return provider.OpenRouterReplayToolResult{}, errors.New("stored tool result is invalid")
+		return provider.ReplayToolResult{}, errors.New("stored tool result is invalid")
 	}
-	result := provider.OpenRouterReplayToolResult{
+	result := provider.ReplayToolResult{
 		ProviderCallID: textValue(action["provider_call_id"]),
 		ProviderName:   textValue(action["provider_name"]), Name: textValue(action["name"]),
 		Success: action["success"] == true, Payload: modelToolPayload(payload),
 	}
 	if strings.TrimSpace(result.ProviderCallID) == "" || strings.TrimSpace(result.Name) == "" {
-		return provider.OpenRouterReplayToolResult{}, errors.New("stored tool result is invalid")
+		return provider.ReplayToolResult{}, errors.New("stored tool result is invalid")
 	}
 	return result, nil
 }
@@ -273,7 +273,7 @@ func (c *Chat) executeTaskInspectRound(
 	request queuedTurn,
 	turn store.ConversationTurn,
 	assignment store.ModelAssignment,
-	initial provider.OpenRouterGenerationResult,
+	initial provider.GenerationResult,
 ) {
 	result := initial
 	usage := provider.Usage{}
@@ -332,8 +332,8 @@ func (c *Chat) executeTaskInspectRound(
 func (c *Chat) persistTaskInspectRound(
 	request queuedTurn,
 	turn store.ConversationTurn,
-	generation provider.OpenRouterGenerationResult,
-	call provider.OpenRouterToolCall,
+	generation provider.GenerationResult,
+	call provider.GenerationToolCall,
 	providerRound int,
 ) (json.RawMessage, bool, error) {
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
@@ -384,34 +384,34 @@ func (c *Chat) generateTaskInspectContinuation(
 	assignment store.ModelAssignment,
 	providerRound int,
 	stopReason string,
-) (provider.OpenRouterGenerationResult, bool, error) {
+) (provider.GenerationResult, bool, error) {
 	stored, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
-		return provider.OpenRouterGenerationResult{}, false, err
+		return provider.GenerationResult{}, false, err
 	}
 	messages, err := providerMessagesFromItems(stored)
 	if err != nil {
-		return provider.OpenRouterGenerationResult{}, false, err
+		return provider.GenerationResult{}, false, err
 	}
 	environment := runtimeEnvironment(request.conversation, request.location, time.Now())
-	tools := []provider.OpenRouterTool{taskInspectTool()}
-	transport := provider.OpenRouterToolTransportNative
+	tools := []provider.GenerationTool{taskInspectTool()}
+	transport := provider.ToolTransportNative
 	if stopReason != "" {
 		environment += "\n\n" + taskInspectFinalizationInstruction(stopReason)
 		messages = compactTaskInspectFinalizationMessages(messages, modelToolPayloadLimit)
 		tools = nil
-		transport = provider.OpenRouterToolTransportNone
+		transport = provider.ToolTransportNone
 	}
-	messages = append([]provider.OpenRouterChatMessage{{
+	messages = append([]provider.GenerationMessage{{
 		Role: "developer", Content: environment,
 	}}, messages...)
 	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
-	generate := func() (provider.OpenRouterGenerationResult, error) {
-		return c.generator.Generate(c.ctx, provider.OpenRouterGenerateRequest{
+	generate := func() (provider.GenerationResult, error) {
+		return c.generator.Generate(c.ctx, provider.GenerateRequest{
 			AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
 			ConversationID: turn.ConversationID, MaxOutputTokens: taskInspectOutputTokens(stopReason != ""),
-			Tools: tools, ToolTransport: transport, ToolChoice: provider.OpenRouterToolChoiceAuto,
+			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
 		}, func(event provider.StreamEvent) {
 			if event.Kind == provider.TextDelta {
 				c.publish(Event{
@@ -440,17 +440,17 @@ func (c *Chat) generateTaskInspectContinuation(
 			"\n\n" + taskInspectFinalizationInstruction(stopReason)
 	}
 	messages = compactTaskInspectFinalizationMessages(messages[1:], payloadLimit)
-	messages = append([]provider.OpenRouterChatMessage{{Role: "developer", Content: environment}}, messages...)
+	messages = append([]provider.GenerationMessage{{Role: "developer", Content: environment}}, messages...)
 	tools = nil
-	transport = provider.OpenRouterToolTransportNone
+	transport = provider.ToolTransportNone
 	result, err = generate()
 	return result, true, err
 }
 
 func compactTaskInspectFinalizationMessages(
-	messages []provider.OpenRouterChatMessage,
+	messages []provider.GenerationMessage,
 	payloadLimit int,
-) []provider.OpenRouterChatMessage {
+) []provider.GenerationMessage {
 	lastUser := -1
 	for index := range messages {
 		if messages[index].Role == "user" {
@@ -461,8 +461,8 @@ func compactTaskInspectFinalizationMessages(
 		return nil
 	}
 	user := messages[lastUser]
-	pairs := make([][2]provider.OpenRouterChatMessage, 0, providerRoundLimit+1)
-	var assistant *provider.OpenRouterChatMessage
+	pairs := make([][2]provider.GenerationMessage, 0, providerRoundLimit+1)
+	var assistant *provider.GenerationMessage
 	for index := lastUser + 1; index < len(messages); index++ {
 		message := messages[index]
 		switch {
@@ -476,11 +476,11 @@ func compactTaskInspectFinalizationMessages(
 				toolResult.Payload = boundedModelToolPayload(toolResult.Payload, payloadLimit)
 				message.ToolResult = &toolResult
 			}
-			pairs = append(pairs, [2]provider.OpenRouterChatMessage{*assistant, message})
+			pairs = append(pairs, [2]provider.GenerationMessage{*assistant, message})
 			assistant = nil
 		}
 	}
-	result := make([]provider.OpenRouterChatMessage, 0, 1+2*len(pairs))
+	result := make([]provider.GenerationMessage, 0, 1+2*len(pairs))
 	result = append(result, user)
 	for _, pair := range pairs {
 		result = append(result, pair[0], pair[1])
@@ -515,7 +515,7 @@ type taskInspectProgress struct {
 }
 
 func (p *taskInspectProgress) observe(
-	call provider.OpenRouterToolCall,
+	call provider.GenerationToolCall,
 	payload json.RawMessage,
 	success bool,
 ) string {
@@ -572,7 +572,7 @@ func (c *Chat) finishGeneratedTurn(
 	input SendTurnInput,
 	turn store.ConversationTurn,
 	assignment store.ModelAssignment,
-	result provider.OpenRouterGenerationResult,
+	result provider.GenerationResult,
 	providerRound int,
 	usage provider.Usage,
 ) {
@@ -609,7 +609,7 @@ func (c *Chat) finishGeneratedTurn(
 	})
 }
 
-func generationReasoning(result provider.OpenRouterGenerationResult) []json.RawMessage {
+func generationReasoning(result provider.GenerationResult) []json.RawMessage {
 	var details []json.RawMessage
 	for _, item := range result.Reasoning {
 		for _, detail := range item.ProviderDetails {
