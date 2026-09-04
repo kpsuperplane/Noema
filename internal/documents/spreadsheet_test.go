@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -75,6 +76,42 @@ func TestSpreadsheetMarkdownRejectsInvalidAndBoundsOutput(t *testing.T) {
 	preview, converted := SpreadsheetMarkdown(large, MediaXLSX)
 	if !converted || utf8.RuneCountInString(preview) != maxPreviewCharacters || !utf8.ValidString(preview) {
 		t.Fatalf("bounded preview has %d characters, converted = %v", utf8.RuneCountInString(preview), converted)
+	}
+}
+
+func TestSpreadsheetMarkdownAcceptsCurrentDocumentLimit(t *testing.T) {
+	parts := map[string]string{
+		"xl/workbook.xml":            `<workbook xmlns:r="relationships"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Name</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>kept</t></is></c></row></sheetData></worksheet>`,
+	}
+	var content bytes.Buffer
+	archive := zip.NewWriter(&content)
+	for name, body := range parts {
+		file, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index := range 2 {
+		header := &zip.FileHeader{Name: fmt.Sprintf("padding-%d.bin", index), Method: zip.Store}
+		padding, err := archive.CreateHeader(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := padding.Write(make([]byte, 5*1024*1024)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	preview, converted := SpreadsheetMarkdown(content.Bytes(), MediaXLSX)
+	if !converted || preview != "| Name |\n| --- |\n| kept |" {
+		t.Fatalf("preview = %q, converted = %v", preview, converted)
 	}
 }
 

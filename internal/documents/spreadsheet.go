@@ -21,7 +21,7 @@ const (
 	MediaXLS  = "application/vnd.ms-excel"
 	MediaODS  = "application/vnd.oasis.opendocument.spreadsheet"
 
-	maxInputBytes        = 8 * 1024 * 1024
+	maxInputBytes        = 32 * 1024 * 1024
 	maxArchiveEntries    = 512
 	maxArchivePartBytes  = 8 * 1024 * 1024
 	maxArchiveTotalBytes = 32 * 1024 * 1024
