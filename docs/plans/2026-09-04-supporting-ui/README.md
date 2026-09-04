@@ -47,9 +47,10 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 ## Visual treatment
 
 - Use a compact white surface on `--pine-50`, the existing browser app background wash.
-- Start with a 456-pixel surface. Expand only when the task requires more space.
+- Use a 456-pixel surface.
 - Keep the card and wash on phones. Use 12-pixel outer insets and 16-pixel horizontal card padding.
 - Center the avatar and heading group, including the title, introduction, and setup step. Keep form content left aligned.
+- Use `text-wrap: pretty` for all centered heading text, including subheadings.
 - Show the full 80-pixel avatar with an 8-pixel white outline that joins the card. Do not hide it behind the card.
 - Give the exposed avatar outline the card’s same thin `border-subtle` border. Hide the lower arc inside the card.
 - Give the combined avatar/card outline one shadow. Neither element casts a separate shadow onto the other.
@@ -70,7 +71,11 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Keep descriptions wrapped and each card a single action.
 - Keep model name, download size, and computation location visible. Disclose license, format, runtime, and exact file.
 - Give one action primary emphasis. Keep alternatives quiet and access consequences visible.
-- Use touch controls around 48 pixels high without making all product controls larger.
+- Use the actual Astryx `Button` with `size="md"` and its standard 32-pixel height. Do not override button padding or visuals.
+- Put paired desktop actions side by side, with equal widths.
+- Put the secondary action first and the primary action second in both visual and keyboard order.
+- Keep related provider actions in one group. Stack paired actions on phones, using the same standard Astryx size.
+- Native consent keeps its existing two-column phone decision layout.
 - Use the shared motion presets. Keep loading geometry stable and preserve focus through transitions.
 - Honor reduced motion in the existing avatar and other feedback. Do not add a separate bobbing or bouncing animation.
 - Keep the avatar outside keyboard navigation. It does not communicate authentication or download state.
@@ -84,7 +89,7 @@ No credentials were submitted. No account, grant, or recovery code was changed.
 
 | Finding | Evidence | Proposed correction |
 | --- | --- | --- |
-| Login actions had equal emphasis and 32-pixel height. | [Live login](screenshots/live-login.png) | One primary action, quieter recovery, larger touch target |
+| Login actions had equal emphasis and 32-pixel height. | [Live login](screenshots/live-login.png) | One primary action and quieter recovery; retain the standard Astryx button size after user review |
 | Login used an undefined heading font alias. | `apps/web/src/auth/AuthGate.tsx` | Use the current semantic heading component and tokens |
 | Recovery repeated configuration and rotation instructions. | [Live recovery](screenshots/live-recovery.png) | One consequence notice, field help, clear operator guidance |
 | Native sign-in recovery did not open. | `/?native_authorization=resume`; `AuthGate` forces the login state | Permit the recovery subflow while preserving the native return destination |
@@ -159,13 +164,15 @@ This plan requires no database migration or persistent schema change.
 
 `index.html`, `mocks.css`, and `mocks.js` are the editable standalone gallery.
 `assets/noema-theme.css` copies the existing theme without its original font-face paths.
-`assets/typography.css` snapshots the Astryx neutral 0.1.9 semantic type tokens.
+`assets/astryx.css`, `astryx-reset.css`, and `astryx-neutral.css` copy the installed Astryx 0.1.9 styles.
+`render-buttons.jsx` renders the real Astryx `Button` to static templates in `button-templates.js`.
+The gallery uses those templates with Noema’s theme, including its clay primary accent. No parallel button CSS remains.
 The three font files, their licenses, and `assets/noema.png` copy the existing Noema assets without modification.
 The local-model example comes from `crates/noema-providers/resources/local-models/catalog.toml` at the source baseline.
 It shows Gemma 4 E4B IT, its 5.3 GB Q4_K_M build, Apache-2.0 license, and Metal runtime.
 The model review examples also use `crates/noema-providers/src/recommendations.rs` from the same baseline.
 These are source examples, not claims about the live server’s selected models or current provider availability.
-The gallery uses native HTML controls. Its avatar uses the existing `@kpsuperplane/boring-avatars` 0.1.6 component.
+Other mock form controls use native HTML. The avatar uses the existing `@kpsuperplane/boring-avatars` 0.1.6 component.
 `assets/avatar-preview.jsx` copies the local agent identity settings from `IdentityAvatar`; it does not define new animation behavior.
 `avatar-preview.js` bundles that entry with installed React dependencies using Bun’s production browser build.
 `avatar-still.svg` is a static render of the same component. Dependency licenses are included beside these files.

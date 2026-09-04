@@ -34,7 +34,10 @@ Scope: the saved design gallery. These results do not certify the production flo
 - The full avatar remained visible above the card paint, with an 8-pixel white outline joining the card.
 - One parent drop shadow followed the combined silhouette. The avatar and card had no separate box shadows.
 - The exposed avatar arc used the same one-pixel `border-subtle` border as the card. Its lower arc stayed hidden.
-- Titles, introductions, and setup steps were centered beneath the avatar. Form content stayed left aligned.
+- Titles, introductions, and setup steps were centered beneath the avatar and used `text-wrap: pretty`.
+- Action controls used markup rendered from Astryx Button, with its default padding, 32-pixel height, and Noema theme.
+- Paired desktop actions shared one row with equal widths, secondary left and primary right. Phone action groups remained stacked.
+- OpenRouter and Codex provider actions stayed in one group. Form content stayed left aligned.
 - Card corners matched the primary Chat surface: `radius-page` and `corner-shape-page`.
 - The page background used the browser app’s existing `--pine-50` token. The logo/text header was absent.
 - Blocking the avatar bundle preserved the static avatar and the usable gallery.

@@ -1,9 +1,11 @@
 /* Static examples only. No requests, credentials, storage, or authentication. */
 (() => {
+  const button = (label, variant, attributes = '') => window.noemaButtonMarkup[variant]
+    .replace('__LABEL__', label).replace('<button ', `<button ${attributes} `);
   const go = (label, target, variant = 'primary', provider = '') =>
-    `<button type="button" class="${variant}" data-go="${target}"${provider ? ` data-provider="${provider}"` : ''}>${label}</button>`;
-  const finish = (label, variant = 'primary') => `<button type="button" class="${variant}" data-finish>${label}</button>`;
-  const actions = (...items) => `<section class="actions">${items.join('')}</section>`;
+    button(label, variant, `data-go="${target}"${provider ? ` data-provider="${provider}"` : ''}`);
+  const finish = (label, variant = 'primary') => button(label, variant, 'data-finish');
+  const actions = (primary, secondary = '') => `<section class="actions">${secondary}${primary}</section>`;
   const note = text => `<p class="note">${text}</p>`;
   const check = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4 10-10"/></svg>';
   const status = (title, text = '', kind = '') => `<section class="status ${kind}"><span class="status-icon" aria-hidden="true">${kind === 'success' ? check : kind === 'error' ? '!' : '·'}</span><section><p><strong>${title}</strong></p>${text ? `<p>${text}</p>` : ''}</section></section>`;
@@ -75,7 +77,7 @@
     {
       id: 'recovery-expired', group: 'Recovery', label: 'Recovery session expired', title: 'Start recovery again',
       intro: 'The time to create your new passkey has expired.',
-      body: note('Read the current recovery code before you continue.') + actions(go('Enter a new recovery code', 'recovery-code'), go('Back to sign in', 'access-login', 'secondary')),
+      body: note('Read the current recovery code before you continue.') + actions(go('Enter new code', 'recovery-code'), go('Back to sign in', 'access-login', 'secondary')),
       intent: 'Give a direct restart path without suggesting the original code still works.',
       constraint: 'Existing passkeys remain unchanged.'
     },
@@ -96,14 +98,14 @@
     {
       id: 'provider-openrouter', group: 'Model setup', label: 'Connect OpenRouter', title: 'Connect OpenRouter', step: 'Set up Noema · 1 of 2',
       intro: 'Sign in to OpenRouter to choose the models Noema can use.',
-      body: actions(go('Continue to OpenRouter', 'provider-waiting')) + note('OpenRouter opens in another tab. Return here after signing in.') + `<details><summary>Use an API key instead</summary>${field('provider-api-key', 'OpenRouter API key', 'Paste your API key')}${actions(go('Connect with API key', 'provider-models'))}</details>` + actions(go('Choose another provider', 'provider-choice', 'secondary')),
+      body: actions(go('Continue to OpenRouter', 'provider-waiting'), go('Choose another provider', 'provider-choice', 'secondary')) + note('OpenRouter opens in another tab. Return here after signing in.') + `<details><summary>Use an API key instead</summary>${field('provider-api-key', 'OpenRouter API key', 'Paste your API key')}${actions(go('Connect with API key', 'provider-models'))}</details>`,
       intent: 'Make browser sign-in primary. Keep API-key entry under disclosure.',
       constraint: 'The preview uses no external links and accepts no keys.'
     },
     {
       id: 'provider-codex', group: 'Model setup', label: 'Codex device sign-in', title: 'Sign in to Codex', step: 'Set up Noema · 1 of 2',
       intro: 'Enter this code on the Codex sign-in page.',
-      body: `<section class="device-code"><code id="device-example">DEMO-CODE</code><button type="button" class="outline" data-copy>Copy code</button></section>` + actions(go('Open Codex sign-in', 'provider-waiting', 'primary', 'Codex')) + note('Noema continues automatically after you finish signing in.') + actions(go('Cancel connection', 'provider-choice', 'secondary')),
+      body: `<section class="device-code"><code id="device-example">DEMO-CODE</code>${button('Copy code', 'outline', 'data-copy')}</section>` + actions(go('Open Codex sign-in', 'provider-waiting', 'primary', 'Codex'), go('Cancel connection', 'provider-choice', 'secondary')) + note('Noema continues automatically after you finish signing in.'),
       intent: 'Keep the code beside its copy action. Name the external destination.',
       constraint: 'DEMO-CODE is an inert example. Production displays only the active device attempt’s code.'
     },
@@ -273,7 +275,7 @@
     const assignments = assignmentLabels.map((label, index) => provider === 'Local' && index === 7
       ? `<section class="assignment"><strong>Action reviews</strong><p>Ask me for approval</p></section>`
       : `<label class="assignment" for="model-${index}">${label}<select id="model-${index}">${choices.map(model => `<option${model === values[index] ? ' selected' : ''}>${model}</option>`).join('')}</select></label>`).join('');
-    return status(`${provider} connected`, '', 'success') + `<section id="model-summary" class="model-summary" aria-label="Selected models">${modelSummary(values)}</section><details><summary>Customize models</summary>${assignments}</details>` + actions(go('Confirm models and start Chat', 'provider-complete'), go('Choose another provider', 'provider-choice', 'secondary'));
+    return status(`${provider} connected`, '', 'success') + `<section id="model-summary" class="model-summary" aria-label="Selected models">${modelSummary(values)}</section><details><summary>Customize models</summary>${assignments}</details>` + actions(go('Confirm and start Chat', 'provider-complete'), go('Choose another provider', 'provider-choice', 'secondary'));
   }
   function render() {
     const id = location.hash.slice(1);

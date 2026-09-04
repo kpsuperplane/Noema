@@ -9,13 +9,13 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--pine-50); font: var(--text-body-weight) var(--text-body-size)/var(--text-body-leading) var(--font-family-body); color: var(--foreground); }
-button, input, select { font: inherit; color: inherit; }
+:where(button:not(.astryx-button)), input, select { font: inherit; color: inherit; }
 button { cursor: default; }
 a { color: var(--text-accent); cursor: pointer; }
-button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+:where(button:not(.astryx-button)):focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 [hidden] { display: none !important; }
 p, h1, h2 { margin: 0; }
-h1 { font: var(--text-heading-1-weight) var(--text-heading-1-size)/var(--text-heading-1-leading) var(--font-family-heading); letter-spacing: normal; text-wrap: balance; }
+h1 { font: var(--text-heading-1-weight) var(--text-heading-1-size)/var(--text-heading-1-leading) var(--font-family-heading); letter-spacing: normal; text-wrap: pretty; }
 h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-heading-4-leading) var(--font-family-heading); }
 .review-bar { padding: var(--spacing-4) var(--spacing-6); background: var(--background); border-bottom: 1px solid var(--border-subtle); }
 .review-title { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--spacing-3); }
@@ -38,7 +38,7 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 .peek-avatar::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--border-subtle); border-radius: inherit; clip-path: inset(0 0 var(--spacing-8) 0); }
 .peek-avatar > svg, .peek-avatar > img { display: block; width: 100%; height: 100%; }
 /* One owner per boundary: heading 8, task regions 24, related body groups 16. */
-.screen-heading { display: grid; gap: var(--spacing-2); text-align: center; }
+.screen-heading { display: grid; gap: var(--spacing-2); text-align: center; text-wrap: pretty; }
 .screen-body { display: flex; flex-direction: column; gap: var(--spacing-4); margin-top: var(--spacing-6); }
 .screen-body > * { margin: 0; }
 .screen-body > .actions:has(.primary), .screen-body > .decision-actions { margin-top: var(--spacing-2); }
@@ -47,13 +47,8 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 .intro { color: var(--muted-foreground); text-wrap: pretty; }
 .step { color: var(--muted-foreground); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); }
 .actions { display: grid; gap: var(--spacing-2); }
-.primary, .secondary, .outline { min-height: 48px; border-radius: var(--radius-element); padding: var(--spacing-3) var(--spacing-4); font-weight: var(--text-label-weight); border: 0; text-align: center; }
-.primary { background: var(--primary); color: var(--primary-foreground); transition: background var(--motion-spring-micro), box-shadow var(--motion-spring-micro); }
-.primary:hover { background: var(--noema-pine-600); box-shadow: var(--shadow-shell-control); }
-.primary:active { background: var(--noema-pine-700); box-shadow: none; }
-.secondary { background: transparent; color: var(--muted-foreground); }
-.secondary:hover { background: var(--surface-sunken); color: var(--foreground); }
-.outline { background: var(--background); border: 1px solid var(--border-default); }
+/* Button visuals come from Astryx. This selector controls layout only. */
+.actions > .astryx-button, .decision-actions > .astryx-button { width: 100%; min-width: 0; }
 .decision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-2); }
 .note { color: var(--muted-foreground); }
 .status { display: flex; align-items: center; gap: var(--spacing-3); padding: var(--spacing-4); background: var(--surface-sunken); border-radius: var(--radius-element); }
@@ -111,6 +106,9 @@ progress::-moz-progress-bar { background: var(--primary); }
 @keyframes arrive { from { opacity: 0; transform: translateY(var(--spacing-1)); } to { opacity: 1; transform: none; } }
 @keyframes complete { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
 @keyframes turn { to { transform: rotate(360deg); } }
+@container (min-width: 560px) {
+  .actions:has(> button + button), .decision-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+}
 @container (max-width: 500px) {
   .stage { padding: var(--spacing-6) var(--spacing-3) var(--spacing-8); min-height: 560px; }
   .sheet { padding: var(--spacing-12) var(--spacing-4) var(--spacing-6); }
@@ -122,5 +120,4 @@ progress::-moz-progress-bar { background: var(--primary); }
 }
 @media (prefers-reduced-motion: reduce) {
   .spinner, #screen, .status.success path { animation: none; }
-  .primary { transition: none; }
 }
