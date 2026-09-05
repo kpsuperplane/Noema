@@ -290,6 +290,31 @@ func TestRuntimeAssetsKeepRequiredAliasesAndUsePinnedRequest(t *testing.T) {
 	}
 }
 
+func TestPackagedRuntimePrecedesCuratedAssetSupport(t *testing.T) {
+	root := t.TempDir()
+	executable := "llama-server"
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	previous := runtimeAssets
+	runtimeAssets = nil
+	t.Cleanup(func() { runtimeAssets = previous })
+
+	service := &Service{runtimeRoot: root}
+	for _, backend := range []string{"cpu", "vulkan"} {
+		path := filepath.Join(root, backend, executable)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("packaged"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if actual, err := service.ensureRuntimeAssets(t.Context(), backend); err != nil || actual != path {
+			t.Fatalf("packaged %s runtime = %q, %v", backend, actual, err)
+		}
+	}
+}
+
 func TestRuntimeProcessExcludesNoemaEnvironment(t *testing.T) {
 	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "NOEMA_LOCALMODEL_ENV_HELPER" {
 		fmt.Printf("%s:%s:%s", os.Getenv("NOEMA_HOME"), os.Getenv("NOEMA_OPENAI__API_KEY"),

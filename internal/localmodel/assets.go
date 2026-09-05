@@ -73,6 +73,19 @@ var runtimeAssets = []runtimeAsset{
 
 func (s *Service) ensureRuntimeAssets(ctx context.Context, backend string) (string, error) {
 	target := runtime.GOOS + "/" + runtime.GOARCH
+	executable := "llama-server"
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	if s.runtimeRoot != "" {
+		path := filepath.Join(s.runtimeRoot, backend, executable)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			if err := checkRuntimePlatform(); err != nil {
+				return "", err
+			}
+			return path, nil
+		}
+	}
 	var selected []runtimeAsset
 	for _, asset := range runtimeAssets {
 		if asset.Target == target && asset.Backend == backend {
@@ -88,22 +101,8 @@ func (s *Service) ensureRuntimeAssets(ctx context.Context, backend string) (stri
 	if err := checkRuntimePlatform(); err != nil {
 		return "", err
 	}
-	if s.runtimeRoot != "" {
-		executable := "llama-server"
-		if runtime.GOOS == "windows" {
-			executable += ".exe"
-		}
-		path := filepath.Join(s.runtimeRoot, backend, executable)
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-			return path, nil
-		}
-	}
 
 	directory := filepath.Join(s.home, "system", "tools", "llama.cpp", llamaRelease, target, backend)
-	executable := "llama-server"
-	if runtime.GOOS == "windows" {
-		executable += ".exe"
-	}
 	path := filepath.Join(directory, executable)
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 		return path, nil
