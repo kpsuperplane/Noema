@@ -686,6 +686,21 @@ Raster OCR uses optional Tesseract through the same isolated worker.
 Strong document signatures take priority over misleading image extensions.
 The worker enforces the 512 MiB memory limit on Unix and Windows.
 
+### Built-in Task execution unit
+
+The built-in provider Task worker now runs from durable work-event wakeups. It includes:
+
+- current-generation and worker-claim fences for Planner, Executor, and Reviewer runs;
+- current `PROJECT.md`, `TASK.md`, `RESULT.md`, and `REVIEW.md` role handoffs;
+- rooted Task files, `task.inspect`, `file.parse`, and provider-hosted search;
+- exact reasoning, citation, search, tool, usage, and provider identifier replay;
+- uncertain incomplete-call recovery without repeated effects;
+- bounded provider calls, tool calls, active time, retries, review rounds, and continuations;
+- human gates, validated review publication, cancellation, and terminal cleanup;
+- committed-event reconciliation for idempotent Task attention notifications.
+
+ACP execution and the remaining capability tools stay in later migration units.
+
 ### Browser Web Push and native Apple notification units
 
 The browser Web Push unit uses Go schema version 14. Native Apple notifications use version 16. They include:
@@ -775,17 +790,16 @@ The current wave has these independent paths:
 
 | Path | Owned outcome | Shared limit |
 | --- | --- | --- |
-| Raster OCR | Parse supported images through the isolated file worker | No schema change |
-| Memory consolidation | Update Memory, save its model choice, and publish checked changes | No schema change |
-| Chat action requests | Review exact Chat calls and download public non-HTML files | Owns schema version 18 |
+| Built-in Task execution | Run provider Planner, Executor, and Reviewer roles | No schema change |
+| MCP runtime | Discover, authenticate, govern, and invoke MCP tools | Owns schema versions 19–21 |
+| Task Live Activities | Reconcile Task projection and APNs delivery | Waits for schema version 22 |
 | Integration | Review, merge, measure, and validate the combined server | No feature expansion |
 
 Later waves can run these paths in parallel after their listed dependency merges:
 
 | Path | Dependency |
 | --- | --- |
-| Task execution and ACP runs | Task lifecycle and shared capability policy |
-| MCP setup, OAuth, and dynamic calls | Action requests |
+| ACP Task runs | Built-in Task execution and shared capability policy |
 | Adapter review, OAuth, HTTP, and Luau | Action requests |
 | Hosted web and interactive browser tools | Action requests |
 | Local and Apple model runtimes | Provider account authority |
