@@ -173,19 +173,6 @@ func TestStoreReopensFreshGoSchema(t *testing.T) {
 	if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("upgraded schema version = %d, %v", version, err)
 	}
-	for _, table := range []string{
-		"human_passkeys", "browser_sessions", "clients", "native_oauth_codes",
-		"native_oauth_families", "native_oauth_refresh_tokens", "native_oauth_access_tokens",
-		"provider_accounts", "conversations", "local_human_state",
-	} {
-		var exists bool
-		if err := upgraded.db.QueryRow(
-			"SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?)",
-			table,
-		).Scan(&exists); err != nil || !exists {
-			t.Fatalf("upgraded table %s = %v, %v", table, exists, err)
-		}
-	}
 
 	v2Path := filepath.Join(t.TempDir(), "v2.sqlite3")
 	v2, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(v2Path))
@@ -236,6 +223,22 @@ PRAGMA user_version = 8;`); err != nil {
 		backfilled[1].ActorID != "actor:system:runtime" || backfilled[1].Payload["v"] != float64(1) {
 		t.Fatalf("backfilled work events = %#v, %v", backfilled, err)
 	}
+
+	const structure = `SELECT group_concat(sql, char(10)) FROM
+		(SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY type, name)`
+	var freshSchema string
+	if err := store.db.QueryRow(structure).Scan(&freshSchema); err != nil {
+		t.Fatal(err)
+	}
+	for _, database := range []*Store{upgraded, fromV2, fromV8} {
+		var upgradedSchema string
+		if err := database.db.QueryRow(structure).Scan(&upgradedSchema); err != nil {
+			t.Fatal(err)
+		}
+		if upgradedSchema != freshSchema {
+			t.Fatal("upgraded schema differs from fresh schema")
+		}
+	}
 }
 
 func TestTaskSourceSchemaConvergesFromVersionTwentySix(t *testing.T) {
@@ -277,11 +280,5 @@ func openTestStore(t *testing.T) *Store {
 }
 
 func schemaAtVersion(version int) string {
-	parts := []string{
-		strings.TrimSuffix(schemaSQL, schemaV2SQL+schemaV3SQL+schemaV4SQL+schemaV5SQL+
-			schemaV6SQL+schemaV7SQL+schemaV8SQL+schemaV9SQL+schemaV10SQL+schemaV11SQL+schemaV12SQL+schemaV13SQL+schemaV14SQL+schemaV15SQL+schemaV16SQL+schemaV17SQL+schemaV18SQL+schemaV19SQL+schemaV20SQL+schemaV21SQL+schemaV22SQL+schemaV23SQL+schemaV24SQL+schemaV25SQL+schemaV26SQL+schemaV27SQL+schemaV28SQL+schemaV29SQL+schemaV30SQL+schemaV31SQL+schemaV32SQL),
-		schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL,
-		schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL, schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL, schemaV23SQL, schemaV24SQL, schemaV25SQL, schemaV26SQL, schemaV27SQL, schemaV28SQL, schemaV29SQL, schemaV30SQL, schemaV31SQL, schemaV32SQL,
-	}
-	return strings.Join(parts[:version], "")
+	return strings.Join(migrations[:version], "")
 }

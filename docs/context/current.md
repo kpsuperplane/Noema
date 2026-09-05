@@ -5,6 +5,10 @@ Durable contracts belong in subsystem documents. Git owns completed history.
 
 ## Active direction
 
+The human authorized all seven Go cleanup items. ORMs are permitted.
+The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
+One migration registry now drives fresh creation and upgrades at version 32.
+
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.
 

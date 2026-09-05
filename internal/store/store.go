@@ -15,7 +15,16 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 32
+var migrations = [...]string{
+	schemaV1SQL, schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL,
+	schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL,
+	schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL,
+	schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL, schemaV23SQL, schemaV24SQL,
+	schemaV25SQL, schemaV26SQL, schemaV27SQL, schemaV28SQL, schemaV29SQL, schemaV30SQL,
+	schemaV31SQL, schemaV32SQL,
+}
+
+const schemaVersion = len(migrations)
 
 // Store is one open Noema database.
 type Store struct {
@@ -30,8 +39,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("database path cannot be empty")
 	}
-	if err := filepathIsAbsolute(path); err != nil {
-		return nil, err
+	if !filepath.IsAbs(path) {
+		return nil, errors.New("database path must be absolute")
 	}
 
 	values := url.Values{}
@@ -74,13 +83,6 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func filepathIsAbsolute(path string) error {
-	if !filepath.IsAbs(path) {
-		return errors.New("database path must be absolute")
-	}
-	return nil
-}
-
 func (s *Store) initialize(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -92,22 +94,16 @@ func (s *Store) initialize(ctx context.Context) error {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version == 0 {
-		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
-			return fmt.Errorf("create schema: %w", err)
-		}
-	} else if version < 1 || version > schemaVersion {
+	if version < 0 || version > schemaVersion {
 		return fmt.Errorf("unsupported Go schema version %d", version)
-	} else {
-		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL, schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL, schemaV23SQL, schemaV24SQL, schemaV25SQL, schemaV26SQL, schemaV27SQL, schemaV28SQL, schemaV29SQL, schemaV30SQL, schemaV31SQL, schemaV32SQL}
-		for next := version + 1; next <= schemaVersion; next++ {
-			if _, err := tx.ExecContext(ctx, migrations[next]); err != nil {
-				return fmt.Errorf("apply schema version %d: %w", next, err)
-			}
-			if next == 9 {
-				if err := backfillTaskWorkEvents(ctx, tx); err != nil {
-					return fmt.Errorf("backfill Task work events: %w", err)
-				}
+	}
+	for next := version + 1; next <= schemaVersion; next++ {
+		if _, err := tx.ExecContext(ctx, migrations[next-1]); err != nil {
+			return fmt.Errorf("apply schema version %d: %w", next, err)
+		}
+		if version > 0 && next == 9 {
+			if err := backfillTaskWorkEvents(ctx, tx); err != nil {
+				return fmt.Errorf("backfill Task work events: %w", err)
 			}
 		}
 	}
@@ -129,7 +125,7 @@ func (s *Store) initialize(ctx context.Context) error {
 		return fmt.Errorf("recover MCP call resumption: %w", err)
 	}
 	if version != schemaVersion {
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 32"); err != nil {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	}
@@ -140,7 +136,7 @@ func (s *Store) initialize(ctx context.Context) error {
 	return nil
 }
 
-const schemaSQL = `
+const schemaV1SQL = `
 CREATE TABLE tasks (
     task_id TEXT PRIMARY KEY,
     title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 500),
@@ -161,7 +157,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL + schemaV9SQL + schemaV10SQL + schemaV11SQL + schemaV12SQL + schemaV13SQL + schemaV14SQL + schemaV15SQL + schemaV16SQL + schemaV17SQL + schemaV18SQL + schemaV19SQL + schemaV20SQL + schemaV21SQL + schemaV22SQL + schemaV23SQL + schemaV24SQL + schemaV25SQL + schemaV26SQL + schemaV27SQL + schemaV28SQL + schemaV29SQL + schemaV30SQL + schemaV31SQL + schemaV32SQL
+`
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (

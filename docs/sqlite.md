@@ -3,7 +3,7 @@
 SQLite owns Noema's stored structured state. The database file lives at:
 
 ```text
-${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3
+${NOEMA_HOME:-$HOME/.noema}/noema.sqlite3
 ```
 
 SQLite owns Noema records such as humans, agents, provider accounts, provider
@@ -19,8 +19,7 @@ Memory-related Noema home layout:
 
 ```text
 ~/.noema/
-  db/
-    noema.sqlite3
+  noema.sqlite3
   memory/
     human/
       root.md
@@ -33,12 +32,12 @@ Memory-related Noema home layout:
 ## Schema migrations
 
 The Go store uses ordered, forward-only migrations. SQLite records the current
-version in `PRAGMA user_version`. Store startup applies pending migrations in
-one transaction and validates the final schema.
+version in `PRAGMA user_version`. Store startup applies pending migrations in one transaction.
 
-`internal/store/store.go` owns the current version and migration order.
+`internal/store/store.go` owns one ordered migration list. Its length is the
+current version. Fresh databases and upgrades use this same list.
 `internal/store/schema_v*.go` owns each immutable migration. A schema change
-adds one file, advances the version, and tests upgrades plus fresh convergence.
+adds one immutable migration to the list and tests upgrades plus fresh convergence.
 
 The Go server uses a fresh Noema home. It does not open or convert a Rust home.
 Unknown and newer schema versions fail without mutation.
