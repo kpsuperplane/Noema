@@ -123,12 +123,15 @@ func memoryPageValue(page noemamemory.Page) map[string]any {
 	}
 }
 
-func developerMessages(environment, memoryContext string) []provider.GenerationMessage {
+func developerMessages(environment, memoryContext string, hostedWeb bool) []provider.GenerationMessage {
 	messages := make([]provider.GenerationMessage, 0, 2)
 	if strings.TrimSpace(memoryContext) != "" {
 		messages = append(messages, provider.GenerationMessage{
 			Role: "developer", Content: "Native local-human memory (source root page):\n" + memoryContext,
 		})
+	}
+	if hostedWeb {
+		environment += "\n\nAvailable provider tool:\n- provider_native\tweb_search\tSearch the live public web through the active model provider."
 	}
 	return append(messages, provider.GenerationMessage{Role: "developer", Content: environment})
 }

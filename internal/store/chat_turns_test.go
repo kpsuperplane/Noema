@@ -364,7 +364,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	}
 	final, err := database.CompleteConversationTurnOutput(
 		ctx, turn, "Done", "Done", nil,
-		[]json.RawMessage{json.RawMessage(`{"type":"reasoning.summary","text":"Done"}`)}, 2,
+		[]json.RawMessage{json.RawMessage(`{"type":"reasoning.summary","text":"Done"}`)}, nil, 2,
 		now.Add(8*time.Second),
 	)
 	if err != nil || final.Metadata["provider_round"] != float64(2) ||

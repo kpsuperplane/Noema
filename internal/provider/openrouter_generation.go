@@ -182,6 +182,9 @@ func prepareOpenRouterGeneration(
 	if len(wireTools) != 0 && request.ToolTransport != ToolTransportNative {
 		return nil, openRouterToolNameMap{}, errors.New("OpenRouter tool transport is disabled")
 	}
+	if request.HostedWebSearch && request.ToolTransport != ToolTransportNative {
+		return nil, openRouterToolNameMap{}, errors.New("OpenRouter hosted web search is disabled")
+	}
 	messages := make([]openRouterMessagePayload, 0, len(request.Messages)+1)
 	for _, message := range request.Messages {
 		lowered, keep, err := lowerOpenRouterMessage(message, toolNames)

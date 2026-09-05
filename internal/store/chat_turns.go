@@ -81,6 +81,15 @@ type ProviderUsage struct {
 	OutputTokens      int
 	TotalTokens       int
 	CachedInputTokens int
+	WebSearchRequests int
+}
+
+// ProviderCitation is one safe public citation attached to assistant text.
+type ProviderCitation struct {
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	StartIndex *int   `json:"start_index,omitempty"`
+	EndIndex   *int   `json:"end_index,omitempty"`
 }
 
 // BeginConversationTurn atomically creates one turn and its completed user item.
@@ -245,7 +254,7 @@ func (s *Store) CompleteConversationTurn(
 	usage *ProviderUsage,
 	now time.Time,
 ) (ConversationItem, error) {
-	return s.CompleteConversationTurnOutput(ctx, turn, text, providerText, usage, nil, 0, now)
+	return s.CompleteConversationTurnOutput(ctx, turn, text, providerText, usage, nil, nil, 0, now)
 }
 
 // CompleteConversationTurnOutput atomically saves reasoning, text, and terminal state.
@@ -256,6 +265,7 @@ func (s *Store) CompleteConversationTurnOutput(
 	providerText string,
 	usage *ProviderUsage,
 	reasoning []json.RawMessage,
+	citations []ProviderCitation,
 	providerRound int,
 	now time.Time,
 ) (ConversationItem, error) {
@@ -280,6 +290,9 @@ func (s *Store) CompleteConversationTurnOutput(
 		"provider_round": providerRound, "stream_id": streamID,
 		"phase": "final_answer", "provider_item_id": nil,
 	}
+	if len(citations) != 0 {
+		metadata["citations"] = citations
+	}
 	if usage != nil {
 		metadata["provider"] = usage.Provider
 		ratio := float64(0)
@@ -291,6 +304,7 @@ func (s *Store) CompleteConversationTurnOutput(
 			"response_index": 0, "output_index": 0, "input_tokens": usage.InputTokens,
 			"output_tokens": usage.OutputTokens, "total_tokens": usage.TotalTokens,
 			"cached_input_tokens": usage.CachedInputTokens, "cache_hit_ratio": ratio,
+			"web_search_requests": usage.WebSearchRequests,
 		}
 	}
 	return s.finishConversationTurn(

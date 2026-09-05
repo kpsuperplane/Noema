@@ -133,6 +133,26 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.Gener
 	messages := make([]provider.GenerationMessage, 0, len(items))
 	rounds := make([]int, 0, len(items))
 	var reasoning []json.RawMessage
+	hosted := make(map[int][]provider.GenerationMessage)
+	var hostedOrder []int
+	flushHosted := func(round int) {
+		pending := hosted[round]
+		if len(pending) == 0 {
+			return
+		}
+		if len(reasoning) != 0 {
+			messages = append(messages, provider.GenerationMessage{
+				Role: "assistant", ReasoningDetails: reasoning,
+			})
+			rounds = append(rounds, round)
+			reasoning = nil
+		}
+		messages = append(messages, pending...)
+		for range pending {
+			rounds = append(rounds, round)
+		}
+		delete(hosted, round)
+	}
 	for _, item := range items {
 		switch item.Kind {
 		case store.ConversationReasoning:
@@ -145,6 +165,8 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.Gener
 			messages = append(messages, provider.GenerationMessage{Role: "user", Content: item.ContentText})
 			rounds = append(rounds, providerRound(item))
 		case store.ConversationAssistantText:
+			round := providerRound(item)
+			flushHosted(round)
 			content := item.ContentText
 			if item.ProviderContentText != "" {
 				content = item.ProviderContentText
@@ -152,14 +174,29 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.Gener
 			messages = append(messages, provider.GenerationMessage{
 				Role: "assistant", Content: content, ReasoningDetails: reasoning,
 			})
-			rounds = append(rounds, providerRound(item))
+			rounds = append(rounds, round)
 			reasoning = nil
 		case store.ConversationToolCall:
+			if stored, exists := results[item.ID]; exists && storedHostedSearch(item) {
+				search, err := replayHostedSearch(item, stored)
+				if err != nil {
+					return nil, err
+				}
+				round := providerRound(item)
+				if len(hosted[round]) == 0 {
+					hostedOrder = append(hostedOrder, round)
+				}
+				hosted[round] = append(hosted[round], provider.GenerationMessage{
+					Role: "hosted_web_search", HostedSearch: &search,
+				})
+				continue
+			}
 			call, err := storedToolCall(item)
 			if err != nil {
 				return nil, err
 			}
 			round := providerRound(item)
+			flushHosted(round)
 			last := len(messages) - 1
 			if last < 0 || messages[last].Role != "assistant" || rounds[last] != round {
 				messages = append(messages, provider.GenerationMessage{
@@ -191,7 +228,80 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.Gener
 			}
 		}
 	}
+	for _, round := range hostedOrder {
+		flushHosted(round)
+	}
 	return messages, nil
+}
+
+func storedHostedSearch(item store.ConversationItem) bool {
+	action, ok := nestedAction(item.Payload)
+	hosted, _ := action["hosted_web_search"].(bool)
+	return ok && hosted
+}
+
+func replayHostedSearch(
+	callItem store.ConversationItem,
+	resultItem store.ConversationItem,
+) (provider.HostedSearch, error) {
+	call, ok := nestedAction(callItem.Payload)
+	if !ok {
+		return provider.HostedSearch{}, errors.New("stored hosted web search is invalid")
+	}
+	result, ok := nestedAction(resultItem.Payload)
+	if !ok {
+		return provider.HostedSearch{}, errors.New("stored hosted web result is invalid")
+	}
+	arguments, err := json.Marshal(call["payload"])
+	if err != nil {
+		return provider.HostedSearch{}, errors.New("stored hosted web arguments are invalid")
+	}
+	payload, err := json.Marshal(result["payload"])
+	if err != nil {
+		return provider.HostedSearch{}, errors.New("stored hosted web result is invalid")
+	}
+	var action json.RawMessage
+	if call["provider_action"] != nil {
+		action, err = json.Marshal(call["provider_action"])
+		if err != nil {
+			return provider.HostedSearch{}, errors.New("stored hosted web provider action is invalid")
+		}
+	}
+	sources, err := replayHostedSources(call["sources"])
+	if err != nil {
+		return provider.HostedSearch{}, err
+	}
+	return provider.HostedSearch{
+		Index: providerOutputIndex(callItem), ID: textValue(call["provider_item_id"]),
+		Name: textValue(call["name"]), Status: textValue(call["status"]),
+		Arguments: arguments, Result: payload, Sources: sources, ProviderAction: action,
+	}, nil
+}
+
+func replayHostedSources(value any) ([]provider.WebSource, error) {
+	values, ok := value.([]any)
+	if value == nil {
+		return nil, nil
+	}
+	if !ok {
+		return nil, errors.New("stored hosted web sources are invalid")
+	}
+	sources := make([]provider.WebSource, 0, len(values))
+	for _, value := range values {
+		source, ok := value.(map[string]any)
+		if !ok || textValue(source["url"]) == "" {
+			return nil, errors.New("stored hosted web source is invalid")
+		}
+		sources = append(sources, provider.WebSource{
+			Title: textValue(source["title"]), URL: textValue(source["url"]),
+		})
+	}
+	return sources, nil
+}
+
+func providerOutputIndex(item store.ConversationItem) int {
+	value, _ := item.Metadata["output_index"].(float64)
+	return int(value)
 }
 
 func storedReasoning(item store.ConversationItem) ([]json.RawMessage, error) {
@@ -285,6 +395,12 @@ func (c *Chat) executeChatToolRounds(
 	}
 	for providerRound := 0; ; providerRound++ {
 		if err := addProviderUsage(&usage, result.Usage); err != nil {
+			c.failTurn(request.input, turn, err)
+			return
+		}
+		if err := c.persistHostedSearches(
+			request, turn, assignment, result.Searches, providerRound,
+		); err != nil {
 			c.failTurn(request.input, turn, err)
 			return
 		}
@@ -385,6 +501,43 @@ func (c *Chat) persistChatToolRound(
 	return toolPayload, success, nil
 }
 
+func (c *Chat) persistHostedSearches(
+	request queuedTurn,
+	turn store.ConversationTurn,
+	assignment store.ModelAssignment,
+	searches []provider.HostedSearch,
+	providerRound int,
+) error {
+	if len(searches) == 0 {
+		return nil
+	}
+	values := make([]store.ConversationHostedSearch, 0, len(searches))
+	for _, search := range searches {
+		sources := make([]store.ConversationWebSource, 0, len(search.Sources))
+		for _, source := range search.Sources {
+			sources = append(sources, store.ConversationWebSource{Title: source.Title, URL: source.URL})
+		}
+		values = append(values, store.ConversationHostedSearch{
+			OutputIndex: search.Index, ID: search.ID, Name: search.Name, Status: search.Status,
+			Arguments: search.Arguments, Result: search.Result,
+			Sources: sources, ProviderAction: search.ProviderAction,
+		})
+	}
+	items, err := c.database.StoreConversationHostedSearches(
+		c.ctx, turn, assignment.ProviderKind, providerRound, values, time.Now(),
+	)
+	if err != nil {
+		return err
+	}
+	for index := range items {
+		c.publish(Event{
+			Kind: EventConversationItem, ConversationID: turn.ConversationID,
+			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &items[index],
+		})
+	}
+	return nil
+}
+
 func (c *Chat) generateChatToolContinuation(
 	request queuedTurn,
 	turn store.ConversationTurn,
@@ -411,7 +564,8 @@ func (c *Chat) generateChatToolContinuation(
 		tools = nil
 		transport = provider.ToolTransportNone
 	}
-	developer := developerMessages(environment, memoryContext)
+	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, transport)
+	developer := developerMessages(environment, memoryContext, hostedWeb)
 	messages = append(developer, messages...)
 	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
 	generate := func() (provider.GenerationResult, error) {
@@ -420,7 +574,8 @@ func (c *Chat) generateChatToolContinuation(
 			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
 			ConversationID: turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
-			FastMode: assignment.FastMode,
+			HostedWebSearch: hostedWeb,
+			FastMode:        assignment.FastMode,
 		}, func(event provider.StreamEvent) {
 			if event.Kind == provider.TextDelta {
 				c.publish(Event{
@@ -449,9 +604,10 @@ func (c *Chat) generateChatToolContinuation(
 			"\n\n" + toolFinalizationInstruction(stopReason)
 	}
 	messages = compactToolFinalizationMessages(messages[len(developer):], payloadLimit)
-	messages = append(developerMessages(environment, memoryContext), messages...)
+	messages = append(developerMessages(environment, memoryContext, false), messages...)
 	tools = nil
 	transport = provider.ToolTransportNone
+	hostedWeb = false
 	result, err = generate()
 	return result, true, err
 }
@@ -471,10 +627,13 @@ func compactToolFinalizationMessages(
 	}
 	user := messages[lastUser]
 	pairs := make([][2]provider.GenerationMessage, 0, providerRoundLimit+1)
+	hosted := make([]provider.GenerationMessage, 0)
 	var assistant *provider.GenerationMessage
 	for index := lastUser + 1; index < len(messages); index++ {
 		message := messages[index]
 		switch {
+		case message.Role == "hosted_web_search":
+			hosted = append(hosted, message)
 		case message.Role == "assistant" && len(message.ToolCalls) != 0:
 			message.ReasoningDetails = nil
 			message.Content = boundedUTF8(message.Content, 2<<10)
@@ -489,8 +648,9 @@ func compactToolFinalizationMessages(
 			assistant = nil
 		}
 	}
-	result := make([]provider.GenerationMessage, 0, 1+2*len(pairs))
+	result := make([]provider.GenerationMessage, 0, 1+len(hosted)+2*len(pairs))
 	result = append(result, user)
+	result = append(result, hosted...)
 	for _, pair := range pairs {
 		result = append(result, pair[0], pair[1])
 	}
@@ -594,8 +754,8 @@ func (c *Chat) finishGeneratedTurn(
 		&store.ProviderUsage{
 			Provider: assignment.ProviderKind, Model: model, InputTokens: usage.InputTokens,
 			OutputTokens: usage.OutputTokens, TotalTokens: usage.TotalTokens,
-			CachedInputTokens: usage.CachedInputTokens,
-		}, generationReasoning(result), providerRound, time.Now(),
+			CachedInputTokens: usage.CachedInputTokens, WebSearchRequests: usage.WebSearchRequests,
+		}, generationReasoning(result), generationCitations(result), providerRound, time.Now(),
 	)
 	if err != nil {
 		if c.ctx.Err() != nil {
@@ -616,6 +776,17 @@ func (c *Chat) finishGeneratedTurn(
 		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
 	})
+}
+
+func generationCitations(result provider.GenerationResult) []store.ProviderCitation {
+	citations := make([]store.ProviderCitation, 0, len(result.Citations))
+	for _, citation := range result.Citations {
+		citations = append(citations, store.ProviderCitation{
+			Title: citation.Title, URL: citation.URL,
+			StartIndex: citation.StartIndex, EndIndex: citation.EndIndex,
+		})
+	}
+	return citations
 }
 
 func generationReasoning(result provider.GenerationResult) []json.RawMessage {

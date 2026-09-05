@@ -285,6 +285,7 @@ func TestOpenRouterGeneratorRejectsUnsafeInputsBeforeSecretAccess(t *testing.T) 
 		{"blank model", GenerateRequest{AccountID: openRouterGenerationAccountID, Messages: []GenerationMessage{{Role: "user", Content: "hello"}}}, nil},
 		{"invalid role", GenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "tool", Content: "hello"}}}, nil},
 		{"invalid effort", GenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: "hello"}}, ReasoningEffort: "maximum"}, nil},
+		{"disabled hosted search", GenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: "hello"}}, HostedWebSearch: true}, nil},
 		{"oversized request", GenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: strings.Repeat("x", openRouterGenerationRequestLimit)}}}, ErrGenerationRequestTooLarge},
 	}
 	for _, test := range cases {

@@ -19,6 +19,7 @@ type GenerationMessage struct {
 	Role, Content                   string
 	ToolCalls                       []ReplayToolCall
 	ToolResult                      *ReplayToolResult
+	HostedSearch                    *HostedSearch
 	ToolCallID                      string
 	ReasoningDetails                []json.RawMessage
 	ReasoningID, EncryptedReasoning string

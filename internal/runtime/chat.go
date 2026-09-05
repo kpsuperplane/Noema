@@ -312,8 +312,11 @@ func (c *Chat) execute(request queuedTurn) {
 		return
 	}
 	memoryContext := c.memoryRootContext()
+	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative)
 	providerMessages = append(
-		developerMessages(runtimeEnvironment(request.conversation, request.location, time.Now()), memoryContext),
+		developerMessages(
+			runtimeEnvironment(request.conversation, request.location, time.Now()), memoryContext, hostedWeb,
+		),
 		providerMessages...,
 	)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
@@ -321,10 +324,11 @@ func (c *Chat) execute(request queuedTurn) {
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
 		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
-		Tools:         chatTools(),
-		ToolTransport: provider.ToolTransportNative,
-		ToolChoice:    provider.ToolChoiceAuto,
-		FastMode:      assignment.FastMode,
+		Tools:           chatTools(),
+		ToolTransport:   provider.ToolTransportNative,
+		ToolChoice:      provider.ToolChoiceAuto,
+		HostedWebSearch: hostedWeb,
+		FastMode:        assignment.FastMode,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {
 			c.publish(Event{
@@ -337,15 +341,12 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	if len(result.ToolCalls) == 0 {
-		c.finishGeneratedTurn(request.input, turn, assignment, result, 0, result.Usage)
-		return
-	}
-	if len(result.ToolCalls) != 1 || !supportsChatTool(result.ToolCalls[0].Name) {
-		c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
-		return
-	}
 	c.executeChatToolRounds(request, turn, assignment, generator, result, memoryContext)
+}
+
+func hostedWebSearchEnabled(providerKind string, transport provider.ToolTransport) bool {
+	return transport == provider.ToolTransportNative &&
+		(providerKind == "codex" || providerKind == "openrouter")
 }
 
 func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
