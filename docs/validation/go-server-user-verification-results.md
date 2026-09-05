@@ -469,6 +469,16 @@ The [validation record](evidence/2026-09-05-overlap-store-validation.json) conta
 The fix adds eight production lines and 114 test lines. Both Go migration ratios remain below 80 percent.
 TIME-10 passes for controlled scheduler state. Provider execution remains covered by the separate live deadline checks.
 
+## One-time schedule edits during due processing
+
+The [race test](../../internal/store/task_schedules_test.go) covers edit-first, deadline-first, and concurrent calls through production store commands.
+If the edit wins, the old deadline queues no run and the replacement deadline queues one Planner.
+If due processing wins, the stale edit is rejected and the original timing remains accepted.
+The concurrent case permits either valid transaction ordering. Repeated queue handoff creates no duplicate run.
+The [validation record](evidence/2026-09-05-schedule-race-validation.json) records passing focused tests, broad Go tests, and vet.
+This unit adds 82 test lines and no production code.
+TIME-12 remains partial because recurrence edits during occurrence creation need separate verification.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -565,7 +575,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-09 | Pass · live Codex/Chromium | Browser Run now creates one manual occurrence and preserves the next normal slot through completion. Its history link opens the correct result. | — |
 | TIME-10 | Pass · controlled scheduler state | Skip creates no later Task while active. Queue one releases one catch-up Task. Allow creates both due occurrences. Fixed extra queue-one catch-up work. | — |
 | TIME-11 | Pass · controlled scheduler time | Production scheduling skips the missing spring minute and creates no duplicate run for the repeated fall minute. The next valid day queues one occurrence. | — |
-| TIME-12 | Not run | Controlled setup pending. | — |
+| TIME-12 | Partial | One-time edit-first, deadline-first, and concurrent cases pass. Accepted edits suppress the old deadline; stale edits cannot replace released timing. Recurrence races remain pending. | — |
 | PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
 | PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. Live Project checks above. | — |
 | PROJECT-03 | Not run | Controlled setup pending. | — |

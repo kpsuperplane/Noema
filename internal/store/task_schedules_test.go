@@ -185,6 +185,88 @@ func TestDueSchedulesApplyMissedAndOverlapPolicies(t *testing.T) {
 	})
 }
 
+func TestRescheduleCompetesWithDueTransition(t *testing.T) {
+	for _, order := range []string{"edit first", "deadline first", "concurrent"} {
+		t.Run(order, func(t *testing.T) {
+			database := openTestStore(t)
+			ctx := t.Context()
+			account := createReadyModelAccount(t, database)
+			if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+				t.Fatal(err)
+			}
+			dueAt := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+			future := dueAt.Add(time.Hour)
+			id, err := NewTaskID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := schedule.Schedule{ScheduledFor: dueAt, TimeZone: "UTC", MissedRunPolicy: schedule.MissedRunOnce}
+			created, err := database.CreateTaskWithOptions(ctx, id, "Schedule race", testTaskCommand("race-create"),
+				TaskCreateOptions{Schedule: &value}, dueAt.Add(-time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			edit := func() error {
+				next := value
+				next.ScheduledFor = future
+				_, err := database.SetTaskSchedule(ctx, id, created.Task.Revision, next, true, testTaskCommand("race-edit"), dueAt)
+				return err
+			}
+			process := func() error {
+				_, _, err := database.ProcessDueTaskSchedules(ctx, dueAt, false, nil)
+				return err
+			}
+			var editErr, dueErr error
+			switch order {
+			case "edit first":
+				editErr, dueErr = edit(), process()
+			case "deadline first":
+				dueErr, editErr = process(), edit()
+			case "concurrent":
+				start := make(chan struct{})
+				edited, processed := make(chan error, 1), make(chan error, 1)
+				go func() { <-start; edited <- edit() }()
+				go func() { <-start; processed <- process() }()
+				close(start)
+				editErr, dueErr = <-edited, <-processed
+			}
+			if dueErr != nil || editErr != nil && !errors.Is(editErr, ErrStaleRevision) {
+				t.Fatalf("edit error = %v, due error = %v", editErr, dueErr)
+			}
+			if order == "edit first" && editErr != nil || order == "deadline first" && !errors.Is(editErr, ErrStaleRevision) {
+				t.Fatalf("unexpected result for %s: %v", order, editErr)
+			}
+			if err := database.QueueReleasedTaskSchedules(ctx, dueAt); err != nil {
+				t.Fatal(err)
+			}
+			wantInstant, wantRuns := dueAt, 1
+			if editErr == nil {
+				wantInstant, wantRuns = future, 0
+			}
+			task, err := database.Task(ctx, id)
+			if err != nil || task.ScheduledFor == nil || !task.ScheduledFor.Equal(wantInstant) {
+				t.Fatalf("accepted schedule = %#v, %v; want %s", task, err, wantInstant)
+			}
+			runs, err := database.TaskRuns(ctx, id, 10)
+			if err != nil || len(runs) != wantRuns {
+				t.Fatalf("runs at old deadline = %#v, %v; want %d", runs, err, wantRuns)
+			}
+			if _, _, err := database.ProcessDueTaskSchedules(ctx, future, false, nil); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if err := database.QueueReleasedTaskSchedules(ctx, future); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runs, err = database.TaskRuns(ctx, id, 10)
+			if err != nil || len(runs) != 1 || runs[0].Kind != "planner" || runs[0].Status != "queued" {
+				t.Fatalf("final runs = %#v, %v", runs, err)
+			}
+		})
+	}
+}
+
 func TestRecurrenceOverlapPoliciesAcrossActiveSlots(t *testing.T) {
 	for _, test := range []struct {
 		name        string
