@@ -60,7 +60,10 @@
 - Treat Noema as a dense product interface, not a marketing page. Do not add whitespace, cards, headings, icons, metadata, columns, or motion merely to make a screen feel designed; every structural device must communicate a relationship, priority, state, or action.
 - Use Astryx components and spacing tokens before one-off controls or raw spacing values. Reuse the existing shell, detail, transcript, and domain patterns instead of creating a parallel presentation for the same concept.
 - When editing a field, use either inline editing that saves without a separate Save button, or an actual dialog with an explicit Save button and the first input automatically focused. Do not place an explicit Save flow inline on the page.
-- For nontrivial visual work, ask for browser-inspection permission early when it has not already been granted. If visual inspection is not authorized, complete static and build validation but state that the layout was not visually verified.
+- UI requests grant implicit permission for visual browser inspection unless the user explicitly restricts it. Do not request inspection permission again.
+- Follow `docs/frontend/browser-inspection.md` for browser access and visual review. Use the private development socket when browser authentication is unavailable.
+- Use `scripts/route-browser-inspection.mjs` with Playwright for read-only socket inspection. Do not expose the socket through an unauthenticated TCP listener.
+- Inspection permission does not authorize changes to live product data. State any limits when rendered states remain unavailable.
 
 ## Review And Subagents
 - Keep changes expected to touch fewer than roughly 1,000 lines or two architectural areas inline when delegation overhead would exceed the work.
@@ -85,7 +88,7 @@
 - Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new tests requires a written risk and redundancy justification before implementation continues.
 - Do not test derives, getters, constructors, enum mirrors, pass-through mappings/resolvers, or mock interactions unless they enforce an external compatibility or security contract. Do not repeat the same behavior through domain, store, API, and runtime layers unless each boundary owns materially different logic.
 - Do not write tests for UI/frontend work unless explicitly requested.
-- For frontend or UI work, do not inspect with browser tools unless explicitly requested.
+- For frontend or UI work, inspect relevant rendered states at desktop and phone widths. Apply the browser permission rules above.
 
 ## Ship Checklist
 - Before committing or pushing, run:

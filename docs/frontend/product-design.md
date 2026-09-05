@@ -248,7 +248,7 @@ Before calling a visual change complete, answer these questions:
 - Is transparency preserved without making raw internals the default view?
 
 Run generated-type, lint, and production-build validation. For nontrivial
-visual work, request browser-inspection permission when it has not already been
-granted and compare the real affected flow at representative desktop and mobile
-widths. If browser inspection is not authorized, report that the result was not
-visually verified rather than treating a passing build as design validation.
+visual work, UI requests grant browser-inspection permission unless the user explicitly restricts it.
+Follow [browser inspection](browser-inspection.md) and compare the affected flow at desktop and mobile widths.
+If the user restricts inspection, report that the result was not visually verified.
+A passing build does not prove visual correctness.
