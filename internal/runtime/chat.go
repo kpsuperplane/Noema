@@ -456,6 +456,8 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
 	messages, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
@@ -520,6 +522,15 @@ func hostedWebSearchEnabled(providerKind string, transport provider.ToolTranspor
 
 func responseIDContinuationProvider(providerKind string) bool {
 	return providerKind == "codex" || providerKind == "openai"
+}
+
+func openGenerationSession(generator provider.Generator) (provider.Generator, func(), bool) {
+	opener, ok := generator.(provider.SessionGenerator)
+	if !ok {
+		return generator, func() {}, false
+	}
+	session := opener.OpenGenerationSession()
+	return session, func() { _ = session.Close() }, true
 }
 
 func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {

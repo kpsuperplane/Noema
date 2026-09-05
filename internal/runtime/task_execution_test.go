@@ -151,12 +151,17 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 	var mu sync.Mutex
 	roleCalls := map[string]int{}
 	requestProblem := ""
-	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+	generation := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		role := taskRequestRole(request.Tools)
 		mu.Lock()
 		roleCalls[role]++
 		call := roleCalls[role]
 		mu.Unlock()
+		if call > 1 && (request.PreviousResponseID == "" || len(request.ReplayMessages) <= len(request.Messages)) {
+			mu.Lock()
+			requestProblem = "Task session did not keep incremental input with full replay"
+			mu.Unlock()
+		}
 		switch role {
 		case "planner":
 			if call == 1 {
@@ -184,14 +189,21 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 			return taskToolResult("review-finish", taskFinishReview, map[string]any{"decision": "approve", "feedback": "The result meets the exact requirement.", "notify_human": true}), nil
 		}
 	})
+	generator := &sessionTestGenerator{generate: generation, closed: make(chan struct{}, 3)}
 	runtime, err := NewTaskExecution(context.Background(), database, generator, generator, generator, chat.home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(runtime.Close)
 	current := waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+	for range 3 {
+		<-generator.closed
+	}
 	if current.State != store.TaskCompleted || current.CompletedAt == nil {
 		t.Fatalf("completed Task = %#v", current)
+	}
+	if generator.opens != 3 || generator.closes != 3 || generator.direct != 0 {
+		t.Fatalf("Task sessions = opened %d, closed %d, direct %d", generator.opens, generator.closes, generator.direct)
 	}
 	mu.Lock()
 	problem := requestProblem

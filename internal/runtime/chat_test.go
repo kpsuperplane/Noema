@@ -546,7 +546,8 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		return provider.GenerationResult{}, errors.New("unexpected OpenRouter request")
 	})
 	var requests []provider.GenerateRequest
-	codex := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+	codex := &sessionTestGenerator{closed: make(chan struct{}, 1)}
+	codex.generate = func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		requests = append(requests, request)
 		if len(requests) == 1 {
 			return provider.GenerationResult{
@@ -566,7 +567,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		return provider.GenerationResult{
 			ID: "resp_2", Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
 		}, nil
-	})
+	}
 	chat, err := NewChat(database, openRouter, codex, codex, homeRoot, openChatMemory(t, homeRoot))
 	if err != nil {
 		t.Fatal(err)
@@ -581,8 +582,12 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
+	<-codex.closed
 	if openRouterCalls != 0 || len(requests) != 2 {
 		t.Fatalf("provider calls = OpenRouter %d, Codex %d", openRouterCalls, len(requests))
+	}
+	if codex.opens != 1 || codex.closes != 1 || codex.direct != 0 {
+		t.Fatalf("Codex sessions = opened %d, closed %d, direct %d", codex.opens, codex.closes, codex.direct)
 	}
 	for index, request := range requests {
 		if request.AccountID != accountID || request.Model != "gpt-5.6-terra" ||
@@ -595,14 +600,16 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		t.Fatalf("Codex response continuation = %#v", requests)
 	}
 	replayedCall, incrementalResult := false, false
-	for _, message := range requests[1].Messages {
+	for _, message := range requests[1].ReplayMessages {
 		for _, call := range message.ToolCalls {
 			replayedCall = replayedCall || call.ProviderItemID == "fc_1"
 		}
+	}
+	for _, message := range requests[1].Messages {
 		incrementalResult = incrementalResult ||
 			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
 	}
-	if replayedCall || !incrementalResult || len(requests[1].Messages) != 2 ||
+	if !replayedCall || !incrementalResult || len(requests[1].Messages) != 2 ||
 		requests[1].Messages[1].Role != "developer" ||
 		!strings.Contains(requests[1].Messages[1].Content, "Active Project catalog:") {
 		t.Fatalf("Codex incremental continuation = call %t, result %t, messages %#v",
@@ -1192,6 +1199,42 @@ func (function generatorFunc) Generate(
 	onEvent func(provider.StreamEvent),
 ) (provider.GenerationResult, error) {
 	return function(ctx, request, onEvent)
+}
+
+type sessionTestGenerator struct {
+	generate              generatorFunc
+	closed                chan struct{}
+	opens, closes, direct int
+}
+
+func (g *sessionTestGenerator) Generate(
+	ctx context.Context,
+	request provider.GenerateRequest,
+	onEvent func(provider.StreamEvent),
+) (provider.GenerationResult, error) {
+	g.direct++
+	return g.generate(ctx, request, onEvent)
+}
+
+func (g *sessionTestGenerator) OpenGenerationSession() provider.GenerationSession {
+	g.opens++
+	return &sessionTestGeneration{owner: g}
+}
+
+type sessionTestGeneration struct{ owner *sessionTestGenerator }
+
+func (s *sessionTestGeneration) Generate(
+	ctx context.Context,
+	request provider.GenerateRequest,
+	onEvent func(provider.StreamEvent),
+) (provider.GenerationResult, error) {
+	return s.owner.generate(ctx, request, onEvent)
+}
+
+func (s *sessionTestGeneration) Close() error {
+	s.owner.closes++
+	s.owner.closed <- struct{}{}
+	return nil
 }
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
