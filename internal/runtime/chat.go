@@ -202,7 +202,11 @@ func (c *Chat) SubscribeMemory(ctx context.Context) <-chan Event {
 }
 
 func (c *Chat) subscribe(ctx context.Context, conversationID string, ready bool) (<-chan Event, error) {
-	events := make(chan Event, subscriberQueueLimit)
+	queueLimit := subscriberQueueLimit
+	if conversationID == memoryEventChannel {
+		queueLimit = 1
+	}
+	events := make(chan Event, queueLimit)
 
 	c.subMu.Lock()
 	if c.ctx.Err() != nil {

@@ -65,15 +65,14 @@ func (c *Chat) MemoryUpdateStatus() MemoryUpdateRuntimeStatus {
 func (c *Chat) publishMemoryChanged() {
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
-	for id, current := range c.subscribers {
+	for _, current := range c.subscribers {
 		if current.conversationID != memoryEventChannel {
 			continue
 		}
 		select {
 		case current.events <- Event{Kind: EventMemoryChanged, ConversationID: memoryEventChannel}:
 		default:
-			close(current.events)
-			delete(c.subscribers, id)
+			// One pending invalidation is sufficient because subscribers reload the current snapshot.
 		}
 	}
 }
@@ -373,30 +372,27 @@ func includeRelevantMemoryPages(
 	selected map[string]bool,
 	budget int,
 ) {
-	terms := make(map[string]bool)
-	ordered := make([]string, 0, 32)
+	queryParts := make([]string, 0, len(items))
 	for _, item := range items {
-		for _, term := range strings.Fields(memoryEvidencePayload(item)) {
-			term = strings.Trim(term, ".,:;!?()[]{}\"'")
-			if term != "" && len([]rune(term)) > 2 && !terms[term] && len(ordered) < 32 {
-				terms[term] = true
-				ordered = append(ordered, term)
-			}
+		value := memoryEvidencePayload(item)
+		if value == "" {
+			value = item.ContentText
+		}
+		if value != "" {
+			queryParts = append(queryParts, value)
 		}
 	}
-	for _, term := range ordered {
-		results, err := memoryStore.Search(term, 8)
-		if err != nil {
-			continue
-		}
-		for _, result := range results {
-			candidate := cloneStringSet(selected)
-			includeMemoryPageAncestors(pages, result.Path, candidate)
-			rendered, err := memoryPromptCatalog(pages, candidate)
-			if err == nil && len([]rune(rendered)) <= budget {
-				for path := range candidate {
-					selected[path] = true
-				}
+	results, err := memoryStore.SearchRelevant(strings.Join(queryParts, " "), 8)
+	if err != nil {
+		return
+	}
+	for _, result := range results {
+		candidate := cloneStringSet(selected)
+		includeMemoryPageAncestors(pages, result.Path, candidate)
+		rendered, err := memoryPromptCatalog(pages, candidate)
+		if err == nil && len([]rune(rendered)) <= budget {
+			for path := range candidate {
+				selected[path] = true
 			}
 		}
 	}
@@ -441,6 +437,20 @@ func memoryEvidencePayload(item store.ConversationItem) string {
 	payload, exists := action["payload"]
 	if !exists {
 		return ""
+	}
+	if item.Kind == store.ConversationToolResult {
+		name, _ := action["name"].(string)
+		if strings.HasPrefix(name, "web.browse.") {
+			if object, ok := payload.(map[string]any); ok {
+				visible := make(map[string]any, len(object))
+				for key, value := range object {
+					if key != "screenshot" {
+						visible[key] = value
+					}
+				}
+				payload = visible
+			}
+		}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

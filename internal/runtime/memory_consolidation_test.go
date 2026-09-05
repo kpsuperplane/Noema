@@ -147,6 +147,83 @@ func TestMemoryAutomaticThresholdUsesPendingSourceSize(t *testing.T) {
 	}
 }
 
+func TestMemorySourceOmitsBrowserScreenshotAndPreservesOrdinaryPayload(t *testing.T) {
+	payload := map[string]any{
+		"snapshot":   map[string]any{"url": "https://example.test", "node_id": "node:opaque"},
+		"screenshot": map[string]any{"data": "encoded-image"},
+		"status":     "complete",
+	}
+	item := store.ConversationItem{
+		ID: "item:browser", Kind: store.ConversationToolResult,
+		Payload: map[string]any{"metadata": map[string]any{"action": map[string]any{
+			"name": "web.browse.interact", "payload": payload,
+		}}},
+	}
+	evidence := memoryEvidencePayload(item)
+	if strings.Contains(evidence, "screenshot") || strings.Contains(evidence, "encoded-image") {
+		t.Fatalf("browser evidence retained screenshot: %s", evidence)
+	}
+	if !strings.Contains(evidence, `"url":"https://example.test"`) ||
+		!strings.Contains(evidence, `"node_id":"node:opaque"`) ||
+		!strings.Contains(evidence, `"status":"complete"`) {
+		t.Fatalf("browser evidence removed ordinary payload: %s", evidence)
+	}
+	if payload["screenshot"].(map[string]any)["data"] != "encoded-image" {
+		t.Fatalf("stored browser payload changed: %#v", payload)
+	}
+	if rendered := renderMemorySourceItem(item); strings.Contains(rendered, "encoded-image") {
+		t.Fatalf("rendered browser source retained screenshot: %s", rendered)
+	}
+}
+
+func TestMemoryRelevantPagesUseAssistantFallbackContext(t *testing.T) {
+	chat, _, _ := chatFixture(t)
+	if err := chat.memory.Publish(noemamemory.ChangeSet{Upserts: []noemamemory.PageChange{
+		{Path: "interests.md", Title: "Interests", Icon: "file-text", Body: "Stargazing plans."},
+	}}, noemamemory.State{}); err != nil {
+		t.Fatal(err)
+	}
+	pages, err := chat.memory.ListPages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := map[string]bool{}
+	includeRelevantMemoryPages(chat.memory, pages, []store.ConversationItem{{
+		Kind: store.ConversationAssistantText, ContentText: "Discuss stargazing next.",
+	}}, selected, 100_000)
+	if !selected["interests.md"] {
+		t.Fatalf("assistant fallback selected pages = %#v", selected)
+	}
+}
+
+func TestMemoryInvalidationsCoalesceForSlowSubscriber(t *testing.T) {
+	chat, _, _ := chatFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := chat.SubscribeMemory(ctx)
+	for range subscriberQueueLimit * 2 {
+		chat.publishMemoryChanged()
+	}
+	event, open := <-events
+	if !open || event.Kind != EventMemoryChanged {
+		t.Fatalf("coalesced Memory event = %#v, open %t", event, open)
+	}
+	select {
+	case extra, open := <-events:
+		t.Fatalf("Memory invalidations did not coalesce: %#v, open %t", extra, open)
+	default:
+	}
+	chat.publishMemoryChanged()
+	select {
+	case event, open = <-events:
+		if !open || event.Kind != EventMemoryChanged {
+			t.Fatalf("later Memory event = %#v, open %t", event, open)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("later Memory invalidation was not delivered")
+	}
+}
+
 func TestCompletedPrimaryTurnSchedulesMemoryAtThreshold(t *testing.T) {
 	chat, _, conversation := chatFixture(t)
 	root, err := chat.memory.ReadRoot()
