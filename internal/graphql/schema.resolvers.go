@@ -110,7 +110,7 @@ func (r *mutationRootResolver) SetCapabilityToolEnabled(ctx context.Context, inp
 
 // ResolveGovernedAction is the resolver for the resolveGovernedAction field.
 func (r *mutationRootResolver) ResolveGovernedAction(ctx context.Context, input model.ResolveGovernedActionInput) (*model.GovernedAction, error) {
-	panic(fmt.Errorf("not implemented: ResolveGovernedAction - resolveGovernedAction"))
+	return r.resolveActionRequest(ctx, input)
 }
 
 // StartMcpAuthentication is the resolver for the startMcpAuthentication field.
@@ -383,12 +383,12 @@ func (r *mutationRootResolver) SaveActionReviewerPreference(ctx context.Context,
 
 // UpdateMemory is the resolver for the updateMemory field.
 func (r *mutationRootResolver) UpdateMemory(ctx context.Context) (*model.GraphqlNativeMemoryUpdateResult, error) {
-	panic(fmt.Errorf("not implemented: UpdateMemory - updateMemory"))
+	return r.updateMemory(ctx)
 }
 
 // SaveMemoryModelPreference is the resolver for the saveMemoryModelPreference field.
 func (r *mutationRootResolver) SaveMemoryModelPreference(ctx context.Context, input model.GraphqlSaveMemoryModelPreferenceInput) (*model.AgentModelPreference, error) {
-	panic(fmt.Errorf("not implemented: SaveMemoryModelPreference - saveMemoryModelPreference"))
+	return r.saveMemoryModelPreference(ctx, input)
 }
 
 // EnsurePrimaryConversation is the resolver for the ensurePrimaryConversation field.
@@ -663,12 +663,12 @@ func (r *queryRootResolver) NeedsYou(ctx context.Context, workspaceID string, pr
 
 // PendingGovernedActions is the resolver for the pendingGovernedActions field.
 func (r *queryRootResolver) PendingGovernedActions(ctx context.Context, conversationID *string, taskID *string, first *int) ([]*model.GovernedAction, error) {
-	panic(fmt.Errorf("not implemented: PendingGovernedActions - pendingGovernedActions"))
+	return r.pendingActionRequests(ctx, conversationID, taskID, first)
 }
 
 // PendingHumanInterventions is the resolver for the pendingHumanInterventions field.
 func (r *queryRootResolver) PendingHumanInterventions(ctx context.Context, conversationID *string, taskID *string, projectID *string, first *int) ([]model.HumanIntervention, error) {
-	panic(fmt.Errorf("not implemented: PendingHumanInterventions - pendingHumanInterventions"))
+	return r.pendingHumanInterventions(ctx, conversationID, taskID, projectID, first)
 }
 
 // TaskHistory is the resolver for the taskHistory field.

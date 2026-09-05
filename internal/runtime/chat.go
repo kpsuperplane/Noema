@@ -20,6 +20,7 @@ const (
 	turnQueueLimit       = 64
 	subscriberQueueLimit = 128
 	shutdownSaveTimeout  = 5 * time.Second
+	memoryEventChannel   = "\x00memory"
 )
 
 var (
@@ -39,7 +40,10 @@ const (
 	EventAssistantDelta    EventKind = "assistant_text_delta"
 	EventTurnCompleted     EventKind = "turn_completed"
 	EventTransientError    EventKind = "transient_error"
+	EventMemoryChanged     EventKind = "memory_changed"
 )
+
+const EventHumanInterventionsChanged EventKind = "human_interventions_changed"
 
 // AgentStatus is one live Chat status.
 type AgentStatus string
@@ -85,6 +89,23 @@ type queuedTurn struct {
 	location     *time.Location
 }
 
+type actionResolution struct {
+	ctx                         context.Context
+	actionID, humanID, decision string
+	revision                    int
+	reply                       chan actionResolutionResult
+}
+
+type actionResolutionResult struct {
+	action store.ActionRequest
+	err    error
+}
+
+type actionContinuation struct {
+	action  store.ActionRequest
+	trigger store.ConversationItem
+}
+
 type subscriber struct {
 	conversationID string
 	events         chan Event
@@ -101,11 +122,18 @@ type Chat struct {
 	home       *os.Root
 	memory     *noemamemory.Store
 	turns      chan queuedTurn
+	actions    chan actionResolution
 	done       chan struct{}
 	closeOnce  sync.Once
 	closeErr   error
 	stateMu    sync.RWMutex
 	closed     bool
+	memoryMu   sync.Mutex
+	memoryRun  bool
+	memoryErr  string
+	memoryWG   sync.WaitGroup
+
+	recoveredActions []actionContinuation
 
 	subMu       sync.Mutex
 	subscribers map[uint64]subscriber
@@ -125,7 +153,26 @@ func NewChat(
 		return nil, errors.New("Chat runtime dependencies are unavailable")
 	}
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
-	_, err := database.RecoverConversationTurns(recoveryContext, time.Now())
+	actions, err := database.RecoverActionRequests(recoveryContext, time.Now())
+	recoveredActions := make([]actionContinuation, 0, len(actions))
+	for _, action := range actions {
+		turn, input, callErr := database.ActionConversationCall(recoveryContext, action)
+		if callErr != nil {
+			err = callErr
+			break
+		}
+		input.Payload = mustJSON(actionResultPayload(action))
+		input.Success = action.State == store.ActionSucceeded
+		item, callErr := database.FinishConversationToolCall(recoveryContext, turn, input, time.Now())
+		if callErr != nil {
+			err = callErr
+			break
+		}
+		recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
+	}
+	if err == nil {
+		_, err = database.RecoverConversationTurns(recoveryContext, time.Now())
+	}
 	stopRecovery()
 	if err != nil {
 		return nil, fmt.Errorf("recover stopped Chat turns: %w", err)
@@ -134,8 +181,10 @@ func NewChat(
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
 		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore,
-		turns: make(chan queuedTurn, turnQueueLimit), done: make(chan struct{}),
-		subscribers: make(map[uint64]subscriber),
+		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
+		done:             make(chan struct{}),
+		recoveredActions: recoveredActions,
+		subscribers:      make(map[uint64]subscriber),
 	}
 	go chat.run()
 	return chat, nil
@@ -191,8 +240,18 @@ func (c *Chat) SubscribeAll(ctx context.Context) <-chan Event {
 	return events
 }
 
+// SubscribeMemory returns native Memory invalidations until the context ends.
+func (c *Chat) SubscribeMemory(ctx context.Context) <-chan Event {
+	events, _ := c.subscribe(ctx, memoryEventChannel, false)
+	return events
+}
+
 func (c *Chat) subscribe(ctx context.Context, conversationID string, ready bool) (<-chan Event, error) {
-	events := make(chan Event, subscriberQueueLimit)
+	queueLimit := subscriberQueueLimit
+	if conversationID == memoryEventChannel {
+		queueLimit = 1
+	}
+	events := make(chan Event, queueLimit)
 
 	c.subMu.Lock()
 	if c.ctx.Err() != nil {
@@ -225,7 +284,10 @@ func (c *Chat) Close() error {
 		c.closed = true
 		c.cancel()
 		c.stateMu.Unlock()
-		<-c.done
+		if c.done != nil {
+			<-c.done
+		}
+		c.memoryWG.Wait()
 		recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
 		_, c.closeErr = c.database.RecoverConversationTurns(recoveryContext, time.Now())
 		stopRecovery()
@@ -240,7 +302,9 @@ func (c *Chat) Close() error {
 }
 
 func (c *Chat) run() {
-	defer close(c.done)
+	if c.done != nil {
+		defer close(c.done)
+	}
 	defer func() {
 		for {
 			select {
@@ -251,6 +315,13 @@ func (c *Chat) run() {
 			}
 		}
 	}()
+	for _, recovery := range c.recoveredActions {
+		if c.ctx.Err() != nil {
+			return
+		}
+		c.continueAfterAction(recovery.action, recovery.trigger)
+	}
+	c.recoveredActions = nil
 	for {
 		if c.ctx.Err() != nil {
 			return
@@ -260,6 +331,9 @@ func (c *Chat) run() {
 			return
 		case request := <-c.turns:
 			c.execute(request)
+		case request := <-c.actions:
+			action, err := c.resolveActionRequest(request)
+			request.reply <- actionResolutionResult{action: action, err: err}
 		}
 	}
 }
@@ -292,6 +366,7 @@ func (c *Chat) execute(request queuedTurn) {
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &userItem,
 	})
+	c.publishMemoryChanged()
 
 	assignment, err := c.primaryAssignment(c.ctx)
 	if err != nil {
@@ -308,7 +383,7 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages, err := providerMessagesFromItems(messages)
+	providerMessages, err := providerMessagesFromItems(messages, turn.ID, assignment.ProviderKind)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
@@ -330,6 +405,7 @@ func (c *Chat) execute(request queuedTurn) {
 		ToolTransport:   provider.ToolTransportNative,
 		ToolChoice:      provider.ToolChoiceAuto,
 		HostedWebSearch: hostedWeb,
+		StoreResponse:   assignment.ProviderKind == "codex",
 		FastMode:        assignment.FastMode,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {

@@ -123,7 +123,11 @@ func boundedModelToolPayload(payload json.RawMessage, limit int) json.RawMessage
 	}
 }
 
-func providerMessagesFromItems(items []store.ConversationItem) ([]provider.GenerationMessage, error) {
+func providerMessagesFromItems(
+	items []store.ConversationItem,
+	activeTurnID string,
+	activeProvider string,
+) ([]provider.GenerationMessage, error) {
 	results := make(map[string]store.ConversationItem)
 	for _, item := range items {
 		if item.Kind == store.ConversationToolResult && item.ParentItemID != "" {
@@ -160,6 +164,9 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.Gener
 			if err != nil {
 				return nil, err
 			}
+			if item.TurnID != activeTurnID || textValue(item.Metadata["provider"]) != activeProvider {
+				details = withoutHostedReasoning(details)
+			}
 			reasoning = append(reasoning, details...)
 		case store.ConversationUserText:
 			messages = append(messages, provider.GenerationMessage{Role: "user", Content: item.ContentText})
@@ -178,6 +185,9 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.Gener
 			reasoning = nil
 		case store.ConversationToolCall:
 			if stored, exists := results[item.ID]; exists && storedHostedSearch(item) {
+				if item.TurnID != activeTurnID || textValue(item.Metadata["provider"]) != activeProvider {
+					continue
+				}
 				search, err := replayHostedSearch(item, stored)
 				if err != nil {
 					return nil, err
@@ -232,6 +242,18 @@ func providerMessagesFromItems(items []store.ConversationItem) ([]provider.Gener
 		flushHosted(round)
 	}
 	return messages, nil
+}
+
+func withoutHostedReasoning(details []json.RawMessage) []json.RawMessage {
+	filtered := details[:0]
+	for _, detail := range details {
+		var value map[string]any
+		if json.Unmarshal(detail, &value) == nil && value["type"] == "reasoning.server_tool_call" {
+			continue
+		}
+		filtered = append(filtered, detail)
+	}
+	return filtered
 }
 
 func storedHostedSearch(item store.ConversationItem) bool {
@@ -393,6 +415,7 @@ func (c *Chat) executeChatToolRounds(
 	progress := toolProgress{
 		argumentCounts: make(map[string]int), results: make(map[string]struct{}),
 	}
+	hostedState := false
 	for providerRound := 0; ; providerRound++ {
 		if err := addProviderUsage(&usage, result.Usage); err != nil {
 			c.failTurn(request.input, turn, err)
@@ -404,6 +427,7 @@ func (c *Chat) executeChatToolRounds(
 			c.failTurn(request.input, turn, err)
 			return
 		}
+		hostedState = hostedState || len(result.Searches) != 0
 		if len(result.ToolCalls) == 0 {
 			c.finishGeneratedTurn(request.input, turn, assignment, result, providerRound, usage)
 			return
@@ -413,11 +437,14 @@ func (c *Chat) executeChatToolRounds(
 			return
 		}
 		call := result.ToolCalls[0]
-		toolPayload, success, err := c.persistChatToolRound(
+		toolPayload, success, pending, err := c.persistChatToolRound(
 			request, turn, assignment, result, call, providerRound,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
+			return
+		}
+		if pending {
 			return
 		}
 		stopReason := progress.observe(call, toolPayload, success)
@@ -425,9 +452,14 @@ func (c *Chat) executeChatToolRounds(
 			stopReason = "maximum provider tool continuations reached"
 		}
 		nextRound := providerRound + 1
+		incremental := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{
+			ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
+			Name: call.Name, Arguments: call.Payload, Success: success, Payload: toolPayload,
+		}}
 		var forcedFinalization bool
 		result, forcedFinalization, err = c.generateChatToolContinuation(
 			request, turn, assignment, generator, nextRound, stopReason, memoryContext,
+			result.ID, hostedState, incremental,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
@@ -455,10 +487,19 @@ func (c *Chat) persistChatToolRound(
 	generation provider.GenerationResult,
 	call provider.GenerationToolCall,
 	providerRound int,
-) (json.RawMessage, bool, error) {
+) (json.RawMessage, bool, bool, error) {
+	if call.Name == fileDownloadName {
+		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
+			return nil, false, false, errors.New("file.download arguments are invalid")
+		}
+	}
+	normalized := normalizeProviderText(generation.Text, generation.Citations)
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
 		Provider:   assignment.ProviderKind,
-		Commentary: generation.Text, Reasoning: generationReasoning(generation),
+		Commentary: normalized.Text, ProviderCommentary: generation.Text,
+		Citations:                 generationCitations(normalized.Citations),
+		UnresolvedCitationMarkers: normalized.UnresolvedMarkers,
+		Reasoning:                 generationReasoning(generation),
 		Call: store.ConversationToolCallInput{
 			ProviderRound: providerRound, OutputIndex: call.Index, ProviderItemID: call.ProviderItemID,
 			ProviderCallID: call.ProviderCallID,
@@ -466,7 +507,7 @@ func (c *Chat) persistChatToolRound(
 		},
 	}, time.Now())
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	var callItem store.ConversationItem
 	for index := range items {
@@ -482,7 +523,36 @@ func (c *Chat) persistChatToolRound(
 		})
 	}
 	if callItem.ID == "" {
-		return nil, false, errors.New("stored tool call is unavailable")
+		return nil, false, false, errors.New("stored tool call is unavailable")
+	}
+	if call.Name == fileDownloadName {
+		payload, success, approval, err := c.prepareFileDownloadAction(
+			request.conversation, turn, callItem, assignment, providerRound, call.Payload,
+		)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if approval != nil {
+			c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: approval})
+			c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
+			c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
+			c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})
+			return nil, false, true, nil
+		}
+		resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
+			CallItemID: callItem.ID, Provider: assignment.ProviderKind,
+			ProviderRound: providerRound, OutputIndex: call.Index,
+			ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
+			Name: call.Name, Success: success, Payload: payload,
+		}, time.Now())
+		if err != nil {
+			return nil, false, false, err
+		}
+		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
+		return payload, success, false, nil
 	}
 	toolPayload, success := c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload)
 	resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
@@ -492,13 +562,14 @@ func (c *Chat) persistChatToolRound(
 		Name: call.Name, Success: success, Payload: toolPayload,
 	}, time.Now())
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	c.publish(Event{
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem,
 	})
-	return toolPayload, success, nil
+	c.publishMemoryChanged()
+	return toolPayload, success, false, nil
 }
 
 func (c *Chat) persistHostedSearches(
@@ -546,12 +617,15 @@ func (c *Chat) generateChatToolContinuation(
 	providerRound int,
 	stopReason string,
 	memoryContext string,
+	previousResponseID string,
+	hostedState bool,
+	incremental provider.GenerationMessage,
 ) (provider.GenerationResult, bool, error) {
 	stored, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
-	messages, err := providerMessagesFromItems(stored)
+	messages, err := providerMessagesFromItems(stored, turn.ID, assignment.ProviderKind)
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
@@ -567,6 +641,20 @@ func (c *Chat) generateChatToolContinuation(
 	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, transport)
 	developer := developerMessages(environment, memoryContext, hostedWeb)
 	messages = append(developer, messages...)
+	replayMessages := messages
+	continuingCodex := assignment.ProviderKind == "codex" && previousResponseID != ""
+	if assignment.ProviderKind == "codex" && previousResponseID == "" && hostedState {
+		return provider.GenerationResult{}, false,
+			errors.New("Codex provider-hosted web state is unavailable")
+	}
+	if continuingCodex {
+		messages = []provider.GenerationMessage{incremental}
+		if stopReason != "" {
+			messages = append(messages, provider.GenerationMessage{
+				Role: "developer", Content: toolFinalizationInstruction(stopReason),
+			})
+		}
+	}
 	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
 	generate := func() (provider.GenerationResult, error) {
 		return generator.Generate(c.ctx, provider.GenerateRequest{
@@ -574,8 +662,10 @@ func (c *Chat) generateChatToolContinuation(
 			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
 			ConversationID: turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
-			HostedWebSearch: hostedWeb,
-			FastMode:        assignment.FastMode,
+			HostedWebSearch:    hostedWeb,
+			PreviousResponseID: previousResponseID,
+			StoreResponse:      assignment.ProviderKind == "codex",
+			FastMode:           assignment.FastMode,
 		}, func(event provider.StreamEvent) {
 			if event.Kind == provider.TextDelta {
 				c.publish(Event{
@@ -591,6 +681,15 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	requestTooLarge := errors.Is(err, provider.ErrGenerationRequestTooLarge)
 	requestRejected := errors.Is(err, provider.ErrProviderRequestRejected)
+	if continuingCodex {
+		if hostedState || (!requestTooLarge && !requestRejected) {
+			return result, stopReason != "", err
+		}
+		messages = replayMessages
+		previousResponseID = ""
+		result, err = generate()
+		return result, stopReason != "", err
+	}
 	if !requestTooLarge && !requestRejected {
 		return result, stopReason != "", err
 	}
@@ -745,17 +844,19 @@ func (c *Chat) finishGeneratedTurn(
 	providerRound int,
 	usage provider.Usage,
 ) {
+	normalized := normalizeProviderText(result.Text, result.Citations)
 	model := result.Model
 	if model == "" {
 		model = assignment.ModelProfile
 	}
 	item, err := c.database.CompleteConversationTurnOutput(
-		c.ctx, turn, result.Text, result.Text,
+		c.ctx, turn, normalized.Text, result.Text,
 		&store.ProviderUsage{
 			Provider: assignment.ProviderKind, Model: model, InputTokens: usage.InputTokens,
 			OutputTokens: usage.OutputTokens, TotalTokens: usage.TotalTokens,
 			CachedInputTokens: usage.CachedInputTokens, WebSearchRequests: usage.WebSearchRequests,
-		}, generationReasoning(result), generationCitations(result), providerRound, time.Now(),
+		}, generationReasoning(result), generationCitations(normalized.Citations),
+		normalized.UnresolvedMarkers, providerRound, time.Now(),
 	)
 	if err != nil {
 		if c.ctx.Err() != nil {
@@ -769,6 +870,7 @@ func (c *Chat) finishGeneratedTurn(
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item,
 	})
+	c.publishMemoryChanged()
 	c.publish(Event{
 		Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle,
 	})
@@ -776,11 +878,12 @@ func (c *Chat) finishGeneratedTurn(
 		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
 	})
+	c.maybeScheduleMemoryUpdate(turn.ConversationID)
 }
 
-func generationCitations(result provider.GenerationResult) []store.ProviderCitation {
-	citations := make([]store.ProviderCitation, 0, len(result.Citations))
-	for _, citation := range result.Citations {
+func generationCitations(values []provider.Citation) []store.ProviderCitation {
+	citations := make([]store.ProviderCitation, 0, len(values))
+	for _, citation := range values {
 		citations = append(citations, store.ProviderCitation{
 			Title: citation.Title, URL: citation.URL,
 			StartIndex: citation.StartIndex, EndIndex: citation.EndIndex,

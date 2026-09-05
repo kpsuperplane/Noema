@@ -11,6 +11,8 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
+	"github.com/kpsuperplane/noema/internal/provider"
+	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -74,7 +76,7 @@ func (r *Resolver) memoryTree(ctx context.Context) (*model.GraphqlNativeMemoryTr
 	}
 	return &model.GraphqlNativeMemoryTree{
 		Root: rootModel, Pages: refs, PendingCount: pending,
-		UpdateStatus: memoryUpdateStatus(checkpoint),
+		UpdateStatus: r.memoryUpdateStatus(checkpoint),
 	}, nil
 }
 
@@ -93,6 +95,10 @@ func (r *Resolver) memoryPage(ctx context.Context, selector string) (*model.Grap
 }
 
 func (r *Resolver) memoryEvents(ctx context.Context) (<-chan *model.GraphqlNativeMemoryTree, error) {
+	var updates <-chan noemaruntime.Event
+	if r.Chat != nil {
+		updates = r.Chat.SubscribeMemory(ctx)
+	}
 	initial, err := r.memoryTree(ctx)
 	if err != nil {
 		return nil, err
@@ -100,10 +106,67 @@ func (r *Resolver) memoryEvents(ctx context.Context) (<-chan *model.GraphqlNativ
 	events := make(chan *model.GraphqlNativeMemoryTree, 1)
 	events <- initial
 	go func() {
-		<-ctx.Done()
-		close(events)
+		defer close(events)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, open := <-updates:
+				if !open {
+					return
+				}
+				tree, err := r.memoryTree(ctx)
+				if err != nil {
+					continue
+				}
+				select {
+				case events <- tree:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
 	}()
 	return events, nil
+}
+
+func (r *Resolver) updateMemory(ctx context.Context) (*model.GraphqlNativeMemoryUpdateResult, error) {
+	if r.Chat == nil || r.Memory == nil {
+		return nil, errors.New("native Memory is unavailable")
+	}
+	accepted, err := r.Chat.TriggerMemoryUpdate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	checkpoint, err := r.Memory.State()
+	if err != nil {
+		return nil, err
+	}
+	return &model.GraphqlNativeMemoryUpdateResult{
+		Accepted: accepted, Status: r.memoryUpdateStatus(checkpoint),
+	}, nil
+}
+
+func (r *Resolver) saveMemoryModelPreference(
+	ctx context.Context,
+	input model.GraphqlSaveMemoryModelPreferenceInput,
+) (*model.AgentModelPreference, error) {
+	account, err := r.selectableModelAccount(ctx, input.ProviderAccountID)
+	if err != nil {
+		return nil, err
+	}
+	assignment, err := assignmentFromPreference(
+		account, store.HostedModelMemoryConsolidation, provider.ModelUseMemoryConsolidation,
+		input.SelectionMode, input.ModelProfile, input.ReasoningEffort, input.FastMode,
+	)
+	if err != nil {
+		return nil, err
+	}
+	saved, err := r.Store.SaveHostedModelAssignment(ctx, assignment)
+	if err != nil {
+		return nil, err
+	}
+	return agentModelPreference(saved), nil
 }
 
 func (r *Resolver) memoryPageModel(
@@ -212,16 +275,29 @@ func memoryPageRefModel(page noemamemory.PageRef) *model.GraphqlNativeMemoryPage
 	}
 }
 
-func memoryUpdateStatus(state noemamemory.State) *model.GraphqlNativeMemoryUpdateStatus {
-	var item, updated *string
+func (r *Resolver) memoryUpdateStatus(state noemamemory.State) *model.GraphqlNativeMemoryUpdateStatus {
+	var item, updated, updateError *string
 	if state.LastConsolidatedItem != "" {
 		item = &state.LastConsolidatedItem
 	}
 	if state.UpdatedAt != "" {
 		updated = &state.UpdatedAt
 	}
+	runtimeStatus := noemaruntime.MemoryUpdateRuntimeStatus{}
+	if r.Chat != nil {
+		runtimeStatus = r.Chat.MemoryUpdateStatus()
+	}
+	if runtimeStatus.Error != "" {
+		updateError = &runtimeStatus.Error
+	}
+	status := "idle"
+	if runtimeStatus.Active {
+		status = "running"
+	} else if updateError != nil {
+		status = "error"
+	}
 	return &model.GraphqlNativeMemoryUpdateStatus{
-		State: "idle", Active: false,
+		State: status, Active: runtimeStatus.Active, Error: updateError,
 		LastConsolidatedSequence: int(min(state.LastConsolidatedSequence, int64(math.MaxInt32))),
 		LastConsolidatedItem:     item, UpdatedAt: updated,
 	}

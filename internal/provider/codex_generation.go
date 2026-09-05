@@ -295,6 +295,7 @@ type codexGenerationPayload struct {
 	Model                string             `json:"model"`
 	Input                []any              `json:"input"`
 	MaxOutputTokens      *uint32            `json:"max_output_tokens,omitempty"`
+	PreviousResponseID   string             `json:"previous_response_id,omitempty"`
 	Temperature          *float32           `json:"temperature,omitempty"`
 	Reasoning            *codexReasoning    `json:"reasoning,omitempty"`
 	ServiceTier          string             `json:"service_tier,omitempty"`
@@ -347,6 +348,11 @@ func prepareResponsesGeneration(
 	if model == "" {
 		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation model is required", profile.providerName)
 	}
+	previousResponseID := strings.TrimSpace(request.PreviousResponseID)
+	if previousResponseID != request.PreviousResponseID ||
+		(previousResponseID != "" && (!validCodexHeader(previousResponseID) || (!request.StoreResponse && !profile.store))) {
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s previous response id is invalid", profile.providerName)
+	}
 	if request.HostedWebSearch && request.ToolTransport != ToolTransportNative {
 		return nil, openRouterToolNameMap{}, fmt.Errorf("%s hosted web search is disabled", profile.providerName)
 	}
@@ -381,9 +387,12 @@ func prepareResponsesGeneration(
 	}
 	payload := codexGenerationPayload{
 		Model: model, Input: input, Temperature: request.Temperature,
+		PreviousResponseID:   previousResponseID,
 		PromptCacheKey:       strings.TrimSpace(request.ConversationID),
-		PromptCacheRetention: profile.promptCacheRetention, Store: profile.store, Stream: profile.stream,
-		Tools: tools,
+		PromptCacheRetention: profile.promptCacheRetention,
+		Store:                profile.store || request.StoreResponse,
+		Stream:               profile.stream,
+		Tools:                tools,
 	}
 	if profile.forwardMaxOutput {
 		payload.MaxOutputTokens = request.MaxOutputTokens
@@ -1159,6 +1168,17 @@ func normalizeCodexHostedSearch(index int, item map[string]json.RawMessage) (Hos
 	name := "web.search"
 	arguments := map[string]any{}
 	kind := jsonString(object["type"])
+	if kind == "open_page" {
+		parsed, parseErr := url.Parse(jsonString(object["url"]))
+		if parseErr != nil {
+			return HostedSearch{}, errors.New("Codex hosted web URL is invalid")
+		}
+		if parsed.User != nil {
+			if _, hasPassword := parsed.User.Password(); hasPassword {
+				return HostedSearch{}, errors.New("Codex hosted web URL contains credentials")
+			}
+		}
+	}
 	if kind == "open_page" || kind == "find_in_page" {
 		name = "web.fetch"
 		if value, ok := object["url"].(string); ok {

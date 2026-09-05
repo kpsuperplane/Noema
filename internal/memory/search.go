@@ -9,6 +9,7 @@ import (
 )
 
 const maxSearchResults = 16
+const maxRelevantSearchTerms = 128
 
 type searchPage struct {
 	result                SearchResult
@@ -66,6 +67,64 @@ func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
 	return results, nil
 }
 
+// SearchRelevant ranks pages that contain any term from a long evidence query.
+func (s *Store) SearchRelevant(query string, limit int) ([]SearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	terms := uniqueRelevantTerms(lexicalTerms(query))
+	if len(terms) == 0 || limit < 1 {
+		return []SearchResult{}, nil
+	}
+	limit = min(limit, maxSearchResults)
+	matches := make([]scoredSearchResult, 0)
+	for _, page := range s.searchPages {
+		score := 0
+		for _, term := range terms {
+			titleCount := lexicalTermCount(page.titleTerms, term)
+			bodyCount := lexicalTermCount(page.bodyTerms, term)
+			score += titleCount*4 + bodyCount
+		}
+		if score == 0 {
+			continue
+		}
+		result := page.result
+		result.Snippet = lexicalSnippet(page.bodyWords, terms)
+		matches = append(matches, scoredSearchResult{result: result, score: score})
+	}
+	slices.SortFunc(matches, func(left, right scoredSearchResult) int {
+		if left.score != right.score {
+			return right.score - left.score
+		}
+		return strings.Compare(left.result.Path, right.result.Path)
+	})
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+	results := make([]SearchResult, len(matches))
+	for index := range matches {
+		results[index] = matches[index].result
+	}
+	return results, nil
+}
+
+func uniqueRelevantTerms(terms []string) []string {
+	seen := make(map[string]bool, len(terms))
+	unique := make([]string, 0, min(len(terms), maxRelevantSearchTerms))
+	for _, term := range terms {
+		if !seen[term] {
+			seen[term] = true
+			unique = append(unique, term)
+		}
+	}
+	if len(unique) <= maxRelevantSearchTerms {
+		return unique
+	}
+	bounded := make([]string, 0, maxRelevantSearchTerms)
+	bounded = append(bounded, unique[:maxRelevantSearchTerms/2]...)
+	bounded = append(bounded, unique[len(unique)-maxRelevantSearchTerms/2:]...)
+	return bounded
+}
+
 func buildSearchPages(pages []Page) []searchPage {
 	result := make([]searchPage, len(pages))
 	for index, page := range pages {
@@ -105,6 +164,16 @@ func lexicalPrefixCount(words []string, prefix string) int {
 	count := 0
 	for _, word := range words {
 		if strings.HasPrefix(word, prefix) {
+			count++
+		}
+	}
+	return count
+}
+
+func lexicalTermCount(words []string, term string) int {
+	count := 0
+	for _, word := range words {
+		if word == term {
 			count++
 		}
 	}

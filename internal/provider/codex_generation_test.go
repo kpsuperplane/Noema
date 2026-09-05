@@ -175,6 +175,41 @@ func TestCodexGeneratorUsesTerminalTextWithoutDeltas(t *testing.T) {
 	}
 }
 
+func TestCodexContinuationAndHostedURLCredentialRules(t *testing.T) {
+	request := basicCodexGenerationRequest()
+	request.PreviousResponseID = "resp_previous"
+	request.StoreResponse = true
+	request.Messages = []GenerationMessage{{Role: "tool", ToolResult: &ReplayToolResult{
+		ProviderCallID: "call_1", ProviderName: "inspect", Name: "task.inspect",
+		Success: true, Payload: json.RawMessage(`{"title":"One"}`),
+	}}}
+	body, _, err := prepareCodexGeneration(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if json.Unmarshal(body, &wire) != nil || wire["previous_response_id"] != "resp_previous" ||
+		wire["store"] != true || len(wire["input"].([]any)) != 1 {
+		t.Fatalf("Codex continuation wire = %#v", wire)
+	}
+	for _, test := range []struct {
+		url     string
+		blocked bool
+	}{
+		{"https://person:password@example.test/page", true},
+		{"https://person@example.test/page", false},
+		{"https://example.test/page", false},
+	} {
+		action, _ := json.Marshal(map[string]any{"type": "open_page", "url": test.url})
+		_, err := normalizeCodexHostedSearch(0, map[string]json.RawMessage{
+			"status": json.RawMessage(`"completed"`), "action": action,
+		})
+		if (err != nil) != test.blocked {
+			t.Fatalf("open_page URL %q error = %v", test.url, err)
+		}
+	}
+}
+
 func TestCodexGeneratorReconcilesStreamedAndTerminalMessages(t *testing.T) {
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","output_index":0,"delta":"First"}`+"\n\n")

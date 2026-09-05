@@ -42,18 +42,20 @@ type ReplayToolResult struct {
 
 // GenerateRequest is one provider-neutral generation request.
 type GenerateRequest struct {
-	AccountID, Model string
-	Messages         []GenerationMessage
-	ReasoningEffort  string
-	MaxOutputTokens  *uint32
-	Temperature      *float32
-	ConversationID   string
-	Tools            []GenerationTool
-	ToolTransport    ToolTransport
-	ToolChoice       ToolChoice
-	ParallelTools    bool
-	HostedWebSearch  bool
-	FastMode         bool
+	AccountID, Model   string
+	Messages           []GenerationMessage
+	PreviousResponseID string
+	StoreResponse      bool
+	ReasoningEffort    string
+	MaxOutputTokens    *uint32
+	Temperature        *float32
+	ConversationID     string
+	Tools              []GenerationTool
+	ToolTransport      ToolTransport
+	ToolChoice         ToolChoice
+	ParallelTools      bool
+	HostedWebSearch    bool
+	FastMode           bool
 }
 
 // GenerationResult is one completed provider response.

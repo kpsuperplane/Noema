@@ -118,6 +118,29 @@ func TestMemorySearchIsStrictBoundedAndRebuilt(t *testing.T) {
 	}
 }
 
+func TestMemorySearchRelevantUsesAnyTermAggregateRanking(t *testing.T) {
+	store, _ := openMemoryTestStore(t)
+	if err := store.Publish(ChangeSet{Upserts: []PageChange{
+		{Path: "combined.md", Title: "Alpha Beta", Icon: "file-text", Body: "Both topics."},
+		{Path: "single.md", Title: "Alpha", Icon: "file-text", Body: "One topic."},
+	}}, State{}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := store.SearchRelevant("unrelated alpha beta", 5)
+	if err != nil || len(results) != 2 || results[0].Path != "combined.md" || results[1].Path != "single.md" {
+		t.Fatalf("relevant search = %#v, %v", results, err)
+	}
+	longQuery := make([]string, 140)
+	for index := range longQuery {
+		longQuery[index] = fmt.Sprintf("term%d", index)
+	}
+	longQuery = append(longQuery, "alpha")
+	results, err = store.SearchRelevant(strings.Join(longQuery, " "), 5)
+	if err != nil || len(results) != 2 || results[0].Path != "combined.md" {
+		t.Fatalf("bounded relevant search = %#v, %v", results, err)
+	}
+}
+
 func TestMemoryRejectsUnsafeStaleAndOversizedChanges(t *testing.T) {
 	store, _ := openMemoryTestStore(t)
 	root, err := store.ReadRoot()
