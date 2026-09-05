@@ -15,21 +15,6 @@ validate = [
     "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
     "-p", "noema-dev", "--", "validate",
 ]
-fast = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "validate", "check", "-p", "noema-server",
-    "--features", "dev-no-auth",
-]
-focused-lint = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "validate", "clippy", "-p", "noema-server",
-    "--features", "dev-no-auth", "--all-targets", "--", "-D", "warnings",
-]
-focused-test = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "validate", "test", "-p", "noema-server",
-    "--features", "dev-no-auth", "--no-fail-fast",
-]
 gate-lint = [
     "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
     "-p", "noema-dev", "--", "validate", "clippy", "--workspace", "--all-targets",
