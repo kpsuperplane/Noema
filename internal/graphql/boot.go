@@ -4,10 +4,15 @@ import (
 	"context"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
-func localStatus() *model.LocalStatus {
-	return &model.LocalStatus{}
+func (r *Resolver) localStatus(ctx context.Context) (*model.LocalStatus, error) {
+	agent, err := r.Store.Agent(ctx, store.PrimaryAgentID)
+	if err != nil {
+		return nil, err
+	}
+	return &model.LocalStatus{PrimaryAgentDisplayName: agent.DisplayName}, nil
 }
 
 func localModelSetup() *model.LocalModelSetup {

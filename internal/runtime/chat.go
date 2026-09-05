@@ -429,10 +429,13 @@ func (c *Chat) execute(request queuedTurn) {
 	}
 	memoryContext := c.memoryRootContext()
 	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative)
+	environment, err := c.modelEnvironment(c.ctx, request.conversation, request.location, time.Now())
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
 	providerMessages = append(
-		developerMessages(
-			runtimeEnvironment(request.conversation, request.location, time.Now()), memoryContext, hostedWeb,
-		),
+		developerMessages(environment, memoryContext, hostedWeb),
 		providerMessages...,
 	)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"

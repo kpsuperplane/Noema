@@ -43,11 +43,12 @@ func localChatTools() []provider.GenerationTool {
 		},
 		fileDownloadTool(),
 		luaRunTool(),
+		updateOwnNameTool(),
 	}
 }
 
 func supportsLocalChatTool(name string) bool {
-	return name == luaRunName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
+	return name == updateOwnNameToolName || name == luaRunName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
@@ -86,6 +87,8 @@ func (c *Chat) executeChatTool(
 	arguments json.RawMessage,
 ) (json.RawMessage, bool) {
 	switch name {
+	case updateOwnNameToolName:
+		return c.updateOwnName(ctx, arguments)
 	case luaRunName:
 		return executeLuaTool(ctx, arguments)
 	case fileParseName:

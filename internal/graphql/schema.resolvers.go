@@ -556,7 +556,7 @@ func (r *queryRootResolver) CapabilityTools(ctx context.Context, ref model.Capab
 
 // LocalStatus is the resolver for the localStatus field.
 func (r *queryRootResolver) LocalStatus(ctx context.Context) (*model.LocalStatus, error) {
-	return localStatus(), nil
+	return r.localStatus(ctx)
 }
 
 // LocalModelSetup is the resolver for the localModelSetup field.

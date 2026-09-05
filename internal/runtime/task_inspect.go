@@ -671,7 +671,10 @@ func (c *Chat) generateChatToolContinuation(
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
-	environment := runtimeEnvironment(request.conversation, request.location, time.Now())
+	environment, err := c.modelEnvironment(c.ctx, request.conversation, request.location, time.Now())
+	if err != nil {
+		return provider.GenerationResult{}, false, err
+	}
 	tools, err := c.chatTools(c.ctx)
 	if err != nil {
 		return provider.GenerationResult{}, false, err
@@ -745,8 +748,7 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	if stopReason == "" {
 		stopReason = "provider replay limit reached"
-		environment = runtimeEnvironment(request.conversation, request.location, time.Now()) +
-			"\n\n" + toolFinalizationInstruction(stopReason)
+		environment += "\n\n" + toolFinalizationInstruction(stopReason)
 	}
 	messages = compactToolFinalizationMessages(messages[len(developer):], payloadLimit)
 	messages = append(developerMessages(environment, memoryContext, false), messages...)
