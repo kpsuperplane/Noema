@@ -704,6 +704,39 @@ exceeds its estimate by 50 percent or 500 lines, whichever is smaller.
 Expected focused full-time duration for one person is six to twelve months.
 Reforecast when the spike and store unit finish.
 
+### Parallel delivery
+
+Parallel work uses complete user paths. It does not assign one Rust package to
+one agent. A path owns its required store, runtime, API, and focused tests.
+
+Only one active path owns a new schema version. Other paths must use the current
+schema or wait for that version to merge. Generated GraphQL changes merge after
+the schema owner. The main branch then validates the combined result.
+
+The current wave has these independent paths:
+
+| Path | Owned outcome | Shared limit |
+| --- | --- | --- |
+| Raster OCR | Parse supported images through the isolated file worker | No schema change |
+| Memory consolidation | Update Memory, save its model choice, and publish checked changes | No schema change |
+| Chat action requests | Review exact Chat calls and download public non-HTML files | Owns schema version 18 |
+| Integration | Review, merge, measure, and validate the combined server | No feature expansion |
+
+Later waves can run these paths in parallel after their listed dependency merges:
+
+| Path | Dependency |
+| --- | --- |
+| Task execution and ACP runs | Task lifecycle and action requests |
+| MCP setup, OAuth, and dynamic calls | Action requests |
+| Adapter review, OAuth, HTTP, and Luau | Action requests |
+| Hosted web and interactive browser tools | Action requests |
+| Local and Apple model runtimes | Provider account authority |
+| Chat choices, A2UI, settings, and debug reads | Primary Chat runtime |
+| Task Live Activities | Task execution and APNs |
+
+The final serial wave changes the desktop sidecar, removes the development gate,
+runs acceptance, and removes the Rust server closure.
+
 ## 13. Cutover and Rollback
 
 Stop the Rust server. Rename the Rust home for archival use. Create a new,
