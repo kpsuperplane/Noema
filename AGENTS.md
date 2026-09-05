@@ -73,16 +73,30 @@
 - The main agent owns final integration, validation, and the user-facing summary.
 
 ## Validation
+- During implementation, run focused checks for the affected packages and behavior.
+- After focused checks pass, run broad validation once for each completed server or native code unit, using affected languages.
+- The integrating agent owns broad validation of the combined changes. Other agents run focused checks for their changes.
+- Before repeating a check, state the changed inputs or unresolved failure. Relevant inputs include code, dependencies, configuration, test inputs, and environment.
+- When those inputs remain unchanged, reuse successful results. A commit, push, report edit, or agent handoff does not invalidate them.
+- Record each reused check's command, result, and tested revision or worktree changes in the task summary.
+- After a failure, correct its cause. Retry the failed check first. If the correction affects broader results, repeat those checks.
+- If a run stops early, complete the unexecuted checks. Do not report them as passed.
+- Before using `-count=1`, repeated test runs, or race tests, state the specific execution or concurrency risk.
+- For documentation-only changes, check the changed text, links, and Git whitespace. Do not run application builds or test suites.
+- For frontend-only changes, use frontend checks and the visual review rules below. Backend checks require a stated dependency or behavior risk.
+- For changed scripts or fixtures, check their affected behavior. Do not run unrelated application suites.
+- Use additional analysis tools when a named risk or explicit task requirement needs them. Existing CI requirements still apply.
 - Never circumvent, disable, bypass, unset, or otherwise interfere with the `sccache` build cache.
 - Never modify `CARGO_BUILD_RUSTC_WRAPPER` or attempt to work around the configured Rust compiler wrapper. Doing so invalidates shared cache state, causes 15min+ builds, and can break other agents building in parallel.
-- Default Go server validation:
+- Broad Go server validation:
   - `CGO_ENABLED=0 go test ./cmd/... ./internal/...`
   - `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`
-- Default retained Rust validation:
+- Broad retained Rust validation:
   - `cargo fmt --all --check`
   - `cargo check-workspace`
   - `cargo gate-lint`
   - `cargo gate-test`
+- Frontend code validation: run `bun run lint` and `bun run build` from `apps/web`.
 - Run focused Cargo commands through `scripts/validate-rust <cargo-command> [arguments]`, for example `scripts/validate-rust test -p noema-capability-adapters --lib`.
 - Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
 - Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new tests requires a written risk and redundancy justification before implementation continues.
@@ -94,7 +108,7 @@
 - Before committing or pushing, run:
   - `git status --short --branch`
   - `git diff --check`
-  - the relevant validation commands above
+- Confirm that validation covers the current changes under the rules above. Reuse valid results instead of repeating checks.
 - Inspect staged changes with `git diff --cached --stat` and `git diff --cached --name-status`.
 - Report remaining untracked or unstaged files.
 - Commit after each finished unit of work. Push only when explicitly requested.

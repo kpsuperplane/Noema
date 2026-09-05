@@ -289,11 +289,8 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Desktop launches a Go sidecar. The former Rust backend and evaluation dependency closure are removed.
 - Obscura uses upstream releases without Cargo. Native Windows WAL stress remains a cutover gate.
 
-## Validation defaults
+## Validation
 
-- Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`,
-  and `cargo gate-test`. Use `scripts/validate-rust` for focused commands.
-- Go: use `go test ./cmd/... ./internal/...`, `go vet`, `staticcheck`, and
-  `govulncheck`. Use `CGO_ENABLED=0` for shipped builds.
-- Web: run `bun run lint` and `bun run build` from `apps/web`.
-- Run unit tests only unless smoke or fixture tests are explicitly requested.
+Follow [AGENTS.md](../../AGENTS.md#validation) for check scope, commands, retries, and result reuse.
+Use focused checks during implementation. The integrating agent owns broad validation for each completed server or native code unit.
+Commits, pushes, and report edits do not invalidate successful checks with unchanged inputs.
