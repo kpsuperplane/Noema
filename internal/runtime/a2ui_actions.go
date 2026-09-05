@@ -250,6 +250,8 @@ func (c *Chat) resumeA2UI(value store.ConversationA2UIContinuation) {
 		c.failA2UI(claimed, err)
 		return
 	}
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
 	conversation, err := c.database.Conversation(c.ctx, claimed.Turn.ConversationID)
 	if err != nil {
 		c.failA2UI(claimed, err)

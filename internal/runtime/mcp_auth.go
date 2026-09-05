@@ -285,6 +285,8 @@ func (c *Chat) finishMCPAuthCallWithAssignment(request store.MCPAuthRequest, pay
 	if err != nil {
 		return err
 	}
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
 	queued := queuedTurn{input: SendTurnInput{ConversationID: request.ConversationID}, conversation: conversation, location: time.UTC}
 	incremental := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: request.ProviderCallID,
 		ProviderName: request.ProviderName, Name: request.CapabilityName, Arguments: json.RawMessage(request.ArgumentsJSON), Success: success, Payload: payload}}

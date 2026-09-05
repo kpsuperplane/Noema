@@ -218,6 +218,8 @@ func (c *Chat) resumeMultipleChoice(choice store.ConversationChoiceContinuation)
 		c.failChoice(claimed, err)
 		return
 	}
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
 	conversation, err := c.database.Conversation(c.ctx, claimed.Turn.ConversationID)
 	if err != nil {
 		c.failChoice(claimed, err)

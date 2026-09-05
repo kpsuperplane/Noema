@@ -840,6 +840,10 @@ func (c *Chat) generateChatToolContinuation(
 	replayMessages := messages
 	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
 	continuingResponse := responseContinuation && previousResponseID != ""
+	var sessionReplay []provider.GenerationMessage
+	if _, ok := generator.(provider.GenerationSession); ok && continuingResponse {
+		sessionReplay = replayMessages
+	}
 	if responseContinuation && previousResponseID == "" && hostedState {
 		return provider.GenerationResult{}, false,
 			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
@@ -859,8 +863,9 @@ func (c *Chat) generateChatToolContinuation(
 	generate := func() (provider.GenerationResult, error) {
 		return generator.Generate(c.ctx, provider.GenerateRequest{
 			AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
-			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
-			ConversationID: turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
+			Messages: messages, ReplayMessages: sessionReplay,
+			ReasoningEffort: string(assignment.ReasoningEffort),
+			ConversationID:  turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
 			HostedWebSearch:            hostedWeb,
 			PreviousResponseID:         previousResponseID,

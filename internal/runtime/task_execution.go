@@ -235,13 +235,24 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		r.failRun(ctx, run, "configuration_unavailable", false)
 		return
 	}
+	generator, closeSession, sessionActive := openGenerationSession(generator)
+	defer closeSession()
 	model, effort := r.taskModel(run, task)
 	toolCount := int(run.ToolCallCount)
+	var previousResponseID string
+	var incremental []provider.GenerationMessage
 	for round := int(run.ProviderCallCount); round < taskProviderLimit && ctx.Err() == nil; round++ {
 		started := time.Now()
 		tools, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
+		requestMessages := messages
+		var replayMessages []provider.GenerationMessage
+		if sessionActive && previousResponseID != "" {
+			requestMessages, replayMessages = incremental, messages
+		}
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
-			AccountID: run.ProviderAccountID, Model: model, Messages: messages,
+			AccountID: run.ProviderAccountID, Model: model, Messages: requestMessages,
+			ReplayMessages: replayMessages, PreviousResponseID: previousResponseID,
+			StoreResponse:   sessionActive && responseIDContinuationProvider(run.ProviderKind),
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
 			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
@@ -265,10 +276,14 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{assistant}, usage, time.Now()); err != nil {
 			return
 		}
+		if sessionActive {
+			previousResponseID = result.ID
+		}
 		messages = append(messages, taskResultMessages(result)...)
 		if len(result.ToolCalls) != 1 {
 			if len(result.ToolCalls) == 0 {
-				messages = append(messages, provider.GenerationMessage{Role: "user", Content: "Use one available terminal tool when this run is complete or blocked."})
+				incremental = []provider.GenerationMessage{{Role: "user", Content: "Use one available terminal tool when this run is complete or blocked."}}
+				messages = append(messages, incremental...)
 				continue
 			}
 			r.failRun(ctx, run, "unsupported_tool_sequence", false)
@@ -309,7 +324,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+			messages = append(messages, incremental...)
 			continue
 		}
 		if binding, ok := adapterBindings[call.Name]; ok {
@@ -337,7 +353,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+			messages = append(messages, incremental...)
 			continue
 		}
 		payload, success, terminal, taskWrite := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
@@ -360,7 +377,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			return
 		}
 		messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-		messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+		incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+		messages = append(messages, incremental...)
 		if terminal {
 			return
 		}
