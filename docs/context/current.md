@@ -22,6 +22,7 @@ The Go evidence gate passed. The replacement now uses Go schema version 25.
 It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task lifecycle, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
+Apple Foundation Models uses one bounded Swift bridge process for each Chat turn or Task run.
 Primary Chat supports durable recovery, A2UI interactions, all Project tools, and bounded `task.inspect`, `file.parse`, and Memory loops.
 It reviews exact `file.download` calls, pauses for decisions, and resumes from known or uncertain outcomes.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
@@ -33,7 +34,7 @@ Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
 Built-in Tasks now run Planner, Executor, Reviewer, files, replay, gates, retries, wake-driven attention, and Live Activities in Go.
 MCP, bounded Lua, ACP Task runs, Agent naming, HTTP adapters, direct credentials, and Task runtime events now use Go.
-Primary Chat also uses Go for bounded progress audits. Task audits await immutable Task execution policy.
+Primary Chat also uses Go for bounded progress audits. Web-fetch model settings use the current assignment authority.
 
 ## Current constraints
 

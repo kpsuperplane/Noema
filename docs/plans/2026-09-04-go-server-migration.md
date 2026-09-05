@@ -769,6 +769,22 @@ Codex falls back with full local replay and no hosted response continuation.
 Cancellation and failures after output never replay a request with an uncertain outcome.
 Providers without a session contract continue to use the existing HTTP generator.
 
+### Apple Foundation Models unit
+
+Apple Foundation Models now serves primary Chat and built-in Task runs through the shipped Swift bridge.
+One bridge process belongs to one Chat turn or Task run.
+The provider preserves native tools, tool continuation, full replay, streaming, cancellation, and token counting.
+It rechecks unavailable model state only when a human selects or uses the provider.
+Development builds compile a missing Swift bridge once through the existing package command.
+The 4,096-token provider limit uses the existing runtime context authority.
+The bridge starts no descendants, so direct child termination replaces unused cross-platform process-tree code.
+
+### Web fetch model settings unit
+
+The existing web and iOS query and mutation now read and save the web-fetch summarizer assignment.
+The unit reuses the hosted assignment and provider-option authorities.
+It adds no schema, provider transport, or background work.
+
 ### Bounded document conversion units
 
 Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
@@ -888,8 +904,8 @@ The migration size gate supersedes the original phase forecast.
 Authored production must remain below 139,192 lines.
 The inclusive checked-in total must remain below 191,860 lines.
 
-At commit `17b3f110`, authored production is 58,285 lines.
-The inclusive total is 156,858 lines.
+At commit `f46d4d10`, authored production is 63,282 lines.
+The inclusive total is 163,312 lines.
 The smaller inclusive headroom governs current planning.
 
 Generated GraphQL code remains a separate reported class.
