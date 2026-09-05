@@ -804,6 +804,18 @@ The browser Web Push unit uses Go schema version 14. Native Apple notifications 
 
 Task-derived Live Activity start, update, and end delivery uses Go schema version 23.
 
+### A2UI Chat interaction unit
+
+Primary Chat now presents and resumes A2UI v0.9.1 interactions in Go. The unit includes:
+
+- strict JSONL validation and bounded component, surface, action, and data-model reduction;
+- durable surface storage, transcript replay, pause, action submission, resume, and restart recovery;
+- exact interaction, revision, provider, credential, tool-catalog, component, action, context, and data-model fences;
+- arbitrary JSON data-model roots and client-compatible action-context binding resolution;
+- the existing action-review path for effects requested after an interaction resumes.
+
+The unit adds 1,637 authored production lines against a 2,932-line direct Rust path.
+
 ### Direct adapter credential unit
 
 Direct adapter credentials use Go schema version 25. The unit includes:
