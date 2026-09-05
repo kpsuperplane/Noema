@@ -463,37 +463,41 @@ func (r *mutationRootResolver) DeleteAdapterService(ctx context.Context, input m
 
 // StartAdapterOauthSetup is the resolver for the startAdapterOauthSetup field.
 func (r *mutationRootResolver) StartAdapterOauthSetup(ctx context.Context, input model.StartAdapterOauthSetupInput) (*model.AdapterOauthSetupAttempt, error) {
-	panic(fmt.Errorf("not implemented: StartAdapterOauthSetup - startAdapterOauthSetup"))
+	return r.startAdapterOAuthSetup(ctx, input)
 }
 
 // ImportAdapterOauthApplication is the resolver for the importAdapterOauthApplication field.
 func (r *mutationRootResolver) ImportAdapterOauthApplication(ctx context.Context, input model.ImportAdapterOauthApplicationInput) (*model.AdapterOauthApplication, error) {
-	panic(fmt.Errorf("not implemented: ImportAdapterOauthApplication - importAdapterOauthApplication"))
+	return r.importAdapterOAuthApplication(ctx, input)
 }
 
 // ReplaceAdapterOauthApplication is the resolver for the replaceAdapterOauthApplication field.
 func (r *mutationRootResolver) ReplaceAdapterOauthApplication(ctx context.Context, input model.ReplaceAdapterOauthApplicationInput) (*model.AdapterOauthApplication, error) {
-	panic(fmt.Errorf("not implemented: ReplaceAdapterOauthApplication - replaceAdapterOauthApplication"))
+	return r.replaceAdapterOAuthApplication(ctx, input)
 }
 
 // AttachAdapterOauthConnection is the resolver for the attachAdapterOauthConnection field.
 func (r *mutationRootResolver) AttachAdapterOauthConnection(ctx context.Context, input model.AttachAdapterOauthConnectionInput) (*model.AdapterDefinition, error) {
-	panic(fmt.Errorf("not implemented: AttachAdapterOauthConnection - attachAdapterOauthConnection"))
+	return r.attachAdapterOAuthConnection(ctx, input)
 }
 
 // DisconnectAdapterOauthGrant is the resolver for the disconnectAdapterOauthGrant field.
 func (r *mutationRootResolver) DisconnectAdapterOauthGrant(ctx context.Context, input model.DisconnectAdapterOauthGrantInput) (*model.AdapterAuthorizationGrant, error) {
-	panic(fmt.Errorf("not implemented: DisconnectAdapterOauthGrant - disconnectAdapterOauthGrant"))
+	return r.disconnectAdapterOAuthGrant(ctx, input)
 }
 
 // SaveAdapterOauthGrantLabel is the resolver for the saveAdapterOauthGrantLabel field.
 func (r *mutationRootResolver) SaveAdapterOauthGrantLabel(ctx context.Context, input model.SaveAdapterOauthGrantLabelInput) (*model.AdapterAuthorizationGrant, error) {
-	panic(fmt.Errorf("not implemented: SaveAdapterOauthGrantLabel - saveAdapterOauthGrantLabel"))
+	return r.labelAdapterOAuthGrant(ctx, input)
 }
 
 // DeleteAdapterOauthApplication is the resolver for the deleteAdapterOauthApplication field.
 func (r *mutationRootResolver) DeleteAdapterOauthApplication(ctx context.Context, input model.DeleteAdapterOauthApplicationInput) (bool, error) {
-	panic(fmt.Errorf("not implemented: DeleteAdapterOauthApplication - deleteAdapterOauthApplication"))
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return false, err
+	}
+	return service.DeleteOAuthApplication(input.ApplicationID, input.ExpectedRevision)
 }
 
 // SetAdapterConnectionActive is the resolver for the setAdapterConnectionActive field.
@@ -765,7 +769,15 @@ func (r *queryRootResolver) AdapterManagement(ctx context.Context) (*model.Adapt
 
 // AdapterOauthAttempt is the resolver for the adapterOauthAttempt field.
 func (r *queryRootResolver) AdapterOauthAttempt(ctx context.Context, attemptID string) (*model.AdapterOauthAttemptEvent, error) {
-	panic(fmt.Errorf("not implemented: AdapterOauthAttempt - adapterOauthAttempt"))
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	value, ok := service.OAuthAttempt(attemptID)
+	if !ok {
+		return nil, nil
+	}
+	return adapterOAuthAttemptModel(value), nil
 }
 
 // McpOauthSetupAttempt is the resolver for the mcpOauthSetupAttempt field.
@@ -810,7 +822,26 @@ func (r *queryRootResolver) ArtifactVersionDetail(ctx context.Context, artifactV
 
 // AdapterOauthAttemptEvents is the resolver for the adapterOauthAttemptEvents field.
 func (r *subscriptionRootResolver) AdapterOauthAttemptEvents(ctx context.Context, attemptID string) (<-chan *model.AdapterOauthAttemptEvent, error) {
-	panic(fmt.Errorf("not implemented: AdapterOauthAttemptEvents - adapterOauthAttemptEvents"))
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events, err := service.SubscribeOAuth(ctx, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan *model.AdapterOauthAttemptEvent, 2)
+	go func() {
+		defer close(out)
+		for value := range events {
+			select {
+			case out <- adapterOAuthAttemptModel(value):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
 }
 
 // ClientNotificationPresence is the resolver for the clientNotificationPresence field.

@@ -33,7 +33,7 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 	if root == nil {
 		return nil, errors.New("adapter home is unavailable")
 	}
-	for _, path := range []string{"adapters", "adapters/definitions", "adapters/connections", "adapters/cursors", "adapters/quarantine", "adapters/quarantine/definitions", "adapters/quarantine/connections"} {
+	for _, path := range []string{"adapters", "adapters/definitions", "adapters/connections", "adapters/cursors", "adapters/oauth-profiles", "adapters/oauth-applications", "adapters/oauth-accounts", "adapters/oauth-grants", "adapters/quarantine", "adapters/quarantine/definitions", "adapters/quarantine/connections", "adapters/quarantine/oauth-applications"} {
 		if err := root.MkdirAll(path, 0o700); err != nil {
 			return nil, errors.New("adapter home could not be prepared")
 		}
@@ -43,6 +43,17 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 		return nil, err
 	}
 	if err := authority.recoverStages("adapters/connections"); err != nil {
+		return nil, err
+	}
+	for _, path := range []string{"adapters/oauth-profiles", "adapters/oauth-applications", "adapters/oauth-accounts", "adapters/oauth-grants"} {
+		if err := authority.recoverStages(path); err != nil {
+			return nil, err
+		}
+	}
+	if err := authority.installOAuthProfile(googleOAuthProfile()); err != nil {
+		return nil, err
+	}
+	if err := authority.recoverOAuthGenerations(); err != nil {
 		return nil, err
 	}
 	if err := authority.recoverConnectionReplacements(); err != nil {
@@ -512,10 +523,18 @@ func validateConnection(value Connection) error {
 		return errors.New("adapter connection is invalid")
 	}
 	if value.Authentication.Kind == "none" {
-		if value.Authentication.GenerationID != "" || value.Authentication.Revision != 0 {
+		if value.Authentication.GenerationID != "" || value.Authentication.GrantID != "" || value.Authentication.Revision != 0 {
 			return errors.New("adapter connection authentication is invalid")
 		}
-	} else if value.Authentication.Kind != "credential" || value.Authentication.GenerationID == "" && (value.Status != "authentication_required" || value.Authentication.Revision != 0) || value.Authentication.GenerationID != "" && (!validConnectionID(value.Authentication.GenerationID) || value.Authentication.Revision < 1) {
+	} else if value.Authentication.Kind == "credential" {
+		if value.Authentication.GrantID != "" || value.Authentication.GenerationID == "" && (value.Status != "authentication_required" || value.Authentication.Revision != 0) || value.Authentication.GenerationID != "" && (!validConnectionID(value.Authentication.GenerationID) || value.Authentication.Revision < 1) {
+			return errors.New("adapter connection authentication is invalid")
+		}
+	} else if value.Authentication.Kind == "oauth_grant" {
+		if value.Authentication.GenerationID != "" || !validConnectionID(value.Authentication.GrantID) || value.Authentication.Revision != 0 {
+			return errors.New("adapter connection authentication is invalid")
+		}
+	} else {
 		return errors.New("adapter connection authentication is invalid")
 	}
 	if value.DataSharingPolicy != "" && value.DataSharingPolicy != "allow_automatically" && value.DataSharingPolicy != "review_every_call" {

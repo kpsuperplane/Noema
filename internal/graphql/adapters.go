@@ -9,6 +9,7 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/auth"
@@ -70,6 +71,8 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 		Connections: []*model.AdapterConnection{}, ConnectionActions: []*model.AdapterNextAction{}}
 	if value.Manifest.Authentication.Kind == "credential" {
 		result.CredentialSetup = credentialSetupModel(value.Manifest.Authentication)
+	} else if value.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
+		result.OauthProfileDigest = &value.Manifest.Authentication.ProfileDigest
 	}
 	for _, operation := range value.Operations {
 		arguments := make([]string, len(operation.Arguments))
@@ -84,10 +87,15 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 				AcceptedContentTypes: operation.Response.AcceptedContentTypes, OutputSchemaJSON: string(out)}
 		}
 		readOnly, repeatSafe, destructive, openWorld := operation.Behavior.ReadOnly, operation.Behavior.RepeatSafe, operation.Behavior.Destructive, operation.Behavior.OpenWorld
+		scopeSets := []*model.AdapterScopeSet{}
+		for _, set := range operation.Authorization.AcceptedScopeSets {
+			scopeSets = append(scopeSets, &model.AdapterScopeSet{Scopes: set})
+			result.Scopes = append(result.Scopes, set...)
+		}
 		result.Operations = append(result.Operations, &model.AdapterOperation{OperationID: operation.OperationID, Method: operation.Method,
 			Path: operation.Path, ReadOnly: &readOnly, Idempotent: &repeatSafe,
 			Destructive: &destructive, OpenWorld: &openWorld, ArgumentNames: arguments,
-			ResponseTransform: transform, AcceptedScopeSets: []*model.AdapterScopeSet{}})
+			ResponseTransform: transform, AcceptedScopeSets: scopeSets})
 	}
 	for _, connection := range snapshot.Connections {
 		if connection.SemanticDigest == value.SemanticDigest {
@@ -108,14 +116,31 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 		result.NextAction = &model.AdapterNextAction{Kind: "set_up_credential", SemanticDigest: value.SemanticDigest, OperationIds: []string{}, MissingScopes: []string{}}
 	}
 	result.ConnectionCount = len(result.Connections)
+	sort.Strings(result.Scopes)
+	result.Scopes = uniqueGraphQLStrings(result.Scopes)
 	if !value.Manifest.Reviewed && !value.Superseded {
 		result.NextAction = &model.AdapterNextAction{Kind: "review_definition", SemanticDigest: value.SemanticDigest, OperationIds: []string{}, MissingScopes: []string{}}
 	}
 	return result
 }
+func uniqueGraphQLStrings(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	out := values[:1]
+	for _, v := range values[1:] {
+		if v != out[len(out)-1] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 func credentialSetupModel(auth adapter.Authentication) *model.AdapterCredentialSetup {
 	setup := auth.Setup
+	return credentialSetupValue(setup, auth.RequestAuth)
+}
+func credentialSetupValue(setup *adapter.CredentialSetup, request *adapter.Transform) *model.AdapterCredentialSetup {
 	if setup == nil {
 		return nil
 	}
@@ -135,7 +160,7 @@ func credentialSetupModel(auth adapter.Authentication) *model.AdapterCredentialS
 		result.DocumentMediaType = &media
 		result.NormalizationTransform = transform(setup.Input.Normalize)
 	}
-	result.RequestAuthTransform = transform(auth.RequestAuth)
+	result.RequestAuthTransform = transform(request)
 	return result
 }
 
@@ -267,7 +292,7 @@ func findAdapter(snapshot adapter.ServiceSnapshot, connectionID string) (adapter
 	return adapter.Definition{}, adapter.Connection{}, errors.New("adapter connection is unavailable")
 }
 func (r *Resolver) adapterDefinitions(ctx context.Context) ([]*model.AdapterDefinition, error) {
-	_, snapshot, err := r.adapterSnapshot(ctx)
+	service, snapshot, err := r.adapterSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -281,9 +306,110 @@ func (r *Resolver) adapterDefinitions(ctx context.Context) ([]*model.AdapterDefi
 		if value.Superseded && !hasConnection {
 			continue
 		}
-		result = append(result, definitionModel(value, snapshot))
+		view := definitionModel(value, snapshot)
+		if value.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
+			oauth, _ := service.OAuthSnapshot()
+			projectOAuthDefinition(view, value, snapshot, oauth)
+		}
+		result = append(result, view)
 	}
 	return result, nil
+}
+
+func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.Definition, snapshot adapter.ServiceSnapshot, oauth adapter.OAuthSnapshot) {
+	apps := []adapter.OAuthApplication{}
+	for _, app := range oauth.Applications {
+		if app.ProfileDigest == definition.Manifest.Authentication.ProfileDigest {
+			apps = append(apps, app)
+		}
+	}
+	grants := map[string]adapter.OAuthGrant{}
+	for _, grant := range oauth.Grants {
+		grants[grant.GrantID] = grant
+	}
+	for i, connection := range snapshot.Connections {
+		if connection.SemanticDigest != definition.SemanticDigest || connection.Authentication.GrantID == "" {
+			continue
+		}
+		grant, ok := grants[connection.Authentication.GrantID]
+		if !ok {
+			continue
+		}
+		for _, projected := range view.Connections {
+			if projected.ConnectionID == connection.ConnectionID {
+				missingOperations, missingScopes := []string{}, []string{}
+				projected.GrantID = &grant.GrantID
+				projected.GrantRevision = &grant.AuthorityRevision
+				projected.AccountID = grant.AccountID
+				projected.GrantedScopes = grant.GrantedScopes
+				for _, access := range projected.OperationAccess {
+					for _, op := range definition.Operations {
+						if op.OperationID == access.OperationID {
+							target, _ := definition.ScopeTarget([]string{op.OperationID}, grant.GrantedScopes)
+							missing := []string{}
+							present := map[string]bool{}
+							for _, scope := range grant.GrantedScopes {
+								present[scope] = true
+							}
+							for _, scope := range target {
+								if !present[scope] {
+									missing = append(missing, scope)
+								}
+							}
+							access.MissingScopes = missing
+							if len(missing) > 0 {
+								access.Status = "additional_authorization_required"
+								missingOperations = append(missingOperations, op.OperationID)
+								missingScopes = append(missingScopes, missing...)
+							}
+						}
+					}
+				}
+				if len(missingOperations) > 0 {
+					appID, grantRevision, connectionRevision := grant.ApplicationID, grant.AuthorityRevision, connection.ConnectionRevision
+					sort.Strings(missingScopes)
+					action := &model.AdapterNextAction{Kind: "add_access", SemanticDigest: definition.SemanticDigest, ApplicationID: &appID, GrantID: &grant.GrantID, ExpectedGrantRevision: &grantRevision, ConnectionID: &connection.ConnectionID, ExpectedConnectionRevision: &connectionRevision, OperationIds: missingOperations, MissingScopes: uniqueGraphQLStrings(missingScopes)}
+					view.ConnectionActions = append(view.ConnectionActions, action)
+				}
+			}
+		}
+		if connection.Status == "authentication_required" {
+			appID := grant.ApplicationID
+			revision := grant.AuthorityRevision
+			action := &model.AdapterNextAction{Kind: "reconnect_account", SemanticDigest: definition.SemanticDigest, ApplicationID: &appID, GrantID: &grant.GrantID, ExpectedGrantRevision: &revision, OperationIds: connection.AllowedOperations, MissingScopes: []string{}}
+			view.ConnectionActions = append(view.ConnectionActions, action)
+			view.NextAction = action
+		}
+		_ = i
+	}
+	if !definition.Manifest.Reviewed || definition.Superseded {
+		return
+	}
+	if len(apps) == 0 {
+		view.NextAction = &model.AdapterNextAction{Kind: "import_application", SemanticDigest: definition.SemanticDigest, OperationIds: []string{}, MissingScopes: []string{}}
+		return
+	}
+	if len(oauth.Grants) == 0 {
+		app := apps[0]
+		view.NextAction = &model.AdapterNextAction{Kind: "add_account", SemanticDigest: definition.SemanticDigest, ApplicationID: &app.ApplicationID, ExpectedApplicationRevision: &app.Revision, OperationIds: operationIDs(definition), MissingScopes: view.Scopes}
+		return
+	}
+	if len(view.Connections) == 0 {
+		for _, grant := range oauth.Grants {
+			if grant.ApplicationID == apps[0].ApplicationID && grant.Status == "active" {
+				revision := grant.AuthorityRevision
+				view.NextAction = &model.AdapterNextAction{Kind: "attach_account", SemanticDigest: definition.SemanticDigest, GrantID: &grant.GrantID, ExpectedGrantRevision: &revision, OperationIds: operationIDs(definition), MissingScopes: []string{}}
+				return
+			}
+		}
+	}
+}
+func operationIDs(definition adapter.Definition) []string {
+	result := make([]string, len(definition.Operations))
+	for i, value := range definition.Operations {
+		result[i] = value.OperationID
+	}
+	return result
 }
 func (r *Resolver) adapterIntegrations(ctx context.Context) ([]*model.CapabilityIntegration, error) {
 	_, snapshot, err := r.adapterSnapshot(ctx)
@@ -340,14 +466,209 @@ func (r *Resolver) adapterManagement(ctx context.Context) (*model.AdapterManagem
 	if err != nil {
 		return nil, err
 	}
-	return &model.AdapterManagement{Definitions: definitions, OauthState: &model.AdapterOauthState{Profiles: []*model.AdapterOauthProfile{}, Applications: []*model.AdapterOauthApplication{}, Accounts: []*model.AdapterExternalAccount{}, Grants: []*model.AdapterAuthorizationGrant{}}, Integrations: integrations}, nil
+	oauth, err := r.adapterOauthState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &model.AdapterManagement{Definitions: definitions, OauthState: oauth, Integrations: integrations}, nil
 }
 
 func (r *Resolver) adapterOauthState(ctx context.Context) (*model.AdapterOauthState, error) {
-	if _, err := r.requireAdapters(ctx); err != nil {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return &model.AdapterOauthState{Profiles: []*model.AdapterOauthProfile{}, Applications: []*model.AdapterOauthApplication{}, Accounts: []*model.AdapterExternalAccount{}, Grants: []*model.AdapterAuthorizationGrant{}}, nil
+	snapshot, err := service.OAuthSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	result := &model.AdapterOauthState{Profiles: []*model.AdapterOauthProfile{}, Applications: []*model.AdapterOauthApplication{}, Accounts: []*model.AdapterExternalAccount{}, Grants: []*model.AdapterAuthorizationGrant{}}
+	profileNames := map[string]string{}
+	callbackMode := service.OAuthCallbackMode()
+	for _, value := range snapshot.Profiles {
+		profileNames[value.ProfileDigest] = value.DisplayName
+		var setup *adapter.CredentialSetup
+		for i := range value.Setups {
+			if value.Setups[i].CallbackMode == callbackMode {
+				setup = &value.Setups[i].Setup
+			}
+		}
+		result.Profiles = append(result.Profiles, &model.AdapterOauthProfile{ProfileDigest: value.ProfileDigest, ProfileID: value.ProfileID, DisplayName: value.DisplayName, GrantAudience: value.GrantAudience, CredentialSetup: credentialSetupValue(setup, nil)})
+	}
+	grantCount, accountCount := map[string]int{}, map[string]int{}
+	for _, grant := range snapshot.Grants {
+		grantCount[grant.ApplicationID]++
+		if grant.AccountID != nil {
+			accountCount[grant.ApplicationID]++
+		}
+	}
+	for _, value := range snapshot.Applications {
+		result.Applications = append(result.Applications, &model.AdapterOauthApplication{ApplicationID: value.ApplicationID, ProfileDigest: value.ProfileDigest, ProviderDisplayName: profileNames[value.ProfileDigest], CallbackMode: value.CallbackMode, ClientID: value.ClientID, ProjectLabel: value.ProjectLabel, Revision: value.Revision, Status: value.Status, GrantCount: grantCount[value.ApplicationID], AccountCount: accountCount[value.ApplicationID]})
+	}
+	for _, value := range snapshot.Accounts {
+		ids := []string{}
+		for _, grant := range snapshot.Grants {
+			if grant.AccountID != nil && *grant.AccountID == value.AccountID {
+				ids = append(ids, grant.GrantID)
+			}
+		}
+		result.Accounts = append(result.Accounts, &model.AdapterExternalAccount{AccountID: value.AccountID, ProfileDigest: value.ProfileDigest, AccountLabel: value.AccountLabel, Revision: value.Revision, GrantIds: ids})
+	}
+	connections, _ := service.Snapshot()
+	for _, value := range snapshot.Grants {
+		ids := []string{}
+		for _, connection := range connections.Connections {
+			if connection.Authentication.GrantID == value.GrantID {
+				ids = append(ids, connection.ConnectionID)
+			}
+		}
+		name := "Google"
+		result.Grants = append(result.Grants, &model.AdapterAuthorizationGrant{GrantID: value.GrantID, ApplicationID: value.ApplicationID, AccountID: value.AccountID, AccountLabel: value.AccountLabel, ProviderDisplayName: name, Audience: value.Audience, DesiredScopes: value.DesiredScopes, GrantedScopes: value.GrantedScopes, AuthorityRevision: value.AuthorityRevision, TokenRevision: value.TokenRevision, Status: value.Status, ConnectionIds: ids})
+	}
+	return result, nil
+}
+
+func decodeAdapterOAuthDocument(encoded string) ([]byte, error) {
+	if len(encoded) > 176<<10 {
+		return nil, errors.New("adapter OAuth client document is too large")
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(raw) == 0 || len(raw) > 128<<10 {
+		return nil, errors.New("adapter OAuth client document is invalid")
+	}
+	return raw, nil
+}
+func oauthApplicationModel(ctx context.Context, r *Resolver, id string) (*model.AdapterOauthApplication, error) {
+	state, err := r.adapterOauthState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, value := range state.Applications {
+		if value.ApplicationID == id {
+			return value, nil
+		}
+	}
+	return nil, errors.New("adapter OAuth application is unavailable")
+}
+func oauthGrantModel(ctx context.Context, r *Resolver, id string) (*model.AdapterAuthorizationGrant, error) {
+	state, err := r.adapterOauthState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, value := range state.Grants {
+		if value.GrantID == id {
+			return value, nil
+		}
+	}
+	return nil, errors.New("adapter OAuth grant is unavailable")
+}
+func adapterOAuthAttemptModel(value adapter.OAuthAttemptEvent) *model.AdapterOauthAttemptEvent {
+	result := &model.AdapterOauthAttemptEvent{AttemptID: value.AttemptID, Status: value.Status}
+	if value.SemanticDigest != "" {
+		result.SemanticDigest = &value.SemanticDigest
+	}
+	if value.GrantID != "" {
+		result.GrantID = &value.GrantID
+	}
+	if value.GrantRevision != 0 {
+		result.GrantRevision = &value.GrantRevision
+	}
+	return result
+}
+func (r *Resolver) importAdapterOAuthApplication(ctx context.Context, input model.ImportAdapterOauthApplicationInput) (*model.AdapterOauthApplication, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := decodeAdapterOAuthDocument(input.ClientDocumentBase64)
+	if err != nil {
+		return nil, err
+	}
+	value, err := service.ImportOAuthApplication(input.ProfileDigest, input.ProjectLabel, raw)
+	if err != nil {
+		return nil, err
+	}
+	return oauthApplicationModel(ctx, r, value.ApplicationID)
+}
+func (r *Resolver) replaceAdapterOAuthApplication(ctx context.Context, input model.ReplaceAdapterOauthApplicationInput) (*model.AdapterOauthApplication, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := decodeAdapterOAuthDocument(input.ClientDocumentBase64)
+	if err != nil {
+		return nil, err
+	}
+	value, err := service.ReplaceOAuthApplication(input.ApplicationID, input.ExpectedRevision, raw)
+	if err != nil {
+		return nil, err
+	}
+	return oauthApplicationModel(ctx, r, value.ApplicationID)
+}
+func (r *Resolver) startAdapterOAuthSetup(ctx context.Context, input model.StartAdapterOauthSetupInput) (*model.AdapterOauthSetupAttempt, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	start := adapter.OAuthStart{ApplicationID: input.ApplicationID, ExpectedApplicationRevision: input.ExpectedApplicationRevision, SemanticDigest: input.SemanticDigest, OperationIDs: input.OperationIds}
+	if input.GrantID != nil {
+		start.GrantID = *input.GrantID
+	}
+	if input.ExpectedGrantRevision != nil {
+		start.ExpectedGrantRevision = *input.ExpectedGrantRevision
+	}
+	for _, extra := range input.AdditionalServices {
+		if extra == nil {
+			continue
+		}
+		start.Additional = append(start.Additional, adapter.OAuthServiceSelection{SemanticDigest: extra.SemanticDigest, OperationIDs: extra.OperationIds})
+	}
+	value, err := service.StartOAuth(start)
+	if err != nil {
+		return nil, err
+	}
+	return &model.AdapterOauthSetupAttempt{AttemptID: value.AttemptID, AuthorizationURL: value.AuthorizationURL, ExpiresAtEpochSeconds: int(value.ExpiresAt)}, nil
+}
+func (r *Resolver) attachAdapterOAuthConnection(ctx context.Context, input model.AttachAdapterOauthConnectionInput) (*model.AdapterDefinition, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	replacement := ""
+	if input.ReplacementConnectionID != nil {
+		replacement = *input.ReplacementConnectionID
+	}
+	definition, _, err := service.AttachOAuthConnection(ctx, input.SemanticDigest, input.GrantID, input.ExpectedGrantRevision, replacement)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := service.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	return definitionModel(definition, snapshot), nil
+}
+func (r *Resolver) disconnectAdapterOAuthGrant(ctx context.Context, input model.DisconnectAdapterOauthGrantInput) (*model.AdapterAuthorizationGrant, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	value, err := service.DisconnectOAuthGrant(ctx, input.GrantID, input.ExpectedAuthorityRevision)
+	if err != nil {
+		return nil, err
+	}
+	return oauthGrantModel(ctx, r, value.GrantID)
+}
+func (r *Resolver) labelAdapterOAuthGrant(ctx context.Context, input model.SaveAdapterOauthGrantLabelInput) (*model.AdapterAuthorizationGrant, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	value, err := service.LabelOAuthGrant(input.GrantID, input.ExpectedAuthorityRevision, input.AccountLabel)
+	if err != nil {
+		return nil, err
+	}
+	return oauthGrantModel(ctx, r, value.GrantID)
 }
 
 func (r *Resolver) approveAdapterDefinition(ctx context.Context, input model.ApproveAdapterDefinitionInput) (*model.AdapterDefinition, error) {
@@ -455,7 +776,11 @@ func (r *Resolver) pendingAdapterAuthentications(ctx context.Context, conversati
 	}
 	result := make([]model.HumanIntervention, 0, len(values))
 	for _, value := range values {
-		display := names[value.AuthorityID]
+		connectionID := value.AuthorityID
+		if value.AdapterConnectionID != "" {
+			connectionID = value.AdapterConnectionID
+		}
+		display := names[connectionID]
 		if display == "" {
 			display = value.AuthorityID
 		}
@@ -469,7 +794,7 @@ func (r *Resolver) skipAdapterAuthentication(ctx context.Context, input model.Sk
 		return nil, err
 	}
 	request, err := r.Store.MCPAuthRequest(ctx, input.RequestID, input.ExpectedRevision)
-	if err != nil || request.AuthorityKind != "adapter_connection" || request.OwnerHumanID != localHumanID {
+	if err != nil || request.AuthorityKind != "adapter_connection" && request.AuthorityKind != "adapter_grant" || request.OwnerHumanID != localHumanID {
 		return nil, errors.New("adapter authentication request is unavailable")
 	}
 	if request.TaskID != "" {
@@ -502,14 +827,58 @@ func (r *Resolver) skipAdapterAuthentication(ctx context.Context, input model.Sk
 }
 
 func (r *Resolver) startAdapterAuthentication(ctx context.Context, input model.StartAdapterAuthenticationInput) (*model.AdapterOauthSetupAttempt, error) {
-	if _, err := r.requireAdapters(ctx); err != nil {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
 		return nil, err
 	}
 	request, err := r.Store.MCPAuthRequest(ctx, input.RequestID, input.ExpectedRevision)
-	if err != nil || request.AuthorityKind != "adapter_connection" || request.OwnerHumanID != localHumanID {
+	if err != nil || request.OwnerHumanID != localHumanID {
 		return nil, errors.New("adapter authentication request is unavailable")
 	}
-	return nil, errors.New("direct adapter credentials must be replaced")
+	if request.AuthorityKind == "adapter_connection" {
+		return nil, errors.New("direct adapter credentials must be replaced")
+	}
+	if request.AuthorityKind != "adapter_grant" || request.State != "awaiting_user" {
+		return nil, errors.New("adapter authentication request is unavailable")
+	}
+	oauth, err := service.OAuthSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	var grant *adapter.OAuthGrant
+	var app *adapter.OAuthApplication
+	for i := range oauth.Grants {
+		if oauth.Grants[i].GrantID == request.AuthorityID {
+			grant = &oauth.Grants[i]
+			break
+		}
+	}
+	if grant == nil {
+		return nil, errors.New("adapter OAuth grant is unavailable")
+	}
+	for i := range oauth.Applications {
+		if oauth.Applications[i].ApplicationID == grant.ApplicationID {
+			app = &oauth.Applications[i]
+			break
+		}
+	}
+	if app == nil {
+		return nil, errors.New("adapter OAuth application is unavailable")
+	}
+	var authority struct {
+		Binding adapter.Binding `json:"binding"`
+	}
+	if json.Unmarshal([]byte(request.BindingJSON), &authority) != nil {
+		return nil, errors.New("adapter authentication authority is invalid")
+	}
+	started, err := service.StartOAuth(adapter.OAuthStart{ApplicationID: app.ApplicationID, ExpectedApplicationRevision: app.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: request.AdapterSemanticDigest, OperationIDs: []string{authority.Binding.OperationID}})
+	if err != nil {
+		return nil, err
+	}
+	if _, err = r.Store.BeginAdapterOAuthAuthentication(ctx, request, started.AttemptID, time.Now()); err != nil {
+		return nil, err
+	}
+	return &model.AdapterOauthSetupAttempt{AttemptID: started.AttemptID, AuthorizationURL: started.AuthorizationURL, ExpiresAtEpochSeconds: int(started.ExpiresAt)}, nil
 }
 func (r *Resolver) cancelAdapterDefinition(ctx context.Context, input model.CancelAdapterDefinitionInput) (bool, error) {
 	service, err := r.requireAdapters(ctx)

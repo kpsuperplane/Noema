@@ -98,7 +98,7 @@ func TestAdapterAuthenticationSchemaConvergesFromVersionTwentyFour(t *testing.T)
 	}
 	defer database.Close()
 	var version int
-	if err = database.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 25 {
+	if err = database.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("schema = %d, %v", version, err)
 	}
 	rows, err := database.db.Query(`PRAGMA table_info(mcp_auth_requests)`)
@@ -173,6 +173,84 @@ func TestAdapterAuthenticationSchemaConvergesFromVersionTwentyFour(t *testing.T)
 	recovered, err := database.RecoverConversationMCPAuthRequests(t.Context())
 	if err != nil || len(recovered) != 1 || recovered[0].Failure != "outcome_uncertain" {
 		t.Fatalf("recovered adapter request = %#v, %v", recovered, err)
+	}
+}
+
+func TestAdapterOAuthAuthenticationSchemaConvergesFromVersionTwentyFive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v25.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacy.Exec(schemaAtVersion(25) + `PRAGMA user_version=25;`); err != nil {
+		t.Fatal(err)
+	}
+	_ = legacy.Close()
+	database, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var version int
+	if err = database.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 26 {
+		t.Fatalf("schema = %d, %v", version, err)
+	}
+	rows, err := database.db.Query(`PRAGMA table_info(mcp_auth_requests)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	found := map[string]bool{}
+	for rows.Next() {
+		var index, notNull, primary int
+		var name, kind string
+		var defaultValue any
+		if err = rows.Scan(&index, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			t.Fatal(err)
+		}
+		found[name] = true
+	}
+	for _, name := range []string{"adapter_connection_id", "adapter_semantic_digest", "adapter_authority_revision", "adapter_attempt_id"} {
+		if !found[name] {
+			t.Fatalf("missing column %s", name)
+		}
+	}
+	now := time.Now().UTC()
+	conversation, err := database.EnsurePrimaryConversation(t.Context(), "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := database.BeginConversationTurn(t.Context(), conversation.ID, "Use Google.", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.StartConversationToolRound(t.Context(), turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{ProviderCallID: "call-oauth", ProviderName: "google.lookup", Name: "google.lookup", Arguments: json.RawMessage(`{"id":"ordinary"}`)}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := database.CreateMCPAuthRequest(t.Context(), MCPAuthRequest{OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: items[len(items)-1].ID, AuthorityKind: "adapter_grant", AuthorityID: strings.Repeat("a", 32), AdapterConnectionID: strings.Repeat("b", 32), AdapterSemanticDigest: strings.Repeat("c", 64), AdapterAuthorityRevision: 3, CapabilityName: "google.lookup", BindingJSON: `{"binding":"ordinary"}`, ArgumentsJSON: `{"id":"ordinary"}`}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err = database.BeginAdapterOAuthAuthentication(t.Context(), request, "attempt-ordinary", now)
+	if err != nil || request.State != "authorizing" {
+		t.Fatalf("begin OAuth = %#v, %v", request, err)
+	}
+	if err = database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	pending, err := database.PendingAdapterAuthRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
+	if err != nil || len(pending) != 1 || pending[0].State != "awaiting_user" || pending[0].Failure != "server_restarted" || pending[0].AdapterAttemptID != "" {
+		t.Fatalf("restart recovery = %#v, %v", pending, err)
+	}
+	connections, err := database.AwaitingAdapterAuthConnections(t.Context(), false)
+	if err != nil || len(connections) != 1 || connections[0] != strings.Repeat("b", 32) {
+		t.Fatalf("OAuth connections = %#v, %v", connections, err)
 	}
 }
 

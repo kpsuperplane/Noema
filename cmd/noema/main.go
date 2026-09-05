@@ -102,6 +102,9 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	if err := adapterService.SetOAuthCallback(authConfig.Origin + "/adapter/oauth/callback"); err != nil {
+		return err
+	}
 	browserAuth, err := auth.New(paths, taskStore, authConfig, recovery)
 	if err != nil {
 		return err
@@ -181,6 +184,14 @@ func run(ctx context.Context, address string, output *os.File) error {
 			_ = chatRuntime.ResumeMCPAuthentication(context.Background(), attemptID)
 		}
 	})
+	adapterService.SetOAuthCompletionHandler(func(attemptID string, grantID string) {
+		_ = taskStore.CompleteAdapterOAuthAuthentication(context.Background(), attemptID, time.Now())
+		connections, _ := adapterService.ConnectionIDsForGrant(grantID)
+		for _, connectionID := range connections {
+			_, _ = taskExecution.ResumeAdapterAuthentication(context.Background(), connectionID)
+			_ = chatRuntime.ResumeAdapterAuthentication(context.Background(), connectionID)
+		}
+	})
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
 	listener, err := net.Listen("tcp", address)
@@ -206,6 +217,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	mux.Handle("/graphql/ws", graphqlHandler)
 	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
 	mux.Handle("/mcp/oauth/callback", mcpService.CallbackHandler())
+	mux.Handle("/adapter/oauth/callback", adapterService.OAuthCallbackHandler())
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{

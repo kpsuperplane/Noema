@@ -60,7 +60,7 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 			return request, errors.New("MCP authentication request is unavailable")
 		}
 		label := "MCP"
-		if request.AuthorityKind == "adapter_connection" {
+		if request.AuthorityKind == "adapter_connection" || request.AuthorityKind == "adapter_grant" {
 			label = "Adapter"
 		}
 		payload := toolFailure("authentication_skipped", label+" authentication was skipped")
@@ -246,7 +246,7 @@ func decodeMCPAuthAuthority(raw string) (noemamcp.Binding, store.ModelAssignment
 }
 
 func (c *Chat) finishMCPAuthCall(request store.MCPAuthRequest, payload json.RawMessage, success bool) error {
-	if request.AuthorityKind == "adapter_connection" {
+	if request.AuthorityKind == "adapter_connection" || request.AuthorityKind == "adapter_grant" {
 		_, assignment, responseID, hostedState, err := decodeAdapterAuthAuthority(request.BindingJSON)
 		if err != nil {
 			return err

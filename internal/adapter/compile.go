@@ -81,14 +81,44 @@ func validateManifest(manifest *Manifest) error {
 		if seen[operation.OperationID] || validateOperation(operation) != nil {
 			return errors.New("adapter operation is invalid")
 		}
+		if (manifest.Authentication.Kind == "oauth2_authorization_code_pkce") != (operation.Authorization.Kind == "oauth_scopes") {
+			return errors.New("adapter operation authorization is invalid")
+		}
 		seen[operation.OperationID] = true
 	}
 	return nil
 }
 
+func sortedUniqueScopes(values []string) bool {
+	for i := range values {
+		if i > 0 && values[i-1] >= values[i] {
+			return false
+		}
+	}
+	return true
+}
+func scopeSubset(candidate, required []string) bool {
+	wanted := make(map[string]bool, len(candidate))
+	for _, value := range candidate {
+		wanted[value] = true
+	}
+	for _, value := range required {
+		if !wanted[value] {
+			return false
+		}
+	}
+	return true
+}
+
 func validateAuthentication(value Authentication) error {
 	if value.Kind == "none" {
 		if value.Setup != nil || value.RequestAuth != nil {
+			return errors.New("adapter authentication is invalid")
+		}
+		return nil
+	}
+	if value.Kind == "oauth2_authorization_code_pkce" {
+		if !validDigest(value.ProfileDigest) || value.Setup != nil || value.RequestAuth != nil {
 			return errors.New("adapter authentication is invalid")
 		}
 		return nil
@@ -155,7 +185,26 @@ func validateOperation(operation *Operation) error {
 			return errors.New("operation path is invalid")
 		}
 	}
-	if operation.Authorization.Kind != "none" || len(operation.Authorization.AcceptedScopeSets) != 0 {
+	if operation.Authorization.Kind == "oauth_scopes" {
+		if len(operation.Authorization.AcceptedScopeSets) < 1 || len(operation.Authorization.AcceptedScopeSets) > 16 {
+			return errors.New("operation authorization is invalid")
+		}
+		for i, scopes := range operation.Authorization.AcceptedScopeSets {
+			if len(scopes) < 1 || len(scopes) > 32 || !sortedUniqueScopes(scopes) {
+				return errors.New("operation authorization is invalid")
+			}
+			for _, scope := range scopes {
+				if !boundedText(scope, 512, false) {
+					return errors.New("operation authorization is invalid")
+				}
+			}
+			for _, other := range operation.Authorization.AcceptedScopeSets[:i] {
+				if scopeSubset(scopes, other) || scopeSubset(other, scopes) {
+					return errors.New("operation authorization is ambiguous")
+				}
+			}
+		}
+	} else if operation.Authorization.Kind != "none" || len(operation.Authorization.AcceptedScopeSets) != 0 {
 		return errors.New("operation authorization is invalid")
 	}
 	if len(operation.Arguments) > maximumArguments || validateArguments(operation) != nil || validateFixedValues(operation) != nil {

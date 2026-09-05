@@ -29,9 +29,10 @@ type Manifest struct {
 }
 
 type Authentication struct {
-	Kind        string           `json:"kind"`
-	Setup       *CredentialSetup `json:"setup,omitempty"`
-	RequestAuth *Transform       `json:"request_auth,omitempty"`
+	Kind          string           `json:"kind"`
+	ProfileDigest string           `json:"profile_digest,omitempty"`
+	Setup         *CredentialSetup `json:"setup,omitempty"`
+	RequestAuth   *Transform       `json:"request_auth,omitempty"`
 }
 
 func (a *Authentication) UnmarshalJSON(raw []byte) error {
@@ -45,6 +46,13 @@ func (a *Authentication) UnmarshalJSON(raw []byte) error {
 	}
 	if kind == "none" {
 		if len(fields) != 1 {
+			return errors.New("adapter authentication is invalid")
+		}
+		a.Kind = kind
+		return nil
+	}
+	if kind == "oauth2_authorization_code_pkce" {
+		if len(fields) != 2 || json.Unmarshal(fields["profile_digest"], &a.ProfileDigest) != nil {
 			return errors.New("adapter authentication is invalid")
 		}
 		a.Kind = kind
@@ -227,6 +235,7 @@ type Connection struct {
 type ConnectionAuthentication struct {
 	Kind         string `json:"kind"`
 	GenerationID string `json:"generation_id,omitempty"`
+	GrantID      string `json:"grant_id,omitempty"`
 	Revision     int    `json:"revision,omitempty"`
 }
 
@@ -248,6 +257,7 @@ type Binding struct {
 	SemanticDigest, OperationID, OperationDigest           string
 	ConnectionRevision, PolicyRevision, ToolPolicyRevision int
 	CredentialRevision                                     int
+	GrantID                                                string
 	InputSchema                                            json.RawMessage
 	Behavior                                               store.ActionBehavior
 	ReviewRoute                                            store.ActionReviewRoute

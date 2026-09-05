@@ -24,9 +24,14 @@ var (
 
 // Service owns reviewed adapter files, public indexes, and calls.
 type Service struct {
-	files    *fileAuthority
-	database *store.Store
-	mu       sync.Mutex
+	files            *fileAuthority
+	database         *store.Store
+	mu               sync.Mutex
+	oauthCallback    string
+	oauthAttempts    map[string]*oauthAttempt
+	oauthEvents      map[string]OAuthAttemptEvent
+	oauthSubscribers map[string]map[chan OAuthAttemptEvent]struct{}
+	oauthCompleted   func(string, string)
 }
 
 // NewService recovers and indexes one fresh Go adapter authority.
@@ -38,7 +43,7 @@ func NewService(root *os.Root, database *store.Store) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	service := &Service{files: files, database: database}
+	service := &Service{files: files, database: database, oauthAttempts: make(map[string]*oauthAttempt), oauthEvents: make(map[string]OAuthAttemptEvent), oauthSubscribers: make(map[string]map[chan OAuthAttemptEvent]struct{})}
 	if err := service.reconcile(context.Background()); err != nil {
 		return nil, err
 	}
@@ -99,7 +104,7 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		if len(values) > 100 {
 			values = values[:100]
 		}
-		return map[string]any{"definitions": values, "instructions": []string{"Use new_definition for a new public API.", "Use the exact semantic_digest for a revision.", "Use authentication kind none or credential.", "Use language lua for all transforms."}}, nil
+		return map[string]any{"definitions": values, "oauth_profiles": []map[string]string{{"profile_id": "google", "profile_digest": googleOAuthProfile().ProfileDigest}}, "instructions": []string{"Use new_definition for a new public API.", "Use the exact semantic_digest for a revision.", "Use authentication kind none, credential, or oauth2_authorization_code_pkce.", "Use language lua for all transforms."}}, nil
 	}
 	definitions, err := s.files.definitions()
 	if err != nil {
@@ -704,6 +709,15 @@ func (s *Service) bindings() ([]Binding, error) {
 		if !ok || connection.Status != "active" || connection.DataSharingPolicy == "" || connection.UnsafeActionPolicy == "" || definition.Manifest.Authentication.Kind == "credential" && connection.Authentication.GenerationID == "" {
 			continue
 		}
+		grantID, authorityRevision := "", connection.Authentication.Revision
+		var granted []string
+		if definition.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
+			grant, _, loadErr := s.files.loadOAuthGrant(connection.Authentication.GrantID)
+			if loadErr != nil || grant.Status != "active" {
+				continue
+			}
+			grantID, authorityRevision, granted = grant.GrantID, grant.AuthorityRevision, grant.GrantedScopes
+		}
 		allowed := map[string]bool{}
 		for _, id := range connection.AllowedOperations {
 			allowed[id] = true
@@ -711,6 +725,18 @@ func (s *Service) bindings() ([]Binding, error) {
 		for _, operation := range definition.Operations {
 			if !allowed[operation.OperationID] {
 				continue
+			}
+			if definition.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
+				authorized := false
+				for _, set := range operation.Authorization.AcceptedScopeSets {
+					if scopeSubset(granted, set) {
+						authorized = true
+						break
+					}
+				}
+				if !authorized {
+					continue
+				}
 			}
 			override, exists := connection.Overrides[operation.OperationID]
 			if exists && !override.Enabled {
@@ -729,7 +755,7 @@ func (s *Service) bindings() ([]Binding, error) {
 			}
 			route := reviewRoute(connection, behavior)
 			name := definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID
-			result = append(result, Binding{Name: name, Description: operation.Description, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: connection.Authentication.Revision, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
+			result = append(result, Binding{Name: name, Description: operation.Description, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -822,6 +848,26 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			return nil, false, err
 		}
 	}
+	if definition.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
+		grant, token, loadErr := s.oauthBearer(ctx, connection.Authentication.GrantID, false)
+		if loadErr != nil {
+			if errors.Is(loadErr, errOAuthRejected) {
+				_ = s.requireOAuthAuthentication(ctx, &grant)
+				return nil, false, ErrAuthenticationRequired
+			}
+			if errors.Is(loadErr, ErrAuthenticationRequired) {
+				return nil, false, ErrAuthenticationRequired
+			}
+			return nil, false, loadErr
+		}
+		if grant.AuthorityRevision != current.CredentialRevision || bearerHeader(token.AccessToken, &request) != nil {
+			return nil, false, errors.New("adapter OAuth authority changed")
+		}
+		if !operationScopesSatisfied(operation, token.Scopes) {
+			_ = s.requireOAuthAuthentication(ctx, &grant)
+			return nil, false, ErrAuthenticationRequired
+		}
+	}
 	digest := argumentsDigest(arguments)
 	if reference != "" {
 		cursor, _ := s.loadCursor(reference)
@@ -838,6 +884,23 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			return nil, false, ErrOutcomeUncertain
 		}
 		return nil, false, err
+	}
+	if response.status == 401 && definition.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
+		grant, token, refreshErr := s.oauthBearer(ctx, connection.Authentication.GrantID, true)
+		if refreshErr == nil && !operationScopesSatisfied(operation, token.Scopes) {
+			refreshErr = ErrAuthenticationRequired
+		}
+		if refreshErr == nil && grant.AuthorityRevision == current.CredentialRevision && (current.Behavior.ReadOnly || current.Behavior.RepeatSafe) {
+			request.headers["Authorization"] = "Bearer " + token.AccessToken
+			response, refreshErr = executeHTTP(ctx, request, false)
+		}
+		if refreshErr != nil && !errors.Is(refreshErr, errOAuthRejected) && !errors.Is(refreshErr, ErrAuthenticationRequired) {
+			return nil, false, refreshErr
+		}
+		if refreshErr != nil || response.status == 401 || !(current.Behavior.ReadOnly || current.Behavior.RepeatSafe) {
+			_ = s.requireOAuthAuthentication(ctx, &grant)
+			return nil, false, ErrAuthenticationRequired
+		}
 	}
 	if response.status < 200 || response.status >= 300 {
 		if response.status == 401 && definition.Manifest.Authentication.Kind == "credential" {
@@ -972,7 +1035,7 @@ func continuationReference(raw json.RawMessage) string {
 	return text
 }
 func sameBinding(left, right Binding) bool {
-	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.CredentialRevision == right.CredentialRevision && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
+	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.CredentialRevision == right.CredentialRevision && left.GrantID == right.GrantID && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
 }
 
 func (s *Service) putCursor(value Cursor) error {
