@@ -1,1076 +1,258 @@
 # Go Server Migration Record
 
-- **Status:** Source cutover complete. Release acceptance remains open.
-- **Mode:** Implement
-- **Date:** 2026-09-04
-- **Scope:** Replace the Rust server with a Go server
-- **Clients:** Keep the current web, desktop, iPhone, and iPad clients
-- **Target:** Pure-Go server with no Rust and no CGo
+- **Status:** Source migration complete. External release acceptance remains open.
+- **Mode:** Implement and ship
+- **Started:** 2026-09-04
+- **Scope:** Replace the Rust server with a pure-Go server
+- **Clients:** Preserve the web, desktop, iPhone, and iPad clients
+- **Platforms:** Linux, macOS, and Windows
 
-This plan records the approved migration, evidence, limits, and exit gates.
+This record keeps the approved decisions, completed source scope, size limits,
+and remaining release gates.
 
-## 1. Decision Summary
+## Decision
 
-Replace all Noema-owned Rust server code with Go. The server must not compile
-or link a Rust component. Current external executables remain integration boundaries.
+Go replaces all Noema-owned Rust server code. The server does not compile or
+link Rust or CGo.
 
-The Go server must preserve every current production capability. Small client
-changes are permitted when behavior remains stable.
+Current external executables remain valid integration boundaries. These
+executables include Chrome, Obscura, `llama-server`, document tools, and the
+Apple Foundation bridge.
 
-The server must use no CGo. Third-party services and executables remain valid
-integration boundaries when a current capability requires them.
+The migration keeps all current production capabilities. Small client changes
+are valid when product behavior stays stable.
 
-The desktop client must stop embedding the Rust host. It will launch the Go
-server as a sidecar and preserve its current Tauri command contract.
-
-Continue implementation only if a representative Go slice passes section 5.
-
-## 2. Observable Outcome
-
-One Go server replaces `noema_web`. Current clients connect without generated
-operation changes or user-visible behavior loss.
-
-The replacement must:
-
-- create a fresh Go-owned Noema home;
-- serve the current GraphQL schema and subscription protocol;
-- preserve Task, conversation, memory, artifact, and project behavior;
-- preserve authentication, authorization, action review, and audit behavior;
-- preserve hosted, local, MCP, adapter, browser, and file capabilities;
-- recover active and interrupted runs according to current contracts;
-- keep secrets outside logs, model context, ordinary events, and exports;
-- improve the normal edit, test, and server restart loop materially.
-
-## 3. Non-goals
-
-- Do not rewrite the web or native clients.
-- Do not redesign GraphQL.
-- Do not replace SQLite.
-- Do not open or convert a Rust-created Noema home.
-- Do not preserve the Rust database or file layout.
-- Do not remove a current production capability.
-- Do not retain Rust workers, libraries, or build targets in the server.
-- Do not add CGo.
-- Do not add a service mesh or distributed database.
-- Do not translate every Rust package into one Go package.
-- Do not preserve obsolete internal Rust APIs.
-- Do not expand product capability during the migration.
-- Do not add an ORM, dependency injection framework, or generic repository layer.
-
-## 4. Current Baseline
-
-Record the exact baseline again when implementation starts.
-
-The migration baseline contains:
-
-- 15 production Rust packages in the server closure;
-- 173,990 production Rust lines;
-- 65,836 Rust test lines;
-- 239,826 total Rust lines;
-- 1,191 Rust test functions;
-- 60 active direct external crates;
-- approximately 707 current-platform dependency nodes;
-- GraphQL clients generated from `graphql/schema.graphql`;
-- separate development and validation Cargo caches;
-- disabled incremental compilation for development and tests;
-- an embedded Obscura dependency with V8 and BoringSSL.
-
-Use commit `a007a4fa984f0d2eaeb2c101337dbbe7881d9379` as the Rust size baseline.
-The current size script classifies inline Rust test modules separately.
-
-### Migration size gate
-
-Keep authored Go production code below 80% of Rust production code.
-The hard production limit is 139,192 lines.
-
-Keep all checked-in Go code below 80% of all checked-in Rust code.
-This conservative total includes Go tests and generated GraphQL code.
-The hard total limit is 191,860 lines.
-
-These limits are acceptance criteria, not forecasts.
-Treat an overrun as a design failure until a capability requires the extra code.
-Do not justify an overrun with local completeness, defensive depth, or Rust parity alone.
-
-Report authored production, tests, generated code, and the inclusive total separately.
-Do not use generated code to hide authored growth.
-Each protection must address a retained capability, current failure, concrete threat, or client contract.
-Remove speculative reliability, distributed coordination, and security machinery.
-
-At commit `4a72faad`, the Go counts are:
-
-| Class | Lines | Rust comparison |
-| --- | ---: | ---: |
-| Authored production | 73,188 | 42.06% of Rust production |
-| Tests | 22,831 | Separate evidence cost |
-| Generated GraphQL | 79,612 | Separate generated cost |
-| Inclusive total | 175,631 | 73.23% of all Rust code |
-
-Measure this gate before each migration-unit merge and before cutover.
-If authored production reaches 70%, stop and run a reduction review.
-If either hard limit fails, stop the migration until the port becomes smaller.
-
-Each protection must address a named current failure, threat, or external contract.
-Do not preserve Rust safeguards that only served the old home or removed architecture.
-Do not add multi-process or distributed-system behavior without a current production boundary.
-Prefer one authoritative local transaction or rooted operation over coordination infrastructure.
-Record the concrete protected problem in each implementation brief.
-If that problem is absent, omit the protection and its tests.
-Add the protection later only when production behavior or a retained contract demonstrates the need.
-
-### Required production capabilities
-
-| Group | Required behavior |
-| --- | --- |
-| Server shell | GraphQL HTTP and WebSocket, passkeys, recovery, OAuth, sessions, callbacks, artifacts, and assets |
-| Chat | Streaming, transcripts, continuation, context, tools, choices, A2UI, and memory use |
-| Tasks | Capture, scheduling, recurrences, delegation, approvals, retries, cancellation, files, and artifacts |
-| Governance | Action review, human decisions, exact-call checks, authorization recovery, URL checks, and safe diagnostics |
-| Memory | Markdown storage, reads, search, atomic changes, consolidation, citations, and live events |
-| Files | Uploads, downloads, versions, previews, parsing, OCR, and rooted access |
-| Providers | OpenAI, Codex, OpenRouter, Apple Foundation Models, and local GGUF models |
-| Web | Search, fetch, downloads, browser sessions, snapshots, interactions, history, and switching |
-| Adapters | Reviewed definitions, OpenAPI, credentials, OAuth, HTTP, transforms, pagination, and controls |
-| MCP | Stdio, HTTP, OAuth, discovery, setup, policy, recovery, and dynamic calls |
-| ACP | Agent processes, health, authentication, run bridging, and Task completion |
-| Notifications | Web Push, APNs, native notifications, Live Activities, presence, and durable delivery |
-
-Exclude only test support, evaluations, development watchers, GraphiQL, debug
-schema writing, old migrations, and removed legacy paths.
-
-### First foundation result
-
-The foundation and evidence slice are complete. The evidence gate result is Go.
-
-The slice contains:
-
-- a fresh protected home and pure-Go SQLite schema version 1;
-- transaction-based Task state and durable Task events;
-- the complete generated GraphQL schema and its WebSocket transport;
-- Task capture, Task read, and replayable Task events;
-- durable `TASK.md` writes with staged crash recovery and current previews;
-- validation for every checked-in web and iOS GraphQL operation;
-- bounded provider SSE parsing, cancellation, and continuation details;
-- bounded MCP stdio calls with environment and process-tree isolation;
-- bounded diagnostics with explicit safe value types;
-- a loopback-only binary guarded by `-migration-spike`.
-
-An adversarial review found path, permission, stream, and output-bound risks.
-The corrected slice escapes SQLite paths and applies private operating-system access controls.
-It also bounds provider results and diagnostics files.
-
-Authored production code is 2,712 lines. Tests are 1,393 lines across 20 test
-functions. Generated GraphQL code is 80,445 lines.
-
-The first measurements used Go 1.26.0 on Linux amd64. The host had four AMD
-EPYC Rome virtual processors and 7.6 GiB of memory.
-
-| Check | Result |
-| --- | ---: |
-| Warm Linux build | 0.84 seconds |
-| Focused provider test | 0.18 seconds |
-| Warm unit suite | 0.76 seconds |
-| Clean Linux amd64 build | 30.69 seconds |
-| Clean Windows amd64 build | 30.58 seconds |
-| Clean macOS arm64 build | 31.37 seconds |
-| Linux and Windows binary | 31 MiB |
-| macOS binary | 29 MiB |
-
-All measured builds used `CGO_ENABLED=0`. The scoped tests, race tests, and
-`go vet` passed.
-
-The dependency audit found 20 production modules and no Rust or CGo build
-need. It found no reachable vulnerability with Go 1.26.6.
-
-Go 1.26.0 had 19 reachable standard-library findings. CI and release builds
-must use Go 1.26.6 or newer.
-
-The module graph has no GPL-family license. Release packages must include
-third-party notices for MPL-2.0 and the MCP SDK license transition.
-
-Windows support starts at Windows 10 version 1803 or Windows Server 2019.
-Before cutover, native Windows tests must stress concurrent WAL writes and run
-`PRAGMA integrity_check` after a cold reopen.
-
-Measure these operations on one named reference machine:
-
-1. Clean server build.
-2. Warm server build with no changes.
-3. Build after a store-only change.
-4. Build after a runtime-only change.
-5. Build after an API-only change.
-6. One focused test build and run.
-7. Full server unit test build and run.
-8. Development server restart after one source change.
-
-Save command, toolchain, processor, memory, cache state, wall time, CPU time,
-peak memory, and produced artifact size.
-
-## 5. Evidence Gate
-
-Build one bounded Go slice before porting the remaining server.
-
-The slice must use a new temporary Go home. It must never open the active home.
-
-The slice must:
-
-- open SQLite with foreign keys and current journal settings;
-- create its schema from an empty directory;
-- create and read one Task with its current documents;
-- perform one transaction-based Task state change;
-- expose that read and change through the existing GraphQL shape;
-- stream one provider response with cancellation;
-- publish one GraphQL subscription event;
-- start and call one MCP subprocess with a cleared environment;
-- read one file through a rooted filesystem handle;
-- reject one stale current-run check;
-- preserve one representative ordinary identifier in diagnostics;
-- exclude one representative secret from diagnostics.
-
-The slice passes only when all these gates pass:
-
-| Gate | Required result |
-| --- | --- |
-| Warm build | Complete in five seconds or less |
-| Focused test | Complete in five seconds or less |
-| Warm unit suite | Complete in 30 seconds or less |
-| Clean build | Complete in 60 seconds or less for each platform |
-| Database | Correct results for selected transaction and failure cases |
-| GraphQL | Current operations validate, or one bounded client patch updates them |
-| Concurrency | Go race detection reports no issue in the slice |
-| Platforms | Pure-Go builds pass for Linux, macOS, and Windows |
-| Security | No weaker file, process, secret, or authorization boundary |
-| Complexity | No new framework exists only to imitate Rust structure |
-
-Do not expand the port while this slice fails a build or security gate. Correct
-the slice or select a different Go dependency.
-
-The slice passed every gate on 2026-09-04. Task creation writes a staged
-document before the SQLite transaction. Startup recovery promotes committed
-documents and removes documents without a Task row.
-
-Windows directory metadata flushes use a write-capable directory handle.
-Native Windows WAL stress and cold-reopen integrity tests remain cutover gates.
-
-### Spike budget
-
-- Go production code: at most 6,000 lines.
-- Go test code: at most 3,000 lines.
-- New Go tests: at most 20 focused tests.
-- Rust production change: net-negative or zero.
-- Client change: zero.
-
-Stop and reassess if either Go line budget grows by 50 percent.
-
-## 6. Target Runtime
-
-```text
-Web, desktop, and native clients
-              |
-              v
-       Pure-Go Noema server
-     GraphQL, auth, Tasks, runtime,
-     providers, capabilities, storage
-              |
-              v
- Third-party services and executables
-
-Pure-Go server ---> SQLite and object-owned files
-```
-
-External processes receive bounded requests and return bounded results. They
-must not receive database access or the complete Noema home.
-
-## 7. Go Package Ownership
-
-Use a small package set based on current authorities. Do not mirror the Cargo
-package graph.
-
-| Go area | Owns |
-| --- | --- |
-| `internal/home` | Paths, protected files, and rooted access |
-| `internal/store` | SQLite, transactions, Go schema changes, and durable commands |
-| `internal/domain` | Tasks, conversations, workspaces, projects, and artifacts |
-| `internal/provider` | Model accounts, routing, streams, and local models |
-| `internal/capabilities` | Policy, adapters, MCP, files, and browser commands |
-| `internal/documents` | Bounded document and image parsing |
-| `internal/script` | Bounded adapter and calculation execution |
-| `internal/runtime` | Agent turns, Task runs, handoffs, and recovery |
-| `internal/api` | GraphQL, sessions, passkeys, OAuth, Push, and assets |
-| `cmd/noema` | Configuration, composition, startup, and shutdown |
-
-Create a smaller package only when it owns a distinct current behavior.
-Do not create interfaces for one implementation or tests alone.
-
-## 8. Dependency Policy
-
-Use the Go standard library first.
-
-The initial dependency choices are:
-
-- `ncruces/go-sqlite3` for pure-Go SQLite;
-- gqlgen for GraphQL and `graphql-transport-ws`;
-- the official MCP Go SDK for HTTP and subprocess transports;
-- `golang.org/x/oauth2` for OAuth client behavior;
-- go-webauthn for passkeys;
-- webpush-go for Web Push;
-- apns2 for APNs;
-- chromedp with external Chrome for interactive browsing;
-- a pinned, hash-verified Obscura stealth binary for an interactive browser route;
-- `arnodel/golua` Lua 5.4 for bounded scripts;
-- a WebAssembly PDFium runtime and focused Go document readers.
-
-Select a pure-Go SQLite driver through transaction, concurrency, backup, and
-performance evidence.
-
-Use Go `os.Root` for rooted file operations. Add platform-specific code only
-for behavior that `os.Root` cannot enforce.
-
-Keep provider HTTP code concrete. Do not add a generic REST client.
-
-Pin direct modules. Commit `go.sum`. Record license and advisory checks in the
-release workflow.
-
-Reject any module that requires CGo or a Rust build.
-
-The shipped server and its dependencies use `CGO_ENABLED=0`. The Linux race
-test can use the Go toolchain's CGo-based test instrumentation.
-
-External Chrome, Obscura, `llama-server`, LibreOffice, and the Apple provider bridge can
-remain integrations. The Go server owns their limits, lifecycle, and protocol.
-
-Install Obscura only after the human selects it. Resolve one supported operating-system and architecture asset from the pinned release.
-Download into a bounded temporary file under `NOEMA_HOME`. Verify the published SHA-256 digest before extraction.
-Reject archive traversal, unexpected files, links, and oversized content. Publish the executable through an atomic rename.
-Keep the prior browser binding when installation fails. Reuse a verified installation without network access.
-Pin one Obscura version per Noema release. Do not resolve `latest` during installation or update silently.
-Do not install the unmodified Obscura v0.1.11 release. It lacks bounded screenshots, structured snapshots, trusted interactions, typed failures, and atomic navigation outcomes.
-Build and publish a pinned Noema-specific Obscura artifact for Linux amd64 and arm64, macOS amd64 and arm64, and Windows amd64.
-The private artifact must expose one versioned Noema command tool. It must preserve the existing browser contract without exposing selectors, JavaScript, cookies, or storage.
-Run one bounded stdio process per browser owner. Terminate its complete process tree on close, expiry, removal, owner change, protocol failure, or an uncertain dispatched command.
-Treat all five published artifacts as a release prerequisite. The installer can merge before release publication.
-
-### Managed Obscura artifact
-
-Publish each artifact with these manifest fields:
-
-- operating system and architecture;
-- tagged download URL and archive format;
-- archive SHA-256 digest;
-- exact executable name and size;
-- minimum operating-system requirement, including the Linux glibc baseline.
-
-Install the executable under `NOEMA_HOME/system/tools/obscura/<version>`.
-Use `NOEMA_HOME/system/tmp` for bounded staging. Reject archive and extracted data beyond their hard limits.
-Reject path separators, duplicate names, links, unexpected entries, and traversal.
-Limit one extracted file to 128 MiB. Limit total extracted data to 256 MiB.
-Publish the complete staged directory with one atomic rename.
-
-Launch one long-lived stdio process for each browser owner. Use a minimal explicit environment.
-Never set `OBSCURA_ALLOW_PRIVATE_NETWORK`. Never pass `--allow-private-network`.
-Apply a 10-second start deadline and a 30-second command deadline.
-Apply a 15-minute re-armable idle deadline. Do not poll.
-Limit MCP frames to 2 MiB. Keep only a bounded 64 KiB stderr diagnostic ring.
-Release session capacity only after the complete process tree exits.
-
-Map failures by dispatch state:
-
-| Failure | Result |
-| --- | --- |
-| Install, start, initialize, or discovery failure | `unavailable`; retain the prior binding |
-| Lost first open response | `unavailable`; destroy the new process |
-| Lost reused navigation, interaction, or history response | `outcome_uncertain`; destroy the process |
-| Lost snapshot or wait response | `unavailable` or `timeout`; destroy the process |
-| Main-document 5xx after interaction | `outcome_uncertain`; preserve any returned snapshot |
-| Malformed or oversized MCP frame | Destroy the process; select the result from dispatch state |
-| Unexpected process exit | Invalidate the session and snapshot; do not restart or replay |
-
-The private command must return structured snapshots and bounded screenshots.
-It must use trusted events and atomically return the resulting URL and main-document status.
-Noema must check every requested and resulting URL through its public-network policy.
-Stop if the artifact cannot preserve these contracts on all five targets.
-
-### Search, fetch, and web settings slice
-
-Implement this slice after schema version 27.
-Use schema version 28 for search and fetch bindings and observed public URLs.
-Primary Chat and Task Executor can use explicit `web.search` and `web.fetch` tools.
-Task Planner and Reviewer cannot use web tools.
-Native hosted web remains active when no explicit search or fetch binding exists.
-An explicit binding disables hosted web and advertises both tools.
-Search stays read-only. An unobserved fetch uses the existing action-review path.
-Every fetch repeats URL and DNS policy checks, including redirects.
-Reuse the existing web-fetch summarizer assignment.
-Use a maintained pure-Go readability dependency after license and graph review.
-
-Target 2,800 production lines and 850 test lines.
-Stop at 3,900 production lines or 1,300 test lines.
-Use seven focused tests for parsing, network policy, extraction bounds, providers, schema, settings, and runtime routing.
-
-This slice is complete. The Go web shell now serves the SPA, GraphiQL, and private GraphQL socket.
-
-### Task execution policy and primary notification slices
-
-Schema version 29 stores the six Task execution limits and immutable run snapshots.
-Schema version 30 stores the primary Chat work-event cursor.
-Task captures, gates, recoveries, notified completions, and integration readiness now enter primary Chat once.
-Context admission and compaction use hidden durable checkpoints without another schema change.
-
-### Local model runtime slice
-
-Implement this slice after schema version 30.
-Use schema version 31 for installations, durable events, and local model assignments.
-Use one concrete service for installation work, cancellation, one `llama-server` process, and runtime status.
-Use one generation mutex because the retained runtime supports one active local generation.
-Do not add a registry, pool, reaper, lease, scheduler, or Artifact framework.
-
-Pin llama.cpp b10015 for each supported target and backend.
-Store it under `NOEMA_HOME/system/tools/llama.cpp/b10015/<target>/<backend>`.
-Use `NOEMA_HOME/system/tmp` for staging. Verify the exact size and SHA-256 digest before atomic publication.
-Use Go tar, gzip, and zip readers. Never search `PATH`, resolve `latest`, or use fallback mirrors.
-Resume interrupted downloads with HTTP ranges. Reject an invalid size, digest, or GGUF header.
-Delete a model only when no assignment, active run, or generation uses it.
-
-Run one exact installed `llama-server` on loopback with an 8,192-token context and parallelism one.
-Disable its web interface. Keep startup and generation deadlines.
-Poll only its loopback startup health endpoint because the process supplies no push event.
-Keep the last 32 stderr lines for a bounded failure diagnostic.
-Qualify native tool support before activation.
-
-The current Rust contract supports macOS arm64 and amd64, Linux amd64, and Windows amd64.
-Linux arm64 has no current Rust asset, so its absence does not reduce a retained capability.
-The curated GGUF remains Metal-only. Linux and Windows keep the current public or local import path.
-
-This slice is complete. It added 3,006 net production lines and 620 net test lines.
-It uses five focused test functions. The direct Rust surface is approximately 9,800 production lines.
-The full no-CGo suite, vet, race checks, client contracts, schema convergence, and cross-builds pass.
-
-Target at most 3,400 production lines and 650 test lines.
-Stop at 3,900 production lines or 975 test lines.
-Use no more than eight focused test functions.
-
-### Browser route and execution slice
-
-Implement this slice only after approved Noema-specific Obscura artifacts exist.
-Reuse the existing ordered browser route and observed browser links. Add no schema migration.
-Keep browser sessions process-local. Add no session table.
-One session belongs to one Chat conversation or Task generation.
-A provider switch starts fresh and transfers no browser state.
-Reuse the existing action-review, Artifact, URL-policy, and runtime lifecycle authorities.
-The web client saves an ordered route. An iOS provider selection moves that provider to the route front.
-
-Target 3,800 production lines and 1,050 test lines.
-Stop at 4,300 production lines or 1,300 test lines.
-Use seven focused tests for tools, route storage, installation, processes, ownership, review, and uncertain outcomes.
-
-Browser fingerprints and document formatting can differ. Preserve the supported
-actions, bounded outputs, security checks, and main content.
-
-## 9. Preserved Contracts
-
-| Boundary | Required compatibility |
-| --- | --- |
-| Stored state | Use a new Go-owned layout. Keep atomic replacement, checksums, file modes, and rooted access. |
-| GraphQL | Keep `graphql/schema.graphql`, scalar encodings, null behavior, enums, cursors, subscriptions, and error categories. |
-| Providers | Keep request conversion, transcript order, tool calls, cancellation, continuation, finalization, and safe errors. |
-| Tools | Keep MCP transport, OAuth, process isolation, limits, adapters, browsing, files, documents, and bounded scripts. |
-| Security | Keep authorization, egress, action review, approval consumption, URL policy, audit, and current-run checks. |
-| Information | Keep secrets, private information, and ordinary information as the three information classes. |
-
-The first Go release supports only homes created by Go. It does not read,
-upgrade, or convert Rust-created homes.
-
-Avoid client changes when the current contract is practical. Keep any required
-client patch small and preserve product behavior.
-
-Secret Go types must reject JSON and text serialization. Their debug output
-must use fixed text.
-
-## 10. Ordered Migration Units
-
-Each unit must pass its gate before the next unit starts.
-
-The table gives dependency order. It does not require serial implementation.
-Agents can build disjoint vertical slices in isolated worktrees.
-GraphQL generation and database schema changes merge one at a time.
-Each merged slice must pass its gate before dependent work starts.
-
-| Unit | Work | Exit gate |
-| --- | --- | --- |
-| 0. Baseline and spike | Complete sections 4 and 5. | Record a go or no-go decision. |
-| 1. Home and store | Add configuration, rooted files, SQLite, fresh schema creation, transactions, and backups. | A new home works from an empty directory. Selected store tests pass. |
-| 2. Domain and read API | Add stored reads, current GraphQL queries, and static assets. | Current client operations return equivalent normalized results. |
-| 3. Authentication and commands | Add sessions, passkeys, recovery, native OAuth, commands, approvals, notifications, and audit events. | Security, concurrency, restart, and stale-request cases pass. |
-| 4. Provider and agent runtime | Add provider conversion, streaming, context, tools, Task roles, finalization, and recovery. | Provider fixtures produce equivalent conversations and Task outcomes. |
-| 5. Capabilities and integrations | Add adapters, MCP, files, documents, scripts, search, fetch, browsing, and local models. | Current capability security and provider contract cases pass. |
-| 6. API and notifications | Add remaining mutations, subscriptions, Web Push, APNs, Live Activities, and native support. | Client operations and notification lifecycle cases pass. |
-| 7. Desktop sidecar | Launch Go from desktop and proxy existing commands, subscriptions, and OAuth returns. | Current desktop behavior passes without an embedded host. |
-| 8. Candidate acceptance | Run race, contract, restart, and controlled failure tests. | No current verified path loses its main outcome. |
-| 9. Cutover | Follow section 13 and complete live acceptance. | Clients, integrations, notifications, Tasks, and recovery pass. |
-| 10. Removal | Remove all replaced Rust server code after source acceptance. | Current documents name the Go server as the authority. |
-
-Run live acceptance only after explicit approval. Record every waived provider
-or platform case.
-
-### First authentication unit
-
-The complete browser authentication unit passed on 2026-09-04. It includes:
-
-- exact Host and Origin checks;
-- the zero-passkey setup barrier;
-- initial passkey claim and normal passkey login;
-- bounded persistent browser sessions;
-- recovery-code rotation and recovery enrollment;
-- passkey listing, addition, removal, and final-passkey protection;
-- current-session and global logout;
-- GraphQL HTTP and WebSocket admission;
-- WebSocket closure after session revocation.
-
-Use go-webauthn and the standard library. Do not add a session framework.
-Append schema version 2 for passkeys and browser session digests.
-
-The unit added 2,235 production lines and 770 test lines. It added nine focused
-tests. Production exceeded its estimate by 235 lines but stayed below the
-2,500-line stop threshold.
-
-The tests cover authority, ceremonies, races, persistence, recovery, passkey
-management, ingress limits, and GraphQL admission. The schema advanced to
-version 2 through a forward-only migration.
-
-Browser sessions use protected keyed digests. Recovery codes rotate through
-protected atomic configuration writes. The server limits HTTP work to 256
-requests and WebSockets to 64 connections.
-
-### Native OAuth unit
-
-The complete native OAuth unit passed on 2026-09-04. It preserves:
-
-- authorization, token, and revocation routes;
-- browser resume, recent-passkey consent, CSRF, and client redirects;
-- public native clients and exact S256 PKCE;
-- digest-only authorization, access, and refresh credentials;
-- atomic code exchange and refresh rotation;
-- durable request-bound and desktop retry recovery;
-- replay, family, client, and global revocation;
-- GraphQL client listing and revocation;
-- bearer HTTP and WebSocket admission;
-- WebSocket closure after expiry or revocation.
-
-Schema version 3 adds native clients, authorization codes, refresh families,
-access credentials, refresh credentials, and browser consent state.
-
-The unit added 1,954 production lines and 660 test lines. It added eight focused
-tests. Production exceeded its estimate by 54 lines and stayed below the
-2,400-line stop threshold.
-
-The maintained `github.com/go-oauth2/oauth2/v4` module owns OAuth request,
-grant, response, redirect, and S256 validation rules. Noema owns durable token
-state, atomic rotation, retry recovery, replay, and revocation.
-
-The Go production closure now contains 24 external modules. Native bearer
-authentication is active for GraphQL HTTP and WebSocket requests.
-
-### Hosted onboarding unit
-
-The first hosted onboarding unit passed on 2026-09-04. It includes:
-
-- protected provider credentials with revision checks and rollback;
-- safe provider account metadata and derived capabilities;
-- OpenRouter API-key verification and compatible model discovery;
-- OpenRouter S256 PKCE with bounded, short-lived attempt state;
-- current GraphQL provider roots and authentication events;
-- atomic model assignments for all nine current workloads;
-- idempotent primary Chat creation after onboarding;
-- one fresh-home path through the current client boot shape.
-
-Schema version 4 owns provider accounts. Schema version 5 owns primary Chat
-identity. Schema version 6 owns the complete hosted model assignment set.
-
-OpenRouter secrets remain in protected files. SQLite contains only safe
-account metadata, compatible model profiles, and credential revisions.
-
-The Go server now reaches an empty ready Chat from a fresh home through
-OpenRouter. The first text turn is complete in the runtime unit below.
-
-### Codex device authentication unit
-
-The Codex device authentication unit passed on 2026-09-04. It includes:
-
-- the current OpenAI device authorization wire contract;
-- bounded polling with cancellation and expiry;
-- authorization-code exchange;
-- bounded model discovery with visible-profile filtering;
-- validated client-version discovery with a safe fallback;
-- protected access and refresh token storage;
-- atomic token and catalog publication with credential revision checks and rollback;
-- safe authentication events and errors.
-
-The current provider-auth GraphQL roots now route Codex and OpenRouter attempts.
-They preserve the existing web and iOS operation shapes. Graceful shutdown
-cancels detached Codex polling and model discovery. Codex generation remains
-later provider work.
-
-### First Chat runtime unit
-
-The first Chat runtime unit passed on 2026-09-04. It includes:
-
-- schema version 7 for turns, items, and conversation status;
-- schema version 8 for safe links, cascade deletion, and one active turn;
-- startup and shutdown recovery for interrupted turns;
-- bounded OpenRouter text generation with safe credential use;
-- serialized detached turn execution and timezone context;
-- GraphQL acceptance, status, delta, item, completion, and replay behavior;
-- durable provider failures and restart-stable transcript identifiers.
-
-This unit covers text-only OpenRouter turns. Native tools, reasoning records,
-citations, hosted search, and provider continuation remain required in unit 4.
-
-### OpenRouter native-tool provider unit
-
-The OpenRouter native-tool provider unit passed on 2026-09-04. It includes:
-
-- canonical and provider-safe tool names with collision handling;
-- strict schema conversion with safe fallback and optional-null restoration;
-- function-tool and hosted-search request controls;
-- complete native call, result, and reasoning replay;
-- bounded stream parsing for calls, reasoning, citations, searches, and usage;
-- validated native calls with exact advertised-name and call-ID checks;
-- safe errors, cancellation, secret handling, and request and response limits.
-
-The provider uses complete local replay. It does not depend on an OpenRouter
-continuation identifier.
-
-Shared generation requests, responses, replay items, reasoning, and tool controls
-now use one provider-neutral Go contract. OpenRouter remains its first transport.
-
-### Codex Responses HTTP unit
-
-The Codex Responses HTTP transport includes:
-
-- structured message, reasoning, function-call, and function-result replay;
-- streamed text and one validated native function call;
-- encrypted reasoning, output identity, model identity, and usage;
-- stored client-version, workspace, session, and origin headers;
-- Fast mode through the priority service tier;
-- access-token refresh near expiry and one refresh retry after authentication rejection;
-- bounded requests, responses, errors, cancellation, and credential lifetime.
-
-WebSocket sessions remain later work.
-
-### Primary Chat provider-routing unit
-
-The primary Chat provider-routing unit passed on 2026-09-04. It includes:
-
-- one provider-neutral generation interface and request-size error;
-- selection of OpenRouter or Codex from the stored primary assignment;
-- one fixed provider route through immediate-tool continuations and finalization;
-- provider-specific recommended models and Fast mode;
-- exact provider provenance in usage, reasoning, calls, and results;
-- production composition of both hosted generators;
-- rejection of OpenAI until its Go transport and credentials exist.
-
-This unit changes no schema or client operation.
-
-### First immediate tool runtime unit
-
-The `task.inspect` runtime unit passed on 2026-09-04. It includes:
-
-- one advertised immediate-read tool with a final source-schema check;
-- rooted access to the current Task row and `TASK.md`;
-- atomic call and result storage with repeat-safe completion;
-- exact stored results and bounded model-facing replay;
-- durable provider call, result, commentary, and reasoning history;
-- restart recovery that does not repeat an uncertain call;
-- repeated durable continuations with distinct stream and round identities;
-- deterministic stops for repeated results, failure streaks, and the hard ceiling;
-- one tool-free finalization request after a deterministic stop;
-- bounded finalization replay that keeps every permitted call and result;
-- compact finalization after local size or provider context rejection;
-- commentary phases and stream identities that reconcile across repeated rounds;
-- combined provider usage across every request in the turn;
-- existing GraphQL `Activity` delivery for live and stored tool items.
-
-This unit does not add Task writes, action requests, scheduling, parallel calls,
-or adaptive progress audits. Those capabilities remain later unit 4 slices.
-
-### Project authority unit
-
-The Project authority unit passed on 2026-09-04. It includes:
-
-- current Project list, document, create, update, archive, and reopen operations;
-- normalized repeat-safe commands with durable receipts and revision checks;
-- central document staging below the Go home for creates, saves, and folder moves;
-- receipt-validated recovery before startup and after uncertain database outcomes;
-- rooted publication with exact content checks and durable directory sync;
-- one global Work event sequence with opaque cursors and separate event identities;
-- bounded ledger replay with store-owned wakeups and subscriber backpressure;
-- Project and Task links, runtime actors, correlations, causation, and run identities;
-- Linux, macOS, and Windows pure-Go build coverage.
-
-Task placement and scheduling now use this event and document authority.
-Task execution and notifications remain later migration units.
-
-### Task scheduling authority unit
-
-The Task scheduling authority unit uses Go schema versions 12 and 13. It includes:
-
-- elapsed one-time schedule retention for missed-run recovery;
-- five-field cron expressions, including `L`, `W`, `#`, and weekday `7`;
-- embedded IANA time-zone data on every target platform;
-- inclusive next-occurrence and bounded preview calculations;
-- daylight-saving gaps and repeated local-minute identities;
-- validated missed-run and overlap policies;
-- Task placement with Project, Executor, ACP revision, and working-directory snapshots;
-- durable schedule and recurrence commands with receipts and revision checks;
-- pause, resume, skip, end, run-now, history, and due occurrence release;
-- recurrence `TASK.md` staging before database commits;
-- startup reconciliation and bounded retry after publication failures;
-- event delivery only after required Task documents become readable.
-
-Task execution does not yet consume released Tasks.
-
-### Task lifecycle API unit
-
-The Task lifecycle API uses Go schema versions 15 and 17. It includes:
-
-- Inbox replacement, queue, answer, retry, cancel, and reopen commands;
-- generation and revision checks with repeat-safe command receipts;
-- durable runs, gates, human messages, and run transcript items;
-- exact gate-resolution rules and approval-decision storage;
-- preserved run lineage after human gates;
-- exact overview counts and bounded recent Task pages;
-- staged Task document replacement with restart recovery;
-- coherent missed-schedule and terminal state projection.
-
-Provider and ACP workers do not yet consume queued Task runs.
-
-### Agent settings unit
-
-The Agent settings unit uses Go schema version 10. It includes:
-
-- three repaired built-in Agent identities with preserved names;
-- primary and Reviewer preferences backed by existing hosted assignments;
-- three Task Executor complexity settings backed by the same assignments;
-- ACP process configuration with revision checks and safe deletion;
-- ACP v1 initialization checks and agent-managed authentication;
-- bounded process output and process-tree cleanup on every target platform;
-- current Agent, ACP, and Task model-pool GraphQL operations.
-
-Task placement can use enabled ACP identities and revision snapshots.
-ACP Task execution now uses Go with rooted working directories, reviewed permissions, replay, cancellation, and uncertain-effect recovery.
-
-### Artifact authority unit
-
-The Artifact authority unit uses Go schema version 11. It includes:
-
-- conversation and Task ownership checks;
-- local files and HTTP or HTTPS external references;
-- immutable versions, metadata, byte counts, and SHA-256 integrity checks;
-- staged publication, startup cleanup, and rooted path validation;
-- authorized download, PDF, image, text, HTML, and spreadsheet preview behavior;
-- rejection of external URL user information before persistence;
-- platform-specific file durability without unsupported Windows directory flushes.
-
-Spreadsheet preview conversion supports XLS, XLSX, and ODS.
-
-### Native Memory unit
-
-The first native Memory unit includes:
-
-- a Go-owned `memory/human` tree and version-two Markdown pages;
-- stable page IDs, hashes, hierarchy, citations, and bounded source excerpts;
-- root, page, settings, pending-count, and initial event GraphQL reads;
-- staged page publication and startup recovery;
-- rooted atomic replacement on Linux, macOS, and Windows.
-
-Lexical search, exact page reads, root prompt context, model tools, durable replay, and update events now use Go authorities.
-Manual updates and the assigned Memory model use the current GraphQL contract.
-Consolidation checks citations and editable page scope before one atomic publication and checkpoint update.
-A 70-percent pending-source threshold schedules one automatic primary Chat Memory update.
-Chat context admission now uses model limits, a 70-percent soft threshold, and hidden durable checkpoints.
-
-### Chat action request and file download unit
-
-The first Chat action-request unit uses Go schema version 18. It includes:
-
-- one exact saved tool call, review, human decision, execution claim, and outcome;
-- source checks before review and execution;
-- deterministic reviewer classifications and one-use human approvals;
-- Chat pause, terminal result persistence, continuation, and restart recovery;
-- public-network checks across redirects and resolved addresses;
-- rooted atomic downloads with bounded time, bytes, and redirects;
-- HTML rejection and optional parsing through the current file worker;
-- existing web and iOS pending-intervention operations.
-
-Task Executors request capability tool calls. They do not decide review or create action requests.
-For each call, the capability router resolves the binding, checks its source input,
-and applies current ownership, policy, authentication, and availability rules.
-
-The selected execution route controls the result:
-
-- `ExecuteImmediately` invokes the tool without an action request;
-- `HumanReview` saves one exact action request for a human decision;
-- `LlmReview` saves one exact action request for reviewer classification.
-
-A Task origin adds the Task generation, run, worker claim, and current-run check.
-The shared capability policy remains the only authority that decides whether to surface an action request.
-Task capability routing and other external tools remain later migration units.
-
-### Provider-hosted search unit
-
-Codex and OpenRouter now expose their native hosted search through primary Chat.
-The unit includes:
-
-- provider-specific request and bounded stream handling;
-- exact search lifecycle, arguments, sources, citations, usage, and failures;
-- durable activity markers and provider-aware replay;
-- Codex stored-response continuation for provider-held search state;
-- closed failure when required provider state is unavailable;
-- private citation-marker removal with adjusted UTF-16 offsets;
-- raw provider text retention and safe unresolved-marker diagnostics.
-
-### OpenAI Responses unit
-
-The OpenAI account now uses its protected API-key authority for production generation.
-It shares the exact Responses behavior that also applies to Codex, while keeping provider-specific authentication and status handling.
-
-The unit includes:
-
-- native tools, hosted search, reasoning, citations, usage, and Fast mode;
-- stored Chat response identifiers with incremental continuation input;
-- non-stored Memory, review, and other background generations;
-- current GPT-5.6 cache options and bounded developer-message breakpoints;
-- bounded streams, cancellation, and safe provider errors.
-
-### Responses WebSocket unit
-
-OpenAI and Codex now use one bounded WebSocket session for each related Chat turn or Task run.
-The unit lazily connects, reuses one connection, and closes it at the owning runtime boundary.
-Normal continuations send incremental input while retaining full local replay for a safe setup fallback.
-OpenAI can retain stored response continuation during HTTP fallback.
-Codex falls back with full local replay and no hosted response continuation.
-Cancellation and failures after output never replay a request with an uncertain outcome.
-Providers without a session contract continue to use the existing HTTP generator.
-
-### Apple Foundation Models unit
-
-Apple Foundation Models now serves primary Chat and built-in Task runs through the shipped Swift bridge.
-One bridge process belongs to one Chat turn or Task run.
-The provider preserves native tools, tool continuation, full replay, streaming, cancellation, and token counting.
-It rechecks unavailable model state only when a human selects or uses the provider.
-Development builds compile a missing Swift bridge once through the existing package command.
-The 4,096-token provider limit uses the existing runtime context authority.
-The bridge starts no descendants, so direct child termination replaces unused cross-platform process-tree code.
-
-### Web fetch model settings unit
-
-The existing web and iOS query and mutation now read and save the web-fetch summarizer assignment.
-The unit reuses the hosted assignment and provider-option authorities.
-It adds no schema, provider transport, or background work.
-
-### Bounded document conversion units
-
-Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
-It enforces the 32 MiB input and 20,000-character output contracts.
-Archive expansion, XML depth, XML tokens, rows, cells, and parser failures remain bounded.
-
-Spreadsheet conversion is connected to Artifact previews.
-The Chat `file.parse` tool uses rooted reads and one isolated parser process.
-The worker has a 30-second limit and a 512 MiB Unix address-space limit.
-Legacy DOC and legacy PPT use bounded Compound File Binary parsers.
-Raster OCR uses optional Tesseract through the same isolated worker.
-Strong document signatures take priority over misleading image extensions.
-The worker enforces the 512 MiB memory limit on Unix and Windows.
-
-### Built-in Task execution unit
-
-The built-in provider Task worker now runs from durable work-event wakeups. It includes:
-
-- current-generation and worker-claim fences for Planner, Executor, and Reviewer runs;
-- current `PROJECT.md`, `TASK.md`, `RESULT.md`, and `REVIEW.md` role handoffs;
-- rooted Task files, `task.inspect`, `file.parse`, and provider-hosted search;
-- exact reasoning, citation, search, tool, usage, and provider identifier replay;
-- uncertain incomplete-call recovery without repeated effects;
-- bounded provider calls, tool calls, active time, retries, review rounds, and continuations;
-- human gates, validated review publication, cancellation, and terminal cleanup;
-- committed-event reconciliation for idempotent Task attention notifications.
-
-### Task model tools unit
-
-Go schema version 27 now supports every primary Chat Task tool.
-Task-role runs can capture and list Tasks and create, read, list, and parse Task Artifacts.
-Lifecycle commands preserve recurrence, Project placement, gates, policy, and run authorities.
-Delegation queues atomically. Current-run and Artifact-version fences protect committed work.
-Task captures inherit the source client time zone. Task-role artifacts preserve their Task source.
-Chat Task commands preserve their source conversation, turn, item, and tool-call identifiers.
-Only Task Executor can use hosted web search. Planner and Reviewer cannot use it.
-The unit adds 1,363 production lines and 331 test lines through five focused test functions.
-The correction reused current authorities. It added no provenance framework or background process.
-
-### Browser Web Push and native Apple notification units
-
-The browser Web Push unit uses Go schema version 14. Native Apple notifications use version 16. They include:
-
-- protected per-installation VAPID configuration;
-- browser-session-owned registration, removal, status, and presence;
-- durable delivery claims, bounded retries, expiry, and invalidation;
-- private-network endpoint rejection and resolved-address pinning;
-- presence suppression and primary Chat final-answer projection;
-- one bounded Task-attention queue entrypoint for the Task execution unit.
-- protected APNs provider configuration and client-owned device registrations;
-- durable native Chat and Task alerts with presence suppression and bounded retries;
-- client-owned Live Activity push-to-start and update-token lifecycle.
-
-Task-derived Live Activity start, update, and end delivery uses Go schema version 23.
-
-### A2UI Chat interaction unit
-
-Primary Chat now presents and resumes A2UI v0.9.1 interactions in Go. The unit includes:
-
-- strict JSONL validation and bounded component, surface, action, and data-model reduction;
-- durable surface storage, transcript replay, pause, action submission, resume, and restart recovery;
-- exact interaction, revision, provider, credential, tool-catalog, component, action, context, and data-model fences;
-- arbitrary JSON data-model roots and client-compatible action-context binding resolution;
-- the existing action-review path for effects requested after an interaction resumes.
-
-The unit adds 1,637 authored production lines against a 2,932-line direct Rust path.
-
-### Direct adapter credential unit
-
-Direct adapter credentials use Go schema version 25. The unit includes:
-
-- protected field and JSON-document credential generations under the Go home;
-- reviewed Lua 5.4 request authentication for headers and query values;
-- exact credential revision fences for delayed Chat and Task calls;
-- response redaction for injected names and exact injected secret values;
-- durable authentication interruptions after remote rejection;
-- replacement, skip, restart recovery, and existing client intervention controls.
-
-### Adapter OAuth unit
-
-Google adapter OAuth uses Go schema version 26 and the existing adapter interruption authority.
-It preserves reviewed applications, exact scope alternatives, PKCE attempts, grants, protected tokens, refresh, and safe retry.
-Each attempt terminates within ten minutes and publishes one bounded terminal event.
-Grant deactivation advances authority revisions and removes usable token files.
-Connection attachment accepts only a current reviewed definition and an exact eligible replacement.
-Chat and Task interruptions terminate when their saved binding becomes stale.
-Management reads fail instead of returning partial OAuth authority.
-The unit adds no discovery service, device flow, durable attempt store, or background poller.
-
-### Task runtime event unit
-
-The existing web and iOS Task transcript subscription now uses Go.
-One durable work wake checks the current run and its newest visible transcript item.
-The subscription sends a refetch hint only after the requested Task changes.
-It adds no schema, polling loop, event registry, or dependency.
-
-## 11. Validation Strategy
-
-Do not copy all 1,135 Rust tests mechanically.
-
-Port tests that protect a distinct risk:
-
-- authorization, information handling, and path safety;
-- transaction atomicity and data loss;
-- repeat-safe commands and one-use approvals;
-- current-run checks and stale execution claims;
-- provider wire formats and stream termination;
-- external input bounds and duplicate JSON keys;
-- restart recovery and uncertain external actions;
-- fresh schema creation and later Go schema changes;
-- browser, MCP, and subprocess isolation;
-- client-visible GraphQL behavior.
-
-Use table-driven tests when setup and consequences are shared.
-Use the real in-memory SQLite store where practical.
-
-Run these checks for each candidate unit:
-
-```text
-gofmt check for `cmd` and `internal`
-go vet ./cmd/... ./internal/...
-go test ./cmd/... ./internal/...
-go test -race ./cmd/... ./internal/...
-staticcheck ./cmd/... ./internal/...
-govulncheck ./cmd/... ./internal/...
-govulncheck github.com/99designs/gqlgen
-GraphQL operation validation
-fresh Go schema check
-```
-
-Pin exact tool versions in the migration toolchain file.
-
-## 12. Budget and Schedule
-
-The migration size gate supersedes the original phase forecast.
-Authored production must remain below 139,192 lines.
-The inclusive checked-in total must remain below 191,860 lines.
-
-At commit `58379dd8`, authored production is 76,679 lines.
-Tests use 24,158 lines. Generated GraphQL uses 79,612 lines.
-The inclusive total is 180,449 lines.
-Authored production is 44.07 percent of Rust. The inclusive total is 75.24 percent.
-The smaller inclusive headroom governs current planning.
-
-Generated GraphQL code remains a separate reported class.
-It does not justify authored growth or removal of necessary tests.
-
-Each unit must define a smaller budget before implementation. Stop when a unit
-exceeds its estimate by 50 percent or 500 lines, whichever is smaller.
-
-Expected focused full-time duration for one person is six to twelve months.
-Reforecast when the spike and store unit finish.
-
-### Parallel delivery
-
-Parallel work uses complete user paths. It does not assign one Rust package to
-one agent. A path owns its required store, runtime, API, and focused tests.
-
-Only one active path owns a new schema version. Other paths must use the current
-schema or wait for that version to merge. Generated GraphQL changes merge after
-the schema owner. The main branch then validates the combined result.
-
-Implementation now includes local models, Playwright, Kernel, the desktop
-sidecar, Go development startup, and the pinned Obscura installer. The Rust
-server crates and unused Rust MCP transport are removed.
-
-Release acceptance still needs five published Obscura assets and native Windows
-WAL stress. Other platform and client gates can run from the current source.
-
-## 13. Cutover and Rollback
-
-Create a new, empty Go home and start the Go server. Do not open or convert a
+The Go server uses a fresh home. It does not open, upgrade, or convert a
 Rust-created home.
 
-Rollback deploys the previous accepted Go build against the same Go home.
-The repository retains no Rust server binary or Rust-home rollback path.
+## Non-goals
 
-## 14. Stop Conditions
+- Do not rewrite the web or native clients.
+- Do not redesign GraphQL or replace SQLite.
+- Do not preserve Rust server packages or internal Rust APIs.
+- Do not preserve a Rust database or file layout.
+- Do not add CGo.
+- Do not add a server-managed database backup subsystem.
+- Do not add an ORM, dependency injection framework, or generic repository layer.
+- Do not add distributed coordination for local operations.
+- Do not expand product scope during the migration.
 
-Stop and request a product decision if any condition occurs:
+Noema backup remains a stopped-server copy of the complete Noema home. The
+project storage contract owns that procedure.
 
-- client compatibility requires a material or user-visible GraphQL change;
-- the Go path weakens a security or information-handling boundary;
-- a required capability has no viable pure-Go implementation;
-- a current verified product path must be retired;
-- the build loop misses the evidence gate;
-- authored or inclusive Go code reaches its 80-percent hard limit;
-- rollback cannot start the previous accepted Go build with its Go home.
+## Baseline and Size Gate
 
-## 15. Approved Decisions
+The fixed Rust baseline is commit
+`a007a4fa984f0d2eaeb2c101337dbbe7881d9379`.
 
-| Decision | Approved direction |
+| Class | Rust baseline | Go current | Go ratio | Hard limit |
+| --- | ---: | ---: | ---: | ---: |
+| Authored production | 173,990 | 76,704 | 44.09% | 139,192 |
+| Tests | 65,836 | 24,347 | Separate evidence cost | — |
+| Generated GraphQL | — | 79,612 | Separate generated cost | — |
+| Inclusive total | 239,826 | 180,663 | 75.33% | 191,860 |
+
+Count only tracked `.go` files. Report authored production, tests, generated
+GraphQL, and the inclusive total separately.
+
+Both Go ratios must stay below 80 percent. Generated code does not justify
+authored growth or removal of necessary tests.
+
+Each protection must address a current failure, concrete threat, retained
+capability, or client contract. Rust parity alone does not justify extra code.
+
+## Completed Source Outcome
+
+One Go server now owns production startup, shutdown, configuration, storage,
+GraphQL, runtime behavior, capabilities, and integrations.
+
+The source migration includes:
+
+- fresh-home creation and forward-only Go schema changes through version 32;
+- GraphQL HTTP, WebSocket subscriptions, assets, GraphiQL, and the private socket;
+- passkeys, recovery, browser sessions, native OAuth, and onboarding;
+- Chat streaming, transcripts, continuation, context, tools, choices, and A2UI;
+- Task capture, scheduling, recurrences, roles, gates, retries, and recovery;
+- Projects, Agents, Artifacts, Memory, audit events, and notifications;
+- OpenAI, OpenRouter, Codex, Apple Foundation Models, and local GGUF models;
+- MCP, ACP, HTTP adapters, adapter OAuth, direct credentials, and Lua 5.4;
+- search, fetch, downloads, document parsing, OCR, and browser routes;
+- Playwright, Kernel, and installable Obscura browser providers;
+- Web Push, APNs, native notifications, presence, and Live Activities;
+- Go development startup, release builds, and desktop sidecar packaging.
+
+Rust server packages and the unused Rust MCP transport are removed. Rust
+remains only in supported client and tooling targets outside the server.
+
+The desktop packages the Go server as its sidecar. macOS packages the Swift
+Apple Foundation bridge beside that server.
+
+Linux amd64 and arm64, macOS amd64 and arm64, and Windows amd64 release builds
+use `CGO_ENABLED=0`.
+
+## Preserved Contracts
+
+| Boundary | Contract |
 | --- | --- |
-| Server language | Go only. Retain no Rust server component. |
-| Native linkage | Use no CGo. |
-| Capabilities | Preserve every current production capability. |
-| Clients | Preserve behavior. Small compatibility changes are allowed. |
-| Platforms | Support Linux, macOS, and Windows. |
-| Stored state | Create a fresh Go-owned `NOEMA_HOME`. |
-| Cutover | Use one final replacement after acceptance passes. |
-| Coordination | Assume no concurrent feature work during migration. |
-| Schedule | Continue until the migration is complete. |
-| Obscura | Install one pinned, verified external binary into `NOEMA_HOME` when selected. |
-| Scripts | Use a pure-Go Lua 5.4 runtime. Rewrite current Luau syntax when necessary. |
+| Stored state | Use one Go-owned home, SQLite database, and object-owned files. |
+| GraphQL | Keep the shared schema, scalar forms, null behavior, cursors, subscriptions, and error categories. |
+| Providers | Keep message order, tool calls, cancellation, continuation, finalization, citations, usage, and safe errors. |
+| Tasks | Keep current-run checks, one-use approvals, recovery, files, schedules, recurrences, and role handoffs. |
+| Capabilities | Keep adapters, MCP, ACP, browser, files, documents, scripts, local models, and notifications. |
+| Information | Keep secrets, private information, and ordinary information as the three information classes. |
 
-The implementation owns build thresholds, dependency choices, migration order,
-and the final removal date.
+Current clients keep their GraphQL operations and general behavior. A small
+client patch is valid only when the server contract makes it necessary.
+
+## Storage and Information Handling
+
+`${NOEMA_HOME:-$HOME/.noema}` is the Go home. SQLite uses
+`${NOEMA_HOME}/noema.sqlite3`.
+
+If `${NOEMA_HOME}/db/noema.sqlite3` exists, startup rejects that Rust-created
+home before the Go server writes data.
+
+Secret-bearing production types must not expose secret values through logs,
+debug output, model context, ordinary events, exports, or ordinary JSON and
+text sinks.
+
+A dedicated protected-store DTO can serialize a secret into its governed,
+protected persistence file. That serialization is not an ordinary JSON or
+text sink.
+
+Authorized private information and ordinary information must remain intact.
+Secret exclusion must not conceal unrelated values.
+
+Helper processes keep the host environment when required. They remove exact
+server-owned secrets and `NOEMA_HOME` before startup.
+
+## Dependencies and External Processes
+
+The server uses pure-Go dependencies. Direct modules remain pinned in
+`go.mod`, and checksums remain in `go.sum`.
+
+The CI workflow checks advisories and static analysis.
+
+External processes receive bounded requests and results. They do not receive
+database access or the complete Go home.
+
+The server owns each process lifecycle and protocol. The implementation uses
+the limits needed by the current contract.
+
+Do not add a fixed idle period, stderr-ring size, or process-tree rule only
+because an earlier design named one. Add a rule only for an enforced current
+contract or demonstrated failure.
+
+## Obscura Delivery
+
+Obscura remains the default interactive browser route. Selection installs one
+pinned Noema Obscura worker under the Go home when it is absent.
+
+The installer:
+
+- selects one exact operating-system and architecture asset;
+- downloads the pinned archive and published SHA-256 file;
+- verifies the archive before extraction;
+- rejects traversal, links, unexpected files, and oversized data;
+- publishes the staged installation atomically;
+- reuses the installed worker without a network request.
+
+The installer does not hash the installed worker on every lookup. Initial
+archive verification and protected publication own installation integrity.
+
+The release needs public, anonymously readable assets for:
+
+- Linux amd64;
+- Linux arm64;
+- macOS amd64;
+- macOS arm64;
+- Windows amd64.
+
+The repository release workflow can build these assets. Asset publication to
+a public location remains an external release gate.
+
+A private GitHub release is insufficient because the installer has no GitHub
+credential. The configured release URLs must work without authentication.
+
+## Validation
+
+Completed Linux validation covers:
+
+- the full Go unit suite with `CGO_ENABLED=0`;
+- `go vet`, `staticcheck`, and `govulncheck`;
+- selected race tests;
+- fresh-home startup, GraphQL access, stop, and restart;
+- five no-CGo release target builds;
+- web schema generation and production build;
+- retained Rust formatting, checks, lints, and unit tests;
+- desktop runtime mapping and Go sidecar packaging.
+
+The store suite includes concurrent WAL writes, a cold reopen, and
+`PRAGMA integrity_check`.
+
+This Linux host cannot run native macOS or Windows tests. Cross-builds prove
+compilation only.
+
+After branch publication, GitHub must run native jobs on `macos-15` and
+`windows-2022`. The workflow also runs `ubuntu-22.04`.
+
+Native acceptance must cover the platform filesystem behavior, SQLite WAL
+test, desktop packaging, process startup, and shutdown. macOS must also cover
+the Apple Foundation bridge.
+
+Live hosted-provider and external-integration acceptance needs configured
+credentials. Record any unavailable or waived case before release.
+
+The final integrated Linux check must include the full race suite.
+
+## Remaining Release Gates
+
+Source implementation is complete. Release acceptance remains open until:
+
+1. The five public Obscura assets and checksum files are available anonymously.
+2. Native Linux, macOS, and Windows jobs pass after branch publication.
+3. The packaged desktop starts and stops its Go sidecar on each desktop platform.
+4. The macOS package starts the Apple Foundation bridge.
+5. The final integrated Linux suite passes, including race detection.
+6. Credential-backed provider and integration acceptance passes or has an explicit waiver.
+7. Each final release artifact has a complete notice set. It covers Go modules,
+   the Go toolchain, Noema, web and font assets, MPL source availability, and
+   packaged native content.
+8. Both Go size ratios remain below 80 percent at the release commit.
+
+These are release evidence gates. They are not missing server source features.
+
+## Cutover and Rollback
+
+Create an empty Go home for cutover. Do not copy a Rust-created home into it.
+
+Rollback starts the previous accepted Go build against the same Go home. The
+repository has no Rust server binary or Rust-home rollback path.
+
+## Stop Conditions
+
+Stop and request a product decision if:
+
+- client compatibility needs a material GraphQL or product behavior change;
+- a Go path weakens an information, authorization, or data-loss boundary;
+- a retained capability has no viable pure-Go implementation;
+- a current production capability must be removed;
+- authored or inclusive Go reaches its 80-percent limit;
+- the previous accepted Go build cannot open the current Go home.
+
+## Approved Decisions
+
+| Decision | Direction |
+| --- | --- |
+| Server language | Go only. Keep no Rust server component. |
+| Native linkage | Use no CGo. |
+| Capabilities | Preserve all current production capabilities. |
+| Clients | Preserve behavior. Permit small compatibility changes. |
+| Platforms | Support Linux, macOS, and Windows. |
+| Stored state | Create a fresh Go-owned home. |
+| Cutover | Use one final replacement after acceptance. |
+| Obscura | Install one pinned external binary into the Go home when selected. |
+| Scripts | Use a pure-Go Lua 5.4 runtime. |
+
+The implementation owns dependency choices and internal package structure.
+The release gates above own final shipment.
