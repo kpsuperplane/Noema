@@ -18,7 +18,6 @@ const CACHE_TEMP_DIRECTORY: &str = "tmp";
 const CARGO_CACHE_TAG: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55\n\
 # This file is a cache directory tag created by cargo.\n\
 # For information about cache directory tags see https://bford.info/cachedir/\n";
-const DEV_CACHE: CacheTarget = CacheTarget::new("development server", "noema-dev", 30 * GIB);
 const VALIDATION_CACHE: CacheTarget =
     CacheTarget::new("Rust validation", "noema-validation", 20 * GIB);
 
@@ -109,8 +108,6 @@ pub(crate) async fn run_validation(cargo_args: Vec<OsString>) -> Result<(), Work
 
 pub(crate) async fn run_development_server() -> Result<(), WorkflowError> {
     let repo_root = crate::repo_root();
-    enforce_cache_budget(&repo_root, DEV_CACHE).await?;
-
     let mut command = development_server_command(&repo_root, crate::running_as_root());
     let status = command
         .status()
@@ -126,14 +123,13 @@ fn development_server_command(repo_root: &Path, drop_root: bool) -> Command {
     let mut command = if drop_root {
         Command::new(repo_root.join("scripts/run-noema-dev-server"))
     } else {
-        let mut command = Command::new(cargo_exe());
-        command.args(["run", "-p", "noema-server", "--bin", "noema_web"]);
+        let mut command = Command::new("go");
+        command.args(["run", "-buildvcs=false", "./cmd/noema"]);
         command
     };
     command
         .current_dir(repo_root)
-        .env("CARGO_TARGET_DIR", DEV_CACHE.path(repo_root))
-        .env("TMPDIR", DEV_CACHE.temp_path(repo_root))
+        .env("CGO_ENABLED", "0")
         .env("NOEMA_WEB__HOST", "127.0.0.1")
         .env("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "true")
         .stdin(Stdio::inherit())
@@ -320,14 +316,22 @@ mod tests {
 
     #[test]
     fn development_server_does_not_override_authentication() {
-        let command = development_server_command(Path::new("/workspace/noema"), true);
+        let command = development_server_command(Path::new("/workspace/noema"), false);
+        let command = command.as_std();
 
         assert!(
             command
-                .as_std()
                 .get_envs()
                 .all(|(name, _)| name != "NOEMA_WEB__DEV_NO_AUTH")
         );
+        assert_eq!(command.get_program(), "go");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["run", "-buildvcs=false", "./cmd/noema"]
+        );
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "CGO_ENABLED" && value.is_some_and(|value| value == "0")
+        }));
     }
 
     #[test]

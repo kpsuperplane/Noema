@@ -21,8 +21,6 @@ const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
 const DEV_ASSET_DIR_ENV: &str = "NOEMA_DEV_ASSET_DIR";
 const ROOT_DEV_ASSET_DIR: &str = "/run/noema-dev/web-assets";
 const ROOT_WEB_ASSET_SHELL: &str = r#"umask 022; exec "$@""#;
-const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 2] =
-    ["apps/web/**", "crates/noema-server/target/web-assets/**"];
 const WATCHER_RESTART_DELAY: Duration = Duration::from_millis(250);
 #[cfg(unix)]
 const PROCESS_GROUP_SHUTDOWN_GRACE: Duration = Duration::from_secs(1);
@@ -94,7 +92,7 @@ async fn run_development() -> Result<(), DevError> {
 
     eprintln!("Noema dev supervisor started");
     eprintln!("web assets: bun run {WEB_ASSET_WATCH_SCRIPT}");
-    eprintln!("web server: cargo watch -- noema-dev serve");
+    eprintln!("web server: cargo watch -- Go server");
     if bridge.is_some() {
         eprintln!("foundation bridge: cargo watch -s swift build");
     }
@@ -262,20 +260,16 @@ fn configure_web_server_watcher(command: &mut Command, executable: &Path) {
         .arg("watch")
         .arg("--delay")
         .arg("1.5")
-        .arg("-E")
-        .arg("CARGO_PROFILE_DEV_INCREMENTAL=true")
-        .arg("-E")
-        .arg("CARGO_PROFILE_DEV_DEBUG=0")
         .arg("-w")
-        .arg("crates")
+        .arg("cmd")
         .arg("-w")
-        .arg("Cargo.toml")
+        .arg("internal")
         .arg("-w")
-        .arg("Cargo.lock");
-
-    for glob in WEB_SERVER_WATCH_IGNORE_GLOBS {
-        command.arg("--ignore").arg(glob);
-    }
+        .arg("go.mod")
+        .arg("-w")
+        .arg("go.sum")
+        .arg("-w")
+        .arg("graphql/schema.graphql");
 
     command.arg("--").arg(executable).arg("serve");
 }
@@ -463,31 +457,22 @@ mod tests {
     }
 
     #[test]
-    fn server_watcher_ignores_web_sources_and_generated_assets() {
-        assert_eq!(
-            WEB_SERVER_WATCH_IGNORE_GLOBS,
-            ["apps/web/**", "crates/noema-server/target/web-assets/**",]
-        );
-    }
-
-    #[test]
-    fn server_watcher_uses_fast_development_profile() {
+    fn server_watcher_watches_go_sources() {
         let mut command = Command::new("cargo");
         configure_web_server_watcher(&mut command, Path::new("/workspace/noema-dev"));
 
         let arguments = command.as_std().get_args().collect::<Vec<_>>();
         assert!(!arguments.contains(&std::ffi::OsStr::new("--no-process-group")));
         assert!(arguments.windows(2).any(|pair| pair == ["--delay", "1.5"]));
-        assert!(
-            arguments
-                .windows(2)
-                .any(|pair| pair == ["-E", "CARGO_PROFILE_DEV_INCREMENTAL=true"])
-        );
-        assert!(
-            arguments
-                .windows(2)
-                .any(|pair| pair == ["-E", "CARGO_PROFILE_DEV_DEBUG=0"])
-        );
+        for path in [
+            "cmd",
+            "internal",
+            "go.mod",
+            "go.sum",
+            "graphql/schema.graphql",
+        ] {
+            assert!(arguments.windows(2).any(|pair| pair == ["-w", path]));
+        }
     }
 
     #[test]

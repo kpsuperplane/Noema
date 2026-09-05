@@ -7,7 +7,7 @@ export default tseslint.config(
   {
     ignores: [
       "dist",
-      "../../crates/noema-server/target/web-assets",
+      "../../target/web-assets",
       "src/generated"
     ]
   },

@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const defaultAssetDirectory = "crates/noema-server/target/web-assets"
+const defaultAssetDirectory = "target/web-assets"
 
 var spaExcludedPrefixes = [...]string{
 	"/assets",

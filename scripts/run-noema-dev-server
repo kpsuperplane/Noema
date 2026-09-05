@@ -20,7 +20,7 @@ if [[ "$(stat -c '%U:%G:%a' -- "${noema_home}")" != "${run_user}:${run_user}:700
   exit 1
 fi
 
-CGO_ENABLED=0 go build -o "${runtime_dir}/noema" ./cmd/noema
+CGO_ENABLED=0 go build -buildvcs=false -o "${runtime_dir}/noema" ./cmd/noema
 chmod 0555 "${runtime_dir}/noema"
 
 export HOME="${noema_home}"
@@ -28,7 +28,6 @@ export USER="${run_user}"
 export LOGNAME="${run_user}"
 export NOEMA_HOME="${noema_home}"
 export NOEMA_DEV_ASSET_DIR="${asset_dir}"
-export NOEMA_DEV_LOCAL_MODEL_RUNTIME_ROOT="${noema_home}/models/runtime"
 export NOEMA_WEB__LOCAL_GRAPHQL_SOCKET=true
 export TMPDIR="${noema_home}/system/tmp"
 cd -- "${noema_home}"
@@ -42,4 +41,4 @@ exec /usr/bin/setpriv \
   --bounding-set=-all \
   --no-new-privs \
   /bin/sh -c 'umask 077; mkdir -p -- "$TMPDIR"; exec "$@"' \
-  noema-dev-server "${runtime_dir}/noema" -migration-spike
+  noema-dev-server "${runtime_dir}/noema"

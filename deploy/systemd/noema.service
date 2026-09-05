@@ -9,7 +9,7 @@ User=noema
 Group=noema
 Environment=NOEMA_HOME=/var/lib/noema
 WorkingDirectory=/var/lib/noema
-ExecStart=/usr/local/bin/noema_web
+ExecStart=/usr/local/bin/noema
 Restart=on-failure
 RestartSec=5s
 UMask=0077
