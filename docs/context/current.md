@@ -18,7 +18,7 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
-The Go evidence gate passed. The replacement now uses Go schema version 18.
+The Go evidence gate passed. The replacement now uses Go schema version 23.
 It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task lifecycle, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 Primary Chat supports durable recovery and bounded `task.inspect`, `file.parse`, and Memory tool loops.
@@ -30,8 +30,8 @@ Artifact storage owns safe local files, external URLs, versions, metadata, integ
 Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
 `file.parse` uses isolated conversion for DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, EPUB, and spreadsheet formats.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
-Built-in Tasks now run Planner, Executor, Reviewer, files, replay, gates, retries, and wake-driven attention in Go.
-ACP runs, remaining capability tools, remaining integrations, Task Live Activities, and Chat context compaction remain migration units.
+Built-in Tasks now run Planner, Executor, Reviewer, files, replay, gates, retries, wake-driven attention, and Live Activities in Go.
+MCP, bounded Lua, ACP runs, remaining capability tools, remaining integrations, and Chat context compaction remain migration units.
 
 ## Current constraints
 
@@ -118,7 +118,7 @@ ACP runs, remaining capability tools, remaining integrations, Task Live Activiti
 - Humans can upload private files into Task-owned artifacts.
   The artifact store assigns the owner, immutable version, byte size, and internal integrity digest.
 - `file.parse` returns bounded text from saved email messages and supported raster images.
-- Agents can run bounded Luau over read-only JSON input.
+- Agents can run bounded Lua 5.4 over read-only JSON input.
   The sandbox has no file, network, process, module, clock, or random access.
 - Generated artifacts keep their owner, creation scope, and immutable version IDs.
   Task results cite an artifact ID and a precise locator when the artifact supports a claim.
@@ -188,7 +188,8 @@ ACP runs, remaining capability tools, remaining integrations, Task Live Activiti
 - The Tauri app defaults to its embedded host and can connect to one remote
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.
-  The human configures an ordered provider route. Obscura remains the default. The Go server installs its pinned external binary after selection.
+  The human configures an ordered provider route. Obscura remains the default. The Go server installs a pinned Noema-specific Obscura binary after selection.
+  Stock Obscura v0.1.11 lacks required screenshots, trusted interactions, structured snapshots, and atomic navigation outcomes.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
 - A failed initial browser open keeps route state. The agent can switch providers without a snapshot revision.
@@ -242,7 +243,7 @@ ACP runs, remaining capability tools, remaining integrations, Task Live Activiti
 
 - All 28 Milestone 3 paths reached reviewer-approved completion.
   Later acceptance raised the provider-neutral score to 80/100 Verified.
-- The dedicated calculator is now bounded Luau.
+- The dedicated calculator is now bounded Lua 5.4.
   Upload source manifests and the hidden HTML validator are removed.
 - The current calculation and artifact paths passed focused live regression.
   Task `task:18d07a17681adac7353` completed with a reviewed accessible HTML artifact.

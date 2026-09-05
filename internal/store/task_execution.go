@@ -258,6 +258,70 @@ WHERE r.run_id=? AND r.task_generation=? AND t.generation=? AND r.status IN ('le
 	return count == 1, err
 }
 
+// SuspendTaskExecution keeps one exact run current while human input is pending.
+func (s *Store) SuspendTaskExecution(ctx context.Context, runID string, generation int64, now time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE task_runs SET status='waiting_for_approval',updated_at_ms=?
+WHERE run_id=? AND task_generation=? AND status='running'
+ AND EXISTS (SELECT 1 FROM tasks WHERE current_run_id=? AND generation=?)`, millis(now), runID, generation, runID, generation)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return ErrStaleRun
+	}
+	return nil
+}
+
+// ResumeTaskExecution queues one exact current run after its intervention closes.
+func (s *Store) ResumeTaskExecution(ctx context.Context, runID string, generation int64, now time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE task_runs SET status='queued',queued_at_ms=?,updated_at_ms=?
+WHERE run_id=? AND task_generation=? AND status='waiting_for_approval'
+ AND EXISTS (SELECT 1 FROM tasks WHERE current_run_id=? AND generation=?)`, millis(now), millis(now), runID, generation, runID, generation)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return ErrStaleRun
+	}
+	s.NotifyWork()
+	return nil
+}
+
+// CompleteTaskIntervention stores one exact tool result before it queues the run.
+func (s *Store) CompleteTaskIntervention(ctx context.Context, runID string, generation int64, item TaskRunItemInput, now time.Time) error {
+	if item.Kind != "tool_result" || item.ParentID == "" || !validTaskRunItem(item) {
+		return errors.New("invalid Task intervention result")
+	}
+	err := s.taskRunTransaction(ctx, runID, generation, "waiting_for_approval", func(tx *sql.Tx, _ *Task, run *TaskRun) error {
+		var next int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence_index)+1,0) FROM task_run_items WHERE run_id=?`, run.ID).Scan(&next); err != nil {
+			return err
+		}
+		id, err := newID("run_item")
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(item.Payload)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO task_run_items
+(item_id,run_id,sequence_index,round_index,item_kind,status,parent_item_id,payload_json,created_at_ms,updated_at_ms)
+VALUES (?,?,?,?,?,?,?, ?,?,?)`, id, run.ID, next, item.Round, item.Kind, item.Status, item.ParentID, string(payload), millis(now), millis(now)); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE task_run_items SET status=?,updated_at_ms=? WHERE item_id=? AND run_id=? AND item_kind='tool_call' AND status='running'`, item.Status, millis(now), item.ParentID, run.ID); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='queued',queued_at_ms=?,updated_at_ms=? WHERE run_id=? AND status='waiting_for_approval'`, millis(now), millis(now), run.ID)
+		return err
+	})
+	if err == nil {
+		s.NotifyWork()
+	}
+	return err
+}
+
 // TaskRunReplayItems returns one bounded run transcript in provider order.
 func (s *Store) TaskRunReplayItems(ctx context.Context, runID string) ([]TaskRunItem, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms

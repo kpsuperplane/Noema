@@ -111,6 +111,7 @@ func (s *Service) RegisterClientLiveActivities(ctx context.Context, clientID, en
 	if err := s.database.RegisterClientLiveActivities(ctx, clientID, token, environment, active, time.Now()); err != nil {
 		return ClientLiveActivityStatus{}, err
 	}
+	s.wakeDelivery()
 	return s.ClientLiveActivityStatus(ctx, clientID)
 }
 
@@ -120,12 +121,20 @@ func (s *Service) RegisterClientLiveActivityUpdate(ctx context.Context, clientID
 	if err != nil {
 		return false, errors.New("Live Activity token is invalid")
 	}
-	return s.database.RegisterClientLiveActivityUpdate(ctx, clientID, activityID, token, time.Now())
+	changed, err := s.database.RegisterClientLiveActivityUpdate(ctx, clientID, activityID, token, time.Now())
+	if changed {
+		s.wakeDelivery()
+	}
+	return changed, err
 }
 
 // DismissClientLiveActivity removes one caller-owned active identifier.
 func (s *Service) DismissClientLiveActivity(ctx context.Context, clientID, activityID string) (bool, error) {
-	return s.database.DismissClientLiveActivity(ctx, clientID, activityID)
+	changed, err := s.database.DismissClientLiveActivity(ctx, clientID, activityID)
+	if changed {
+		s.wakeDelivery()
+	}
+	return changed, err
 }
 
 // DisableClientLiveActivities clears caller-owned ActivityKit token material.
@@ -133,7 +142,15 @@ func (s *Service) DisableClientLiveActivities(ctx context.Context, clientID stri
 	if err := s.database.DisableClientLiveActivities(ctx, clientID, time.Now()); err != nil {
 		return ClientLiveActivityStatus{}, err
 	}
+	s.wakeDelivery()
 	return s.ClientLiveActivityStatus(ctx, clientID)
+}
+
+func (s *Service) wakeDelivery() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 // ClientPresence holds one focused-Chat lease until its context ends.

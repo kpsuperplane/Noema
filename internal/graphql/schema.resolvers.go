@@ -80,32 +80,32 @@ func (r *mutationRootResolver) ConfirmOnboardingModelSelections(ctx context.Cont
 
 // AddMcpConnection is the resolver for the addMcpConnection field.
 func (r *mutationRootResolver) AddMcpConnection(ctx context.Context, input model.AddMcpConnectionInput) (*model.McpServerSetupResult, error) {
-	panic(fmt.Errorf("not implemented: AddMcpConnection - addMcpConnection"))
+	return r.addMCPConnection(ctx, input)
 }
 
 // SaveCapabilityConnectionPolicy is the resolver for the saveCapabilityConnectionPolicy field.
 func (r *mutationRootResolver) SaveCapabilityConnectionPolicy(ctx context.Context, input model.SaveCapabilityConnectionPolicyInput) (*model.CapabilityConnection, error) {
-	panic(fmt.Errorf("not implemented: SaveCapabilityConnectionPolicy - saveCapabilityConnectionPolicy"))
+	return r.saveMCPConnectionPolicy(ctx, input)
 }
 
 // SaveCapabilityConnectionLabel is the resolver for the saveCapabilityConnectionLabel field.
 func (r *mutationRootResolver) SaveCapabilityConnectionLabel(ctx context.Context, input model.SaveCapabilityConnectionLabelInput) (*model.CapabilityConnection, error) {
-	panic(fmt.Errorf("not implemented: SaveCapabilityConnectionLabel - saveCapabilityConnectionLabel"))
+	return r.saveMCPConnectionLabel(ctx, input)
 }
 
 // SaveCapabilityToolOverride is the resolver for the saveCapabilityToolOverride field.
 func (r *mutationRootResolver) SaveCapabilityToolOverride(ctx context.Context, input model.SaveCapabilityToolOverrideInput) (*model.CapabilityManagedTool, error) {
-	panic(fmt.Errorf("not implemented: SaveCapabilityToolOverride - saveCapabilityToolOverride"))
+	return r.changeMCPTool(ctx, input)
 }
 
 // ResetCapabilityToolPolicy is the resolver for the resetCapabilityToolPolicy field.
 func (r *mutationRootResolver) ResetCapabilityToolPolicy(ctx context.Context, input model.ResetCapabilityToolPolicyInput) (*model.CapabilityManagedTool, error) {
-	panic(fmt.Errorf("not implemented: ResetCapabilityToolPolicy - resetCapabilityToolPolicy"))
+	return r.changeMCPTool(ctx, input)
 }
 
 // SetCapabilityToolEnabled is the resolver for the setCapabilityToolEnabled field.
 func (r *mutationRootResolver) SetCapabilityToolEnabled(ctx context.Context, input model.SetCapabilityToolEnabledInput) (*model.CapabilityManagedTool, error) {
-	panic(fmt.Errorf("not implemented: SetCapabilityToolEnabled - setCapabilityToolEnabled"))
+	return r.changeMCPTool(ctx, input)
 }
 
 // ResolveGovernedAction is the resolver for the resolveGovernedAction field.
@@ -115,17 +115,17 @@ func (r *mutationRootResolver) ResolveGovernedAction(ctx context.Context, input 
 
 // StartMcpAuthentication is the resolver for the startMcpAuthentication field.
 func (r *mutationRootResolver) StartMcpAuthentication(ctx context.Context, input model.StartMcpAuthenticationInput) (*model.McpOAuthSetupAttempt, error) {
-	panic(fmt.Errorf("not implemented: StartMcpAuthentication - startMcpAuthentication"))
+	return r.startMCPCallAuthentication(ctx, input)
 }
 
 // SkipMcpAuthentication is the resolver for the skipMcpAuthentication field.
 func (r *mutationRootResolver) SkipMcpAuthentication(ctx context.Context, input model.SkipMcpAuthenticationInput) (*model.McpAuthenticationIntervention, error) {
-	panic(fmt.Errorf("not implemented: SkipMcpAuthentication - skipMcpAuthentication"))
+	return r.skipMCPCallAuthentication(ctx, input)
 }
 
 // ResolveMcpSetupIntervention is the resolver for the resolveMcpSetupIntervention field.
 func (r *mutationRootResolver) ResolveMcpSetupIntervention(ctx context.Context, input model.ResolveMcpSetupInterventionInput) (bool, error) {
-	panic(fmt.Errorf("not implemented: ResolveMcpSetupIntervention - resolveMcpSetupIntervention"))
+	return r.resolveMCPSetupIntervention(ctx, input)
 }
 
 // StartAdapterAuthentication is the resolver for the startAdapterAuthentication field.
@@ -488,27 +488,27 @@ func (r *mutationRootResolver) SetAdapterConnectionActive(ctx context.Context, i
 
 // CreateMcpServer is the resolver for the createMcpServer field.
 func (r *mutationRootResolver) CreateMcpServer(ctx context.Context, input model.CreateMcpServerInput) (*model.McpServerSetupResult, error) {
-	panic(fmt.Errorf("not implemented: CreateMcpServer - createMcpServer"))
+	return r.createMCPServer(ctx, input)
 }
 
 // StartMcpServerOauthSetup is the resolver for the startMcpServerOauthSetup field.
 func (r *mutationRootResolver) StartMcpServerOauthSetup(ctx context.Context, input model.StartMcpServerOAuthSetupInput) (*model.McpOAuthSetupAttempt, error) {
-	panic(fmt.Errorf("not implemented: StartMcpServerOauthSetup - startMcpServerOauthSetup"))
+	return r.startMCPCreateOAuth(ctx, input)
 }
 
 // StartMcpServerReauthenticationOauthSetup is the resolver for the startMcpServerReauthenticationOauthSetup field.
 func (r *mutationRootResolver) StartMcpServerReauthenticationOauthSetup(ctx context.Context, input model.StartMcpServerReauthenticationOAuthSetupInput) (*model.McpOAuthSetupAttempt, error) {
-	panic(fmt.Errorf("not implemented: StartMcpServerReauthenticationOauthSetup - startMcpServerReauthenticationOauthSetup"))
+	return r.startMCPReauthOAuth(ctx, input)
 }
 
 // ContinueMcpServerSetup is the resolver for the continueMcpServerSetup field.
 func (r *mutationRootResolver) ContinueMcpServerSetup(ctx context.Context, input model.ContinueMcpServerSetupInput) (*model.McpServerSetupResult, error) {
-	panic(fmt.Errorf("not implemented: ContinueMcpServerSetup - continueMcpServerSetup"))
+	return r.continueMCP(ctx, input)
 }
 
 // DeleteMcpServer is the resolver for the deleteMcpServer field.
 func (r *mutationRootResolver) DeleteMcpServer(ctx context.Context, mcpServerID string) (bool, error) {
-	panic(fmt.Errorf("not implemented: DeleteMcpServer - deleteMcpServer"))
+	return r.deleteMCP(ctx, mcpServerID)
 }
 
 // ApnsProviderStatus is the resolver for the apnsProviderStatus field.
@@ -538,17 +538,20 @@ func (r *queryRootResolver) Clients(ctx context.Context) ([]*model.Client, error
 
 // CapabilityIntegrations is the resolver for the capabilityIntegrations field.
 func (r *queryRootResolver) CapabilityIntegrations(ctx context.Context, kind model.CapabilityIntegrationKind) ([]*model.CapabilityIntegration, error) {
-	panic(fmt.Errorf("not implemented: CapabilityIntegrations - capabilityIntegrations"))
+	if kind == model.CapabilityIntegrationKindMcp {
+		return r.mcpIntegrations(ctx)
+	}
+	return nil, fmt.Errorf("capability integration is unavailable")
 }
 
 // CapabilityConnection is the resolver for the capabilityConnection field.
 func (r *queryRootResolver) CapabilityConnection(ctx context.Context, ref model.CapabilityConnectionRefInput) (*model.CapabilityConnection, error) {
-	panic(fmt.Errorf("not implemented: CapabilityConnection - capabilityConnection"))
+	return r.mcpConnection(ctx, ref)
 }
 
 // CapabilityTools is the resolver for the capabilityTools field.
 func (r *queryRootResolver) CapabilityTools(ctx context.Context, ref model.CapabilityConnectionRefInput) ([]*model.CapabilityManagedTool, error) {
-	panic(fmt.Errorf("not implemented: CapabilityTools - capabilityTools"))
+	return r.mcpTools(ctx, ref)
 }
 
 // LocalStatus is the resolver for the localStatus field.
@@ -718,7 +721,7 @@ func (r *queryRootResolver) PrivacySettings(ctx context.Context) (*model.Privacy
 
 // McpServers is the resolver for the mcpServers field.
 func (r *queryRootResolver) McpServers(ctx context.Context) ([]*model.McpServer, error) {
-	panic(fmt.Errorf("not implemented: McpServers - mcpServers"))
+	return r.mcpServers(ctx)
 }
 
 // AdapterDefinitions is the resolver for the adapterDefinitions field.
@@ -743,7 +746,7 @@ func (r *queryRootResolver) AdapterOauthAttempt(ctx context.Context, attemptID s
 
 // McpOauthSetupAttempt is the resolver for the mcpOauthSetupAttempt field.
 func (r *queryRootResolver) McpOauthSetupAttempt(ctx context.Context, attemptID string) (*model.McpOAuthSetupAttempt, error) {
-	panic(fmt.Errorf("not implemented: McpOauthSetupAttempt - mcpOauthSetupAttempt"))
+	return r.mcpAttempt(ctx, attemptID)
 }
 
 // MemorySettings is the resolver for the memorySettings field.

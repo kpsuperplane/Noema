@@ -27,7 +27,7 @@ func TestActionRequestSchemaConvergesFromVersionSeventeen(t *testing.T) {
 	}
 	defer database.Close()
 	var version int
-	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 18 {
+	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 	for _, table := range []string{"action_requests", "action_request_assessments", "action_request_decisions", "action_request_events"} {

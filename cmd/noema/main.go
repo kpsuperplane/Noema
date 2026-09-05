@@ -18,6 +18,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/notification"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -109,6 +110,14 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	stdioEnabled, err := noemamcp.StdioEnabled(paths)
+	if err != nil {
+		return err
+	}
+	mcpService, err := noemamcp.NewService(paths, taskStore, stdioEnabled, authConfig.Origin+"/mcp/oauth/callback")
+	if err != nil {
+		return fmt.Errorf("open MCP service: %w", err)
+	}
 	if err := providerAccounts.Initialize(ctx, time.Now()); err != nil {
 		return fmt.Errorf("initialize provider accounts: %w", err)
 	}
@@ -137,19 +146,27 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	chatRuntime, err := noemaruntime.NewChat(
-		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
+		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory, mcpService,
 	)
 	if err != nil {
 		return err
 	}
+	mcpService.SetToolClassifier(chatRuntime.MCPToolClassifier())
 	defer chatRuntime.Close()
+	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
-		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
+		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, mcpService,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)
 	}
 	defer taskExecution.Close()
+	mcpService.SetOAuthCompletionHandler(func(attemptID string) {
+		handled, _ := taskExecution.ResumeMCPAuthentication(context.Background(), attemptID)
+		if !handled {
+			_ = chatRuntime.ResumeMCPAuthentication(context.Background(), attemptID)
+		}
+	})
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
 	listener, err := net.Listen("tcp", address)
@@ -161,14 +178,18 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 
-	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
+	resolver := noemagraphql.NewResolver(
 		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
 		artifacts, nativeMemory, notifications,
-	))
+		mcpService,
+	)
+	resolver.TaskExecution = taskExecution
+	graphqlHandler := noemagraphql.NewHandler(resolver)
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)
 	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
+	mux.Handle("/mcp/oauth/callback", mcpService.CallbackHandler())
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{

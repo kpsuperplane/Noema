@@ -192,6 +192,7 @@ func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 	defer s.apns.CloseIdleConnections()
 	work := s.database.SubscribeWork(ctx)
 	taskProjectionPending := true
+	liveDirty := true
 	for {
 		taskProjectionErr := error(nil)
 		if taskProjectionPending {
@@ -199,14 +200,20 @@ func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 			taskProjectionPending = taskProjectionErr != nil
 		}
 		projectionErr := errors.Join(s.reconcilePrimary(ctx), taskProjectionErr)
+		var liveErr error
+		if liveDirty {
+			liveErr = s.reconcileLiveActivities(ctx)
+			liveDirty = liveErr != nil
+		}
 		var deliveryErr error
 		if s.Available() {
 			deliveryErr = s.drain(ctx)
 		}
+		liveDeliveryErr := s.drainLiveActivities(ctx)
 		apnsErr := s.drainAPNS(ctx)
 		deadline, err := s.nextDelivery(ctx)
 		delay := recoveryInterval
-		failed := projectionErr != nil || deliveryErr != nil || apnsErr != nil || err != nil
+		failed := projectionErr != nil || liveErr != nil || deliveryErr != nil || liveDeliveryErr != nil || apnsErr != nil || err != nil
 		if !failed && deadline != nil {
 			until := time.Until(*deadline)
 			if until < delay {
@@ -232,11 +239,17 @@ func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 			if !ok {
 				events = nil
 			}
-		case <-work:
-			stopTimer(timer)
-			taskProjectionPending = true
 		case <-s.wake:
 			stopTimer(timer)
+			liveDirty = true
+		case _, ok := <-work:
+			stopTimer(timer)
+			if !ok {
+				work = nil
+			} else {
+				taskProjectionPending = true
+				liveDirty = true
+			}
 		case <-timer.C:
 		}
 	}
@@ -306,8 +319,18 @@ func taskEventGeneration(event store.WorkEvent) int64 {
 
 func (s *Service) nextDelivery(ctx context.Context) (*time.Time, error) {
 	apns, err := s.database.NextAPNSDelivery(ctx)
-	if err != nil || !s.Available() {
+	if err != nil {
 		return apns, err
+	}
+	live, err := s.database.NextLiveActivityDelivery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if live != nil && (apns == nil || live.Before(*apns)) {
+		apns = live
+	}
+	if !s.Available() {
+		return apns, nil
 	}
 	web, err := s.database.NextWebPushDelivery(ctx)
 	if err != nil || apns == nil {

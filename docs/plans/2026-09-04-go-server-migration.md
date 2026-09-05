@@ -299,7 +299,11 @@ Download into a bounded temporary file under `NOEMA_HOME`. Verify the pinned siz
 Reject archive traversal, unexpected files, links, and oversized content. Publish the executable through an atomic rename.
 Keep the prior browser binding when installation fails. Reuse a verified installation without network access.
 Pin one Obscura version per Noema release. Do not resolve `latest` during installation or update silently.
-Run Obscura as a bounded child process. Use its stdio MCP server behind Noema's fixed browser policy and tool contract.
+Do not install the unmodified Obscura v0.1.11 release. It lacks bounded screenshots, structured snapshots, trusted interactions, typed failures, and atomic navigation outcomes.
+Build and publish a pinned Noema-specific Obscura artifact for Linux amd64 and arm64, macOS amd64 and arm64, and Windows amd64.
+The private artifact must expose one versioned Noema command tool. It must preserve the existing browser contract without exposing selectors, JavaScript, cookies, or storage.
+Run one bounded stdio process per browser owner. Terminate its complete process tree on close, expiry, removal, owner change, protocol failure, or an uncertain dispatched command.
+Treat the artifact as a release prerequisite. Do not implement the production installer until approved artifacts exist for all five targets.
 
 Browser fingerprints and document formatting can differ. Preserve the supported
 actions, bounded outputs, security checks, and main content.
@@ -723,7 +727,7 @@ The browser Web Push unit uses Go schema version 14. Native Apple notifications 
 - durable native Chat and Task alerts with presence suppression and bounded retries;
 - client-owned Live Activity push-to-start and update-token lifecycle.
 
-Task-derived Live Activity start, update, and end delivery remains a later unit.
+Task-derived Live Activity start, update, and end delivery uses Go schema version 23.
 
 ## 11. Validation Strategy
 
@@ -799,8 +803,8 @@ The current wave has these independent paths:
 | Path | Owned outcome | Shared limit |
 | --- | --- | --- |
 | Built-in Task execution | Run provider Planner, Executor, and Reviewer roles | No schema change |
-| MCP runtime | Discover, authenticate, govern, and invoke MCP tools | Owns schema versions 19–21 |
-| Task Live Activities | Reconcile Task projection and APNs delivery | Waits for schema version 22 |
+| MCP runtime | Discover, authenticate, govern, and invoke MCP tools | Owns schema versions 19–22 |
+| Task Live Activities | Reconcile Task projection and APNs delivery | Owns schema version 23 |
 | Integration | Review, merge, measure, and validate the combined server | No feature expansion |
 
 Later waves can run these paths in parallel after their listed dependency merges:
@@ -808,11 +812,10 @@ Later waves can run these paths in parallel after their listed dependency merges
 | Path | Dependency |
 | --- | --- |
 | ACP Task runs | Built-in Task execution and shared capability policy |
-| Adapter review, OAuth, HTTP, and Luau | Action requests |
+| Adapter review, OAuth, HTTP, and Lua | Action requests |
 | Hosted web and interactive browser tools | Action requests |
 | Local and Apple model runtimes | Provider account authority |
 | Chat choices, A2UI, settings, and debug reads | Primary Chat runtime |
-| Task Live Activities | Task execution and APNs |
 
 The final serial wave changes the desktop sidecar, removes the development gate,
 runs acceptance, and removes the Rust server closure.

@@ -94,6 +94,7 @@ func (s *Service) ConfigureAPNS(teamID, keyID, privateKeyPEM string, expected in
 	if err := writeAPNSCredential(s.paths.APNSProvider(), next); err != nil {
 		return APNSProviderStatus{}, err
 	}
+	s.wakeDelivery()
 	return next.status(), nil
 }
 
@@ -119,6 +120,10 @@ func (s *Service) RemoveAPNS(ctx context.Context, expected int) (APNSProviderSta
 	if err := s.database.FailPendingAPNS(ctx, "provider_unconfigured", time.Now()); err != nil {
 		return APNSProviderStatus{}, err
 	}
+	if err := s.database.FailPendingLiveActivityDeliveries(ctx, "provider_unconfigured", time.Now()); err != nil {
+		return APNSProviderStatus{}, err
+	}
+	s.wakeDelivery()
 	return next.status(), nil
 }
 

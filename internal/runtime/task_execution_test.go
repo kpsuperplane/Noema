@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,9 +21,129 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	remoteCalls := 0
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "mail", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "send", Description: "Send one message",
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: false, IdempotentHint: false,
+			DestructiveHint: runtimeBool(true), OpenWorldHint: runtimeBool(true)}},
+		func(context.Context, *mcpsdk.CallToolRequest, struct {
+			Text string `json:"text"`
+		}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			remoteCalls++
+			return nil, map[string]any{"sent": true}, nil
+		})
+	mcpHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil)
+	var unauthorized atomic.Bool
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if unauthorized.Load() {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		mcpHandler.ServeHTTP(w, request)
+	}))
+	defer httpServer.Close()
+	paths, _ := home.FromRoot(chat.home.Name())
+	service, err := noemamcp.NewService(paths, database, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(service.Close)
+	setup, err := service.Create(t.Context(), noemamcp.SetupInput{DisplayName: "Mail", TransportKind: "streamable_http",
+		URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("setup = %#v, %v", setup, err)
+	}
+	if _, err = service.SaveConnectionPolicy(t.Context(), setup.Server.ID, setup.Server.ConnectionRevision, 0,
+		"allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, _ := service.Bindings(t.Context())
+	unauthorized.Store(true)
+	task := createQueuedRuntimeTask(t, database, chat.home, "Send the approved message.")
+	roleCalls := map[string]int{}
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		role := taskRequestRole(request.Tools)
+		roleCalls[role]++
+		switch role {
+		case "planner":
+			if roleCalls[role] == 1 {
+				return taskToolResult("plan-write", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Task\n\nSend the approved message.\n"}), nil
+			}
+			return taskToolResult("plan-finish", taskFinishPlanning, map[string]any{"complexity": "simple"}), nil
+		case "executor":
+			switch roleCalls[role] {
+			case 1:
+				if !taskRequestHasTool(request.Tools, bindings[0].Name) {
+					t.Fatal("Task MCP tool was not advertised")
+				}
+				return taskToolResult("send", bindings[0].Name, map[string]any{"text": "approved"}), nil
+			case 2:
+				return taskToolResult("progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Task\n\nMessage sent.\n"}), nil
+			case 3:
+				return taskToolResult("result", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "Message sent.\n"}), nil
+			default:
+				return taskToolResult("finish", taskFinishExecution, map[string]any{}), nil
+			}
+		default:
+			return taskToolResult("review", taskFinishReview, map[string]any{"decision": "approve", "feedback": "Complete.", "notify_human": false}), nil
+		}
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	var action store.ActionRequest
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		actions, loadErr := database.PendingActionRequests(t.Context(), "human:local", nil, &task.ID, 10)
+		if loadErr == nil && len(actions) == 1 {
+			action = actions[0]
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if action.TaskID != task.ID || action.RunID == "" || remoteCalls != 0 {
+		runs, _ := database.TaskRuns(t.Context(), task.ID, 10)
+		current, _ := database.Task(t.Context(), task.ID)
+		t.Fatalf("pending Task action = %#v; remote calls = %d; Task = %#v; runs = %#v", action, remoteCalls, current, runs)
+	}
+	if _, err = runtime.ResolveActionRequest(t.Context(), action.ID, action.Revision, "human:local", "approve"); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := database.PendingMCPAuthRequests(t.Context(), "human:local", nil, &task.ID, 10)
+	if err != nil || len(auth) != 1 || auth[0].ActionID != action.ID {
+		t.Fatalf("Task authentication = %#v, %v", auth, err)
+	}
+	attemptID := "mcp_oauth:" + strings.Repeat("a", 32)
+	now := time.Now()
+	if err = database.CreateMCPOAuthAttempt(t.Context(), store.MCPOAuthAttempt{ID: attemptID, OwnerHumanID: "human:local",
+		ServerID: setup.Server.ID, ExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.BeginMCPAuthentication(t.Context(), auth[0].ID, auth[0].Revision, "human:local", attemptID, now); err != nil {
+		t.Fatal(err)
+	}
+	unauthorized.Store(false)
+	if _, err = service.Continue(t.Context(), setup.Server.ID, noemamcp.SecretMaterial{}); err != nil {
+		t.Fatal(err)
+	}
+	if handled, resumeErr := runtime.ResumeMCPAuthentication(t.Context(), attemptID); resumeErr != nil || !handled {
+		t.Fatalf("resume Task authentication = %t, %v", handled, resumeErr)
+	}
+	current := waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+	if current.State != store.TaskCompleted || remoteCalls != 1 {
+		t.Fatalf("completed Task = %#v; remote calls = %d", current, remoteCalls)
+	}
+}
 
 func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 	chat, database, _ := chatFixture(t)
