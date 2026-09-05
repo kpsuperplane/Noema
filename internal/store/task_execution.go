@@ -743,7 +743,7 @@ func appendTaskExecutionEvent(ctx context.Context, tx *sql.Tx, task Task, run Ta
 func validTaskRunItem(item TaskRunItemInput) bool {
 	validKind := item.Kind == "model_input" || item.Kind == "assistant_output" || item.Kind == "tool_call" ||
 		item.Kind == "tool_result" || item.Kind == "progress_notice" || item.Kind == "task_submission" ||
-		item.Kind == "task_review" || item.Kind == "failure" || item.Kind == "cancellation" || item.Kind == "model_context_update"
+		item.Kind == "task_review" || item.Kind == "failure" || item.Kind == "cancellation" || item.Kind == "context_checkpoint"
 	validStatus := item.Status == "pending" || item.Status == "running" || item.Status == "completed" || item.Status == "failed" || item.Status == "skipped"
 	return validKind && validStatus && item.Round >= 0 && len(item.Content) <= 512<<10
 }

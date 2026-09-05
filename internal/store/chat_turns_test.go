@@ -123,6 +123,13 @@ func TestConversationTurnPersistsStreamReplacementAndReplay(t *testing.T) {
 	if err := database.SetConversationAgentStatus(ctx, conversation.ID, "thinking", now); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.AppendConversationContextUpdate(ctx, turn, "openrouter", "", "Earlier context", nil, user.Sequence, now); err != nil {
+		t.Fatal(err)
+	}
+	contextState, err := database.ConversationProviderContext(ctx, conversation.ID, "openrouter", "")
+	if err != nil || contextState.Summary != "Earlier context" {
+		t.Fatalf("default model checkpoint = %#v, %v", contextState, err)
+	}
 	assistant, err := database.CompleteConversationTurn(
 		ctx, turn, "Hello back", "Hello back",
 		&ProviderUsage{
@@ -134,7 +141,7 @@ func TestConversationTurnPersistsStreamReplacementAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	if assistant.Kind != ConversationAssistantText || assistant.ParentItemID != user.ID ||
-		assistant.Cursor != "conversation_item:2" || assistant.Metadata["stream_id"] != ConversationAssistantStreamID(turn.ID, 0) {
+		assistant.Cursor != "conversation_item:3" || assistant.Metadata["stream_id"] != ConversationAssistantStreamID(turn.ID, 0) {
 		t.Fatalf("assistant item = %#v", assistant)
 	}
 	messages, err := database.ConversationProviderMessages(ctx, conversation.ID)

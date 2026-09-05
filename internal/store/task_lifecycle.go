@@ -793,7 +793,7 @@ func (s *Store) TaskRunItems(ctx context.Context, runID string, first int, after
 			return TaskRunItemPage{}, ErrInvalidCursor
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms FROM task_run_items WHERE run_id=? AND COALESCE(json_type(payload_json,'$.acp_launch'),'')<>'object' AND sequence_index<? ORDER BY sequence_index DESC LIMIT ?`, runID, before, first+1)
+	rows, err := s.db.QueryContext(ctx, `SELECT item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms FROM task_run_items WHERE run_id=? AND item_kind<>'context_checkpoint' AND COALESCE(json_type(payload_json,'$.acp_launch'),'')<>'object' AND sequence_index<? ORDER BY sequence_index DESC LIMIT ?`, runID, before, first+1)
 	if err != nil {
 		return TaskRunItemPage{}, err
 	}

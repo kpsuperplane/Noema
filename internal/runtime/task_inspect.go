@@ -885,6 +885,12 @@ func (c *Chat) generateChatToolContinuation(
 	continuing := continuingResponse || continuingSession
 	if !continuing {
 		currentCompleted, currentActive := splitActiveHistory(active, []provider.GenerationMessage{incremental})
+		currentThrough := completedTurnThrough(contextState.Items, turn.ID)
+		if currentThrough > through {
+			completed = append(completed, currentCompleted...)
+			through = currentThrough
+			currentCompleted = nil
+		}
 		outputTokens := toolOutputTokens(stopReason != "")
 		var persist func(string, []provider.GenerationMessage) error
 		if len(currentCompleted) == 0 {
@@ -893,8 +899,7 @@ func (c *Chat) generateChatToolContinuation(
 					assignment.ModelProfile, summary, recent, through, time.Now())
 			}
 		} else {
-			currentActive = joinContextMessages(
-				compactToolFinalizationMessages(currentCompleted, 1<<10), currentActive)
+			currentActive = active
 		}
 		active = currentActive
 		messages, _, err = prepareModelContext(c.ctx, modelContextRequest{database: c.database,

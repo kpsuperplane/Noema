@@ -318,7 +318,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				hostedWeb:     run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)),
 				outputReserve: *outputTokens, persist: func(summary string, recent []provider.GenerationMessage) error {
 					return r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
-						Kind: "model_context_update", Status: "completed", Round: int64(round),
+						Kind: "context_checkpoint", Status: "completed", Round: int64(round),
 						Payload: map[string]any{"summary": summary, "recent_messages": recent},
 					}}, store.TaskRunUsage{}, time.Now())
 				}})
@@ -1147,7 +1147,7 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 	}
 	wroteTask := false
 	for index, item := range items {
-		if item.Kind == "model_context_update" {
+		if item.Kind == "context_checkpoint" {
 			summary, _ := item.Payload["summary"].(string)
 			if strings.TrimSpace(summary) == "" {
 				return nil, false, errors.New("invalid Task context update")

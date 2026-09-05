@@ -118,6 +118,20 @@ func TestTaskExecutionRecoveryAndCurrentRunTransitions(t *testing.T) {
 	if err := database.StartTaskExecution(context.Background(), run.ID, run.Generation, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.AppendTaskRunItems(context.Background(), run.ID, run.Generation, []TaskRunItemInput{
+		{Kind: "context_checkpoint", Status: "completed", Round: 1, Payload: map[string]any{"summary": "hidden"}},
+		{Kind: "assistant_output", Status: "completed", Round: 1, Content: "visible"},
+	}, TaskRunUsage{}, now); err != nil {
+		t.Fatal(err)
+	}
+	page, err := database.TaskRunItems(context.Background(), run.ID, 10, nil)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Kind != "assistant_output" {
+		t.Fatalf("visible Task transcript = %#v, %v", page.Items, err)
+	}
+	replay, err := database.TaskRunReplayItems(context.Background(), run.ID)
+	if err != nil || len(replay) != 2 || replay[0].Kind != "context_checkpoint" {
+		t.Fatalf("Task replay = %#v, %v", replay, err)
+	}
 	if err := database.FinishTaskPlanning(context.Background(), run.ID, run.Generation, "simple", now.Add(4*time.Second)); err != nil {
 		t.Fatal(err)
 	}

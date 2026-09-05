@@ -156,7 +156,7 @@ func (s *Store) AppendConversationContextUpdate(
 	ctx context.Context, turn ConversationTurn, providerKind, modelProfile, summary string,
 	recent any, throughSequence int64, now time.Time,
 ) error {
-	if strings.TrimSpace(providerKind) == "" || strings.TrimSpace(modelProfile) == "" ||
+	if strings.TrimSpace(providerKind) == "" ||
 		strings.TrimSpace(summary) == "" || len(summary) > maxConversationText || throughSequence < 1 {
 		return errors.New("conversation context update is invalid")
 	}
@@ -173,6 +173,10 @@ WHERE turn_id=? AND conversation_id=? AND status IN ('input_received','running')
 	if active != 1 {
 		return errors.New("conversation turn is already final")
 	}
+	parentID, err := conversationTurnParentTx(ctx, tx, turn)
+	if err != nil {
+		return err
+	}
 	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
 	if err != nil {
 		return err
@@ -182,8 +186,8 @@ WHERE turn_id=? AND conversation_id=? AND status IN ('input_received','running')
 		return err
 	}
 	_, err = insertConversationOutputTx(ctx, tx, ConversationItem{ID: id, ConversationID: turn.ConversationID,
-		TurnID: turn.ID, Sequence: sequence, Kind: ConversationModelContextUpdate, Status: "completed",
-		AuthorActorID: "system:context-runtime", Payload: map[string]any{"provider_kind": providerKind,
+		TurnID: turn.ID, ParentItemID: parentID, Sequence: sequence, Kind: ConversationModelContextUpdate, Status: "completed",
+		AuthorActorID: "agent:primary", Payload: map[string]any{"provider_kind": providerKind,
 			"model_profile": modelProfile, "summary": summary, "recent_messages": recent,
 			"through_sequence": throughSequence},
 		Metadata: map[string]any{"source": "context_compaction"}, CreatedAt: now.UTC()})

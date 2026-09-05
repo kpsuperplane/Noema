@@ -70,6 +70,9 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 			}
 			return messages, true, nil
 		}
+		if estimated <= available {
+			return joinContextMessages(request.base, request.completed, request.active), false, nil
+		}
 		target = max(uint32(64), target/2)
 		summary, err = summarizeModelContext(ctx, request,
 			[]provider.GenerationMessage{{Role: "assistant", Content: summary}}, target, available)
@@ -119,13 +122,29 @@ func compactionPrefix(completed []provider.GenerationMessage, available uint32, 
 		start--
 		tokens += next
 	}
-	if start < len(completed) && completed[start].Role == "tool" {
-		start--
-	}
+	start = completeContextStart(completed, start)
 	if start <= 0 {
 		return completed, nil
 	}
 	return completed[:start], completed[start:]
+}
+
+func completeContextStart(messages []provider.GenerationMessage, start int) int {
+	if start >= len(messages) {
+		return start
+	}
+	if messages[start].Role == "tool" {
+		for start > 0 && messages[start-1].Role == "tool" {
+			start--
+		}
+		if start > 0 && len(messages[start-1].ToolCalls) != 0 {
+			start--
+		}
+	}
+	for start > 0 && messages[start-1].Role == "hosted_web_search" {
+		start--
+	}
+	return start
 }
 
 func countModelContext(ctx context.Context, generator provider.Generator, messages []provider.GenerationMessage,
@@ -276,4 +295,20 @@ func chatContextParts(value store.ConversationContext, activeTurnID, providerKin
 	}
 	active, err := providerMessagesFromItems(activeItems, activeTurnID, providerKind)
 	return completed, active, through, err
+}
+
+func completedTurnThrough(items []store.ConversationItem, turnID string) int64 {
+	latestRound := -1
+	for _, item := range items {
+		if item.TurnID == turnID {
+			latestRound = max(latestRound, providerRound(item))
+		}
+	}
+	var through int64
+	for _, item := range items {
+		if item.TurnID == turnID && providerRound(item) < latestRound {
+			through = max(through, item.Sequence)
+		}
+	}
+	return through
 }

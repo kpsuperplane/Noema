@@ -70,6 +70,18 @@ func TestPrepareModelContextCompactsOnceAndDisablesTools(t *testing.T) {
 	if messages[1].Role != "assistant" || !strings.Contains(messages[1].Content, "durable decision") || messages[len(messages)-1].Content != "Continue" {
 		t.Fatalf("compacted messages = %#v", messages)
 	}
+	call := provider.ReplayToolCall{Name: "read", ProviderCallID: "call"}
+	result := provider.ReplayToolResult{Name: "read", ProviderCallID: "call", Success: true}
+	_, recent := compactionPrefix([]provider.GenerationMessage{
+		{Role: "user", Content: strings.Repeat("old", 1_000)},
+		{Role: "hosted_web_search", HostedSearch: &provider.HostedSearch{ID: "search"}},
+		{Role: "hosted_web_search", HostedSearch: &provider.HostedSearch{ID: "search-2"}},
+		{Role: "assistant", ToolCalls: []provider.ReplayToolCall{call}},
+		{Role: "tool", ToolResult: &result},
+	}, 1_000, false)
+	if len(recent) != 4 || recent[0].Role != "hosted_web_search" || recent[2].Role != "assistant" || recent[3].Role != "tool" {
+		t.Fatalf("recent provider round = %#v", recent)
+	}
 }
 
 func TestPrepareModelContextRejectsHardOverflowWithoutHistory(t *testing.T) {
@@ -87,6 +99,22 @@ func TestPrepareModelContextRejectsHardOverflowWithoutHistory(t *testing.T) {
 	if !errors.Is(err, errContextWindowExceeded) || compacted || called || !strings.Contains(err.Error(), "no completed history") {
 		t.Fatalf("overflow = compacted %t, called %t, error %v", compacted, called, err)
 	}
+	softDatabase := contextTestStore(t, 4_000)
+	completed := make([]provider.GenerationMessage, 6)
+	for index := range completed {
+		completed[index] = provider.GenerationMessage{Role: "assistant", Content: strings.Repeat("a", 1_000)}
+	}
+	original, compacted, err := prepareModelContext(t.Context(), modelContextRequest{
+		database: softDatabase,
+		generator: generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+			return provider.GenerationResult{Text: strings.Repeat("verbose", 2_000)}, nil
+		}),
+		accountID: "provider_account:openrouter:context-test", providerKind: "openrouter", model: "test",
+		completed: completed, active: []provider.GenerationMessage{{Role: "user", Content: "next"}}, outputReserve: 512,
+	})
+	if err != nil || compacted || len(original) != len(completed)+1 {
+		t.Fatalf("soft fallback = %d messages, compacted %t, error %v", len(original), compacted, err)
+	}
 }
 
 func TestTaskReplayRestoresCheckpointAndPriorTaskWrite(t *testing.T) {
@@ -96,7 +124,7 @@ func TestTaskReplayRestoresCheckpointAndPriorTaskWrite(t *testing.T) {
 	items := []store.TaskRunItem{
 		{ID: "call", Kind: "tool_call", Payload: map[string]any{"name": taskFilesWrite, "arguments": arguments}},
 		{Kind: "tool_result", ParentID: &parentID, Payload: map[string]any{"success": true}},
-		{Kind: "model_context_update", Payload: map[string]any{
+		{Kind: "context_checkpoint", Payload: map[string]any{
 			"summary":         "Earlier work is complete.",
 			"recent_messages": []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{Name: "read", Success: true}}},
 		}},

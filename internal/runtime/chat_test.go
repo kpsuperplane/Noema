@@ -166,6 +166,9 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			return nil, err
 		}
+		if body["tools"] == nil {
+			return openRouterStreamResponse("The earlier Task inspection rounds are complete."), nil
+		}
 		requests <- body
 		requestMu.Lock()
 		requestCount++
@@ -247,13 +250,16 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		t.Fatalf("bounded replay length = %d", len(replayResult["content"].(string)))
 	}
 	replayedCalls := map[string]bool{}
+	compacted := false
 	for _, raw := range secondContinuation["messages"].([]any) {
 		message := raw.(map[string]any)
 		if message["role"] == "tool" {
 			replayedCalls[message["tool_call_id"].(string)] = true
 		}
+		content, _ := message["content"].(string)
+		compacted = compacted || strings.Contains(content, "earlier Task inspection")
 	}
-	if !replayedCalls["call_1"] || !replayedCalls["call_2"] {
+	if replayedCalls["call_1"] || !replayedCalls["call_2"] || !compacted {
 		t.Fatalf("second continuation call replay = %#v", replayedCalls)
 	}
 	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
