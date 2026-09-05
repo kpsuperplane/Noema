@@ -282,12 +282,12 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
-- Authored Go production uses 73,188 lines, or 42.06% of the Rust baseline.
-  The inclusive Go total uses 175,631 lines, or 73.23% of the Rust baseline.
+- Authored Go production uses 76,202 lines, or 43.80% of the Rust baseline.
+  The inclusive Go total uses 179,568 lines, or 74.88% of the Rust baseline.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
-- Local models use schema version 31. Their Go slice uses 3,006 net production lines and 620 net test lines.
-- Browser support follows after approved Obscura assets exist. Existing settings need no schema version 32 change.
-- Native Windows WAL stress remains a cutover gate.
+- Go owns schema version 32, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
+- Desktop launches a Go sidecar. Remaining Rust supports desktop, evaluations, and the external Obscura worker.
+- Obscura publication exists. Auto-install needs its first release. Native Windows WAL stress remains a cutover gate.
 
 ## Validation defaults
 
