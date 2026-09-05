@@ -24,12 +24,12 @@ import '@/theme/noema-neutral.css';
 import './gallery.css';
 
 const studies = [
- ['inbox','Inbox task','01','Lead with the task, its source, and what happens next.','The current detail uses “No agent run yet” and “No output yet.” The mock gives an unstarted task a useful summary.'],
+ ['inbox','Inbox task','01','Keep task instructions and next steps clear.','The current detail uses “No agent run yet” and “No output yet.” The mock gives an unstarted task a useful summary.'],
  ['recurring','Recurring task','02','Make the next run clear. Make past runs useful.','Current rows repeat “Open task.” Outcome labels below need linked task status; they must not be inferred from occurrence creation.'],
  ['schedule','Schedule dialog','03','Edit a routine without learning cron.','The current editor initializes every recurrence as Custom cron. Preserve matching presets and show one compact schedule preview.'],
  ['providers','Provider settings','04','Put connection health and useful facts first.','Current details separate Authentication, Status, and Default account into tall rows. Capability IDs and contract fields remain prominent.'],
  ['notifications','Notification settings','05','Start with this device. Keep server setup available.','Apple push configuration currently appears before device notifications. The mock keeps both functions on the same page.'],
- ['task-settings','Advanced task settings','06','Keep task controls where you use them.','Advanced settings stay visible below instructions. Inbox and recurring tasks share the layout, with fields that match each task type.'],
+ ['task-settings','Task options','06','Keep task options beside the task title.','Project and task agent are direct choices in the info row. Recurring schedule settings stay above run history.'],
  ['start','Start task dialog','07','Name the task and explain the next step.','Copy reference for a required confirmation. The existing floating bar starts tasks directly; this proposal adds no confirmation step.'],
  ['cancel','Cancel task dialog','08','Make the two choices impossible to confuse.','The current dialog can present a dismiss button labeled “Cancel” beside a destructive task action also labeled “Cancel.”'],
  ['agents','Agent and task models','10','Let people read the model they selected.','The rendered Agents page truncates model names while Reasoning and Fast controls stay visible. Keep related model groups together.'],
@@ -81,9 +81,9 @@ function Scene({id}){
 // Shared mock sections follow the existing TaskBody and TaskContextCard composition.
 function TaskDocument({title,metadata,timing,instructions,note,openInstructions,advanced,children}){
  return <VStack className="task-document" gap={4}>
-  <VStack gap={2}><h2 className="document-title">{title}</h2><p className="small muted">{metadata}</p></VStack>
+  <VStack gap={2}><h2 className="document-title">{title}</h2>{typeof metadata==='string'?<p className="small muted">{metadata}</p>:metadata}</VStack>
   {timing}
-  <VStack as="section" gap={2}><HStack justify="between" align="center" gap={2}><h3>Instructions</h3><B variant="ghost" icon={smallIcon(Pencil)} onClick={openInstructions}>Edit</B></HStack>{instructions}<p className="small muted">{note}</p></VStack>
+  <VStack as="section" gap={2}><HStack justify="between" align="center" gap={2}><h3>Instructions</h3><B variant="ghost" icon={smallIcon(Pencil)} onClick={openInstructions}>Edit</B></HStack>{instructions}{note?<p className="small muted">{note}</p>:null}</VStack>
   {advanced}
   {children}
  </VStack>
@@ -97,14 +97,19 @@ function TaskTiming({label,value,paused=false,onSchedule,scheduled=false}){
 function TaskDock({status,children}){
  return <HStack as="aside" aria-label="Task actions" className="task-dock" align="center" justify="between" gap={2}><strong className="small">{status}</strong><HStack gap={1} align="center" role="group" aria-label="Task controls">{children}</HStack></HStack>
 }
-function AdvancedTaskSettings({recurring=false}){
- const [project,setProject]=useState('personal'),[agent,setAgent]=useState('built-in'),[folder,setFolder]=useState(''),[savedFolder,setSavedFolder]=useState(''),[saved,setSaved]=useState('');
+function TaskInfo({selected}){
+ const [project,setProject]=useState(selected===1?'home':'personal'),[agent,setAgent]=useState('built-in'),[saved,setSaved]=useState('');
+ return <HStack className="task-info" gap={2} align="center" wrap="wrap">
+  <Selector label="Project" isLabelHidden size="sm" value={project} options={[{value:'personal',label:'Personal'},{value:'home',label:'Home'},{value:'none',label:'No project'}]} onChange={v=>{setProject(v);setSaved('Saved in this mock')}}/>
+  <Selector label="Task agent" isLabelHidden size="sm" value={agent} options={[{value:'built-in',label:'Noema (built-in)'},{value:'local',label:'Local agent (ACP)'}]} onChange={v=>{setAgent(v);setSaved('Saved in this mock')}}/>
+  <span role="status" className="small muted">{saved}</span>
+ </HStack>
+}
+function ScheduleSettings(){
+ const [saved,setSaved]=useState('');
  return <VStack as="section" className="compact-section task-advanced" gap={2} aria-label="Advanced settings">
   <HStack justify="between" align="center" gap={2}><h3>Advanced settings</h3><span role="status" className="small muted">{saved}</span></HStack>
-  {recurring?<ScheduleBehavior onSaved={()=>setSaved('Saved in this mock')}/>:<>
-   <HStack gap={3} className="schedule-pair"><Selector label="Project" size="sm" value={project} options={[{value:'personal',label:'Personal'},{value:'none',label:'No project'}]} onChange={v=>{setProject(v);setSaved('Saved in this mock')}}/><Selector label="Task agent" size="sm" value={agent} options={[{value:'built-in',label:'Noema (built-in)'},{value:'local',label:'Local agent (ACP)'}]} onChange={v=>{setAgent(v);setSaved('Saved in this mock')}}/></HStack>
-   <TextInput label="Working folder" isOptional size="sm" placeholder="Use the project folder or Noema’s Tasks folder" value={folder} onChange={v=>{setFolder(v);setSaved('')}} onBlur={()=>{if(folder!==savedFolder){setSavedFolder(folder);setSaved('Saved in this mock')}}}/>
-  </>}
+  <ScheduleBehavior onSaved={()=>setSaved('Saved in this mock')}/>
  </VStack>
 }
 function ScheduleBehavior({onSaved=()=>{},once=false}){
@@ -116,10 +121,10 @@ function ScheduleBehavior({onSaved=()=>{},once=false}){
 }
 function InboxDetail({selected,started,cancelled,open,onStart}){
  return <>
-  <TaskDocument title={samples[selected][0]} metadata={'Inbox · '+samples[selected][1]+' · From you'}
+  <TaskDocument title={samples[selected][0]} metadata={<TaskInfo selected={selected}/>}
    timing={<TaskTiming label="Timing" value="No scheduled start" onSchedule={()=>open('task-schedule')}/>}
    instructions={<><p>{selected===0?'Find a relaxed weekend plan for two people. Include places to eat, a walk, and one indoor option.':selected===1?'Compare monthly costs, speeds, and contract terms. Keep the recommendations short.':'Find beginner classes with evening or weekend sessions. Include prices and what materials are provided.'}</p>{selected===0?<p>Keep the total budget under $400. Include links so I can review the options.</p>:null}</>}
-   note="Created Sep 5, 2026 · Revision 1" openInstructions={()=>open('instructions')} advanced={<AdvancedTaskSettings/>}/>
+   openInstructions={()=>open('instructions')}/>
   <TaskDock status={cancelled?'Task cancelled':started?'Queued':'Ready when you are'}><IconButton className="task-dock-control" size="sm" variant="ghost" icon={<Play size={15} aria-hidden="true" color="var(--noema-pine-700)" fill="var(--noema-pine-700)"/>} label={started?'Queued':'Start task'} tooltip={started?'Queued':'Start task'} isDisabled={started||cancelled} onClick={onStart}/></TaskDock>
  </>
 }
@@ -129,7 +134,7 @@ function Recurrence({title,paused,toggle,open,notice}){
  <TaskDocument title={title} metadata={(title==='Morning reading'?'Weekdays at 8:00 AM':'Sundays at 10:00 AM')+' · Pacific time'}
   timing={<TaskTiming label={paused?'Schedule paused':'Next run'} value={paused?'No new scheduled runs':title==='Morning reading'?'Monday, Sep 7 · 8:00 AM':'Sunday, Sep 6 · 10:00 AM'} paused={paused} scheduled onSchedule={()=>open('recurrence-schedule')}/>}
   instructions={<p>{title==='Morning reading'?'Find three thoughtful articles about design and technology. Give me a short summary and a link for each.':'Suggest five easy dinners for next week. Include a shopping list and keep preparation under 30 minutes.'}</p>}
-  note="Edits apply to future runs." openInstructions={()=>open('recurrence-instructions')} advanced={<AdvancedTaskSettings recurring/>}>
+  note="Edits apply to future runs." openInstructions={()=>open('recurrence-instructions')} advanced={<ScheduleSettings/>}>
   <VStack gap={2}><HStack justify="between" align="center"><h3>Run history</h3><span className="small muted">3 recent runs</span></HStack><VStack gap={1.5} className="history">{[
  ['Fri, Sep 4','done','Done','3 articles ready'],
  ['Thu, Sep 3','waiting_for_human','Needs you','Sign-in needed'],

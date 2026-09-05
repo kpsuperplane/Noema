@@ -82,3 +82,13 @@ Production and inclusive migration ratios remain below 80 percent.
 - Hid Model and Reasoning labels in Agent models and Task models. Accessible names remain available.
 - Gallery build passed. Reviewed both groups at 1440px and 390px widths.
 - All ten selectors remain available. No horizontal overflow or browser page errors occurred.
+
+## Inbox info row refinement
+
+- Moved Project and Task agent selectors into the info row below the title.
+- Hid Working folder in task details and removed the empty Inbox Advanced settings section.
+- Removed Inbox, added-time, source, creation-date, and revision metadata from the detail body.
+- Recurring schedule settings remain visible before Run history.
+- Reviewed Inbox, task options, and recurring details at 1440px and 390px widths.
+- Both selectors retain accessible names and save feedback. Sample changes worked at both widths.
+- The gallery build passed. No horizontal overflow or browser page errors occurred.

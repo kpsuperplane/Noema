@@ -91,13 +91,14 @@ Keep the current confirmation points. Do not add confirmations to Start task or 
 **Observed in source:** Tasks without runs use “No agent run yet” and “No output yet.”
 These describe missing system activity instead of the person's next action.
 
-**Suggestion:** Keep the instructions prominent. Put Inbox status and provenance within the document body, below its title.
+**Suggestion:** Keep the instructions prominent. Put Project and Task agent choices in the info row below the title.
+Hide Working folder in task details. Remove repeated Inbox, added-time, source, and revision metadata.
 Use the same timing summary below the title for Inbox and recurring tasks.
 Show Schedule for an unscheduled task and Reschedule with a calendar icon for a scheduled task.
 Keep Start task, Run now, and lifecycle actions in the existing floating task bar.
 Show “Ready when you are” in that bar. Do not duplicate execution controls in the document.
-Expose Advanced settings directly below Instructions, before Run history. Remove the task Settings button and dialog.
-Remove the separate detail header. Show the brief revision information directly below the instructions.
+Remove the separate detail header, task Settings button, and task-settings dialog.
+For recurring tasks, expose Advanced settings directly below Instructions, before Run history.
 Retain workspace files and transcript access when they contain useful content.
 The cropped mock shows the unstarted state, not a replacement for completed task details.
 
@@ -182,13 +183,14 @@ Use 16px body spacing, 12px field groups, 6px label gaps, and 8px action gaps.
 Use standard 32px buttons. Set an explicit primary variant on Save.
 Pair equal-width actions with the primary action on the right.
 Retain mobile drawers. Keep actions reachable when forms or validation messages become long.
-Move routine task settings into a visible Advanced settings section on the task page.
+Move Inbox project and agent choices into the info row below the task title.
+Hide Working folder in task details. Keep recurring schedule settings above Run history.
 Use direct saving for inline controls, with local saving, saved, and error feedback.
-Inbox fields are Project, Task agent, and Working folder. Recurring fields are missed-run and overlap behavior.
-Save selectors on selection. Save a changed folder on blur or Enter; retain invalid drafts and show a field error.
+Inbox choices are Project and Task agent. Recurring fields are missed-run and overlap behavior.
+Save selectors on selection. Keep accessible names when visible labels are hidden.
 Focus the first input on open. Keep draft, saving, stale-version, and field-error behavior intact.
 
-**Mocks:** [Inline advanced settings](http://localhost:8766/#task-settings), [Schedule dialog](http://localhost:8766/#schedule).
+**Mocks:** [Task options](http://localhost:8766/#task-settings), [Schedule dialog](http://localhost:8766/#schedule).
 The gallery also opens modal and mobile drawer previews for bounded edits.
 **Source:** [TaskSettingsDialog](../../../apps/web/src/components/tasks/TaskSettingsDialog.tsx), [SettingsEditDialog](../../../apps/web/src/components/settings/SettingsEditDialog.tsx), [ResponsiveDialog](../../../apps/web/src/components/ResponsiveDialog.tsx).
 
