@@ -8,6 +8,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
+	"github.com/kpsuperplane/noema/internal/localmodel"
 	"github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/notification"
@@ -31,6 +32,7 @@ type Resolver struct {
 	home             *os.Root
 	ProviderAccounts *provider.AccountService
 	Foundation       *provider.FoundationGenerator
+	LocalModels      *localmodel.Service
 	OpenRouter       *provider.OpenRouterService
 	Chat             *runtime.Chat
 	TaskExecution    *runtime.TaskExecution
@@ -94,3 +96,6 @@ func (r *Resolver) SetAdapters(service *adapter.Service) { r.Adapters = service 
 
 // SetFoundation adds the local Apple model account checker.
 func (r *Resolver) SetFoundation(service *provider.FoundationGenerator) { r.Foundation = service }
+
+// SetLocalModels adds the local GGUF model authority.
+func (r *Resolver) SetLocalModels(service *localmodel.Service) { r.LocalModels = service }

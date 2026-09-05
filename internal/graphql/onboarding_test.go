@@ -6,8 +6,92 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/localmodel"
 	"github.com/kpsuperplane/noema/internal/provider"
+	"github.com/kpsuperplane/noema/internal/store"
 )
+
+func TestLocalModelOnboardingKeepsActionReviewWithHuman(t *testing.T) {
+	resolver := openProviderTestResolver(t)
+	ctx := context.Background()
+	now := time.Now()
+	queued, err := resolver.Store.QueueLocalModel(ctx, store.LocalModelInstallation{
+		ID:         "local_model_installation:test",
+		ModelID:    "test-model",
+		Name:       "Test model",
+		File:       "test-model.gguf",
+		SourceKind: "local_file",
+		Backend:    "cpu",
+		TotalBytes: 4,
+		CreatedAt:  now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifying, err := resolver.Store.UpdateLocalModel(
+		ctx, queued.ID, "verifying", 4, 4, 0, "", "", "", "", now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := resolver.Store.UpdateLocalModel(
+		ctx, verifying.ID, "installed", 4, 4, 4,
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"models/blobs/a.gguf", "", "", now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.ActivateLocalModel(ctx, installed.ID, false, now); err != nil {
+		t.Fatal(err)
+	}
+	service, err := localmodel.New(resolver.Store, resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.SetLocalModels(service)
+	t.Cleanup(service.Close)
+
+	setup, err := resolver.onboardingModelSetup(ctx, "provider_account:local_models:default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(setup.Profiles) != 1 || setup.ProposedSelections.ActionReviewer != nil {
+		t.Fatalf("local setup = %#v", setup)
+	}
+	profile := "test-model"
+	selection := &model.OnboardingModelSelectionInput{
+		SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile,
+		ModelProfile:  &profile,
+	}
+	_, err = resolver.confirmOnboardingModelSelections(ctx, model.ConfirmOnboardingModelSelectionsInput{
+		ProviderAccountID:   "provider_account:local_models:default",
+		Noema:               selection,
+		SimpleTasks:         selection,
+		MediumTasks:         selection,
+		DifficultTasks:      selection,
+		TaskReviewer:        selection,
+		WebFetchSummarizer:  selection,
+		ToolProgressAudit:   selection,
+		MemoryConsolidation: selection,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignments, err := resolver.Store.HostedModelAssignments(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assignments) != 8 {
+		t.Fatalf("local assignment count = %d", len(assignments))
+	}
+	for _, assignment := range assignments {
+		if assignment.Role == store.HostedModelActionReviewer {
+			t.Fatal("local onboarding assigned action review")
+		}
+	}
+}
 
 func TestHostedOnboardingOpensFreshChat(t *testing.T) {
 	resolver := openProviderTestResolver(t)

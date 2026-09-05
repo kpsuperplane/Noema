@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -191,6 +192,14 @@ func (r *Resolver) agentModelOptions(ctx context.Context) ([]*model.AgentModelPr
 		if !account.IsDefault {
 			continue
 		}
+		if account.ProviderKind == "local_models" {
+			option, err := r.localModelOption(ctx, account)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, option)
+			continue
+		}
 		profiles, err := account.Metadata.ModelProfiles()
 		if err != nil {
 			return nil, err
@@ -221,6 +230,72 @@ func (r *Resolver) agentModelOptions(ctx context.Context) ([]*model.AgentModelPr
 	return result, nil
 }
 
+func (r *Resolver) localModelOption(
+	ctx context.Context,
+	account provider.Account,
+) (*model.AgentModelProviderOption, error) {
+	disabledReason := modelAccountDisabledReason(account)
+	profiles, err := r.localModelProfiles(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	var installations []store.LocalModelInstallation
+	if r.LocalModels != nil {
+		installations, err = r.LocalModels.Installations(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	active := make(map[string]bool, len(installations))
+	for _, installation := range installations {
+		if installation.Status == "installed" && installation.Active {
+			active[installation.ModelID] = true
+		}
+	}
+	profileModels := make([]*model.AgentModelProfileOption, 0, len(profiles))
+	for _, profile := range profiles {
+		option := modelProfileOption(profile)
+		option.DisabledReason = disabledReason
+		if option.DisabledReason == nil && !active[profile.ID] {
+			reason := "Activate this model in Settings > Local models before assigning it."
+			option.DisabledReason = &reason
+		}
+		profileModels = append(profileModels, option)
+	}
+	return &model.AgentModelProviderOption{
+		ProviderKind:        account.ProviderKind,
+		ProviderAccountID:   account.ID,
+		ProviderDisplayName: account.DisplayName,
+		Status:              providerAccountStatusModel(account.Status),
+		Profiles:            profileModels,
+		Recommendations:     []*model.AgentModelRecommendation{},
+		DisabledReason:      disabledReason,
+	}, nil
+}
+
+func (r *Resolver) localModelProfiles(ctx context.Context, activeOnly bool) ([]provider.ModelProfile, error) {
+	if r.LocalModels == nil {
+		return []provider.ModelProfile{}, nil
+	}
+	installations, err := r.LocalModels.Installations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(installations))
+	profiles := make([]provider.ModelProfile, 0, len(installations))
+	for _, installation := range installations {
+		if installation.Status != "installed" || (activeOnly && !installation.Active) ||
+			seen[installation.ModelID] {
+			continue
+		}
+		seen[installation.ModelID] = true
+		profiles = append(profiles, provider.ModelProfile{
+			ID: installation.ModelID, Label: installation.Name,
+		})
+	}
+	return profiles, nil
+}
+
 func (r *Resolver) selectableModelAccount(
 	ctx context.Context,
 	accountID string,
@@ -238,7 +313,7 @@ func (r *Resolver) selectableModelAccount(
 	if account.Status != provider.StatusAuthenticated {
 		return provider.Account{}, errors.New("provider account is not authenticated")
 	}
-	if len(provider.ModelRecommendations(account.ProviderKind)) == 0 {
+	if account.ProviderKind != "local_models" && len(provider.ModelRecommendations(account.ProviderKind)) == 0 {
 		return provider.Account{}, errors.New("provider cannot serve hosted models")
 	}
 	return account, nil
@@ -251,6 +326,20 @@ func (r *Resolver) currentModelAccount(ctx context.Context, accountID string) (p
 	}
 	if account.ProviderKind == "foundation_local" && account.Status != provider.StatusAuthenticated && r.Foundation != nil {
 		return r.Foundation.RefreshAccount(ctx, time.Now())
+	}
+	if account.ProviderKind == "local_models" {
+		profiles, profileErr := r.localModelProfiles(ctx, true)
+		if profileErr != nil {
+			return provider.Account{}, profileErr
+		}
+		encoded, encodeErr := json.Marshal(profiles)
+		if encodeErr != nil {
+			return provider.Account{}, encodeErr
+		}
+		if account.Metadata == nil {
+			account.Metadata = provider.AccountMetadata{}
+		}
+		account.Metadata["profiles"] = encoded
 	}
 	return account, nil
 }

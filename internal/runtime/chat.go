@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/localmodel"
 	_ "time/tzdata"
 
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
@@ -138,6 +139,7 @@ type Chat struct {
 	codex      provider.Generator
 	openAI     provider.Generator
 	foundation provider.Generator
+	local      provider.Generator
 	home       *os.Root
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
@@ -224,6 +226,7 @@ func NewChat(
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
 	var chatFoundation *provider.FoundationGenerator
+	var localModels *localmodel.Service
 	var webTools *webtool.Service
 	for _, service := range services {
 		switch value := service.(type) {
@@ -233,13 +236,15 @@ func NewChat(
 			adapterService = value
 		case *provider.FoundationGenerator:
 			chatFoundation = value
+		case *localmodel.Service:
+			localModels = value
 		case *webtool.Service:
 			webTools = value
 		}
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, openAI: openAI, foundation: chatFoundation, home: homeRoot,
+		openRouter: openRouter, codex: codex, openAI: openAI, foundation: chatFoundation, local: localModels, home: homeRoot,
 		memory: memoryStore, mcp: mcpService, adapters: adapterService, web: webTools,
 		projects: project.New(database, homeRoot),
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
@@ -612,6 +617,11 @@ func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
 			return c.foundation, nil
 		}
 		return nil, errors.New("Apple Foundation Models is unavailable")
+	case "local_models":
+		if c.local != nil {
+			return c.local, nil
+		}
+		return nil, errors.New("local models are unavailable")
 	default:
 		return nil, errors.New("primary Chat provider is unsupported")
 	}
@@ -760,6 +770,10 @@ func maxOutputTokens() *uint32 {
 func maxOutputTokensFor(providerKind string) *uint32 {
 	if providerKind == "foundation_local" {
 		value := uint32(512)
+		return &value
+	}
+	if providerKind == "local_models" {
+		value := uint32(1024)
 		return &value
 	}
 	return maxOutputTokens()

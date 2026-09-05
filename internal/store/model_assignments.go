@@ -90,25 +90,11 @@ func (s *Store) ConfirmHostedModelAssignments(
 	providerAccountID string,
 	assignments []ModelAssignment,
 ) (bool, error) {
-	if err := validateAssignmentSet(providerAccountID, assignments); err != nil {
-		return false, err
-	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return false, fmt.Errorf("begin hosted model assignment confirmation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	var existing int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM hosted_model_assignments").Scan(&existing); err != nil {
-		return false, fmt.Errorf("count hosted model assignments: %w", err)
-	}
-	if existing == len(hostedModelRoles) {
-		return false, nil
-	}
-	if existing != 0 {
-		return false, fmt.Errorf("%w: stored assignments are incomplete", ErrInvalidModelAssignments)
-	}
 
 	account, err := scanProviderAccount(tx.QueryRowContext(ctx, providerAccountSelect+`
 WHERE provider_account_id = ?`, providerAccountID))
@@ -122,12 +108,29 @@ WHERE provider_account_id = ?`, providerAccountID))
 		account.Status != provider.StatusAuthenticated {
 		return false, fmt.Errorf("%w: account is not active and authenticated", ErrModelAccountNotReady)
 	}
+	if err := validateAssignmentSet(providerAccountID, account.ProviderKind, assignments); err != nil {
+		return false, err
+	}
+	var existing int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM hosted_model_assignments").Scan(&existing); err != nil {
+		return false, fmt.Errorf("count hosted model assignments: %w", err)
+	}
+	if existing == len(assignments) {
+		return false, nil
+	}
+	if existing != 0 {
+		return false, fmt.Errorf("%w: stored assignments are incomplete", ErrInvalidModelAssignments)
+	}
 	for _, assignment := range assignments {
 		if assignment.ProviderKind != account.ProviderKind ||
 			assignment.ProviderAccountID != account.ID {
 			return false, fmt.Errorf("%w: assignments must use the selected account", ErrInvalidModelAssignments)
 		}
-		if err := validateAssignmentProfile(account.Metadata, assignment); err != nil {
+		if account.ProviderKind == "local_models" {
+			if _, err := modelAssignmentAccount(ctx, tx, assignment); err != nil {
+				return false, err
+			}
+		} else if err := validateAssignmentProfile(account.Metadata, assignment); err != nil {
 			return false, err
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -206,11 +209,20 @@ FROM hosted_model_assignments`)
 	if len(byRole) == 0 {
 		return []ModelAssignment{}, nil
 	}
-	if len(byRole) != len(hostedModelRoles) {
+	localSet := len(byRole) == len(hostedModelRoles)-1
+	if localSet {
+		for role, assignment := range byRole {
+			localSet = localSet && role != HostedModelActionReviewer && assignment.ProviderKind == "local_models"
+		}
+	}
+	if len(byRole) != len(hostedModelRoles) && !localSet {
 		return nil, fmt.Errorf("%w: stored assignments are incomplete", ErrInvalidModelAssignments)
 	}
 	assignments := make([]ModelAssignment, 0, len(hostedModelRoles))
 	for _, role := range hostedModelRoles {
+		if localSet && role == HostedModelActionReviewer {
+			continue
+		}
 		assignment, ok := byRole[role]
 		if !ok {
 			return nil, fmt.Errorf("%w: stored role %s is missing", ErrInvalidModelAssignments, role)
@@ -220,12 +232,19 @@ FROM hosted_model_assignments`)
 	return assignments, nil
 }
 
-func validateAssignmentSet(providerAccountID string, assignments []ModelAssignment) error {
-	if providerAccountID == "" || len(assignments) != len(hostedModelRoles) {
-		return fmt.Errorf("%w: exactly nine roles are required", ErrInvalidModelAssignments)
+func validateAssignmentSet(providerAccountID, providerKind string, assignments []ModelAssignment) error {
+	expectedCount := len(hostedModelRoles)
+	if providerKind == "local_models" {
+		expectedCount--
+	}
+	if providerAccountID == "" || len(assignments) != expectedCount {
+		return fmt.Errorf("%w: model roles are incomplete", ErrInvalidModelAssignments)
 	}
 	expected := make(map[HostedModelRole]bool, len(hostedModelRoles))
 	for _, role := range hostedModelRoles {
+		if providerKind == "local_models" && role == HostedModelActionReviewer {
+			continue
+		}
 		expected[role] = true
 	}
 	seen := make(map[HostedModelRole]bool, len(hostedModelRoles))
@@ -287,7 +306,15 @@ WHERE provider_account_id = ?`, assignment.ProviderAccountID))
 		account.Status != provider.StatusAuthenticated {
 		return provider.Account{}, fmt.Errorf("%w: account is not ready or does not match", ErrModelAccountNotReady)
 	}
-	if err := validateAssignmentProfile(account.Metadata, assignment); err != nil {
+	if account.ProviderKind == "local_models" {
+		if assignment.SelectionMode != ModelSelectionExplicitProfile || assignment.ReasoningEffort != "" {
+			return provider.Account{}, fmt.Errorf("%w: local model selection is invalid", ErrInvalidModelAssignments)
+		}
+		var ready int
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM local_model_installations WHERE model_id=? AND status='installed' AND is_active=1)`, assignment.ModelProfile).Scan(&ready); err != nil || ready != 1 {
+			return provider.Account{}, fmt.Errorf("%w: local model is not active", ErrModelAccountNotReady)
+		}
+	} else if err := validateAssignmentProfile(account.Metadata, assignment); err != nil {
 		return provider.Account{}, err
 	}
 	return account, nil
@@ -359,5 +386,6 @@ func validReasoningEffort(effort ModelReasoningEffort) bool {
 }
 
 func isHostedModelProvider(kind string) bool {
-	return kind == "codex" || kind == "openai" || kind == "openrouter"
+	return kind == "codex" || kind == "openai" || kind == "openrouter" ||
+		kind == "foundation_local" || kind == "local_models"
 }

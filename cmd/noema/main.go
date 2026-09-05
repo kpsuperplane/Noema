@@ -20,6 +20,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/localmodel"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/notification"
@@ -162,16 +163,24 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if _, err := foundationGenerator.RefreshAccount(ctx, time.Now()); err != nil {
 		return err
 	}
+	localModels, err := localmodel.New(taskStore, paths.Root())
+	if err != nil {
+		return err
+	}
+	defer localModels.Close()
+	go func() {
+		_, _ = localModels.Retry(ctx)
+	}()
 	webTools, err := webtool.New(taskStore, providerAccounts, map[string]provider.Generator{
 		"openrouter": openRouterGenerator, "codex": codexGenerator, "openai": openAIGenerator,
-		"foundation_local": foundationGenerator,
+		"foundation_local": foundationGenerator, "local_models": localModels,
 	})
 	if err != nil {
 		return err
 	}
 	chatRuntime, err := noemaruntime.NewChat(
 		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
-		mcpService, adapterService, foundationGenerator, webTools,
+		mcpService, adapterService, foundationGenerator, localModels, webTools,
 	)
 	if err != nil {
 		return err
@@ -181,7 +190,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
 		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
-		mcpService, adapterService, artifacts, foundationGenerator, webTools,
+		mcpService, adapterService, artifacts, foundationGenerator, localModels, webTools,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)
@@ -244,6 +253,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	)
 	resolver.TaskExecution = taskExecution
 	resolver.SetFoundation(foundationGenerator)
+	resolver.SetLocalModels(localModels)
 	resolver.SetAdapters(adapterService)
 	graphqlHandler := noemagraphql.NewHandler(resolver)
 	webGraphQL := web.NewGraphQLHandler(graphqlHandler, noemagraphql.Schema(), authConfig.GraphiQL)

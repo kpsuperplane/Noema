@@ -5,6 +5,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"os"
 )
 
 func detectLocalHardware(context.Context) ([]LocalHardwareProfile, error) {
@@ -16,5 +17,17 @@ func detectLocalHardware(context.Context) ([]LocalHardwareProfile, error) {
 	if !ok {
 		return nil, errors.New("physical memory is invalid")
 	}
-	return []LocalHardwareProfile{{Backend: LocalModelCPU, RAMGB: ram}}, nil
+	profiles := make([]LocalHardwareProfile, 0, 2)
+	for _, path := range []string{
+		"/usr/lib/libvulkan.so.1",
+		"/usr/lib64/libvulkan.so.1",
+		"/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+	} {
+		if info, probeErr := os.Stat(path); probeErr == nil && info.Mode().IsRegular() {
+			profiles = append(profiles, LocalHardwareProfile{Backend: LocalModelVulkan, RAMGB: ram})
+			break
+		}
+	}
+	profiles = append(profiles, LocalHardwareProfile{Backend: LocalModelCPU, RAMGB: ram})
+	return profiles, nil
 }

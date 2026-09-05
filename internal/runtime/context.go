@@ -84,8 +84,10 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 }
 
 func contextWindow(ctx context.Context, database *store.Store, accountID, providerKind, model string) (uint32, error) {
-	fallback := map[string]uint32{"codex": 128_000, "openai": 128_000, "foundation_local": 4_096,
-		"openrouter": 32_768}[providerKind]
+	fallback := map[string]uint32{
+		"codex": 128_000, "openai": 128_000, "foundation_local": 4_096,
+		"local_models": 8_192, "openrouter": 32_768,
+	}[providerKind]
 	account, err := database.ProviderAccount(ctx, accountID)
 	if err != nil {
 		if errors.Is(err, provider.ErrAccountNotFound) {

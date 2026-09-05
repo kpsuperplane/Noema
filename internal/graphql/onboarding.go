@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/localmodel"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -35,6 +36,13 @@ func (r *Resolver) onboardingStatus(ctx context.Context) (*model.OnboardingStatu
 		return nil, err
 	}
 	ready := account.IsActive && account.Status == provider.StatusAuthenticated
+	if primary.ProviderKind == "local_models" {
+		ready = ready && r.LocalModels != nil &&
+			r.LocalModels.RuntimeStatus() == localmodel.RuntimeRunning
+		status.IsUserOnboarded = ready
+		status.Steps[0] = localModelOnboardingStep(ready)
+		return status, nil
+	}
 	status.IsUserOnboarded = ready
 	status.Steps = append(status.Steps, providerOnboardingStep(account, ready))
 	return status, nil
@@ -55,12 +63,18 @@ func (r *Resolver) onboardingModelSetup(
 		return nil, errors.New("provider account is not authenticated")
 	}
 	recommendations := provider.ModelRecommendations(account.ProviderKind)
-	if len(recommendations) == 0 {
+	if len(recommendations) == 0 && account.ProviderKind != "local_models" {
 		return nil, errors.New("provider account cannot serve hosted models")
 	}
 	profiles, err := account.Metadata.ModelProfiles()
 	if err != nil {
 		return nil, err
+	}
+	if account.ProviderKind == "local_models" {
+		profiles, err = r.localModelProfiles(ctx, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(profiles) == 0 {
 		return nil, errors.New("provider account has no available models")
@@ -70,6 +84,13 @@ func (r *Resolver) onboardingModelSetup(
 	for _, profile := range profiles {
 		profileModels = append(profileModels, modelProfileOption(profile))
 	}
+	if account.ProviderKind == "local_models" {
+		option, optionErr := r.localModelOption(ctx, account)
+		if optionErr != nil {
+			return nil, optionErr
+		}
+		profileModels = option.Profiles
+	}
 	recommendationModels := make([]*model.AgentModelRecommendation, 0, len(recommendations))
 	for _, recommendation := range recommendations {
 		recommendationModels = append(
@@ -77,21 +98,43 @@ func (r *Resolver) onboardingModelSetup(
 			modelRecommendation(recommendation, profiles),
 		)
 	}
-	recommended := &model.OnboardingModelSelection{
-		SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended,
-	}
+	proposed := proposedModelSelections(account.ProviderKind, profileModels)
 	return &model.OnboardingModelSetup{
 		ProviderKind: account.ProviderKind, ProviderAccountID: account.ID,
 		ProviderDisplayName: account.DisplayName, Profiles: profileModels,
-		Recommendations: recommendationModels,
-		ProposedSelections: &model.OnboardingModelSelections{
-			Noema: cloneSelection(recommended), SimpleTasks: cloneSelection(recommended),
-			MediumTasks: cloneSelection(recommended), DifficultTasks: cloneSelection(recommended),
-			TaskReviewer: cloneSelection(recommended), WebFetchSummarizer: cloneSelection(recommended),
-			ToolProgressAudit: cloneSelection(recommended), ActionReviewer: cloneSelection(recommended),
-			MemoryConsolidation: cloneSelection(recommended),
-		},
+		Recommendations:    recommendationModels,
+		ProposedSelections: proposed,
 	}, nil
+}
+
+func proposedModelSelections(
+	providerKind string,
+	profiles []*model.AgentModelProfileOption,
+) *model.OnboardingModelSelections {
+	selection := &model.OnboardingModelSelection{
+		SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended,
+	}
+	if providerKind == "local_models" {
+		for _, profile := range profiles {
+			if profile.DisabledReason != nil {
+				continue
+			}
+			selection.SelectionMode = model.ModelPreferenceSelectionModeExplicitProfile
+			selection.ModelProfile = &profile.ID
+			selection.ReasoningEffort = profile.DefaultReasoningEffort
+			break
+		}
+	}
+	result := &model.OnboardingModelSelections{
+		Noema: cloneSelection(selection), SimpleTasks: cloneSelection(selection),
+		MediumTasks: cloneSelection(selection), DifficultTasks: cloneSelection(selection),
+		TaskReviewer: cloneSelection(selection), WebFetchSummarizer: cloneSelection(selection),
+		ToolProgressAudit: cloneSelection(selection), MemoryConsolidation: cloneSelection(selection),
+	}
+	if providerKind != "local_models" {
+		result.ActionReviewer = cloneSelection(selection)
+	}
+	return result
 }
 
 func (r *Resolver) confirmOnboardingModelSelections(
@@ -102,7 +145,10 @@ func (r *Resolver) confirmOnboardingModelSelections(
 	if err != nil {
 		return nil, err
 	}
-	if input.ActionReviewer == nil {
+	if setup.ProviderKind == "local_models" && input.ActionReviewer != nil {
+		return nil, errors.New("local model setup keeps governed action review with the human")
+	}
+	if setup.ProviderKind != "local_models" && input.ActionReviewer == nil {
 		return nil, errors.New("action reviewer model is required")
 	}
 	requested := []struct {
@@ -117,8 +163,14 @@ func (r *Resolver) confirmOnboardingModelSelections(
 		{store.HostedModelTaskReviewer, provider.ModelUseTaskReviewer, input.TaskReviewer},
 		{store.HostedModelWebFetchSummarizer, provider.ModelUseWebFetchSummarizer, input.WebFetchSummarizer},
 		{store.HostedModelToolProgressAudit, provider.ModelUseToolProgressAudit, input.ToolProgressAudit},
-		{store.HostedModelActionReviewer, provider.ModelUseActionReviewer, input.ActionReviewer},
 		{store.HostedModelMemoryConsolidation, provider.ModelUseMemoryConsolidation, input.MemoryConsolidation},
+	}
+	if input.ActionReviewer != nil {
+		requested = append(requested, struct {
+			role      store.HostedModelRole
+			useCase   provider.ModelUseCase
+			selection *model.OnboardingModelSelectionInput
+		}{store.HostedModelActionReviewer, provider.ModelUseActionReviewer, input.ActionReviewer})
 	}
 	assignments := make([]store.ModelAssignment, 0, len(requested))
 	for _, request := range requested {

@@ -5,6 +5,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -27,7 +28,17 @@ func detectLocalHardware(ctx context.Context) ([]LocalHardwareProfile, error) {
 	if !ok {
 		return nil, errors.New("physical memory is invalid")
 	}
-	return []LocalHardwareProfile{{Backend: LocalModelCPU, RAMGB: ram}}, nil
+	profiles := make([]LocalHardwareProfile, 0, 3)
+	nvidia := filepath.Join(systemDirectory, "nvidia-smi.exe")
+	if info, probeErr := os.Stat(nvidia); probeErr == nil && info.Mode().IsRegular() {
+		profiles = append(profiles, LocalHardwareProfile{Backend: LocalModelCUDA, RAMGB: ram})
+	}
+	vulkan := filepath.Join(systemDirectory, "vulkan-1.dll")
+	if info, probeErr := os.Stat(vulkan); probeErr == nil && info.Mode().IsRegular() {
+		profiles = append(profiles, LocalHardwareProfile{Backend: LocalModelVulkan, RAMGB: ram})
+	}
+	profiles = append(profiles, LocalHardwareProfile{Backend: LocalModelCPU, RAMGB: ram})
+	return profiles, nil
 }
 
 func trustedWindowsDirectories() (string, string, error) {

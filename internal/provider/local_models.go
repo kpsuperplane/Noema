@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -9,8 +10,10 @@ import (
 type LocalModelBackend string
 
 const (
-	LocalModelMetal LocalModelBackend = "metal"
-	LocalModelCPU   LocalModelBackend = "cpu"
+	LocalModelMetal  LocalModelBackend = "metal"
+	LocalModelCUDA   LocalModelBackend = "cuda"
+	LocalModelVulkan LocalModelBackend = "vulkan"
+	LocalModelCPU    LocalModelBackend = "cpu"
 )
 
 // LocalModelBuild is one pinned GGUF artifact.
@@ -64,6 +67,18 @@ func DiscoverLocalModelCatalog(ctx context.Context) ([]LocalModelCatalogItem, er
 		return nil, fmt.Errorf("detect local model hardware: %w", err)
 	}
 	return localModelCatalogForHardware(hardware), nil
+}
+
+// LocalModelHardwareProfiles returns usable backends in preference order.
+func LocalModelHardwareProfiles(ctx context.Context) ([]LocalHardwareProfile, error) {
+	profiles, err := detectLocalHardware(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(profiles) == 0 {
+		return nil, errors.New("local model hardware is unavailable")
+	}
+	return profiles, nil
 }
 
 func localModelCatalogForHardware(hardware []LocalHardwareProfile) []LocalModelCatalogItem {
@@ -135,10 +150,16 @@ func localModelExplanation(name string, hardware LocalHardwareProfile) string {
 }
 
 func localBackendName(backend LocalModelBackend) string {
-	if backend == LocalModelMetal {
+	switch backend {
+	case LocalModelMetal:
 		return "Metal"
+	case LocalModelCUDA:
+		return "CUDA"
+	case LocalModelVulkan:
+		return "Vulkan"
+	default:
+		return "CPU"
 	}
-	return "CPU"
 }
 
 func valueOrZero(value *int) int {
