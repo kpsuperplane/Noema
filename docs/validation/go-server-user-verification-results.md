@@ -45,15 +45,24 @@ The [wire results](evidence/2026-09-05-wire-results.json) and [service receipts]
 The [runner](evidence/2026-09-05-wire-check.mjs) and [fake services](evidence/2026-09-05-fake-services.mjs) retain the exact setup.
 Use the [replay notes](evidence/2026-09-05-replay.md) for certificate and namespace preparation.
 
-Two defects were fixed during this run:
+Three defects were fixed during this run:
 
 - API model tools omitted configured connection and account labels. Their descriptions now include current API, connection, and account identity.
+- OAuth attachment responses omitted grant metadata present in normal queries. Mutations now reuse the complete query result.
 - OAuth account renaming attempted to recreate the current token file. It now changes only account metadata and preserves the token.
 
 The [fix evidence](evidence/2026-09-05-account-label-fix.json) records the patched artifact, source hashes, regression, and code sizes.
 All 605 Go tests and Go vet pass after these changes.
 The production patch adds five net lines. The regression adds 84 test lines. Generated GraphQL is unchanged.
-The authored and inclusive Go ratios remain below 80 percent, at 44.95 and 76.24 percent.
+The latest authored and inclusive Go ratios remain below 80 percent, at 44.95 and 76.23 percent.
+
+The [OAuth response fix](evidence/2026-09-05-oauth-response-fix.json) records the latest release artifact and validation.
+It removes seven net production lines and changes no generated code.
+All 605 Go tests and Go vet pass on that patch.
+The wire run now reads from both synthetic accounts and rejects saved calls after shared-grant revocation.
+The [concurrent probe](evidence/2026-09-05-concurrent-api-probe.go.txt) uses production adapter calls against the same protected test home.
+Two concurrent calls refresh the shared grant once. Both return the intended account records.
+After revocation, two saved calls fail before reaching the fake API.
 
 ## Case results
 
@@ -190,17 +199,17 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-01 | Partial | Chat tool calls propose two definitions. Explicit client review accepts each. Controlled OAuth then creates usable API connections. | — |
 | API-02 | Not run | Controlled setup pending. | — |
 | API-03 | Partial | One fake browser OAuth sign-in attaches two APIs to a shared grant. Both return the same synthetic account. Independent policy variants remain pending. | Not run |
-| API-04 | Partial | Two synthetic accounts receive distinct grants. Renamed labels now reach model tools. Invoking the second account remains pending. | Not run |
+| API-04 | Partial | Both synthetic accounts return their own records. Current labels identify model tools. OAuth attachment replies retain grant metadata. Write and identity-discovery variants remain pending. | Not run |
 | API-05 | Partial | Fake consent denial creates no token and records a denied attempt. Cancel, expiry, and other callback failures remain pending. | Not run |
 | API-06 | Not run | Controlled setup pending. | Not run |
 | API-07 | Not run | Controlled setup pending. | Not run |
-| API-08 | Partial | A rejected shared access token refreshes once. Sequential reads through both APIs return the correct account. Concurrent refresh remains pending. | Not run |
+| API-08 | Pass · controlled HTTPS | Sequential browser-routed calls and concurrent production adapter calls refresh the shared token once and preserve the selected account. Real consent remains pending. | Not run |
 | API-09 | Not run | Controlled setup pending. | — |
 | API-10 | Not run | Controlled setup pending. | — |
 | API-11 | Not run | Controlled setup pending. | — |
 | API-12 | Not run | Controlled setup pending. | — |
 | API-13 | Partial | Connection and account labels update model descriptions. Disable, re-enable, and deletion variants remain pending. | — |
-| API-14 | Not run | Controlled setup pending. | — |
+| API-14 | Pass · controlled HTTPS | Shared-grant revocation removes both tools and rejects both saved calls before delivery. Other-account access remains available. Active grants block application deletion. | — |
 | API-15 | Not run | Controlled setup pending. | — |
 | MCP-01 | Not run | Controlled setup pending. | — |
 | MCP-02 | Not run | Controlled setup pending. | Not run |

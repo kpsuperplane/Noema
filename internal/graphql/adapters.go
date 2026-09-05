@@ -321,6 +321,19 @@ func (r *Resolver) adapterDefinitions(ctx context.Context) ([]*model.AdapterDefi
 	return result, nil
 }
 
+func (r *Resolver) adapterDefinition(ctx context.Context, digest string) (*model.AdapterDefinition, error) {
+	definitions, err := r.adapterDefinitions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, definition := range definitions {
+		if definition.SemanticDigest == digest {
+			return definition, nil
+		}
+	}
+	return nil, errors.New("adapter definition is unavailable")
+}
+
 func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.Definition, snapshot adapter.ServiceSnapshot, oauth adapter.OAuthSnapshot) {
 	apps := map[string]adapter.OAuthApplication{}
 	for _, app := range oauth.Applications {
@@ -722,11 +735,7 @@ func (r *Resolver) attachAdapterOAuthConnection(ctx context.Context, input model
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := service.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	return definitionModel(definition, snapshot), nil
+	return r.adapterDefinition(ctx, definition.SemanticDigest)
 }
 func (r *Resolver) disconnectAdapterOAuthGrant(ctx context.Context, input model.DisconnectAdapterOauthGrantInput) (*model.AdapterAuthorizationGrant, error) {
 	service, err := r.requireAdapters(ctx)
@@ -760,11 +769,7 @@ func (r *Resolver) approveAdapterDefinition(ctx context.Context, input model.App
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := service.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	return definitionModel(def, snapshot), nil
+	return r.adapterDefinition(ctx, def.SemanticDigest)
 }
 
 func (r *Resolver) setupAdapterConnection(ctx context.Context, input model.SetupAdapterConnectionInput) (*model.AdapterDefinition, error) {
@@ -815,11 +820,7 @@ func (r *Resolver) setupAdapterConnection(ctx context.Context, input model.Setup
 			return nil, resumeErr
 		}
 	}
-	snapshot, err := service.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	return definitionModel(definition, snapshot), nil
+	return r.adapterDefinition(ctx, definition.SemanticDigest)
 }
 
 func adapterAuthenticationModel(value store.MCPAuthRequest, displayName string) *model.AdapterAuthenticationIntervention {
@@ -990,15 +991,7 @@ func (r *Resolver) setAdapterConnectionActive(ctx context.Context, input model.S
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := service.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	def, _, err := findAdapter(snapshot, c.ConnectionID)
-	if err != nil {
-		return nil, err
-	}
-	return definitionModel(def, snapshot), nil
+	return r.adapterDefinition(ctx, c.SemanticDigest)
 }
 func (r *Resolver) saveAdapterConnectionPolicy(ctx context.Context, input model.SaveCapabilityConnectionPolicyInput) (*model.CapabilityConnection, error) {
 	service, err := r.requireAdapters(ctx)

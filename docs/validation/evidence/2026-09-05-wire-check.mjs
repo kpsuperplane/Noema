@@ -14,7 +14,7 @@ const evidence = [];
 let fake;
 function pass(id, detail) { evidence.push({ id, result: 'pass', detail }); console.log(`PASS ${id}: ${detail}`); }
 async function start() {
-  child = spawn(`${root}/noema-labels-frozen`, ['--listen', '127.0.0.1:43739'], {
+  child = spawn(`${root}/noema-oauth-response`, ['--listen', '127.0.0.1:43739'], {
     uid: 65534, gid: 65534, cwd: root,
     env: { PATH: process.env.PATH, NOEMA_HOME: home, SSL_CERT_FILE: root+'/fake-ca.pem', NOEMA_OPENAI__API_KEY: crypto.randomUUID() }, stdio: ['ignore','pipe','pipe']
   });
@@ -129,6 +129,37 @@ try {
   assert.equal(reads.length,2);assert.ok(reads.every(r=>r.account==='account-one'));
   assert.equal(fake.receipts.filter(r=>r.kind==='token'&&r.grantType==='refresh_token').length,1);
   pass('API-08-sequential','An expired shared token refreshes once. Both dependent APIs then return the intended account records. Concurrent refresh remains pending.');
+  fake.expireAccess();
+  const before=fake.receipts.filter(r=>r.kind==='token'&&r.grantType==='refresh_token').length;
+  const probe=spawn(`${root}/verify-api`,[home,first.grantId],{uid:65534,gid:65534,cwd:root,env:{PATH:process.env.PATH,SSL_CERT_FILE:root+'/fake-ca.pem'}});
+  let probeOutput='';probe.stdout.on('data',d=>probeOutput+=d);probe.stderr.on('data',d=>process.stderr.write(d));
+  assert.equal((await once(probe,'exit'))[0],0);
+  assert.deepEqual(JSON.parse(probeOutput),{calls:2,passed:2});
+  assert.equal(fake.receipts.filter(r=>r.kind==='token'&&r.grantType==='refresh_token').length-before,1);
+  pass('API-08-concurrent','Two concurrent production adapter calls refresh one shared grant once and return the correct account.');
+  const other=(await gql('mutation($input:SaveAdapterOauthGrantLabelInput!){saveAdapterOauthGrantLabel(input:$input){authorityRevision}}',{input:{grantId:second.grantId,expectedAuthorityRevision:second.grantRevision,accountLabel:'Other account'}})).saveAdapterOauthGrantLabel;
+  const secondDefinition=(await gql('mutation($input:AttachAdapterOauthConnectionInput!){attachAdapterOauthConnection(input:$input){connections{connectionId grantId connectionRevision policyRevision}}}',{input:{semanticDigest:proposed[0],grantId:second.grantId,expectedGrantRevision:other.authorityRevision}})).attachAdapterOauthConnection;
+  const secondConnection=secondDefinition.connections.find(c=>c.grantId===second.grantId);
+  await gql('mutation($input:SaveCapabilityConnectionPolicyInput!){saveCapabilityConnectionPolicy(input:$input){connectionId}}',{input:{kind:'API',connectionId:secondConnection.connectionId,expectedConnectionRevision:String(secondConnection.connectionRevision),expectedPolicyRevision:secondConnection.policyRevision,dataSharingPolicy:'allow_automatically',unsafeActionPolicy:'always_ask'}});
+  fake.replies.push({toolLabel:'Account: "Other account"',arguments:{id:'second-account'}},{text:'Other account read complete.'});
+  await send('Read the record from Other account.');await page.getByText('Other account read complete.',{exact:false}).waitFor();
+  assert.equal(fake.receipts.filter(r=>r.kind==='api-read').at(-1).account,'account-two');
+  pass('API-04-invocation','A model tool selected by its current account label calls the second account while first-account connections remain configured.');
+  const deletion=await call(page,'/graphql',{query:'mutation($input:DeleteAdapterOauthApplicationInput!){deleteAdapterOauthApplication(input:$input)}',variables:{input:{applicationId:application.applicationId,expectedRevision:application.revision}}});
+  assert.ok(deletion.data.errors?.length);
+  const saved=spawn(`${root}/verify-api`,[home,first.grantId,'revoked'],{uid:65534,gid:65534,cwd:root,env:{PATH:process.env.PATH,SSL_CERT_FILE:root+'/fake-ca.pem'}});
+  let savedOutput='';await new Promise((resolve,reject)=>{saved.once('error',reject);saved.stdout.on('data',d=>{savedOutput+=d;if(savedOutput.includes('ready'))resolve();});});
+  const readCount=fake.receipts.filter(r=>r.kind==='api-read').length;
+  await gql('mutation($input:DisconnectAdapterOauthGrantInput!){disconnectAdapterOauthGrant(input:$input){status}}',{input:{grantId:first.grantId,expectedAuthorityRevision:first.grantRevision+1}});
+  saved.stdin.end('continue\n');assert.equal((await once(saved,'exit'))[0],0);
+  assert.deepEqual(JSON.parse(savedOutput.trim().split('\n').at(-1)),{calls:2,passed:2});
+  assert.equal(fake.receipts.filter(r=>r.kind==='api-read').length,readCount);
+  pass('API-14-saved-calls','Revocation rejects already-saved calls for both dependent APIs before either reaches the fake service.');
+  fake.replies.push({text:'Shared access has been removed.'});await send('Inspect the remaining connected account.');await page.getByText('Shared access has been removed.',{exact:false}).waitFor();
+  const remaining=fake.receipts.filter(r=>r.kind==='model').at(-1).apiTools;
+  assert.equal(remaining.length,1);assert.ok(remaining[0].description.includes('Other account'));
+  pass('API-14-catalog','Disconnecting the shared grant removes both dependent tools. The other account remains available. Active grants prevent application deletion.');
+
 
 
 } catch(error) {

@@ -38,5 +38,25 @@
     "id": "API-08-sequential",
     "result": "pass",
     "detail": "An expired shared token refreshes once. Both dependent APIs then return the intended account records. Concurrent refresh remains pending."
+  },
+  {
+    "id": "API-08-concurrent",
+    "result": "pass",
+    "detail": "Two concurrent production adapter calls refresh one shared grant once and return the correct account."
+  },
+  {
+    "id": "API-04-invocation",
+    "result": "pass",
+    "detail": "A model tool selected by its current account label calls the second account while first-account connections remain configured."
+  },
+  {
+    "id": "API-14-saved-calls",
+    "result": "pass",
+    "detail": "Revocation rejects already-saved calls for both dependent APIs before either reaches the fake service."
+  },
+  {
+    "id": "API-14-catalog",
+    "result": "pass",
+    "detail": "Disconnecting the shared grant removes both dependent tools. The other account remains available. Active grants prevent application deletion."
   }
 ]
