@@ -105,6 +105,8 @@ func conversationEventModel(event runtime.Event) (model.ConversationEvent, error
 	switch event.Kind {
 	case runtime.EventSubscriptionReady:
 		return model.SubscriptionReadyEvent{ConversationID: event.ConversationID}, nil
+	case runtime.EventHumanInterventionsChanged:
+		return model.HumanInterventionsChangedEvent{ConversationID: event.ConversationID}, nil
 	case runtime.EventAgentStatus:
 		status, err := agentStatusModel(event.Status)
 		if err != nil {
@@ -194,7 +196,7 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		return model.UserText{Text: item.ContentText}, nil
 	case store.ConversationAssistantText:
 		return model.AssistantText{Text: item.ContentText}, nil
-	case store.ConversationToolCall, store.ConversationToolResult:
+	case store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
 		id, _ := item.Payload["id"].(string)
 		kind, _ := item.Payload["activity_kind"].(string)
 		title, _ := item.Payload["title"].(string)

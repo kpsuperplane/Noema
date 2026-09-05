@@ -206,7 +206,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
-	if !ok || len(tools) != 5 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+	if !ok || len(tools) != 6 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
 	}
 	toolNames := make(map[string]bool)
@@ -219,11 +219,11 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		function := wire["function"].(map[string]any)
 		toolNames[function["name"].(string)] = true
 	}
-	if !toolNames["parse"] || !toolNames["inspect"] ||
+	if !toolNames["parse"] || !toolNames["inspect"] || !toolNames["download"] ||
 		!toolNames["read_memory_page"] || !toolNames["search_memory"] || !toolNames["hosted_web_search"] {
 		t.Fatalf("advertised tools = %#v", toolNames)
 	}
-	if len(firstContinuation["tools"].([]any)) != 5 || len(secondContinuation["tools"].([]any)) != 5 {
+	if len(firstContinuation["tools"].([]any)) != 6 || len(secondContinuation["tools"].([]any)) != 6 {
 		t.Fatal("normal continuations did not retain the Chat tools")
 	}
 	messages := firstContinuation["messages"].([]any)
@@ -330,7 +330,7 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 		}
 	}
 	firstRequest, secondRequest := <-requests, <-requests
-	if len(firstRequest["tools"].([]any)) != 5 {
+	if len(firstRequest["tools"].([]any)) != 6 {
 		t.Fatalf("hosted web tools = %#v", firstRequest["tools"])
 	}
 	var replayedSearches int
@@ -476,8 +476,9 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if len(requests) != 3 || len(requests[0].Tools) != 4 ||
-		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" {
+	if len(requests) != 3 || len(requests[0].Tools) != 5 ||
+		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" ||
+		requests[0].Tools[4].Name != fileDownloadName {
 		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
 	}
 	initialContext := requests[0].Messages[0].Content

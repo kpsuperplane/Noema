@@ -25,6 +25,7 @@ import (
 
 	webpush "github.com/ergochat/webpush-go/v2"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/netpolicy"
 	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/yuin/goldmark"
@@ -435,7 +436,7 @@ func validatePushEndpoint(value string) (string, error) {
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return "", errors.New("Web Push endpoint is unavailable")
 	}
-	if address, parseErr := netip.ParseAddr(host); parseErr == nil && !isPublic(address) {
+	if address, parseErr := netip.ParseAddr(host); parseErr == nil && !netpolicy.IsPublic(address) {
 		return "", errors.New("Web Push endpoint is unavailable")
 	}
 	return parsed.String(), nil
@@ -444,59 +445,13 @@ func validatePushEndpoint(value string) (string, error) {
 type publicPushClient struct{}
 
 func (publicPushClient) Do(request *http.Request) (*http.Response, error) {
-	addresses, err := resolvePublic(request.Context(), request.URL.Hostname())
+	addresses, err := netpolicy.ResolvePublic(request.Context(), request.URL.Hostname())
 	if err != nil {
 		return nil, errors.New("Push endpoint is unavailable")
 	}
-	port := request.URL.Port()
-	if port == "" {
-		port = "443"
-	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{Timeout: pushConnectionTimeout}).DialContext(ctx, network,
-			net.JoinHostPort(addresses[0].String(), port))
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	checked := netpolicy.CheckedURL{URL: request.URL, Addresses: addresses}
+	client := netpolicy.PinnedClient(checked, pushConnectionTimeout)
 	return client.Do(request)
-}
-
-func resolvePublic(ctx context.Context, host string) ([]netip.Addr, error) {
-	if address, err := netip.ParseAddr(host); err == nil {
-		if isPublic(address) {
-			return []netip.Addr{address}, nil
-		}
-		return nil, errors.New("address is not public")
-	}
-	addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-	if err != nil || len(addresses) == 0 {
-		return nil, errors.New("resolve Push endpoint")
-	}
-	for _, address := range addresses {
-		if !isPublic(address) {
-			return nil, errors.New("address is not public")
-		}
-	}
-	return addresses, nil
-}
-
-func isPublic(address netip.Addr) bool {
-	address = address.Unmap()
-	if !address.IsGlobalUnicast() || address.IsPrivate() {
-		return false
-	}
-	for _, raw := range []string{"0.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
-		"192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
-		"224.0.0.0/4", "240.0.0.0/4", "::/128", "::1/128", "2001:db8::/32", "fc00::/7", "fe80::/10", "ff00::/8"} {
-		if netip.MustParsePrefix(raw).Contains(address) {
-			return false
-		}
-	}
-	return true
 }
 
 func notificationText(value string) string {

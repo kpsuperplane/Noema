@@ -437,11 +437,14 @@ func (c *Chat) executeChatToolRounds(
 			return
 		}
 		call := result.ToolCalls[0]
-		toolPayload, success, err := c.persistChatToolRound(
+		toolPayload, success, pending, err := c.persistChatToolRound(
 			request, turn, assignment, result, call, providerRound,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
+			return
+		}
+		if pending {
 			return
 		}
 		stopReason := progress.observe(call, toolPayload, success)
@@ -484,7 +487,12 @@ func (c *Chat) persistChatToolRound(
 	generation provider.GenerationResult,
 	call provider.GenerationToolCall,
 	providerRound int,
-) (json.RawMessage, bool, error) {
+) (json.RawMessage, bool, bool, error) {
+	if call.Name == fileDownloadName {
+		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
+			return nil, false, false, errors.New("file.download arguments are invalid")
+		}
+	}
 	normalized := normalizeProviderText(generation.Text, generation.Citations)
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
 		Provider:   assignment.ProviderKind,
@@ -499,7 +507,7 @@ func (c *Chat) persistChatToolRound(
 		},
 	}, time.Now())
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	var callItem store.ConversationItem
 	for index := range items {
@@ -515,7 +523,36 @@ func (c *Chat) persistChatToolRound(
 		})
 	}
 	if callItem.ID == "" {
-		return nil, false, errors.New("stored tool call is unavailable")
+		return nil, false, false, errors.New("stored tool call is unavailable")
+	}
+	if call.Name == fileDownloadName {
+		payload, success, approval, err := c.prepareFileDownloadAction(
+			request.conversation, turn, callItem, assignment, providerRound, call.Payload,
+		)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if approval != nil {
+			c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: approval})
+			c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
+			c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
+			c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})
+			return nil, false, true, nil
+		}
+		resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
+			CallItemID: callItem.ID, Provider: assignment.ProviderKind,
+			ProviderRound: providerRound, OutputIndex: call.Index,
+			ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
+			Name: call.Name, Success: success, Payload: payload,
+		}, time.Now())
+		if err != nil {
+			return nil, false, false, err
+		}
+		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
+		return payload, success, false, nil
 	}
 	toolPayload, success := c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload)
 	resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
@@ -525,14 +562,14 @@ func (c *Chat) persistChatToolRound(
 		Name: call.Name, Success: success, Payload: toolPayload,
 	}, time.Now())
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	c.publish(Event{
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem,
 	})
 	c.publishMemoryChanged()
-	return toolPayload, success, nil
+	return toolPayload, success, false, nil
 }
 
 func (c *Chat) persistHostedSearches(

@@ -100,6 +100,15 @@ func parseConversationFile(
 	cwd string,
 	arguments json.RawMessage,
 ) (fileParseResponse, error) {
+	return parseConversationFileWithMedia(ctx, cwd, arguments, "")
+}
+
+func parseConversationFileWithMedia(
+	ctx context.Context,
+	cwd string,
+	arguments json.RawMessage,
+	mediaType string,
+) (fileParseResponse, error) {
 	request, err := parseFileArguments(arguments)
 	if err != nil {
 		return fileParseResponse{}, err
@@ -112,7 +121,7 @@ func parseConversationFile(
 		return fileParseResponse{}, err
 	}
 	defer file.Close()
-	return parseOpenFile(ctx, file, request.path, request.maxChars), nil
+	return parseOpenFileWithMedia(ctx, file, request.path, request.maxChars, mediaType), nil
 }
 
 func parseFileArguments(arguments json.RawMessage) (fileParseRequest, error) {
@@ -200,12 +209,22 @@ func normalizedFilePath(supplied string) (string, error) {
 }
 
 func parseOpenFile(ctx context.Context, file *os.File, displayPath string, maxChars int) fileParseResponse {
+	return parseOpenFileWithMedia(ctx, file, displayPath, maxChars, "")
+}
+
+func parseOpenFileWithMedia(
+	ctx context.Context, file *os.File, displayPath string, maxChars int, mediaType string,
+) fileParseResponse {
 	metadata, err := file.Stat()
 	if err != nil || !metadata.Mode().IsRegular() {
 		return failedFileParse(displayPath, 0, nil, "invalid_file")
 	}
 	format := fileFormat(displayPath)
-	if isTextFile(format) {
+	mediaFormat, textMedia := textFormatForMedia(mediaType)
+	if mediaFormat != "" {
+		format = mediaFormat
+	}
+	if textMedia || isTextFile(format) {
 		return parseTextFile(file, displayPath, metadata.Size(), format, maxChars)
 	}
 	if metadata.Size() > fileParseMaximumInput {
@@ -541,6 +560,26 @@ func isTextFile(format string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func textFormatForMedia(mediaType string) (string, bool) {
+	mainType, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(mediaType)), ";")
+	switch strings.TrimSpace(mainType) {
+	case "text/csv":
+		return "csv", true
+	case "text/markdown", "application/markdown":
+		return "md", true
+	case "message/rfc822":
+		return "eml", true
+	case "application/json":
+		return "json", true
+	case "application/xml", "text/xml":
+		return "xml", true
+	case "text/plain":
+		return "txt", true
+	default:
+		return "", strings.HasPrefix(strings.TrimSpace(mainType), "text/")
 	}
 }
 
