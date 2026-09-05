@@ -83,8 +83,8 @@ VALUES (?,?,?,?,?,?,?)`, id, turnID, runID, category, name, string(encoded), mil
 		column = "task_run_id"
 	}
 	_, err = tx.ExecContext(ctx, `DELETE FROM runtime_debug_spans WHERE span_id IN (
-SELECT span_id FROM runtime_debug_spans WHERE `+column+`=? AND status!='running'
-ORDER BY started_at_ms DESC,span_id DESC LIMIT -1 OFFSET ?)`, scope.ID, runtimeDebugSpanLimit-1)
+SELECT span_id FROM runtime_debug_spans WHERE `+column+`=? AND span_id<>?
+ORDER BY started_at_ms DESC,span_id DESC LIMIT -1 OFFSET ?)`, scope.ID, id, runtimeDebugSpanLimit-1)
 	if err != nil {
 		return "", fmt.Errorf("bound runtime debug spans: %w", err)
 	}

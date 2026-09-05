@@ -120,6 +120,24 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 	if _, err = runtime.ResolveActionRequest(t.Context(), action.ID, action.Revision, "human:local", "approve"); err != nil {
 		t.Fatal(err)
 	}
+	profile, err := database.RuntimeDebugProfile(t.Context(), store.RuntimeDebugScope{Kind: "task_run", ID: action.RunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, execution := 0, 0
+	for _, span := range profile.Spans {
+		if span.Metadata.CorrelationID == "call:send" {
+			if span.Metadata.Phase == "review_preparation" {
+				preparation++
+			}
+			if span.Metadata.Phase == "execution" {
+				execution++
+			}
+		}
+	}
+	if preparation != 1 || execution != 1 {
+		t.Fatalf("reviewed Task tool phase counts = %d, %d", preparation, execution)
+	}
 	auth, err := database.PendingMCPAuthRequests(t.Context(), "human:local", nil, &task.ID, 10)
 	if err != nil || len(auth) != 1 || auth[0].ActionID != action.ID {
 		t.Fatalf("Task authentication = %#v, %v", auth, err)

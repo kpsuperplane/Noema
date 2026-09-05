@@ -225,6 +225,24 @@ func TestReviewedMCPAuthenticationSurvivesRestartAndCompletesAction(t *testing.T
 	if action, err := chat.ResolveActionRequest(t.Context(), actions[0].ID, 1, "human:local", "approve"); err != nil || action.State != store.ActionExecuting {
 		t.Fatalf("suspended action = %#v, %v", action, err)
 	}
+	profile, err := database.RuntimeDebugProfile(t.Context(), store.RuntimeDebugScope{Kind: "conversation_turn", ID: actions[0].TurnID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, execution := 0, 0
+	for _, span := range profile.Spans {
+		if span.Metadata.CorrelationID == "reviewed-auth" {
+			if span.Metadata.Phase == "review_preparation" {
+				preparation++
+			}
+			if span.Metadata.Phase == "execution" {
+				execution++
+			}
+		}
+	}
+	if preparation != 1 || execution != 1 {
+		t.Fatalf("reviewed tool phase counts = %d, %d", preparation, execution)
+	}
 	collectCompletedTurns(t, events, 1)
 	pending, err := database.PendingMCPAuthRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
 	if err != nil || len(pending) != 1 || pending[0].ActionID != actions[0].ID {

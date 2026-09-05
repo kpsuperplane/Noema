@@ -25,6 +25,11 @@ func runtimeDebugProfileModel(value *store.RuntimeDebugProfile, now time.Time) *
 	effectiveEnd := now.UTC()
 	if value.EndedAt != nil {
 		effectiveEnd = *value.EndedAt
+		for _, span := range value.Spans {
+			if span.EndedAt != nil && span.EndedAt.After(effectiveEnd) {
+				effectiveEnd = *span.EndedAt
+			}
+		}
 	}
 	elapsed := max(effectiveEnd.Sub(value.StartedAt).Milliseconds(), 0)
 	result := &model.RuntimeDebugProfile{
@@ -35,7 +40,7 @@ func runtimeDebugProfileModel(value *store.RuntimeDebugProfile, now time.Time) *
 		result.Kind = model.RuntimeDebugScopeKindTaskRun
 	}
 	if value.EndedAt != nil {
-		ended := debugTime(*value.EndedAt)
+		ended := debugTime(effectiveEnd)
 		result.EndedAt = &ended
 	}
 	intervals := make([][2]int64, 0, len(value.Spans))

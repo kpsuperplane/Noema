@@ -125,6 +125,12 @@ func (r *TaskExecution) ResolveActionRequest(ctx context.Context, actionID strin
 		payload, _ := json.Marshal(actionResultPayload(action))
 		return action, r.completeTaskMCPResult(ctx, action, call, payload, false)
 	}
+	round := int(call.Round)
+	toolStarted := time.Now()
+	toolSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
+		store.RuntimeDebugScope{Kind: "task_run", ID: action.RunID}, "tool", "Task tool call",
+		store.RuntimeDebugMetadata{Phase: "execution", ToolName: action.CapabilityName,
+			CorrelationID: taskPayloadText(call.Payload, "provider_call_id"), RoundIndex: &round}, toolStarted)
 	var payload json.RawMessage
 	var success, paused bool
 	if action.AuthorizationContext["adapter_binding"] != nil {
@@ -138,6 +144,16 @@ func (r *TaskExecution) ResolveActionRequest(ctx context.Context, actionID strin
 	} else {
 		payload, success, paused, err = r.executeTaskMCPAction(ctx,
 			store.Task{ID: action.TaskID}, store.TaskRun{ID: action.RunID, TaskID: action.TaskID, Generation: action.TaskGeneration}, call, action)
+	}
+	toolStatus := "completed"
+	if err != nil || (!success && !paused) {
+		toolStatus = "failed"
+	}
+	if toolSpan != "" {
+		_ = r.database.FinishRuntimeDebugSpan(context.WithoutCancel(ctx), toolSpan, toolStatus,
+			store.RuntimeDebugMetadata{Phase: "execution", ToolName: action.CapabilityName,
+				CorrelationID: taskPayloadText(call.Payload, "provider_call_id"), RoundIndex: &round},
+			time.Since(toolStarted), time.Now())
 	}
 	if err != nil || (paused && payload == nil) {
 		return action, err

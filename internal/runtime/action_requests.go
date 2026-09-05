@@ -261,28 +261,51 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	}
 	c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: action.ConversationID})
 	if action.State == store.ActionExecutable {
+		_, call, callErr := c.database.ActionConversationCall(c.ctx, action)
+		if callErr != nil {
+			return store.ActionRequest{}, callErr
+		}
+		round := call.ProviderRound
+		toolStarted := time.Now()
+		toolSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+			store.RuntimeDebugScope{Kind: "conversation_turn", ID: action.TurnID}, "tool", "Tool call",
+			store.RuntimeDebugMetadata{Phase: "execution", ToolName: action.CapabilityName, CorrelationID: call.ProviderCallID, RoundIndex: &round}, toolStarted)
+		success, paused := false, false
+		var notice *store.ConversationItem
 		if action.AuthorizationContext["adapter_binding"] != nil {
-			_, _, _, err = c.executeReviewedAdapter(action)
+			_, success, notice, err = c.executeReviewedAdapter(action)
 		} else if action.CapabilityName == webtool.FetchName {
-			_, _, _, err = c.executeReviewedWebFetch(action)
+			_, success, notice, err = c.executeReviewedWebFetch(action)
 		} else if webtool.IsBrowserTool(action.CapabilityName) {
-			_, _, err = c.executeReviewedBrowser(action)
+			var result webtool.BrowserResult
+			result, notice, err = c.executeReviewedBrowser(action)
+			success = result.Success
 		} else if strings.HasPrefix(action.CapabilityName, "mcp.") {
-			var notice *store.ConversationItem
-			_, _, notice, err = c.executeReviewedMCP(action)
-			if err == nil && notice != nil {
-				c.publish(Event{Kind: EventConversationItem, ConversationID: action.ConversationID, TurnID: action.TurnID, Item: notice})
-				c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: action.ConversationID})
-				c.publish(Event{Kind: EventAgentStatus, ConversationID: action.ConversationID, Status: AgentStatusIdle})
-				c.publish(Event{Kind: EventTurnCompleted, ConversationID: action.ConversationID, TurnID: action.TurnID})
-				return c.database.ActionRequest(c.ctx, action.ID, action.Revision)
-			}
+			_, success, notice, err = c.executeReviewedMCP(action)
 		} else {
 			conversation, conversationErr := c.database.Conversation(c.ctx, action.ConversationID)
 			if conversationErr != nil {
-				return store.ActionRequest{}, conversationErr
+				err = conversationErr
+			} else {
+				_, success, notice, err = c.executeReviewedDownload(action, conversation)
 			}
-			_, _, _, err = c.executeReviewedDownload(action, conversation)
+		}
+		paused = notice != nil
+		toolStatus := "completed"
+		if err != nil || (!success && !paused) {
+			toolStatus = "failed"
+		}
+		if toolSpan != "" {
+			_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), toolSpan, toolStatus,
+				store.RuntimeDebugMetadata{Phase: "execution", ToolName: action.CapabilityName, CorrelationID: call.ProviderCallID, RoundIndex: &round},
+				time.Since(toolStarted), time.Now())
+		}
+		if err == nil && notice != nil && strings.HasPrefix(action.CapabilityName, "mcp.") {
+			c.publish(Event{Kind: EventConversationItem, ConversationID: action.ConversationID, TurnID: action.TurnID, Item: notice})
+			c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: action.ConversationID})
+			c.publish(Event{Kind: EventAgentStatus, ConversationID: action.ConversationID, Status: AgentStatusIdle})
+			c.publish(Event{Kind: EventTurnCompleted, ConversationID: action.ConversationID, TurnID: action.TurnID})
+			return c.database.ActionRequest(c.ctx, action.ID, action.Revision)
 		}
 		if err != nil {
 			return store.ActionRequest{}, err

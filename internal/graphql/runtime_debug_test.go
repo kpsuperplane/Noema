@@ -59,14 +59,20 @@ func TestRuntimeDebugProfileProjectsTimingMetadataAndOwnership(t *testing.T) {
 	}
 	ended := started.Add(50 * time.Millisecond)
 	runningStarted := started.Add(20 * time.Millisecond)
+	persistenceStarted := started.Add(40 * time.Millisecond)
+	persistenceEnded := started.Add(80 * time.Millisecond)
+	persistenceDuration := int64(40)
 	projected := runtimeDebugProfileModel(&store.RuntimeDebugProfile{
 		Scope: store.RuntimeDebugScope{Kind: "task_run", ID: "run:test"}, Status: "failed",
-		StartedAt: started, EndedAt: &ended, Spans: []store.RuntimeDebugSpan{{
-			ID: "debug_span:test", Category: "runtime", Name: "Work", Status: "running", StartedAt: runningStarted,
-		}},
+		StartedAt: started, EndedAt: &ended, Spans: []store.RuntimeDebugSpan{
+			{ID: "debug_span:test", Category: "runtime", Name: "Work", Status: "running", StartedAt: runningStarted},
+			{ID: "debug_span:persistence", Category: "persistence", Name: "Save", Status: "completed",
+				StartedAt: persistenceStarted, EndedAt: &persistenceEnded, DurationMilliseconds: &persistenceDuration},
+		},
 	}, ended)
 	if projected.Kind != model.RuntimeDebugScopeKindTaskRun || projected.Spans[0].Status != model.RuntimeDebugStatusInterrupted ||
-		projected.ElapsedMilliseconds != 50 || projected.AccountedMilliseconds != 30 || projected.UninstrumentedMilliseconds != 20 {
+		projected.ElapsedMilliseconds != 80 || projected.AccountedMilliseconds != 60 || projected.UninstrumentedMilliseconds != 20 ||
+		projected.EndedAt == nil || *projected.EndedAt != debugTime(persistenceEnded) {
 		t.Fatalf("terminal projection = %#v", projected)
 	}
 }

@@ -41,9 +41,16 @@ func TestRuntimeDebugMigratesAndBoundsCompletedSpans(t *testing.T) {
 		if beginErr != nil {
 			t.Fatal(beginErr)
 		}
+		if index < 3 {
+			continue
+		}
 		if finishErr := database.FinishRuntimeDebugSpan(ctx, id, "completed", RuntimeDebugMetadata{}, time.Millisecond, started.Add(time.Millisecond)); finishErr != nil {
 			t.Fatal(finishErr)
 		}
+	}
+	var spanCount int
+	if err = database.db.QueryRow(`SELECT COUNT(*) FROM runtime_debug_spans WHERE conversation_turn_id=?`, turn.ID).Scan(&spanCount); err != nil || spanCount != runtimeDebugSpanLimit {
+		t.Fatalf("stored span count = %d, %v", spanCount, err)
 	}
 	profile, err := database.RuntimeDebugProfile(ctx, scope)
 	if err != nil || profile == nil || len(profile.Spans) != runtimeDebugSpanLimit {

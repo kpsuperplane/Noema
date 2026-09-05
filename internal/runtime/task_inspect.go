@@ -479,12 +479,16 @@ func (c *Chat) executeChatToolRounds(
 			request, turn, assignment, result, call, providerRound, hostedState,
 		)
 		toolStatus := "completed"
-		if err != nil || !success {
+		toolPhase := "execution"
+		if err != nil || (!success && !pending) {
 			toolStatus = "failed"
+		}
+		if pending {
+			toolPhase = "review_preparation"
 		}
 		if toolSpan != "" {
 			_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), toolSpan, toolStatus,
-				store.RuntimeDebugMetadata{ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &providerRound},
+				store.RuntimeDebugMetadata{Phase: toolPhase, ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &providerRound},
 				time.Since(toolStarted), time.Now())
 		}
 		if err != nil {
@@ -1173,9 +1177,10 @@ func (c *Chat) finishGeneratedTurn(
 		model = assignment.ModelProfile
 	}
 	persistenceStarted := time.Now()
+	responseIndex := 0
 	persistenceSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
 		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "persistence", "Save assistant response",
-		store.RuntimeDebugMetadata{ResponseIndex: &providerRound}, persistenceStarted)
+		store.RuntimeDebugMetadata{ResponseIndex: &responseIndex, RoundIndex: &providerRound}, persistenceStarted)
 	item, err := c.database.CompleteConversationTurnOutput(
 		c.ctx, turn, normalized.Text, result.Text,
 		&store.ProviderUsage{
@@ -1191,7 +1196,7 @@ func (c *Chat) finishGeneratedTurn(
 	}
 	if persistenceSpan != "" {
 		_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), persistenceSpan, persistenceStatus,
-			store.RuntimeDebugMetadata{ResponseIndex: &providerRound}, time.Since(persistenceStarted), time.Now())
+			store.RuntimeDebugMetadata{ResponseIndex: &responseIndex, RoundIndex: &providerRound}, time.Since(persistenceStarted), time.Now())
 	}
 	if err != nil {
 		if c.ctx.Err() != nil {

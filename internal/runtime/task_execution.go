@@ -463,6 +463,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		toolSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
 			store.RuntimeDebugScope{Kind: "task_run", ID: run.ID}, "tool", "Task tool call",
 			store.RuntimeDebugMetadata{ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &round}, toolStarted)
+		toolPhase := "execution"
 		finishToolSpan := func(success bool) {
 			status := "completed"
 			if !success {
@@ -470,13 +471,16 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			}
 			if toolSpan != "" {
 				_ = r.database.FinishRuntimeDebugSpan(context.WithoutCancel(ctx), toolSpan, status,
-					store.RuntimeDebugMetadata{ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &round},
+					store.RuntimeDebugMetadata{Phase: toolPhase, ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &round},
 					time.Since(toolStarted), time.Now())
 			}
 		}
 		if binding, ok := bindings[call.Name]; ok {
 			payload, success, paused, mcpErr := r.prepareTaskMCP(ctx, task, run, callItem, binding, call.Payload)
-			finishToolSpan(mcpErr == nil && success)
+			if paused && payload == nil {
+				toolPhase = "review_preparation"
+			}
+			finishToolSpan(mcpErr == nil && (success || paused))
 			if mcpErr != nil {
 				r.failRun(ctx, run, "mcp_action_unavailable", false)
 				return
@@ -501,7 +505,10 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 		if binding, ok := adapterBindings[call.Name]; ok {
 			payload, success, paused, actionErr := r.prepareTaskAdapter(ctx, task, run, callItem, binding, call.Payload)
-			finishToolSpan(actionErr == nil && success)
+			if paused && payload == nil {
+				toolPhase = "review_preparation"
+			}
+			finishToolSpan(actionErr == nil && (success || paused))
 			if actionErr != nil {
 				r.failRun(ctx, run, "adapter_action_unavailable", false)
 				return
@@ -532,7 +539,10 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 		if call.Name == webtool.FetchName {
 			payload, success, paused, actionErr := r.prepareTaskWebFetch(ctx, task, run, callItem, call.Payload)
-			finishToolSpan(actionErr == nil && success)
+			if paused && payload == nil {
+				toolPhase = "review_preparation"
+			}
+			finishToolSpan(actionErr == nil && (success || paused))
 			if actionErr != nil {
 				r.failRun(ctx, run, "web_action_unavailable", false)
 				return
@@ -557,6 +567,10 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 		if webtool.IsBrowserTool(call.Name) {
 			result, paused, actionErr := r.prepareTaskBrowser(ctx, task, run, callItem, call.Name, call.Payload)
+			if paused && result.Model == nil {
+				toolPhase = "review_preparation"
+			}
+			finishToolSpan(actionErr == nil && (result.Success || paused))
 			if actionErr != nil {
 				r.failRun(ctx, run, "browser_action_unavailable", false)
 				return
