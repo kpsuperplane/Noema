@@ -17,7 +17,10 @@ import (
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
-var ErrOutcomeUncertain = errors.New("adapter request outcome is uncertain")
+var (
+	ErrOutcomeUncertain       = errors.New("adapter request outcome is uncertain")
+	ErrAuthenticationRequired = errors.New("adapter authentication is required")
+)
 
 // Service owns reviewed adapter files, public indexes, and calls.
 type Service struct {
@@ -46,7 +49,7 @@ func NewService(root *os.Root, database *store.Store) (*Service, error) {
 func (s *Service) SetupTools() []provider.GenerationTool {
 	return []provider.GenerationTool{
 		{Name: DefinitionTemplateTool, Description: "List current API definitions or return one concise revision base.", InputSchema: json.RawMessage(`{"type":"object","properties":{"semantic_digest":{"type":"string","maxLength":64},"operation_ids":{"type":"array","maxItems":32,"items":{"type":"string"}}},"additionalProperties":false}`)},
-		{Name: ProposeDefinitionTool, Description: "Propose one credential-free public HTTP API definition from official HTTPS documentation for human review.", InputSchema: json.RawMessage(`{"type":"object","properties":{"source_reference":{"type":"string","maxLength":4096},"new_definition":{"type":"object"},"base_semantic_digest":{"type":"string"},"revision":{"type":"object"},"upsert_operations":{"type":"array","maxItems":128,"items":{"type":"object"}},"remove_operation_ids":{"type":"array","maxItems":128,"items":{"type":"string"}}},"required":["source_reference"],"additionalProperties":false}`)},
+		{Name: ProposeDefinitionTool, Description: "Propose one public HTTP API definition from official HTTPS documentation for human review.", InputSchema: json.RawMessage(`{"type":"object","properties":{"source_reference":{"type":"string","maxLength":4096},"new_definition":{"type":"object"},"base_semantic_digest":{"type":"string"},"revision":{"type":"object"},"upsert_operations":{"type":"array","maxItems":128,"items":{"type":"object"}},"remove_operation_ids":{"type":"array","maxItems":128,"items":{"type":"string"}}},"required":["source_reference"],"additionalProperties":false}`)},
 	}
 }
 
@@ -96,7 +99,7 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		if len(values) > 100 {
 			values = values[:100]
 		}
-		return map[string]any{"definitions": values, "instructions": []string{"Use new_definition for a new public API.", "Use the exact semantic_digest for a revision.", "Only authentication kind none is available in this migration unit.", "Use provider-visible language lua for response transforms."}}, nil
+		return map[string]any{"definitions": values, "instructions": []string{"Use new_definition for a new public API.", "Use the exact semantic_digest for a revision.", "Use authentication kind none or credential.", "Use language lua for all transforms."}}, nil
 	}
 	definitions, err := s.files.definitions()
 	if err != nil {
@@ -318,6 +321,21 @@ func (s *Service) adoptConnections(replacement Definition) error {
 			connection.Overrides[id] = override
 		}
 		connection.SemanticDigest = replacement.SemanticDigest
+		if !sameAuthentication(current.Manifest.Authentication, replacement.Manifest.Authentication) {
+			connection.Authentication = ConnectionAuthentication{Kind: replacement.Manifest.Authentication.Kind}
+			connection.Overrides = map[string]OperationOverride{}
+			if replacement.Manifest.Authentication.Kind == "none" {
+				connection.Status = "active"
+				connection.AllowedOperations = connection.AllowedOperations[:0]
+				for id := range newOperations {
+					connection.AllowedOperations = append(connection.AllowedOperations, id)
+				}
+				sort.Strings(connection.AllowedOperations)
+			} else {
+				connection.Status = "authentication_required"
+				connection.AllowedOperations = nil
+			}
+		}
 		connection.ConnectionRevision++
 		if before != len(connection.Overrides) || len(connection.Overrides) != 0 {
 			connection.PolicyRevision++
@@ -327,6 +345,12 @@ func (s *Service) adoptConnections(replacement Definition) error {
 		}
 	}
 	return nil
+}
+
+func sameAuthentication(left, right Authentication) bool {
+	a, aerr := normalizedJSON(left)
+	b, berr := normalizedJSON(right)
+	return aerr == nil && berr == nil && string(a) == string(b)
 }
 
 func (s *Service) replacementLineage(replaces []string) (map[string]bool, error) {
@@ -373,6 +397,9 @@ func sameOperationContract(left, right CompiledOperation) bool {
 }
 
 func (s *Service) ensureConnection(definition Definition) error {
+	if definition.Manifest.Authentication.Kind != "none" {
+		return nil
+	}
 	connections, err := s.files.connections()
 	if err != nil {
 		return err
@@ -388,8 +415,50 @@ func (s *Service) ensureConnection(definition Definition) error {
 	}
 	sort.Strings(allowed)
 	id := randomHex()
-	_, err = s.files.installConnection(Connection{SchemaVersion: 1, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: definition.SemanticDigest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}})
+	_, err = s.files.installConnection(Connection{SchemaVersion: 2, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: definition.SemanticDigest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "none"}})
 	return err
+}
+
+// SetupCredentialConnection creates or replaces one protected direct credential.
+func (s *Service) SetupCredentialConnection(ctx context.Context, digest, replacement string, input CredentialInputValue) (Definition, Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	definition, err := s.files.loadDefinition(digest)
+	if err != nil || !definition.Manifest.Reviewed || definition.Superseded || definition.Manifest.Authentication.Kind != "credential" {
+		return Definition{}, Connection{}, errors.New("adapter credential setup is unavailable")
+	}
+	fields, err := normalizeCredential(*definition.Manifest.Authentication.Setup, input)
+	if err != nil {
+		return Definition{}, Connection{}, err
+	}
+	generationID := randomHex()
+	generation := credentialGeneration{SchemaVersion: 2, GenerationID: generationID, Fields: fields}
+	allowed := make([]string, len(definition.Operations))
+	for i, operation := range definition.Operations {
+		allowed[i] = operation.OperationID
+	}
+	sort.Strings(allowed)
+	var connection Connection
+	if replacement == "" {
+		id := randomHex()
+		connection = Connection{SchemaVersion: 2, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "credential", GenerationID: generationID, Revision: 1}}
+		connection, err = s.files.installCredentialConnection(connection, generation)
+	} else {
+		connection, err = s.files.loadConnection(replacement)
+		if err != nil || connection.SemanticDigest != digest || connection.Authentication.Kind != "credential" || connection.Status != "authentication_required" {
+			return Definition{}, Connection{}, errors.New("adapter credential replacement is unavailable")
+		}
+		connection.Authentication.GenerationID = generationID
+		connection.Authentication.Revision++
+		connection.Status = "active"
+		connection.AllowedOperations = allowed
+		connection.ConnectionRevision++
+		connection, err = s.files.replaceCredential(connection, generation)
+	}
+	if err == nil {
+		err = s.reconcile(ctx)
+	}
+	return definition, connection, err
 }
 
 // Cancel removes one exact pending definition.
@@ -489,7 +558,13 @@ func (s *Service) SetActive(ctx context.Context, id string, revision int, active
 	if err != nil || value.ConnectionRevision != revision {
 		return Connection{}, errors.New("adapter connection revision changed")
 	}
+	if value.Status == "authentication_required" {
+		return Connection{}, errors.New("adapter authentication is required")
+	}
 	if active {
+		if value.Authentication.Kind == "credential" && value.Authentication.GenerationID == "" {
+			return Connection{}, errors.New("adapter authentication is required")
+		}
 		value.Status = "active"
 	} else {
 		value.Status = "suspended"
@@ -626,7 +701,7 @@ func (s *Service) bindings() ([]Binding, error) {
 	result := make([]Binding, 0)
 	for _, connection := range snapshot.Connections {
 		definition, ok := definitions[connection.SemanticDigest]
-		if !ok || connection.Status != "active" || connection.DataSharingPolicy == "" || connection.UnsafeActionPolicy == "" {
+		if !ok || connection.Status != "active" || connection.DataSharingPolicy == "" || connection.UnsafeActionPolicy == "" || definition.Manifest.Authentication.Kind == "credential" && connection.Authentication.GenerationID == "" {
 			continue
 		}
 		allowed := map[string]bool{}
@@ -654,7 +729,7 @@ func (s *Service) bindings() ([]Binding, error) {
 			}
 			route := reviewRoute(connection, behavior)
 			name := definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID
-			result = append(result, Binding{Name: name, Description: operation.Description, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
+			result = append(result, Binding{Name: name, Description: operation.Description, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: connection.Authentication.Revision, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -704,7 +779,8 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.files.loadConnection(current.ConnectionID); err != nil {
+	connection, err := s.files.loadConnection(current.ConnectionID)
+	if err != nil {
 		return nil, false, err
 	}
 	definition, err := s.files.loadDefinition(current.SemanticDigest)
@@ -734,6 +810,17 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	if err != nil {
 		return nil, false, err
 	}
+	sensitive := map[string]bool{}
+	if definition.Manifest.Authentication.Kind == "credential" {
+		fields, loadErr := s.files.loadCredential(connection)
+		if loadErr != nil || !validCredentialFields(*definition.Manifest.Authentication.Setup, fields) {
+			return nil, false, ErrAuthenticationRequired
+		}
+		sensitive, err = applyCredentialAuth(definition.Manifest.Authentication, fields, operation, &request)
+		if err != nil {
+			return nil, false, err
+		}
+	}
 	digest := argumentsDigest(arguments)
 	if reference != "" {
 		cursor, _ := s.loadCursor(reference)
@@ -752,10 +839,22 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		return nil, false, err
 	}
 	if response.status < 200 || response.status >= 300 {
+		if response.status == 401 && definition.Manifest.Authentication.Kind == "credential" {
+			connection.Status = "authentication_required"
+			connection.ConnectionRevision++
+			connection.AllowedOperations = nil
+			if _, updateErr := s.files.replaceConnection(connection); updateErr != nil {
+				return nil, false, updateErr
+			}
+			if updateErr := s.reconcile(ctx); updateErr != nil {
+				return nil, false, updateErr
+			}
+			return nil, false, ErrAuthenticationRequired
+		}
 		if (response.status >= 500 || response.status >= 300 && response.status < 400) && !current.Behavior.ReadOnly {
 			return nil, false, ErrOutcomeUncertain
 		}
-		return responseFailure(response), false, nil
+		return responseFailure(response, sensitive), false, nil
 	}
 	nextToken := ""
 	if operation.Pagination.Kind == "response_token" {
@@ -801,7 +900,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			}
 		}
 	}
-	payload, err := wrapResult(sanitizeOutput(result))
+	payload, err := wrapResult(sanitizeSensitiveOutput(result, sensitive))
 	return payload, err == nil, err
 }
 
@@ -872,7 +971,7 @@ func continuationReference(raw json.RawMessage) string {
 	return text
 }
 func sameBinding(left, right Binding) bool {
-	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
+	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.CredentialRevision == right.CredentialRevision && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
 }
 
 func (s *Service) putCursor(value Cursor) error {

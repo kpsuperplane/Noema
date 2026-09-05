@@ -116,9 +116,6 @@ func buildManifest(input proposalInput, base *Manifest) (Manifest, error) {
 	default:
 		return Manifest{}, errors.New("adapter proposal mode is invalid")
 	}
-	if manifest.Authentication.Kind != "none" {
-		return Manifest{}, errors.New("adapter authentication is unsupported")
-	}
 	if len(input.UpsertOperations)+len(input.RemoveOperationIDs) == 0 || len(input.UpsertOperations) > 128 || len(input.RemoveOperationIDs) > 128 {
 		return Manifest{}, errors.New("adapter proposal changes are invalid")
 	}

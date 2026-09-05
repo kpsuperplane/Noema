@@ -80,6 +80,83 @@ func TestMCPSchemaConvergesAndRecoversSafeOAuthState(t *testing.T) {
 	}
 }
 
+func TestAdapterAuthenticationSchemaConvergesFromVersionTwentyFour(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v24.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacy.Exec(schemaAtVersion(24) + `PRAGMA user_version=24;`); err != nil {
+		t.Fatal(err)
+	}
+	if err = legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var version int
+	if err = database.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 25 {
+		t.Fatalf("schema = %d, %v", version, err)
+	}
+	rows, err := database.db.Query(`PRAGMA table_info(mcp_auth_requests)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	found := map[string]bool{}
+	for rows.Next() {
+		var index, notNull, primary int
+		var name, kind string
+		var defaultValue any
+		if err = rows.Scan(&index, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			t.Fatal(err)
+		}
+		found[name] = true
+	}
+	if !found["authority_kind"] || !found["authority_id"] {
+		t.Fatalf("schema columns = %#v", found)
+	}
+	now := time.Now().UTC()
+	conversation, err := database.EnsurePrimaryConversation(t.Context(), "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := database.BeginConversationTurn(t.Context(), conversation.ID, "Use the API.", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.StartConversationToolRound(t.Context(), turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{ProviderCallID: "call-1", ProviderName: "example.lookup", Name: "example.lookup", Arguments: json.RawMessage(`{"ordinary":"value"}`)}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := items[len(items)-1]
+	request, _, err := database.CreateMCPAuthRequest(t.Context(), MCPAuthRequest{OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID,
+		CallItemID: call.ID, AuthorityKind: "adapter_connection", AuthorityID: strings.Repeat("a", 32), CapabilityName: "example.lookup",
+		BindingJSON: `{"connection":"ordinary"}`, ArgumentsJSON: `{"ordinary":"value"}`}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterPending, err := database.PendingAdapterAuthRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
+	if err != nil || len(adapterPending) != 1 || adapterPending[0].AuthorityID != strings.Repeat("a", 32) {
+		t.Fatalf("adapter requests = %#v, %v", adapterPending, err)
+	}
+	mcpPending, err := database.PendingMCPAuthRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
+	if err != nil || len(mcpPending) != 0 {
+		t.Fatalf("MCP requests = %#v, %v", mcpPending, err)
+	}
+	request, err = database.BeginAdapterAuthResume(t.Context(), request, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err = database.RetryAdapterAuthentication(t.Context(), request, now)
+	if err != nil || request.State != "awaiting_user" || request.Failure != "authentication_failed" {
+		t.Fatalf("retry = %#v, %v", request, err)
+	}
+}
+
 func TestMCPAuthorityPreservesPoliciesAndFencesDeletion(t *testing.T) {
 	database := openTestStore(t)
 	ctx, now := context.Background(), time.Now().UTC()

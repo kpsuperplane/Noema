@@ -110,10 +110,10 @@ type actionContinuation struct {
 }
 
 type mcpAuthResolution struct {
-	attemptID, requestID string
-	revision             int
-	skip                 bool
-	reply                chan mcpAuthResult
+	attemptID, requestID, adapterConnectionID string
+	revision                                  int
+	skip                                      bool
+	reply                                     chan mcpAuthResult
 }
 type mcpAuthResult struct {
 	request store.MCPAuthRequest

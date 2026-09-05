@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/adapter"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -15,6 +16,17 @@ import (
 func (c *Chat) ResumeMCPAuthentication(ctx context.Context, attemptID string) error {
 	_, err := c.sendMCPAuth(ctx, mcpAuthResolution{attemptID: attemptID})
 	return err
+}
+
+// ResumeAdapterAuthentication resumes calls after one credential replacement.
+func (c *Chat) ResumeAdapterAuthentication(ctx context.Context, connectionID string) error {
+	_, err := c.sendMCPAuth(ctx, mcpAuthResolution{adapterConnectionID: connectionID})
+	return err
+}
+
+// SkipAdapterAuthentication closes one exact adapter call.
+func (c *Chat) SkipAdapterAuthentication(ctx context.Context, requestID string, revision int) (store.MCPAuthRequest, error) {
+	return c.sendMCPAuth(ctx, mcpAuthResolution{requestID: requestID, revision: revision, skip: true})
 }
 
 // SkipMCPAuthentication closes one exact call without credentials.
@@ -42,15 +54,16 @@ func (c *Chat) sendMCPAuth(ctx context.Context, request mcpAuthResolution) (stor
 }
 
 func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthRequest, error) {
-	if c.mcp == nil {
-		return store.MCPAuthRequest{}, errors.New("MCP service is unavailable")
-	}
 	if input.skip {
 		request, err := c.database.MCPAuthRequest(c.ctx, input.requestID, input.revision)
 		if err != nil || request.OwnerHumanID != "human:local" {
 			return request, errors.New("MCP authentication request is unavailable")
 		}
-		payload := toolFailure("authentication_skipped", "MCP authentication was skipped")
+		label := "MCP"
+		if request.AuthorityKind == "adapter_connection" {
+			label = "Adapter"
+		}
+		payload := toolFailure("authentication_skipped", label+" authentication was skipped")
 		if request.ActionID != "" {
 			request, action, finishErr := c.database.FinishMCPAuthAction(c.ctx, request, store.ActionFailed, payload,
 				"authentication_skipped", "cancelled", time.Now())
@@ -68,6 +81,74 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 			return request, err
 		}
 		return request, c.finishMCPAuthCall(request, payload, false)
+	}
+	if input.adapterConnectionID != "" {
+		if c.adapters == nil {
+			return store.MCPAuthRequest{}, errors.New("adapter service is unavailable")
+		}
+		requests, err := c.database.AdapterAuthRequestsForConnection(c.ctx, input.adapterConnectionID)
+		if err != nil {
+			return store.MCPAuthRequest{}, err
+		}
+		for _, request := range requests {
+			if request.TaskID != "" {
+				continue
+			}
+			request, err = c.database.BeginAdapterAuthResume(c.ctx, request, time.Now())
+			if err != nil {
+				return request, err
+			}
+			binding, assignment, responseID, hostedState, decodeErr := decodeAdapterAuthAuthority(request.BindingJSON)
+			payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
+			if decodeErr == nil {
+				binding, decodeErr = currentAdapterCredentialBinding(c.adapters, binding)
+			}
+			if decodeErr == nil {
+				payload, success, decodeErr = c.adapters.Call(c.ctx, binding, json.RawMessage(request.ArgumentsJSON))
+			}
+			if errors.Is(decodeErr, adapter.ErrAuthenticationRequired) {
+				if _, err = c.database.RetryAdapterAuthentication(c.ctx, request, time.Now()); err != nil {
+					return request, err
+				}
+				continue
+			}
+			if errors.Is(decodeErr, adapter.ErrOutcomeUncertain) {
+				payload, success = toolFailure("outcome_uncertain", "Adapter call outcome is uncertain"), false
+			}
+			state, failure := "completed", ""
+			if decodeErr != nil {
+				state, failure = "cancelled", "authentication_failed"
+			}
+			if request.ActionID != "" {
+				actionState, actionFailure := store.ActionSucceeded, ""
+				if errors.Is(decodeErr, adapter.ErrOutcomeUncertain) {
+					actionState, actionFailure = store.ActionOutcomeUncertain, "outcome_uncertain"
+				} else if decodeErr != nil || !success {
+					actionState, actionFailure = store.ActionFailed, "adapter_call_failed"
+				}
+				request, action, finishErr := c.database.FinishMCPAuthAction(c.ctx, request, actionState, payload, actionFailure, state, time.Now())
+				if finishErr != nil {
+					return request, finishErr
+				}
+				item, finishErr := c.appendActionResult(action)
+				if finishErr != nil {
+					return request, finishErr
+				}
+				c.continueAfterAction(action, item)
+				continue
+			}
+			request, err = c.database.FinishMCPAuthRequest(c.ctx, request.ID, request.Revision, state, failure, time.Now())
+			if err != nil {
+				return request, err
+			}
+			if err = c.finishMCPAuthCallWithAssignment(request, payload, success, assignment, responseID, hostedState); err != nil {
+				return request, err
+			}
+		}
+		return store.MCPAuthRequest{}, nil
+	}
+	if c.mcp == nil {
+		return store.MCPAuthRequest{}, errors.New("MCP service is unavailable")
 	}
 	requests, err := c.database.MCPAuthRequestsForAttempt(c.ctx, input.attemptID)
 	if err != nil {
@@ -117,6 +198,34 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 	return store.MCPAuthRequest{}, nil
 }
 
+func decodeAdapterAuthAuthority(raw string) (adapter.Binding, store.ModelAssignment, string, bool, error) {
+	var value struct {
+		Binding    adapter.Binding `json:"binding"`
+		Assignment map[string]any  `json:"assignment"`
+		ResponseID string          `json:"response_id"`
+		Hosted     bool            `json:"hosted_state"`
+	}
+	if json.Unmarshal([]byte(raw), &value) != nil {
+		return value.Binding, store.ModelAssignment{}, "", false, errors.New("adapter authentication authority is invalid")
+	}
+	assignment, err := storedModelAssignment(map[string]any{"provider_selection": value.Assignment})
+	return value.Binding, assignment, value.ResponseID, value.Hosted, err
+}
+
+func currentAdapterCredentialBinding(service *adapter.Service, stored adapter.Binding) (adapter.Binding, error) {
+	if service == nil {
+		return adapter.Binding{}, errors.New("adapter service is unavailable")
+	}
+	current, err := service.Binding(stored.Name)
+	if err != nil || current.ConnectionID != stored.ConnectionID || current.DefinitionID != stored.DefinitionID || current.SemanticDigest != stored.SemanticDigest ||
+		current.OperationID != stored.OperationID || current.OperationDigest != stored.OperationDigest || current.PolicyRevision != stored.PolicyRevision ||
+		current.ToolPolicyRevision != stored.ToolPolicyRevision || current.Behavior != stored.Behavior || current.ReviewRoute != stored.ReviewRoute ||
+		string(current.InputSchema) != string(stored.InputSchema) || current.CredentialRevision <= stored.CredentialRevision {
+		return adapter.Binding{}, errors.New("adapter authentication authority changed")
+	}
+	return current, nil
+}
+
 func decodeMCPAuthAuthority(raw string) (noemamcp.Binding, store.ModelAssignment, string, bool, error) {
 	var value struct {
 		Binding    noemamcp.Binding `json:"binding"`
@@ -132,6 +241,13 @@ func decodeMCPAuthAuthority(raw string) (noemamcp.Binding, store.ModelAssignment
 }
 
 func (c *Chat) finishMCPAuthCall(request store.MCPAuthRequest, payload json.RawMessage, success bool) error {
+	if request.AuthorityKind == "adapter_connection" {
+		_, assignment, responseID, hostedState, err := decodeAdapterAuthAuthority(request.BindingJSON)
+		if err != nil {
+			return err
+		}
+		return c.finishMCPAuthCallWithAssignment(request, payload, success, assignment, responseID, hostedState)
+	}
 	_, assignment, responseID, hostedState, err := decodeMCPAuthAuthority(request.BindingJSON)
 	if err != nil {
 		return err

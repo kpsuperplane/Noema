@@ -48,6 +48,17 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 	if err := authority.recoverConnectionReplacements(); err != nil {
 		return nil, err
 	}
+	connections, err := authority.connections()
+	if err != nil {
+		return nil, err
+	}
+	for _, connection := range connections {
+		if connection.Authentication.Kind == "credential" {
+			if err := authority.removeOldCredentials(connection); err != nil {
+				return nil, errors.New("adapter credential recovery failed")
+			}
+		}
+	}
 	return authority, nil
 }
 
@@ -150,6 +161,135 @@ func (f *fileAuthority) installConnection(connection Connection) (Connection, er
 		return Connection{}, err
 	}
 	return f.loadConnection(connection.ConnectionID)
+}
+
+func (f *fileAuthority) installCredentialConnection(connection Connection, generation credentialGeneration) (Connection, error) {
+	connectionRaw, err := json.Marshal(connection)
+	credentialRaw, credentialErr := json.Marshal(generation)
+	if err != nil || credentialErr != nil || len(connectionRaw) > connectionBytes || len(credentialRaw) > credentialGenerationLimit {
+		return Connection{}, errors.New("adapter connection is invalid")
+	}
+	temporary := ".staging-" + randomHex()
+	stagePath := "adapters/connections/" + temporary
+	if err = f.root.Mkdir(stagePath, 0o700); err != nil {
+		return Connection{}, errors.New("adapter staging directory could not be created")
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			_ = f.root.RemoveAll(stagePath)
+		}
+	}()
+	stage, err := f.root.OpenRoot(stagePath)
+	if err != nil {
+		return Connection{}, errors.New("adapter staging directory is unavailable")
+	}
+	defer stage.Close()
+	if err = writeNewFile(stage, "connection.json", connectionRaw); err != nil {
+		return Connection{}, err
+	}
+	if err = stage.Mkdir("credentials", 0o700); err != nil {
+		return Connection{}, errors.New("adapter credential directory could not be created")
+	}
+	credentials, err := stage.OpenRoot("credentials")
+	if err != nil {
+		return Connection{}, errors.New("adapter credential directory is unavailable")
+	}
+	if err = writeNewFile(credentials, generation.GenerationID+".json", credentialRaw); err == nil {
+		err = home.SyncRootDirectory(credentials, ".")
+	}
+	_ = credentials.Close()
+	if err != nil {
+		return Connection{}, errors.New("adapter credential publication failed")
+	}
+	if err = home.SyncRootDirectory(stage, "."); err != nil {
+		return Connection{}, errors.New("adapter staging durability failed")
+	}
+	if err = stage.Close(); err != nil {
+		return Connection{}, errors.New("adapter staging directory could not be closed")
+	}
+	if err = f.root.Rename(stagePath, "adapters/connections/"+connection.ConnectionID); err != nil {
+		return Connection{}, errors.New("adapter object publication failed")
+	}
+	ok = true
+	if err = home.SyncRootDirectory(f.root, "adapters/connections"); err != nil {
+		return Connection{}, err
+	}
+	return f.loadConnection(connection.ConnectionID)
+}
+
+func (f *fileAuthority) replaceCredential(connection Connection, generation credentialGeneration) (Connection, error) {
+	directory, err := f.root.OpenRoot("adapters/connections/" + connection.ConnectionID)
+	if err != nil {
+		return Connection{}, errors.New("adapter connection is unavailable")
+	}
+	defer directory.Close()
+	if err = directory.Mkdir("credentials", 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return Connection{}, errors.New("adapter credential directory could not be created")
+	}
+	credentials, err := directory.OpenRoot("credentials")
+	if err != nil {
+		return Connection{}, errors.New("adapter credential directory is unavailable")
+	}
+	raw, _ := json.Marshal(generation)
+	if len(raw) > credentialGenerationLimit {
+		return Connection{}, errors.New("adapter credential is too large")
+	}
+	if err = writeNewFile(credentials, generation.GenerationID+".json", raw); err == nil {
+		err = home.SyncRootDirectory(credentials, ".")
+	}
+	_ = credentials.Close()
+	if err != nil {
+		return Connection{}, errors.New("adapter credential publication failed")
+	}
+	value, err := f.replaceConnection(connection)
+	if err != nil {
+		return Connection{}, err
+	}
+	return value, f.removeOldCredentials(value)
+}
+
+func (f *fileAuthority) loadCredential(connection Connection) (map[string]string, error) {
+	if connection.Authentication.Kind != "credential" || connection.Authentication.GenerationID == "" {
+		return nil, errors.New("adapter authentication is required")
+	}
+	directory, err := f.root.OpenRoot("adapters/connections/" + connection.ConnectionID + "/credentials")
+	if err != nil {
+		return nil, errors.New("adapter authentication is required")
+	}
+	defer directory.Close()
+	raw, err := readRegular(directory, connection.Authentication.GenerationID+".json", credentialGenerationLimit)
+	if err != nil {
+		return nil, errors.New("adapter authentication is required")
+	}
+	var generation credentialGeneration
+	if decodeExactJSON(raw, &generation) != nil || generation.SchemaVersion != 2 || generation.GenerationID != connection.Authentication.GenerationID || len(generation.Fields) == 0 {
+		return nil, errors.New("adapter authentication is required")
+	}
+	return generation.Fields, nil
+}
+
+func (f *fileAuthority) removeOldCredentials(connection Connection) error {
+	directory, err := f.root.OpenRoot("adapters/connections/" + connection.ConnectionID + "/credentials")
+	if err != nil {
+		if connection.Authentication.GenerationID == "" {
+			return nil
+		}
+		return err
+	}
+	defer directory.Close()
+	entries, err := readBoundedEntries(directory, ".", 32)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if connection.Authentication.GenerationID == "" || entry.Name() != connection.Authentication.GenerationID+".json" {
+			if err = directory.Remove(entry.Name()); err != nil {
+				return err
+			}
+		}
+	}
+	return home.SyncRootDirectory(directory, ".")
 }
 
 func (f *fileAuthority) replaceConnection(connection Connection) (Connection, error) {
@@ -331,7 +471,7 @@ func (f *fileAuthority) loadConnection(id string) (Connection, error) {
 		return Connection{}, errors.New("adapter connection is unavailable")
 	}
 	defer directory.Close()
-	if err := exactFiles(directory, []string{"connection.json"}); err != nil {
+	if err := exactConnectionEntries(directory); err != nil {
 		return Connection{}, err
 	}
 	raw, err := readRegular(directory, "connection.json", connectionBytes)
@@ -368,8 +508,15 @@ func (f *fileAuthority) connections() ([]Connection, error) {
 }
 
 func validateConnection(value Connection) error {
-	if value.SchemaVersion != 1 || !validConnectionID(value.ConnectionID) || !validID(value.ConnectionSlug) || !validDigest(value.SemanticDigest) || value.ConnectionRevision < 1 || value.PolicyRevision < 1 || (value.Status != "active" && value.Status != "suspended") {
+	if value.SchemaVersion != 2 || !validConnectionID(value.ConnectionID) || !validID(value.ConnectionSlug) || !validDigest(value.SemanticDigest) || value.ConnectionRevision < 1 || value.PolicyRevision < 1 || (value.Status != "active" && value.Status != "suspended" && value.Status != "authentication_required") {
 		return errors.New("adapter connection is invalid")
+	}
+	if value.Authentication.Kind == "none" {
+		if value.Authentication.GenerationID != "" || value.Authentication.Revision != 0 {
+			return errors.New("adapter connection authentication is invalid")
+		}
+	} else if value.Authentication.Kind != "credential" || value.Authentication.GenerationID == "" && (value.Status != "authentication_required" || value.Authentication.Revision != 0) || value.Authentication.GenerationID != "" && (!validConnectionID(value.Authentication.GenerationID) || value.Authentication.Revision < 1) {
+		return errors.New("adapter connection authentication is invalid")
 	}
 	if value.DataSharingPolicy != "" && value.DataSharingPolicy != "allow_automatically" && value.DataSharingPolicy != "review_every_call" {
 		return errors.New("adapter connection policy is invalid")
@@ -383,6 +530,20 @@ func validateConnection(value Connection) error {
 			return errors.New("adapter connection operations are invalid")
 		}
 		seen[id] = true
+	}
+	return nil
+}
+
+func exactConnectionEntries(root *os.Root) error {
+	entries, err := readBoundedEntries(root, ".", 2)
+	if err != nil {
+		return err
+	}
+	if len(entries) < 1 || len(entries) > 2 || entries[0].Name() != "connection.json" || !entries[0].Type().IsRegular() {
+		return errors.New("adapter connection has unsafe files")
+	}
+	if len(entries) == 2 && (entries[1].Name() != "credentials" || !entries[1].IsDir() || entries[1].Type()&os.ModeSymlink != 0) {
+		return errors.New("adapter connection has unsafe files")
 	}
 	return nil
 }

@@ -142,7 +142,11 @@ func encodeRequest(definition Definition, operation CompiledOperation, raw json.
 	if err != nil || len(bodyRaw) > argumentLimit {
 		return encodedRequest{}, nil, errors.New("adapter body is invalid")
 	}
-	return encodedRequest{method: operation.Method, rawURL: parsed.String(), headers: operation.FixedHeaders, body: bodyRaw}, modelArguments, nil
+	headers := make(map[string]string, len(operation.FixedHeaders))
+	for name, value := range operation.FixedHeaders {
+		headers[name] = value
+	}
+	return encodedRequest{method: operation.Method, rawURL: parsed.String(), headers: headers, body: bodyRaw}, modelArguments, nil
 }
 
 func validArgumentValue(argument Argument, value any) bool {
@@ -367,15 +371,61 @@ func decodeResponse(response httpResponse, contract Response) (any, error) {
 	return result, nil
 }
 
-func responseFailure(response httpResponse) json.RawMessage {
+func responseFailure(response httpResponse, sensitive map[string]bool) json.RawMessage {
 	value := map[string]any{"error": "remote_request_failed", "status": response.status}
 	if len(response.body) != 0 && len(response.body) <= 4096 && (response.contentType == "application/json" || strings.HasSuffix(response.contentType, "+json")) {
 		if body, err := script.DecodeJSON(response.body); err == nil {
-			value["body"] = sanitizeOutput(body)
+			value["body"] = sanitizeSensitiveOutput(body, sensitive)
 		}
 	}
 	raw, _ := json.Marshal(value)
 	return raw
+}
+
+func sanitizeSensitiveOutput(value any, sensitive map[string]bool) any {
+	value = sanitizeOutput(value)
+	if len(sensitive) == 0 {
+		return value
+	}
+	var scrub func(any)
+	scrub = func(current any) {
+		switch current := current.(type) {
+		case map[string]any:
+			for key, child := range current {
+				if sensitive[strings.ToLower(key)] {
+					current[key] = "[REDACTED]"
+					continue
+				}
+				if text, ok := child.(string); ok && (strings.EqualFold(key, "url") || strings.EqualFold(key, "location")) {
+					if parsed, err := url.Parse(text); err == nil {
+						query := parsed.Query()
+						for name := range query {
+							if sensitive[strings.ToLower(name)] {
+								query.Del(name)
+							}
+						}
+						parsed.RawQuery = query.Encode()
+						if fragment, err := url.ParseQuery(parsed.Fragment); err == nil {
+							for name := range fragment {
+								if sensitive[strings.ToLower(name)] {
+									fragment.Del(name)
+								}
+							}
+							parsed.Fragment = fragment.Encode()
+						}
+						current[key] = parsed.String()
+					}
+				}
+				scrub(current[key])
+			}
+		case []any:
+			for _, child := range current {
+				scrub(child)
+			}
+		}
+	}
+	scrub(value)
+	return value
 }
 
 var credentialFields = map[string]bool{"access_token": true, "api-key": true, "api_key": true, "apikey": true, "authorization": true, "client_assertion": true, "client_secret": true, "code_verifier": true, "cookie": true, "device_code": true, "id_token": true, "password": true, "proxy-authorization": true, "proxy_authorization": true, "refresh_token": true, "set-cookie": true, "set_cookie": true, "user_code": true, "x-api-key": true, "x-auth-token": true, "x_api_key": true, "x_auth_token": true}

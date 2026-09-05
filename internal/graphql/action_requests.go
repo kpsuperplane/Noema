@@ -60,6 +60,13 @@ func (r *Resolver) pendingHumanInterventions(
 		return nil, err
 	}
 	result = append(result, mcpRequests...)
+	if r.Adapters != nil {
+		adapterRequests, adapterErr := r.pendingAdapterAuthentications(ctx, conversationID, taskID, limit)
+		if adapterErr != nil {
+			return nil, adapterErr
+		}
+		result = append(result, adapterRequests...)
+	}
 	setups, err := r.pendingMCPSetups(ctx, conversationID, first)
 	if err != nil {
 		return nil, err
