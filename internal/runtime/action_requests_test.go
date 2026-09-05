@@ -33,7 +33,7 @@ func TestGovernedDownloadRequiresApprovalAndResumesExactChatCall(t *testing.T) {
 		}
 		return provider.GenerationResult{Text: "The download was declined."}, nil
 	})
-	chat, err := NewChat(database, generator, original.codex, original.home, original.memory)
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestCredentialDownloadIsRejectedBeforeDurableToolCall(t *testing.T) {
 			Payload: json.RawMessage(`{"url":"https://alice:password@example.net/report","path":"report"}`),
 		}}}, nil
 	})
-	chat, err := NewChat(database, generator, original.codex, original.home, original.memory)
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestRecoveredUncertainDownloadResumesOnce(t *testing.T) {
 			Payload: json.RawMessage(`{"url":"https://example.net/report","path":"report"}`),
 		}}}, nil
 	})
-	chat, err := NewChat(database, reviewer, original.codex, original.home, original.memory)
+	chat, err := NewChat(database, reviewer, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestRecoveredUncertainDownloadResumesOnce(t *testing.T) {
 		<-release
 		return provider.GenerationResult{Text: "The download outcome is uncertain."}, nil
 	})
-	restarted, err := NewChat(database, continuation, original.codex, original.home, original.memory)
+	restarted, err := NewChat(database, continuation, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestRecoveredUncertainDownloadResumesOnce(t *testing.T) {
 		continuations++
 		return provider.GenerationResult{Text: "unexpected"}, nil
 	})
-	reopened, err := NewChat(database, quiet, original.codex, original.home, original.memory)
+	reopened, err := NewChat(database, quiet, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -460,7 +460,7 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 			return provider.GenerationResult{Text: "Alice likes tea."}, nil
 		}
 	})
-	chat, err := NewChat(database, generator, original.codex, original.home, original.memory)
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +565,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			ID: "resp_2", Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
 		}, nil
 	})
-	chat, err := NewChat(database, openRouter, codex, homeRoot, openChatMemory(t, homeRoot))
+	chat, err := NewChat(database, openRouter, codex, codex, homeRoot, openChatMemory(t, homeRoot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,19 +636,55 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	called := false
+	openAIRequest := provider.GenerateRequest{}
+	incremental := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{
+		ProviderCallID: "call_openai", ProviderName: taskInspectName, Name: taskInspectName,
+		Success: true, Payload: json.RawMessage(`{"title":"One"}`),
+	}}
+	assignment.ProviderKind = "openai"
+	assignment.ProviderAccountID = "provider_account:openai:default"
 	_, _, err = chat.generateChatToolContinuation(
 		queuedTurn{conversation: conversation, location: time.UTC},
 		store.ConversationTurn{ID: page.Items[0].TurnID, ConversationID: conversation.ID},
 		assignment,
-		generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
-			called = true
+		generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+			openAIRequest = request
 			return provider.GenerationResult{}, nil
 		}),
-		2, "", "", "", true, provider.GenerationMessage{},
+		2, "", "", "resp_openai", true, incremental,
 	)
-	if err == nil || called || !strings.Contains(err.Error(), "provider-hosted web state") {
-		t.Fatalf("missing Codex hosted state = called %t, error %v", called, err)
+	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
+		len(openAIRequest.Messages) != 1 || openAIRequest.Messages[0].ToolResult == nil ||
+		openAIRequest.Messages[0].ToolResult.ProviderCallID != "call_openai" {
+		t.Fatalf("OpenAI incremental continuation = %#v, %v", openAIRequest, err)
+	}
+	for _, providerKind := range []string{"codex", "openai"} {
+		assignment.ProviderKind = providerKind
+		called := false
+		_, _, err = chat.generateChatToolContinuation(
+			queuedTurn{conversation: conversation, location: time.UTC},
+			store.ConversationTurn{ID: page.Items[0].TurnID, ConversationID: conversation.ID},
+			assignment,
+			generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+				called = true
+				return provider.GenerationResult{}, nil
+			}),
+			2, "", "", "", true, provider.GenerationMessage{},
+		)
+		if err == nil || called || !strings.Contains(err.Error(), "provider-hosted web state") {
+			t.Fatalf("missing %s hosted state = called %t, error %v", providerKind, called, err)
+		}
+	}
+}
+
+func TestChatSelectsOpenAIWithHostedSearch(t *testing.T) {
+	selected := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		return provider.GenerationResult{}, nil
+	})
+	chat := &Chat{openAI: selected}
+	generator, err := chat.generatorFor("openai")
+	if err != nil || generator == nil || !hostedWebSearchEnabled("openai", provider.ToolTransportNative) {
+		t.Fatalf("OpenAI Chat route = %v, %v", generator, err)
 	}
 }
 
@@ -986,7 +1022,7 @@ func TestChatCloseCancelsActiveProviderAndRejectsNewTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := NewChat(database, chat.openRouter, chat.codex, chat.home, chat.memory)
+	restarted, err := NewChat(database, chat.openRouter, chat.codex, chat.openAI, chat.home, chat.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1052,7 +1088,9 @@ func chatFixtureAt(t *testing.T, cwd string) (*Chat, *store.Store, store.Convers
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := NewChat(database, generator, codexGenerator, homeRoot, openChatMemory(t, homeRoot))
+	chat, err := NewChat(
+		database, generator, codexGenerator, codexGenerator, homeRoot, openChatMemory(t, homeRoot),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -110,3 +110,58 @@ query ChatBoot {
 		t.Fatalf("Chat boot primary = %#v", primary)
 	}
 }
+
+func TestOpenAIProtectedSecretSupportsOnboardingSelections(t *testing.T) {
+	resolver := openProviderTestResolver(t)
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+
+	saved := postGraphQL(t, server.URL, `
+mutation Save($input: ProviderSecretInput!) {
+  saveProviderSecretInput(input: $input) {
+    providerAccountId providerKind authMethod status
+  }
+}`, map[string]any{"input": map[string]any{
+		"providerAccountId": "provider_account:openai:default", "secret": "test-platform-key",
+	}})
+	if len(saved.Errors) != 0 {
+		t.Fatalf("save OpenAI errors = %#v", saved.Errors)
+	}
+	account := saved.Data["saveProviderSecretInput"].(map[string]any)
+	if account["providerKind"] != "openai" || account["authMethod"] != "external_manual" ||
+		account["status"] != "AUTHENTICATED" {
+		t.Fatalf("saved OpenAI account = %#v", account)
+	}
+
+	setup := postGraphQL(t, server.URL, `
+query Setup($id: String!) {
+  onboardingModelSetup(providerAccountId: $id) {
+    providerKind profiles { id reasoningEfforts }
+    recommendations { useCase modelProfile disabledReason }
+  }
+}`, map[string]any{"id": "provider_account:openai:default"})
+	if len(setup.Errors) != 0 {
+		t.Fatalf("OpenAI setup errors = %#v", setup.Errors)
+	}
+	modelSetup := setup.Data["onboardingModelSetup"].(map[string]any)
+	if len(modelSetup["profiles"].([]any)) != 3 || len(modelSetup["recommendations"].([]any)) != 9 {
+		t.Fatalf("OpenAI model setup = %#v", modelSetup)
+	}
+
+	selection := map[string]any{"selectionMode": "NOEMA_RECOMMENDED", "fastMode": false}
+	input := map[string]any{"providerAccountId": "provider_account:openai:default"}
+	for _, field := range []string{
+		"noema", "simpleTasks", "mediumTasks", "difficultTasks", "taskReviewer",
+		"webFetchSummarizer", "toolProgressAudit", "actionReviewer", "memoryConsolidation",
+	} {
+		input[field] = selection
+	}
+	confirmed := postGraphQL(t, server.URL, `
+mutation Confirm($input: ConfirmOnboardingModelSelectionsInput!) {
+  confirmOnboardingModelSelections(input: $input) { isUserOnboarded }
+}`, map[string]any{"input": input})
+	if len(confirmed.Errors) != 0 ||
+		confirmed.Data["confirmOnboardingModelSelections"].(map[string]any)["isUserOnboarded"] != true {
+		t.Fatalf("OpenAI confirmation = %#v, errors = %#v", confirmed.Data, confirmed.Errors)
+	}
+}

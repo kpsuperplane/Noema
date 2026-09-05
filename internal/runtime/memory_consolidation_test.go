@@ -55,7 +55,7 @@ func TestMemoryUpdatePublishesValidatedEvidenceAndCheckpoint(t *testing.T) {
 	waitForMemoryUpdate(t, chat, events)
 	request := <-called
 	if request.Model != "openai/gpt-5.6-luna" || request.ToolChoice != provider.ToolChoiceRequired ||
-		len(request.Tools) != 1 || request.Tools[0].Name != memorySubmitTool {
+		request.StoreResponse || len(request.Tools) != 1 || request.Tools[0].Name != memorySubmitTool {
 		t.Fatalf("Memory generation request = %#v", request)
 	}
 	if !strings.Contains(request.Messages[1].Content, "human ["+human.ID+"] Alice likes tea.") ||

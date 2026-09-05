@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -291,19 +292,27 @@ func codexGenerationStatusError(status int) error {
 }
 
 type codexGenerationPayload struct {
-	Model              string             `json:"model"`
-	Input              []any              `json:"input"`
-	PreviousResponseID string             `json:"previous_response_id,omitempty"`
-	Temperature        *float32           `json:"temperature,omitempty"`
-	Reasoning          *codexReasoning    `json:"reasoning,omitempty"`
-	ServiceTier        string             `json:"service_tier,omitempty"`
-	Tools              []codexToolPayload `json:"tools,omitempty"`
-	Include            []string           `json:"include,omitempty"`
-	ToolChoice         string             `json:"tool_choice,omitempty"`
-	ParallelToolCalls  *bool              `json:"parallel_tool_calls,omitempty"`
-	PromptCacheKey     string             `json:"prompt_cache_key,omitempty"`
-	Store              bool               `json:"store"`
-	Stream             bool               `json:"stream"`
+	Model                string                       `json:"model"`
+	Input                []any                        `json:"input"`
+	MaxOutputTokens      *uint32                      `json:"max_output_tokens,omitempty"`
+	PreviousResponseID   string                       `json:"previous_response_id,omitempty"`
+	Temperature          *float32                     `json:"temperature,omitempty"`
+	Reasoning            *codexReasoning              `json:"reasoning,omitempty"`
+	ServiceTier          string                       `json:"service_tier,omitempty"`
+	Tools                []codexToolPayload           `json:"tools,omitempty"`
+	Include              []string                     `json:"include,omitempty"`
+	ToolChoice           string                       `json:"tool_choice,omitempty"`
+	ParallelToolCalls    *bool                        `json:"parallel_tool_calls,omitempty"`
+	PromptCacheKey       string                       `json:"prompt_cache_key,omitempty"`
+	PromptCacheOptions   *responsesPromptCacheOptions `json:"prompt_cache_options,omitempty"`
+	PromptCacheRetention string                       `json:"prompt_cache_retention,omitempty"`
+	Store                bool                         `json:"store"`
+	Stream               bool                         `json:"stream"`
+}
+
+type responsesPromptCacheOptions struct {
+	Mode string `json:"mode"`
+	TTL  string `json:"ttl"`
 }
 
 type codexReasoning struct {
@@ -312,37 +321,53 @@ type codexReasoning struct {
 }
 
 type codexToolPayload struct {
-	Type        string `json:"type"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Parameters  any    `json:"parameters,omitempty"`
-	Strict      *bool  `json:"strict,omitempty"`
+	Type              string `json:"type"`
+	Name              string `json:"name,omitempty"`
+	Description       string `json:"description,omitempty"`
+	Parameters        any    `json:"parameters,omitempty"`
+	Strict            *bool  `json:"strict,omitempty"`
+	ExternalWebAccess *bool  `json:"external_web_access,omitempty"`
 }
 
 func prepareCodexGeneration(
 	request GenerateRequest,
 ) ([]byte, openRouterToolNameMap, error) {
-	if request.AccountID != codexGenerationAccountID {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation requires the default account")
+	return prepareResponsesGeneration(request, responsesGenerationProfile{
+		accountID: codexGenerationAccountID, providerName: "Codex", stream: true,
+	})
+}
+
+type responsesGenerationProfile struct {
+	accountID, providerName, promptCacheRetention string
+	forwardMaxOutput, includeEncryptedReasoning   bool
+	promptCacheOptions, stream                    bool
+}
+
+func prepareResponsesGeneration(
+	request GenerateRequest,
+	profile responsesGenerationProfile,
+) ([]byte, openRouterToolNameMap, error) {
+	if request.AccountID != profile.accountID {
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation requires the default account", profile.providerName)
 	}
 	model := strings.TrimSpace(request.Model)
 	if model == "" {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation model is required")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation model is required", profile.providerName)
 	}
 	previousResponseID := strings.TrimSpace(request.PreviousResponseID)
 	if previousResponseID != request.PreviousResponseID ||
 		(previousResponseID != "" && (!validCodexHeader(previousResponseID) || !request.StoreResponse)) {
-		return nil, openRouterToolNameMap{}, errors.New("Codex previous response id is invalid")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s previous response id is invalid", profile.providerName)
 	}
 	if request.HostedWebSearch && request.ToolTransport != ToolTransportNative {
-		return nil, openRouterToolNameMap{}, errors.New("Codex hosted web search is disabled")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s hosted web search is disabled", profile.providerName)
 	}
 	toolNames, chatTools, err := prepareOpenRouterTools(request.Tools)
 	if err != nil {
-		return nil, openRouterToolNameMap{}, errors.New("Codex tool catalog is invalid")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s tool catalog is invalid", profile.providerName)
 	}
 	if len(chatTools) != 0 && request.ToolTransport != ToolTransportNative {
-		return nil, openRouterToolNameMap{}, errors.New("Codex tool transport is disabled")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s tool transport is disabled", profile.providerName)
 	}
 	tools := make([]codexToolPayload, 0, len(chatTools))
 	for _, tool := range chatTools {
@@ -353,27 +378,59 @@ func prepareCodexGeneration(
 		})
 	}
 	if request.HostedWebSearch {
-		tools = append(tools, codexToolPayload{Type: "web_search"})
+		tools = append(tools, codexToolPayload{Type: "web_search", ExternalWebAccess: boolPointer(true)})
+	}
+	explicitPromptCache := profile.promptCacheOptions && openAIGPT56Model(model)
+	cacheBreakpoints := make(map[int]struct{}, 4)
+	if explicitPromptCache {
+		for index := len(request.Messages) - 1; index >= 0 && len(cacheBreakpoints) < 4; index-- {
+			message := request.Messages[index]
+			if message.Role == "developer" && strings.TrimSpace(message.Content) != "" {
+				cacheBreakpoints[index] = struct{}{}
+			}
+		}
 	}
 	input := make([]any, 0, len(request.Messages)*2)
-	for _, message := range request.Messages {
+	for index, message := range request.Messages {
 		lowered, err := lowerCodexMessage(message, toolNames)
 		if err != nil {
-			return nil, openRouterToolNameMap{}, err
+			return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation history is invalid", profile.providerName)
+		}
+		if _, ok := cacheBreakpoints[index]; ok {
+			lowered = []any{map[string]any{
+				"role": "developer",
+				"content": []any{map[string]any{
+					"type": "input_text", "text": message.Content,
+					"prompt_cache_breakpoint": map[string]any{"mode": "explicit"},
+				}},
+			}}
 		}
 		input = append(input, lowered...)
 	}
 	if len(input) == 0 {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation messages are required")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation messages are required", profile.providerName)
 	}
 	payload := codexGenerationPayload{
 		Model: model, Input: input, Temperature: request.Temperature,
-		PreviousResponseID: previousResponseID,
-		PromptCacheKey:     strings.TrimSpace(request.ConversationID), Store: request.StoreResponse, Stream: true,
-		Tools: tools,
+		PreviousResponseID:   previousResponseID,
+		PromptCacheKey:       strings.TrimSpace(request.ConversationID),
+		PromptCacheRetention: profile.promptCacheRetention,
+		Store:                request.StoreResponse,
+		Stream:               profile.stream,
+		Tools:                tools,
+	}
+	if explicitPromptCache {
+		payload.PromptCacheOptions = &responsesPromptCacheOptions{Mode: "explicit", TTL: "30m"}
+		payload.PromptCacheRetention = ""
+	}
+	if profile.forwardMaxOutput {
+		payload.MaxOutputTokens = request.MaxOutputTokens
+	}
+	if profile.includeEncryptedReasoning {
+		payload.Include = append(payload.Include, "reasoning.encrypted_content")
 	}
 	if request.HostedWebSearch {
-		payload.Include = []string{"web_search_call.action.sources"}
+		payload.Include = append(payload.Include, "web_search_call.action.sources")
 	}
 	if request.ReasoningEffort != "" {
 		switch request.ReasoningEffort {
@@ -383,10 +440,10 @@ func prepareCodexGeneration(
 				payload.Reasoning.Summary = "auto"
 			}
 		default:
-			return nil, openRouterToolNameMap{}, errors.New("Codex generation reasoning effort is invalid")
+			return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation reasoning effort is invalid", profile.providerName)
 		}
 	}
-	choice, parallel, err := codexToolControls(request, len(tools) != 0)
+	choice, parallel, err := responsesToolControls(request, len(tools) != 0, profile.providerName)
 	if err != nil {
 		return nil, openRouterToolNameMap{}, err
 	}
@@ -399,7 +456,7 @@ func prepareCodexGeneration(
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation request is invalid")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation request is invalid", profile.providerName)
 	}
 	if len(body) > codexGenerationRequestLimit {
 		return nil, openRouterToolNameMap{}, ErrGenerationRequestTooLarge
@@ -407,13 +464,17 @@ func prepareCodexGeneration(
 	return body, toolNames, nil
 }
 
-func codexToolControls(request GenerateRequest, hasTools bool) (string, *bool, error) {
+func openAIGPT56Model(model string) bool {
+	return model == "gpt-5.6" || strings.HasPrefix(model, "gpt-5.6-")
+}
+
+func responsesToolControls(request GenerateRequest, hasTools bool, providerName string) (string, *bool, error) {
 	choice := request.ToolChoice
 	if choice == "" {
 		choice = ToolChoiceAuto
 	}
 	if choice != ToolChoiceAuto && choice != ToolChoiceNone && choice != ToolChoiceRequired {
-		return "", nil, errors.New("Codex tool choice is invalid")
+		return "", nil, fmt.Errorf("%s tool choice is invalid", providerName)
 	}
 	if !hasTools {
 		return "", nil, nil

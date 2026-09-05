@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -642,12 +643,13 @@ func (c *Chat) generateChatToolContinuation(
 	developer := developerMessages(environment, memoryContext, hostedWeb)
 	messages = append(developer, messages...)
 	replayMessages := messages
-	continuingCodex := assignment.ProviderKind == "codex" && previousResponseID != ""
-	if assignment.ProviderKind == "codex" && previousResponseID == "" && hostedState {
+	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
+	continuingResponse := responseContinuation && previousResponseID != ""
+	if responseContinuation && previousResponseID == "" && hostedState {
 		return provider.GenerationResult{}, false,
-			errors.New("Codex provider-hosted web state is unavailable")
+			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
 	}
-	if continuingCodex {
+	if continuingResponse {
 		messages = []provider.GenerationMessage{incremental}
 		if stopReason != "" {
 			messages = append(messages, provider.GenerationMessage{
@@ -664,7 +666,7 @@ func (c *Chat) generateChatToolContinuation(
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
 			HostedWebSearch:    hostedWeb,
 			PreviousResponseID: previousResponseID,
-			StoreResponse:      assignment.ProviderKind == "codex",
+			StoreResponse:      responseContinuation,
 			FastMode:           assignment.FastMode,
 		}, func(event provider.StreamEvent) {
 			if event.Kind == provider.TextDelta {
@@ -681,7 +683,7 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	requestTooLarge := errors.Is(err, provider.ErrGenerationRequestTooLarge)
 	requestRejected := errors.Is(err, provider.ErrProviderRequestRejected)
-	if continuingCodex {
+	if continuingResponse {
 		if hostedState || (!requestTooLarge && !requestRejected) {
 			return result, stopReason != "", err
 		}

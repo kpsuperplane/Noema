@@ -132,7 +132,7 @@ func TestMemoryGraphQLWritesPreferenceAndPublishesLiveUpdate(t *testing.T) {
 		}}}, nil
 	})
 	resolver.Chat, err = noemaruntime.NewChat(
-		resolver.Store, generator, generator, resolver.home, nativeMemory,
+		resolver.Store, generator, generator, generator, resolver.home, nativeMemory,
 	)
 	if err != nil {
 		t.Fatal(err)
