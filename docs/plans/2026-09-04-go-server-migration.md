@@ -96,14 +96,14 @@ Do not use generated code to hide authored growth.
 Each protection must address a retained capability, current failure, concrete threat, or client contract.
 Remove speculative reliability, distributed coordination, and security machinery.
 
-At commit `3a4a04f5`, the Go counts are:
+At commit `4a72faad`, the Go counts are:
 
 | Class | Lines | Rust comparison |
 | --- | ---: | ---: |
-| Authored production | 70,182 | 40.34% of Rust production |
-| Tests | 22,211 | Separate evidence cost |
+| Authored production | 73,188 | 42.06% of Rust production |
+| Tests | 22,831 | Separate evidence cost |
 | Generated GraphQL | 79,612 | Separate generated cost |
-| Inclusive total | 172,005 | 71.72% of all Rust code |
+| Inclusive total | 175,631 | 73.23% of all Rust code |
 
 Measure this gate before each migration-unit merge and before cutover.
 If authored production reaches 70%, stop and run a reduction review.
@@ -440,15 +440,18 @@ The current Rust contract supports macOS arm64 and amd64, Linux amd64, and Windo
 Linux arm64 has no current Rust asset, so its absence does not reduce a retained capability.
 The curated GGUF remains Metal-only. Linux and Windows keep the current public or local import path.
 
+This slice is complete. It added 3,006 net production lines and 620 net test lines.
+It uses five focused test functions. The direct Rust surface is approximately 9,800 production lines.
+The full no-CGo suite, vet, race checks, client contracts, schema convergence, and cross-builds pass.
+
 Target at most 3,400 production lines and 650 test lines.
 Stop at 3,900 production lines or 975 test lines.
 Use no more than eight focused test functions.
-The direct Rust surface is approximately 9,800 production lines.
 
 ### Browser route and execution slice
 
 Implement this slice only after approved Noema-specific Obscura artifacts exist.
-Use schema version 32 for the ordered browser route and observed browser links.
+Reuse the existing ordered browser route and observed browser links. Add no schema migration.
 Keep browser sessions process-local. Add no session table.
 One session belongs to one Chat conversation or Task generation.
 A provider switch starts fresh and transfers no browser state.

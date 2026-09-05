@@ -18,7 +18,7 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
-The Go evidence gate passed. The replacement now uses Go schema version 30.
+The Go evidence gate passed. The replacement now uses Go schema version 31.
 It includes authentication, onboarding, Chat, Projects, Agents, Artifacts, Task lifecycle, integrations, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
@@ -187,7 +187,8 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - The Tauri app defaults to its embedded host and can connect to one remote
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.
-  The human configures an ordered provider route. Obscura remains the default. The Go server installs a pinned Noema-specific Obscura binary after selection.
+  The human configures an ordered provider route. Obscura remains the default.
+  The Go server installs a pinned external Noema Obscura worker after selection.
   Stock Obscura v0.1.11 lacks required screenshots, trusted interactions, structured snapshots, and atomic navigation outcomes.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
@@ -240,8 +241,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 
 ## Open loops
 
-- All 28 Milestone 3 paths reached reviewer-approved completion.
-  Later acceptance raised the provider-neutral score to 80/100 Verified.
 - The current calculation and artifact paths passed focused live regression.
   Task `task:18d07a17681adac7353` completed with a reviewed accessible HTML artifact.
 - The return packet received test receipt `M3-0006`.
@@ -283,10 +282,11 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
-- Authored Go production uses 70,182 lines, or 40.34% of the Rust baseline.
-  The inclusive Go total uses 172,005 lines, or 71.72% of the Rust baseline.
+- Authored Go production uses 73,188 lines, or 42.06% of the Rust baseline.
+  The inclusive Go total uses 175,631 lines, or 73.23% of the Rust baseline.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
-- Local models are the next schema writer at version 31. Browser support follows at version 32 after approved Obscura assets exist.
+- Local models use schema version 31. Their Go slice uses 3,006 net production lines and 620 net test lines.
+- Browser support follows after approved Obscura assets exist. Existing settings need no schema version 32 change.
 - Native Windows WAL stress remains a cutover gate.
 
 ## Validation defaults
