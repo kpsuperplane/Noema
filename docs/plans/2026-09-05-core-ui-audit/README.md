@@ -83,6 +83,7 @@ Use this pattern for task confirmations and scheduling. Selecting the card opens
 The standalone start dialog illustrates copy only. Do not insert it into the current start flow.
 Explain: “Noema will plan this task and add it to the queue.”
 For cancellation, use **Keep task** and **Cancel task**.
+Remove the reason field. Cancellation needs only the task context, consequence, and decision.
 Describe retained history without promising that every external operation stops immediately.
 Keep the current confirmation points. Do not add confirmations to Start task or Run now.
 

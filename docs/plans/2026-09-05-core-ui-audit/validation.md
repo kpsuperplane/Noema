@@ -126,3 +126,10 @@ The gallery keeps edits within the selected mock; it does not implement a task s
 - Model, reasoning, and Fast controls remain available.
 - The gallery build passed. Reviewed desktop and phone widths with ten selectors and five Fast switches.
 - No enable switches, horizontal overflow, or browser page errors occurred.
+
+## Cancel task simplification
+
+- Removed the optional reason field from the Cancel task mock and implementation recommendations.
+- The dialog retains the task card, consequence, Keep task, and Cancel task.
+- The gallery build passed. Reviewed desktop and phone layouts and submitted the sample modal at both widths.
+- No text fields, horizontal overflow, or browser page errors occurred.
