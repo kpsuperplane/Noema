@@ -151,6 +151,27 @@ The [continuation](evidence/2026-09-05-public-recurrence-finish-check.mjs) cance
 Its [results](evidence/2026-09-05-public-recurrence-finish-results.json) confirm the updated template copy, unchanged original document, preserved normal cadence, and immutable ended template.
 These scripts preserve this audit sequence. They are not an order-independent test framework.
 
+## Live Artifact checks
+
+A completed Task published HTML and two Markdown versions on the requested instance.
+The [publication driver](evidence/2026-09-05-public-publish-check.mjs) and [result](evidence/2026-09-05-public-publish-results.json) record this Task.
+Successful publication results previously appeared only as technical tool records in the Task transcript.
+The mapper now adds the existing Artifact card after each successful publication result.
+The card opens the existing preview panel. The technical record remains available.
+The patch adds 26 frontend lines. It changes no server code or schema.
+
+The [transport driver](evidence/2026-09-05-public-artifact-check.mjs) passed six groups of assertions.
+Its [results](evidence/2026-09-05-public-artifact-results.json) cover exact bytes, ownership, external references, unsafe-file rejection, and authenticated downloads.
+The [preview driver](evidence/2026-09-05-public-artifact-preview-check.mjs) opens the published HTML through the Task transcript.
+Its [desktop](evidence/2026-09-05-public-artifact-preview-results-1280.json) and [phone](evidence/2026-09-05-public-artifact-preview-results-390.json) results verify HTML isolation and visible content.
+Scripts, forms, handlers, navigation, and external loading are blocked.
+Both Markdown versions retain their original bytes. Saved upload-action binding remains pending.
+The browser uses the direct HTTPS origin. Cloudflare edge behavior remains outside this evidence.
+
+The [fix record](evidence/2026-09-05-artifact-card-fix.json) records the patch, checks, and visual review.
+Frontend lint and build passed on the mapper change. Generated-file checks passed with unchanged schemas and operations.
+The server reuses the passing Go test and vet results from the scheduling fix. This frontend patch changes no server inputs.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -337,14 +358,14 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-10 | Not run | Controlled setup pending. | — |
 | CALC-01 | Pass · controlled Linux | Budget, percentage, structured JSON, nulls, and Unicode match independent values. | — |
 | CALC-02 | Pass · controlled Linux | Unbounded Lua and file, process, environment, and network access fail within 15 seconds each. | — |
-| ART-01 | Not run | Controlled setup pending. | — |
-| ART-02 | Not run | Controlled setup pending. | — |
-| ART-03 | Not run | Controlled setup pending. | — |
-| ART-04 | Not run | Controlled setup pending. | — |
-| ART-05 | Not run | Controlled setup pending. | — |
-| ART-06 | Not run | Controlled setup pending. | — |
-| ART-07 | Not run | Controlled setup pending. | — |
-| ART-08 | Not run | Controlled setup pending. | — |
+| ART-01 | Partial | Local uploads preserve ownership and bytes. Completed publication now opens from the Task transcript. Result-link browser action remains pending. | Live Artifact checks above. |
+| ART-02 | Partial | External URL and conversation owner remain exact through GraphQL. Visible Chat reference remains pending. | Live Artifact checks above. |
+| ART-03 | Partial | Two published versions download with distinct original bytes. Saved upload-action binding remains pending. | Live Artifact checks above. |
+| ART-04 | Partial | Markdown and text transport preserve content. Raster preview bytes match. Rendered formats, PDF, and spreadsheet variants remain pending. | Live Artifact checks above. |
+| ART-05 | Pass | Live HTML preview preserves visible content and blocks active behavior at desktop and phone widths. | Live Artifact checks above. |
+| ART-06 | Partial | SVG and binary inline requests return 415. Downloads work. Browser fallback remains pending. | Live Artifact checks above. |
+| ART-07 | Partial | Changed, missing, and symlink files fail delivery. Restored original bytes download. Browser error state remains pending. | Live Artifact checks above. |
+| ART-08 | Pass | Same URL returns 401 before login, 200 after passkey login, and 401 after logout. Authorized responses use no-store. | Live Artifact checks above. |
 | ART-09 | Not run | Controlled setup pending. | — |
 | NOTE-01 | Not run | Controlled setup pending. | Not run |
 | NOTE-02 | Not run | Controlled setup pending. | Not run |

@@ -103,6 +103,32 @@ export function taskRunItemsToTranscriptEntries(
     } else {
       entries.push(entry);
     }
+    const result = recordValue(item.payload);
+    const published = item.kind === "result" && taskToolName(item) === "artifact.create_local_file" && result?.success === true
+      ? recordValue(result.result)
+      : null;
+    if (published?.storage_kind === "local_file" &&
+      typeof published.artifact_id === "string" && typeof published.artifact_version_id === "string" &&
+      typeof published.title === "string" && typeof published.artifact_kind === "string" &&
+      typeof published.download_url === "string") {
+      entries.push({
+        id: `artifact:${item.id}`,
+        source: entry.source,
+        turnId: entry.turnId,
+        type: "artifact",
+        item: {
+          kind: "artifact_reference",
+          artifact_id: published.artifact_id,
+          artifact_version_id: published.artifact_version_id,
+          title: published.title,
+          artifact_kind: published.artifact_kind,
+          storage_kind: published.storage_kind,
+          download_url: published.download_url,
+          external_url: null,
+          media_type: typeof published.media_type === "string" ? published.media_type : null
+        }
+      });
+    }
   }
   return entries;
 }
