@@ -603,7 +603,7 @@ func openTestResolver(t *testing.T) *Resolver {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = taskStore.Close() })
-	artifacts, err := artifact.New(root, taskStore)
+	artifacts, err := artifact.New(root, taskStore, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +663,7 @@ func openProviderTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifacts, err := artifact.New(root, taskStore)
+	artifacts, err := artifact.New(root, taskStore, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -53,6 +53,11 @@ func (p Paths) Config() string {
 	return filepath.Join(p.root, "config.yaml")
 }
 
+// ErrorsLog returns the durable developer error log path.
+func (p Paths) ErrorsLog() string {
+	return filepath.Join(p.root, "errors.log")
+}
+
 // BrowserSessionKey returns the protected browser cookie key path.
 func (p Paths) BrowserSessionKey() string {
 	return filepath.Join(p.root, "run", "browser-session.key")

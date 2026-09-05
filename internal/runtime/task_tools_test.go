@@ -210,7 +210,7 @@ func TestTaskArtifactToolsFenceOwnershipVersionsAndParse(t *testing.T) {
 	if err != nil || !found || claimedTask.ID != task.ID || database.StartTaskExecution(t.Context(), run.ID, run.Generation, time.Now()) != nil {
 		t.Fatalf("claim = %#v, %#v, %t, %v", claimedTask, run, found, err)
 	}
-	service, err := artifact.New(chat.home, database)
+	service, err := artifact.New(chat.home, database, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

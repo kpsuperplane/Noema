@@ -35,7 +35,7 @@ func TestProtectedSecretsAndStdioDoubleOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	service, err := NewService(paths, database, false)
+	service, err := NewService(paths, database, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/acp"
 	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/artifact"
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/localmodel"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
@@ -53,6 +54,7 @@ type TaskExecution struct {
 	artifacts                                    *artifact.Service
 	root                                         *os.Root
 	web                                          *webtool.Service
+	errors                                       *diagnostics.Writer
 	openRouter, codex, openAI, foundation, local provider.Generator
 	ctx                                          context.Context
 	cancel                                       context.CancelFunc
@@ -78,6 +80,7 @@ func NewTaskExecution(
 	var foundationGenerator *provider.FoundationGenerator
 	var localModels *localmodel.Service
 	var webTools *webtool.Service
+	var errorLog *diagnostics.Writer
 	for _, service := range services {
 		switch value := service.(type) {
 		case *noemamcp.Service:
@@ -92,11 +95,13 @@ func NewTaskExecution(
 			localModels = value
 		case *webtool.Service:
 			webTools = value
+		case *diagnostics.Writer:
+			errorLog = value
 		}
 	}
 	if artifactService == nil {
 		var err error
-		artifactService, err = artifact.New(root, database)
+		artifactService, err = artifact.New(root, database, errorLog)
 		if err != nil {
 			cancel()
 			return nil, err
@@ -104,7 +109,7 @@ func NewTaskExecution(
 	}
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, foundation: foundationGenerator, local: localModels,
-		mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools,
+		mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools, errors: errorLog,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 	}
 	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
@@ -401,6 +406,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 					r.finalizeTaskRun(task, run, generator, messages, wroteTask, "task active wall-time safety ceiling reached")
 				}
 			} else if ctx.Err() == nil {
+				_ = r.errors.Write("provider.request_failed", diagnostics.Text("run_id", run.ID),
+					diagnostics.Text("provider", run.ProviderKind), diagnostics.Text("model", model))
 				r.failRun(ctx, run, "provider_request_failed", true)
 			}
 			return

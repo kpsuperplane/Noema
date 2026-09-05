@@ -69,7 +69,7 @@ func TestNativeClientGraphQLListsCurrentAndRevokesIt(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	artifacts, err := artifact.New(root, taskStore)
+	artifacts, err := artifact.New(root, taskStore, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

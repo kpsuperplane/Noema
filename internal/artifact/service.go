@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -65,18 +66,19 @@ type File struct {
 
 // Service binds Artifact metadata to one rooted Noema home.
 type Service struct {
-	root  *os.Root
-	store *store.Store
-	mu    sync.Mutex
-	now   func() time.Time
+	root   *os.Root
+	store  *store.Store
+	errors *diagnostics.Writer
+	mu     sync.Mutex
+	now    func() time.Time
 }
 
 // New creates one concrete Artifact service and cleans stale stages.
-func New(root *os.Root, database *store.Store) (*Service, error) {
+func New(root *os.Root, database *store.Store, errorLog *diagnostics.Writer) (*Service, error) {
 	if root == nil || database == nil {
 		return nil, errors.New("Artifact dependencies are unavailable")
 	}
-	service := &Service{root: root, store: database, now: time.Now}
+	service := &Service{root: root, store: database, errors: errorLog, now: time.Now}
 	if err := service.CleanupStaging(); err != nil {
 		return nil, err
 	}

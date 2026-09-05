@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 )
 
 // Handler serves authorized local Artifact downloads and previews.
@@ -32,6 +34,8 @@ func (s *Service) Handler() http.Handler {
 		}
 		file, found, err := s.AuthorizedFile(r.Context(), versionID)
 		if err != nil {
+			_ = s.errors.Write("artifact.download_failed",
+				diagnostics.Text("version_id", versionID), diagnostics.Text("operation", parts[1]))
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}

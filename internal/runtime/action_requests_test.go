@@ -39,7 +39,7 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mcpService, err := noemamcp.NewService(paths, database, false)
+	mcpService, err := noemamcp.NewService(paths, database, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestMCPAuthenticationInterruptionIsDurableAndSkippable(t *testing.T) {
 	}))
 	defer httpServer.Close()
 	paths, _ := home.FromRoot(original.home.Name())
-	service, err := noemamcp.NewService(paths, database, false)
+	service, err := noemamcp.NewService(paths, database, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestReviewedMCPAuthenticationSurvivesRestartAndCompletesAction(t *testing.T
 	}))
 	defer httpServer.Close()
 	paths, _ := home.FromRoot(original.home.Name())
-	service, err := noemamcp.NewService(paths, database, false)
+	service, err := noemamcp.NewService(paths, database, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

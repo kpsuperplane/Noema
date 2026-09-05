@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -68,6 +69,11 @@ func TestLocalPublicationRecoveryIntegrityAndHTTPDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
+	errorLog, err := diagnostics.Open(paths.ErrorsLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer errorLog.Close()
 	op := "op-" + strings.Repeat("a", 64)
 	stage := filepath.Join(stagingRootName, op)
 	if err := root.MkdirAll(stage, 0o700); err != nil {
@@ -80,7 +86,7 @@ func TestLocalPublicationRecoveryIntegrityAndHTTPDelivery(t *testing.T) {
 	if err := root.Chtimes(stage, old, old); err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(root, database)
+	service, err := New(root, database, errorLog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,5 +155,17 @@ func TestLocalPublicationRecoveryIntegrityAndHTTPDelivery(t *testing.T) {
 	}
 	if _, err := service.Read(created.Artifact, created.CurrentVersion); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("tampered Artifact read = %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	failed := httptest.NewRecorder()
+	service.Handler().ServeHTTP(failed, httptest.NewRequest(http.MethodGet,
+		DownloadURL(created.CurrentVersion.ID)+"?access_token=credential-sentinel", nil))
+	diagnostic, err := os.ReadFile(paths.ErrorsLog())
+	if err != nil || failed.Code != http.StatusInternalServerError ||
+		!strings.Contains(string(diagnostic), created.CurrentVersion.ID) ||
+		strings.Contains(string(diagnostic), "credential-sentinel") || strings.Contains(string(diagnostic), "version evil") {
+		t.Fatalf("failed download diagnostic = %d, %q, %v", failed.Code, diagnostic, err)
 	}
 }

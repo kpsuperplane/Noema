@@ -18,6 +18,7 @@ import (
 	noemaadapter "github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/localmodel"
@@ -65,6 +66,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer root.Close()
+	errorLog, err := diagnostics.Open(paths.ErrorsLog())
+	if err != nil {
+		return err
+	}
+	defer errorLog.Close()
 
 	taskStore, err := store.Open(ctx, paths.Database())
 	if err != nil {
@@ -96,7 +102,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err := recoverRecurrenceDocuments(ctx, root, taskStore); err != nil {
 		return err
 	}
-	artifacts, err := artifact.New(root, taskStore)
+	artifacts, err := artifact.New(root, taskStore, errorLog)
 	if err != nil {
 		return fmt.Errorf("open Artifact service: %w", err)
 	}
@@ -125,7 +131,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
-	mcpService, err := noemamcp.NewService(paths, taskStore, stdioEnabled, authConfig.Origin+"/mcp/oauth/callback")
+	mcpService, err := noemamcp.NewService(paths, taskStore, stdioEnabled, errorLog, authConfig.Origin+"/mcp/oauth/callback")
 	if err != nil {
 		return fmt.Errorf("open MCP service: %w", err)
 	}
@@ -169,7 +175,9 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}
 	defer localModels.Close()
 	go func() {
-		_, _ = localModels.Retry(ctx)
+		if _, err := localModels.Retry(ctx); err != nil && ctx.Err() == nil {
+			_ = errorLog.Write("local_model.retry_failed", diagnostics.Text("detail", err.Error()))
+		}
 	}()
 	webTools, err := webtool.New(taskStore, providerAccounts, map[string]provider.Generator{
 		"openrouter": openRouterGenerator, "codex": codexGenerator, "openai": openAIGenerator,
@@ -181,7 +189,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer webTools.Close()
 	chatRuntime, err := noemaruntime.NewChat(
 		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
-		mcpService, adapterService, foundationGenerator, localModels, webTools,
+		mcpService, adapterService, foundationGenerator, localModels, webTools, errorLog,
 	)
 	if err != nil {
 		return err
@@ -191,7 +199,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
 		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
-		mcpService, adapterService, artifacts, foundationGenerator, localModels, webTools,
+		mcpService, adapterService, artifacts, foundationGenerator, localModels, webTools, errorLog,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)

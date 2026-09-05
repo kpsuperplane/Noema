@@ -59,7 +59,7 @@ func TestHTTPDiscoveryCallAndExactSourceFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	service, err := NewService(paths, database, false)
+	service, err := NewService(paths, database, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestSetupHonorsAuthenticationPreferenceAndExactCallback(t *testing.T) {
 	}
 	defer database.Close()
 	callback := "http://127.0.0.1:9321/mcp/oauth/callback"
-	service, err := NewService(paths, database, false, callback)
+	service, err := NewService(paths, database, false, nil, callback)
 	if err != nil {
 		t.Fatal(err)
 	}

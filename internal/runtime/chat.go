@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/localmodel"
 	_ "time/tzdata"
 
@@ -146,6 +147,7 @@ type Chat struct {
 	adapters   *adapter.Service
 	projects   *project.Service
 	web        *webtool.Service
+	errors     *diagnostics.Writer
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
@@ -228,6 +230,7 @@ func NewChat(
 	var chatFoundation *provider.FoundationGenerator
 	var localModels *localmodel.Service
 	var webTools *webtool.Service
+	var errorLog *diagnostics.Writer
 	for _, service := range services {
 		switch value := service.(type) {
 		case *noemamcp.Service:
@@ -240,12 +243,14 @@ func NewChat(
 			localModels = value
 		case *webtool.Service:
 			webTools = value
+		case *diagnostics.Writer:
+			errorLog = value
 		}
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
 		openRouter: openRouter, codex: codex, openAI: openAI, foundation: chatFoundation, local: localModels, home: homeRoot,
-		memory: memoryStore, mcp: mcpService, adapters: adapterService, web: webTools,
+		memory: memoryStore, mcp: mcpService, adapters: adapterService, web: webTools, errors: errorLog,
 		projects: project.New(database, homeRoot),
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
@@ -683,6 +688,8 @@ func (c *Chat) failTurn(input SendTurnInput, turn store.ConversationTurn, cause 
 		c.cancelTurn(input, turn)
 		return
 	}
+	_ = c.errors.Write("runtime.chat_failed", diagnostics.Text("conversation_id", turn.ConversationID),
+		diagnostics.Text("turn_id", turn.ID))
 	item, err := c.database.FailConversationTurn(c.ctx, turn, "The provider request failed.", time.Now())
 	if err != nil {
 		c.publishTransientFailure(input, cause)

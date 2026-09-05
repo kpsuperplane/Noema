@@ -15,6 +15,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -60,6 +61,7 @@ type Binding struct {
 // Service owns MCP setup, credentials, catalogs, and calls.
 type Service struct {
 	database      *store.Store
+	errors        *diagnostics.Writer
 	secrets       *secretStore
 	stdioEnabled  bool
 	mu            sync.Mutex
@@ -101,7 +103,7 @@ func (s *Service) Close() {
 }
 
 // NewService opens one MCP authority and removes abandoned transient OAuth material.
-func NewService(paths home.Paths, database *store.Store, stdioEnabled bool, callback ...string) (*Service, error) {
+func NewService(paths home.Paths, database *store.Store, stdioEnabled bool, errorLog *diagnostics.Writer, callback ...string) (*Service, error) {
 	if database == nil {
 		return nil, errors.New("MCP store is unavailable")
 	}
@@ -139,7 +141,7 @@ func NewService(paths home.Paths, database *store.Store, stdioEnabled bool, call
 		oauthCallback = parsed.String()
 	}
 	classifyCtx, classifyStop := context.WithCancel(context.Background())
-	return &Service{database: database, secrets: secrets, stdioEnabled: stdioEnabled, oauthCallback: oauthCallback,
+	return &Service{database: database, errors: errorLog, secrets: secrets, stdioEnabled: stdioEnabled, oauthCallback: oauthCallback,
 		attempts: make(map[string]*oauthAttempt), classifyCtx: classifyCtx, classifyStop: classifyStop,
 		classifying: make(map[string]bool)}, nil
 }
@@ -540,6 +542,8 @@ func (s *Service) Call(ctx context.Context, authority Binding, arguments json.Ra
 	result, success, err := CallExact(callContext, Config{TransportKind: server.TransportKind, SafeConfig: server.SafeConfig, Secrets: secrets},
 		strings.TrimPrefix(current.Name, "mcp."+server.ID+"."), current.SourceRevision, object)
 	if err != nil {
+		_ = s.errors.Write("mcp.call_failed", diagnostics.Text("server_id", server.ID),
+			diagnostics.Text("tool_name", current.Name), diagnostics.Text("detail", err.Error()))
 		authStatus := server.AuthStatus
 		if errors.Is(err, ErrAuthenticationRequired) {
 			authStatus = "needs_auth"

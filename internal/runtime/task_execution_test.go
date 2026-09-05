@@ -52,7 +52,7 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 	}))
 	defer httpServer.Close()
 	paths, _ := home.FromRoot(chat.home.Name())
-	service, err := noemamcp.NewService(paths, database, false)
+	service, err := noemamcp.NewService(paths, database, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
