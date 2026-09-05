@@ -61,6 +61,11 @@ func (s *Service) download(ctx context.Context, value store.LocalModelInstallati
 	} else {
 		flags |= os.O_APPEND
 	}
+	if response.ContentLength > 0 {
+		if err = ensureFreeSpace(filepath.Dir(partial), response.ContentLength); err != nil {
+			return err
+		}
+	}
 	file, err := os.OpenFile(partial, flags, 0600)
 	if err != nil {
 		return err
@@ -120,6 +125,9 @@ func (s *Service) copyLocal(ctx context.Context, value store.LocalModelInstallat
 	defer input.Close()
 	partial := s.partialPath(value.ID)
 	if err = os.MkdirAll(filepath.Dir(partial), 0700); err != nil {
+		return err
+	}
+	if err = ensureFreeSpace(filepath.Dir(partial), value.TotalBytes); err != nil {
 		return err
 	}
 	output, err := os.OpenFile(partial, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
@@ -182,6 +190,9 @@ func (s *Service) verifyAndPublish(ctx context.Context, value store.LocalModelIn
 		return err
 	}
 	if expected != "" && digest != expected {
+		if removeErr := os.Remove(partial); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return fmt.Errorf("%w; remove corrupt partial: %v", errLocalModelChecksum, removeErr)
+		}
 		return errLocalModelChecksum
 	}
 	directory := filepath.Join(s.home, "models", "blobs")

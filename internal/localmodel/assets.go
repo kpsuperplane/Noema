@@ -126,10 +126,29 @@ func (s *Service) ensureRuntimeAssets(ctx context.Context, backend string) (stri
 	if err := os.MkdirAll(filepath.Dir(directory), 0o700); err != nil {
 		return "", err
 	}
-	if err := os.Rename(stage, directory); err != nil {
-		_ = os.RemoveAll(stage)
+	backup := directory + ".old"
+	if err := os.RemoveAll(backup); err != nil {
 		return "", err
 	}
+	replaced := false
+	if _, err := os.Stat(directory); err == nil {
+		if err = os.Rename(directory, backup); err != nil {
+			return "", err
+		}
+		replaced = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := os.Rename(stage, directory); err != nil {
+		_ = os.RemoveAll(stage)
+		if replaced {
+			if restoreErr := os.Rename(backup, directory); restoreErr != nil {
+				return "", fmt.Errorf("publish llama.cpp runtime: %w; restore previous files: %v", err, restoreErr)
+			}
+		}
+		return "", err
+	}
+	_ = os.RemoveAll(backup)
 	return path, nil
 }
 
@@ -184,6 +203,7 @@ func (s *Service) downloadRuntimeAsset(ctx context.Context, asset runtimeAsset, 
 		return err
 	}
 	if digest != asset.SHA256 {
+		_ = os.Remove(temporary)
 		return errors.New("llama.cpp runtime checksum does not match")
 	}
 	return os.Rename(temporary, path)

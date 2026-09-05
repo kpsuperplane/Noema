@@ -9,11 +9,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -76,6 +78,62 @@ func TestLocalModelTransferVerifiesGGUFAndResumes(t *testing.T) {
 	if err != nil || resumed.Status != "installed" || resumed.SHA256 != digest {
 		t.Fatalf("resumed installation = %#v, %v", resumed, err)
 	}
+
+	corrupt := store.LocalModelInstallation{
+		ID: "installation:corrupt", ModelID: "corrupt", Name: "Corrupt", File: "corrupt.gguf",
+		SourceKind: "local_file", Backend: "cpu", TotalBytes: int64(len(model)), CreatedAt: time.Now(),
+	}
+	corrupt, err = database.QueueLocalModel(t.Context(), corrupt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corruptPartial := service.partialPath(corrupt.ID)
+	if err = os.WriteFile(corruptPartial, model, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.verifyAndPublish(t.Context(), corrupt, corruptPartial, strings.Repeat("0", 64), int64(len(model)), int64(len(model)), false); !errors.Is(err, errLocalModelChecksum) {
+		t.Fatalf("corrupt model verification = %v", err)
+	}
+	if _, err = os.Stat(corruptPartial); !os.IsNotExist(err) {
+		t.Fatalf("corrupt partial remains: %v", err)
+	}
+	if err = ensureFreeSpace(home, int64(^uint64(0)>>1)); err == nil {
+		t.Fatal("impossible model size passed the free-space check")
+	}
+
+	removable := store.LocalModelInstallation{
+		ID: "installation:remove", ModelID: "remove", Name: "Remove", File: "remove.gguf",
+		SourceKind: "local_file", Backend: "cpu", CreatedAt: time.Now(),
+	}
+	removable, err = database.QueueLocalModel(t.Context(), removable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobStarted := make(chan struct{})
+	service.startJob(removable, func(ctx context.Context) error {
+		close(jobStarted)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	<-jobStarted
+	if err = os.WriteFile(service.partialPath(removable.ID), model, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if removed, removeErr := service.Remove(t.Context(), removable.ID); removeErr != nil || !removed {
+		t.Fatalf("remove active transfer = %v, %v", removed, removeErr)
+	}
+	if _, err = os.Stat(service.partialPath(removable.ID)); !os.IsNotExist(err) {
+		t.Fatalf("removed transfer partial remains: %v", err)
+	}
+
+	live := make(chan Event, 1)
+	service.subscribers[99] = live
+	service.emit(Event{Kind: "old"})
+	service.emit(Event{Kind: "new"})
+	if event := <-live; event.Kind != "new" {
+		t.Fatalf("buffer retained %q event", event.Kind)
+	}
+	service.unsubscribe(99)
 }
 
 func TestRuntimeAssetsKeepRequiredAliasesAndUsePinnedRequest(t *testing.T) {
@@ -137,6 +195,9 @@ func TestRuntimeAssetsKeepRequiredAliasesAndUsePinnedRequest(t *testing.T) {
 	}
 
 	service, _, home := newTestService(t)
+	if service.client.Timeout != 0 {
+		t.Fatalf("whole-download timeout = %v", service.client.Timeout)
+	}
 	assetBody := []byte("pinned asset")
 	assetSum := sha256.Sum256(assetBody)
 	var accepted atomic.Bool
@@ -153,6 +214,49 @@ func TestRuntimeAssetsKeepRequiredAliasesAndUsePinnedRequest(t *testing.T) {
 	}
 	if !accepted.Load() {
 		t.Fatal("runtime asset request omitted the GitHub media header")
+	}
+	badAsset := asset
+	badAsset.SHA256 = strings.Repeat("0", 64)
+	badPath := filepath.Join(home, "bad-asset")
+	if err := service.downloadRuntimeAsset(t.Context(), badAsset, badPath); err == nil {
+		t.Fatal("corrupt runtime asset passed verification")
+	}
+	if _, err := os.Stat(badPath + ".partial"); !os.IsNotExist(err) {
+		t.Fatalf("corrupt runtime partial remains: %v", err)
+	}
+
+	archiveBody, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveSum := sha256.Sum256(archiveBody)
+	archiveServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write(archiveBody)
+	}))
+	defer archiveServer.Close()
+	previousAssets := runtimeAssets
+	runtimeAssets = []runtimeAsset{{
+		Target: runtime.GOOS + "/" + runtime.GOARCH, Backend: "cpu", Name: "replacement.tar.gz",
+		URL: archiveServer.URL, SHA256: hex.EncodeToString(archiveSum[:]), Size: int64(len(archiveBody)),
+	}}
+	defer func() { runtimeAssets = previousAssets }()
+	runtimeDirectory := filepath.Join(home, "system", "tools", "llama.cpp", llamaRelease, runtime.GOOS+"/"+runtime.GOARCH, "cpu")
+	if err = os.MkdirAll(runtimeDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(runtimeDirectory, "incomplete")
+	if err = os.WriteFile(marker, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtimePath, err := service.ensureRuntimeAssets(t.Context(), "cpu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(runtimePath); err != nil {
+		t.Fatalf("published runtime is unavailable: %v", err)
+	}
+	if _, err = os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("incomplete runtime destination remains: %v", err)
 	}
 	args := runtimeArguments("/model.gguf", "model", 3210, "vulkan", 2048)
 	for _, pair := range [][]string{

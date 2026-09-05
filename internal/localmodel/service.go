@@ -52,7 +52,7 @@ type Service struct {
 	operationMu    sync.Mutex
 	runtimeOpMu    sync.Mutex
 	jobsMu         sync.Mutex
-	jobs           map[string]context.CancelFunc
+	jobs           map[string]installJob
 	jobsWG         sync.WaitGroup
 	runtimeMu      sync.Mutex
 	runtime        runtimeProcess
@@ -61,12 +61,16 @@ type Service struct {
 	nextSubscriber uint64
 }
 
+type installJob struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 func New(database *store.Store, home string) (*Service, error) {
 	if database == nil || !filepath.IsAbs(home) {
 		return nil, errors.New("local model dependencies are unavailable")
 	}
 	client := &http.Client{
-		Timeout: 10 * time.Minute,
 		CheckRedirect: func(_ *http.Request, previous []*http.Request) error {
 			if len(previous) >= 5 {
 				return errors.New("local model download redirected too many times")
@@ -78,15 +82,15 @@ func New(database *store.Store, home string) (*Service, error) {
 		database:    database,
 		home:        filepath.Clean(home),
 		client:      client,
-		jobs:        make(map[string]context.CancelFunc),
+		jobs:        make(map[string]installJob),
 		subscribers: make(map[uint64]chan Event),
 	}, nil
 }
 
 func (s *Service) Close() {
 	s.jobsMu.Lock()
-	for _, cancel := range s.jobs {
-		cancel()
+	for _, job := range s.jobs {
+		job.cancel()
 	}
 	s.jobsMu.Unlock()
 	s.jobsWG.Wait()
@@ -182,10 +186,10 @@ func (s *Service) Import(ctx context.Context, input ImportInput) (store.LocalMod
 
 func (s *Service) Cancel(ctx context.Context, id string) (store.LocalModelInstallation, error) {
 	s.jobsMu.Lock()
-	cancel := s.jobs[id]
+	job := s.jobs[id]
 	s.jobsMu.Unlock()
-	if cancel != nil {
-		cancel()
+	if job.cancel != nil {
+		job.cancel()
 	}
 	value, err := s.database.CancelLocalModel(ctx, id, time.Now())
 	if err == nil {
@@ -195,18 +199,28 @@ func (s *Service) Cancel(ctx context.Context, id string) (store.LocalModelInstal
 }
 
 func (s *Service) Remove(ctx context.Context, id string) (bool, error) {
+	s.jobsMu.Lock()
+	job := s.jobs[id]
+	s.jobsMu.Unlock()
+	if job.cancel != nil {
+		job.cancel()
+		<-job.done
+	}
 	value, err := s.database.RemoveLocalModel(ctx, id, time.Now())
 	if err != nil {
 		return false, err
 	}
+	_ = os.Remove(s.partialPath(id))
 	if value.BlobPath != "" {
-		installations, _ := s.database.LocalModelInstallations(ctx)
-		used := false
-		for _, item := range installations {
-			used = used || item.BlobPath == value.BlobPath
-		}
-		if !used {
-			_ = os.Remove(filepath.Join(s.home, filepath.FromSlash(value.BlobPath)))
+		installations, usageErr := s.database.LocalModelInstallations(ctx)
+		if usageErr == nil {
+			used := false
+			for _, item := range installations {
+				used = used || item.BlobPath == value.BlobPath
+			}
+			if !used {
+				_ = os.Remove(filepath.Join(s.home, filepath.FromSlash(value.BlobPath)))
+			}
 		}
 	}
 	s.publishDurable(ctx)
@@ -319,6 +333,11 @@ func (s *Service) emit(event Event) {
 		select {
 		case channel <- event:
 		default:
+			select {
+			case <-channel:
+			default:
+			}
+			channel <- event
 		}
 	}
 }
@@ -356,18 +375,20 @@ func (s *Service) setRuntimeStatus(status RuntimeStatus) {
 
 func (s *Service) startJob(value store.LocalModelInstallation, work func(context.Context) error) {
 	s.jobsMu.Lock()
-	if s.jobs[value.ID] != nil {
+	if _, exists := s.jobs[value.ID]; exists {
 		s.jobsMu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s.jobs[value.ID] = cancel
+	job := installJob{cancel: cancel, done: make(chan struct{})}
+	s.jobs[value.ID] = job
 	s.jobsWG.Add(1)
 	s.jobsMu.Unlock()
 	go func() {
 		defer s.jobsWG.Done()
 		defer func() {
 			s.jobsMu.Lock()
+			close(job.done)
 			delete(s.jobs, value.ID)
 			s.jobsMu.Unlock()
 		}()
