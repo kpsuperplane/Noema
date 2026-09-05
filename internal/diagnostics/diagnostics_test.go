@@ -50,6 +50,13 @@ func TestWriterPreservesOrdinaryTechnicalValues(t *testing.T) {
 }
 
 func TestWriterBoundsCompleteRecords(t *testing.T) {
+	if _, err := diagnostics.Open(filepath.Join(t.TempDir(), "missing", "errors.log")); err == nil {
+		t.Fatal("Open succeeded without its parent directory")
+	}
+	var unavailable *diagnostics.Writer
+	if err := unavailable.Write("runtime.failed"); err != nil {
+		t.Fatalf("unavailable writer was not best-effort: %v", err)
+	}
 	path := filepath.Join(t.TempDir(), "errors.log")
 	writer, err := diagnostics.Open(path)
 	if err != nil {

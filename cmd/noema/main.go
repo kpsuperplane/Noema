@@ -66,11 +66,10 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer root.Close()
-	errorLog, err := diagnostics.Open(paths.ErrorsLog())
-	if err != nil {
-		return err
+	errorLog, _ := diagnostics.Open(paths.ErrorsLog())
+	if errorLog != nil {
+		defer errorLog.Close()
 	}
-	defer errorLog.Close()
 
 	taskStore, err := store.Open(ctx, paths.Database())
 	if err != nil {
