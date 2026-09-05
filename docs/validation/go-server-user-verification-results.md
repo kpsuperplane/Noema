@@ -323,6 +323,20 @@ After completion and reload, the same older pages retain their exact content.
 The [validation record](evidence/2026-09-05-chat-pagination-validation.json) identifies the tested revision, comparison window, driver hashes, and reused checks.
 No production code changed. This evidence covers the tested window in Codex and Chromium.
 
+## Fresh actions and tool-result reconnect
+
+The [new-action driver](evidence/2026-09-05-chat-new-action.mjs) deliberately requests another Task with an existing title and a different exact document.
+Its [results](evidence/2026-09-05-chat-new-action-results.json) show one new Task, one new capture result, and one matching Chat reference.
+The original Task retains its document, revision, state, and identity. The new Task remains in Inbox with no runs.
+The Chat reference opens the new request in the detail panel. Reload preserves the saved Task.
+
+The [tool reconnect driver](evidence/2026-09-05-chat-tool-reconnect.mjs) drops a live `project.read` result and closes its WebSocket.
+Its [results](evidence/2026-09-05-chat-tool-reconnect-results.json) confirm a new connection and one matching call/result pair.
+The answer reflects the Project’s exact name and document. Reload retains the same turn without duplicate entries.
+Together with the earlier text-delta check, this completes the tested Chromium reconnect variants.
+The [validation record](evidence/2026-09-05-chat-action-validation.json) records the source revision, driver hashes, Task identities, and reused Go checks.
+No production code changed. Other providers and native clients remain outside this evidence.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -361,7 +375,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | SETUP-10 | Not run | Controlled setup pending. | — |
 | CHAT-01 | Pass · live Codex/Chromium | One exact human message and one assistant response remain in order after reload. Other providers remain pending. | — |
 | CHAT-02 | Partial · live Codex | Eight tool calls have eight matching successful results. The final answer matches stored Project and Task state. Other providers remain pending. Live Chat capture checks above. | — |
-| CHAT-03 | Partial · live Codex/Chromium | A dropped text delta and closed WebSocket recover to one exact response. Tool-result disconnect remains pending. | — |
+| CHAT-03 | Pass · live Codex/Chromium | Dropped text and tool-result events recover after socket closure. Saved text and call/result pairs remain exact without duplicates after reload. | — |
 | CHAT-04 | Not run | Controlled setup pending. | — |
 | CHAT-05 | Pass · live Codex/Chromium | Browser history loads during a new response. Forty adjacent items retain exact content and order without gaps or duplicates, including after reload. | — |
 | CHAT-06 | Partial · live Chromium | Unicode, emoji, paragraphs, code, lists, and links survive reload and a second browser read. Native clients remain pending. | — |
@@ -373,7 +387,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | CHAT-12 | Pass · live Codex/Chromium | Unsupported components and active HTML create no surface. Forged context and stale actions are rejected. Chat remains usable. | — |
 | CHAT-13 | Not run | Controlled setup pending. | — |
 | CHAT-14 | Not run | Controlled setup pending. | — |
-| CHAT-15 | Not run | Controlled setup pending. | — |
+| CHAT-15 | Pass · live Codex/Chromium | A repeated title creates a distinct requested Task with fresh tool evidence. The older Task remains unchanged. The new Chat reference opens the new document. | — |
 | MODEL-01 | Not run | Controlled setup pending. | — |
 | MODEL-02 | Not run | Controlled setup pending. | — |
 | MODEL-03 | Not run | Controlled setup pending. | — |
