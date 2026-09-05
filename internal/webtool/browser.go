@@ -638,14 +638,14 @@ func (s *Service) browserProviderAvailable(account provider.Account) bool {
 	if !account.IsActive || !hasCapability(account, browseCapability) {
 		return false
 	}
-	return account.ProviderKind == kernelProvider || account.ProviderKind == "obscura" && s.browserPath != ""
+	return account.ProviderKind == kernelProvider || account.ProviderKind == "obscura" && s.obscuraWorkerPath() != ""
 }
 
 func (s *Service) newBrowserSession(ctx context.Context, account provider.Account, position int, routeKey string) (*browserSession, error) {
 	session := &browserSession{generation: s.browserGeneration, credentialRevision: account.Metadata.CredentialRevision(),
 		providerKind: account.ProviderKind, providerAccountID: account.ID, routePosition: position, routeKey: routeKey}
 	if account.ProviderKind == "obscura" {
-		process, err := startBrowserProcess(ctx, s.browserPath, s.browserOldSpaceMB, session.generation)
+		process, err := startBrowserProcess(ctx, s.obscuraWorkerPath(), s.browserOldSpaceMB, session.generation)
 		if err != nil {
 			return nil, err
 		}

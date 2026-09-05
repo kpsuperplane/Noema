@@ -78,7 +78,7 @@ func TestBrowserWorkerProtocolPolicyAndLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(database, accounts, nil, nil, executable, 2, 1024)
+	service, err := New(database, accounts, nil, nil, t.TempDir(), executable, 2, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

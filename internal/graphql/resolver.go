@@ -16,6 +16,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 type providerAuthService interface {
@@ -42,6 +43,7 @@ type Resolver struct {
 	Adapters         *adapter.Service
 	Notifications    *notification.Service
 	Projects         *project.Service
+	WebTools         *webtool.Service
 	providerAuth     map[string]providerAuthService
 	taskMu           sync.Mutex
 }

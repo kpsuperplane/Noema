@@ -20,7 +20,7 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	if err := accounts.Initialize(context.Background(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	service, err := webtool.New(database, accounts, nil, nil, "", 2, 1024)
+	service, err := webtool.New(database, accounts, nil, nil, t.TempDir(), "", 2, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	if !hasGenerationTool(executor, webtool.SearchName) || hasGenerationTool(planner, webtool.SearchName) || hasGenerationTool(reviewer, webtool.SearchName) {
 		t.Fatal("web tools do not match Task role policy")
 	}
-	browserService, err := webtool.New(database, accounts, nil, nil, "/bin/false", 2, 1024)
+	browserService, err := webtool.New(database, accounts, nil, nil, t.TempDir(), "/bin/false", 2, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	if err := browserAccounts.Initialize(context.Background(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	browserChat.web, err = webtool.New(browserDatabase, browserAccounts, nil, nil, "/bin/false", 2, 1024)
+	browserChat.web, err = webtool.New(browserDatabase, browserAccounts, nil, nil, t.TempDir(), "/bin/false", 2, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

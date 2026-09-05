@@ -38,6 +38,7 @@ type Service struct {
 	generators         map[string]provider.Generator
 	endpoints          map[string]string
 	browserPath        string
+	obscuraHome        string
 	browserMaxSessions int
 	browserOldSpaceMB  int
 	browserMu          sync.Mutex
@@ -62,7 +63,7 @@ func (s *Service) CurrentBinding(ctx context.Context, name string) (BindingSnaps
 }
 
 // New creates one web tool service.
-func New(database *store.Store, accounts *provider.AccountService, generators map[string]provider.Generator, artifacts *artifact.Service, browserPath string, maxSessions, oldSpaceMB int) (*Service, error) {
+func New(database *store.Store, accounts *provider.AccountService, generators map[string]provider.Generator, artifacts *artifact.Service, homeRoot, browserPath string, maxSessions, oldSpaceMB int) (*Service, error) {
 	if database == nil || accounts == nil {
 		return nil, errors.New("web tool dependencies are unavailable")
 	}
@@ -71,6 +72,7 @@ func New(database *store.Store, accounts *provider.AccountService, generators ma
 		return nil, errors.New("browser limits are invalid")
 	}
 	return &Service{database: database, accounts: accounts, artifacts: artifacts, generators: generators, browserPath: path,
+		obscuraHome:        homeRoot,
 		browserMaxSessions: maxSessions, browserOldSpaceMB: oldSpaceMB, browsers: make(map[string]*browserSession), endpoints: map[string]string{
 			"duckduckgo_public": "https://html.duckduckgo.com/html/", "exa": "https://api.exa.ai",
 			"tinyfish_search": "https://api.search.tinyfish.ai", "tinyfish_fetch": "https://api.fetch.tinyfish.ai",

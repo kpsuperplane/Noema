@@ -2,15 +2,19 @@ package graphql
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/provider"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 func TestWebToolSettingsPersistExactBindingsAndRoutes(t *testing.T) {
 	resolver := openProviderTestResolver(t)
+	executable, _ := os.Executable()
+	resolver.WebTools, _ = webtool.New(resolver.Store, resolver.ProviderAccounts, nil, nil, t.TempDir(), executable, 2, 1024)
 	settings, err := resolver.webToolSettings(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -50,5 +54,20 @@ func TestWebToolSettingsPersistExactBindingsAndRoutes(t *testing.T) {
 	})
 	if err != nil || len(browse.ProviderRouteAccountIds) != 1 {
 		t.Fatalf("browse = %#v, %v", browse, err)
+	}
+	kernelSecret, _ := provider.NewSecret("kernel-secret")
+	kernel, err := resolver.ProviderAccounts.CreateSecretAccount(context.Background(), "kernel", "Kernel", kernelSecret, time.Now())
+	if err != nil || resolver.Store.SaveBrowserProviderRoute(context.Background(), []string{kernel.ID}, time.Now()) != nil {
+		t.Fatalf("prepare prior route: %v", err)
+	}
+	resolver.WebTools = nil
+	if _, err := resolver.saveBrowserProviderRoute(context.Background(), model.SaveBrowserProviderRouteInput{
+		ProviderAccountIds: []string{"provider_account:obscura:system"},
+	}); err == nil {
+		t.Fatal("unavailable installer was accepted")
+	}
+	route, _ := resolver.Store.WebProviderRoute(context.Background(), "web.browse")
+	if len(route) != 1 || route[0].ProviderAccountID != kernel.ID {
+		t.Fatalf("prior route changed: %#v", route)
 	}
 }

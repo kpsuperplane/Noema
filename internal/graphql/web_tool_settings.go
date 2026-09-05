@@ -59,6 +59,11 @@ func (r *Resolver) saveWebToolProviderBinding(ctx context.Context, input model.S
 	if !valid {
 		return nil, errors.New("provider account does not supply the requested capability")
 	}
+	if input.ToolName == "web.browse" && input.ProviderAccountID == "provider_account:obscura:system" {
+		if err := r.prepareObscura(ctx); err != nil {
+			return nil, err
+		}
+	}
 	accounts, _ := r.ProviderAccounts.Accounts(ctx)
 	native := r.nativeWebAccount(ctx, accounts)
 	if input.ToolName != "web.browse" && native != nil && native.ID == input.ProviderAccountID {
@@ -93,9 +98,16 @@ func (r *Resolver) saveBrowserProviderRoute(ctx context.Context, input model.Sav
 	for _, option := range settings.Browse.ProviderOptions {
 		available[option.ProviderAccountID] = true
 	}
+	obscura := false
 	for _, id := range input.ProviderAccountIds {
 		if !available[id] {
 			return nil, errors.New("provider account does not supply interactive browsing")
+		}
+		obscura = obscura || id == "provider_account:obscura:system"
+	}
+	if obscura {
+		if err := r.prepareObscura(ctx); err != nil {
+			return nil, err
 		}
 	}
 	if err := r.Store.SaveBrowserProviderRoute(ctx, input.ProviderAccountIds, time.Now()); err != nil {
@@ -106,6 +118,13 @@ func (r *Resolver) saveBrowserProviderRoute(ctx context.Context, input model.Sav
 		return nil, err
 	}
 	return updated.Browse, nil
+}
+
+func (r *Resolver) prepareObscura(ctx context.Context) error {
+	if r.WebTools == nil {
+		return errors.New("Obscura installer is unavailable")
+	}
+	return r.WebTools.PrepareObscura(ctx)
 }
 
 func (r *Resolver) nativeWebAccount(ctx context.Context, accounts []provider.Account) *provider.Account {

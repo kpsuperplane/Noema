@@ -108,7 +108,7 @@ func newKernelTestFixture(t *testing.T, endpoint string, obscuraFirst bool) kern
 		t.Fatal(err)
 	}
 	executable, _ := os.Executable()
-	service, err := New(database, accounts, nil, artifacts, executable, 2, 1024)
+	service, err := New(database, accounts, nil, artifacts, paths.Root(), executable, 2, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

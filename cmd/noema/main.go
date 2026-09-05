@@ -246,7 +246,7 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	webTools, err := webtool.New(taskStore, providerAccounts, map[string]provider.Generator{
 		"openrouter": openRouterGenerator, "codex": codexGenerator, "openai": openAIGenerator,
 		"foundation_local": foundationGenerator, "local_models": localModels,
-	}, artifacts, os.Getenv("NOEMA_OBSCURA_WORKER_PATH"), authConfig.BrowserMaxSessions, authConfig.BrowserMaxOldSpaceMB)
+	}, artifacts, paths.Root(), os.Getenv("NOEMA_OBSCURA_WORKER_PATH"), authConfig.BrowserMaxSessions, authConfig.BrowserMaxOldSpaceMB)
 	if err != nil {
 		return err
 	}
@@ -330,6 +330,7 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	resolver.SetFoundation(foundationGenerator)
 	resolver.SetLocalModels(localModels)
 	resolver.SetAdapters(adapterService)
+	resolver.WebTools = webTools
 	graphqlHandler := noemagraphql.NewHandler(resolver)
 	webGraphQL := web.NewGraphQLHandler(graphqlHandler, noemagraphql.Schema(), authConfig.GraphiQL)
 	mux := http.NewServeMux()
