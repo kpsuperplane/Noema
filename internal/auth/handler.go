@@ -138,7 +138,8 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 		}
 		if strings.HasPrefix(r.URL.Path, "/artifacts/versions/") || strings.HasPrefix(r.URL.Path, "/favicons/") {
 			if native == nil && !s.config.DevNoAuth {
-				if _, authenticated := s.requireAuthenticated(w, r, r.Method == http.MethodGet); !authenticated {
+				touch := r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/favicons/")
+				if _, authenticated := s.requireAuthenticated(w, r, touch); !authenticated {
 					return
 				}
 			}

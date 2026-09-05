@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -132,44 +133,70 @@ func fetchFavicon(ctx context.Context, hostname string) ([]byte, error) {
 	last := faviconMissing
 	for _, scheme := range []string{"https", "http"} {
 		root, _ := url.Parse(scheme + "://" + hostname + "/")
-		direct, err := fetchFaviconURL(ctx, root.ResolveReference(&url.URL{Path: "favicon.ico"}), "image/*,*/*;q=0.1")
-		if err == nil {
-			if normalized, imageErr := normalizeFaviconImage(direct.body); imageErr == nil {
-				return normalized, nil
-			} else {
-				err = imageErr
+		attemptCtx, cancel := context.WithCancel(ctx)
+		results := make(chan struct {
+			body []byte
+			err  error
+		}, 2)
+		go func() {
+			response, err := fetchFaviconURL(attemptCtx, root.ResolveReference(&url.URL{Path: "favicon.ico"}), "image/*,*/*;q=0.1")
+			if err == nil {
+				response.body, err = normalizeFaviconImage(response.body)
 			}
+			results <- struct {
+				body []byte
+				err  error
+			}{response.body, err}
+		}()
+		go func() {
+			body, err := fetchDeclaredFavicon(attemptCtx, root)
+			results <- struct {
+				body []byte
+				err  error
+			}{body, err}
+		}()
+		first := <-results
+		if first.err == nil {
+			cancel()
+			return first.body, nil
 		}
-		last = strongerFaviconFailure(last, err)
-		page, pageErr := fetchFaviconURL(ctx, root, "text/html,application/xhtml+xml")
-		if pageErr != nil {
-			last = strongerFaviconFailure(last, pageErr)
-			continue
+		second := <-results
+		cancel()
+		if second.err == nil {
+			return second.body, nil
 		}
-		if page.mediaType != "" && page.mediaType != "text/html" && page.mediaType != "application/xhtml+xml" {
-			continue
-		}
-		declared := declaredFavicon(page.body, page.finalURL)
-		if declared == nil {
-			continue
-		}
-		response, declaredErr := fetchFaviconURL(ctx, declared, "image/*,*/*;q=0.1")
-		if declaredErr == nil {
-			if normalized, imageErr := normalizeFaviconImage(response.body); imageErr == nil {
-				return normalized, nil
-			} else {
-				declaredErr = imageErr
-			}
-		}
-		last = strongerFaviconFailure(last, declaredErr)
+		last = strongerFaviconFailure(last, first.err)
+		last = strongerFaviconFailure(last, second.err)
 	}
 	return nil, last
+}
+
+func fetchDeclaredFavicon(ctx context.Context, root *url.URL) ([]byte, error) {
+	page, err := fetchFaviconURL(ctx, root, "text/html,application/xhtml+xml")
+	if err != nil {
+		return nil, err
+	}
+	if page.mediaType != "" && page.mediaType != "text/html" && page.mediaType != "application/xhtml+xml" {
+		return nil, faviconMissing
+	}
+	declared := declaredFavicon(page.body, page.finalURL)
+	if declared == nil {
+		return nil, faviconMissing
+	}
+	response, err := fetchFaviconURL(ctx, declared, "image/*,*/*;q=0.1")
+	if err != nil {
+		return nil, err
+	}
+	return normalizeFaviconImage(response.body)
 }
 
 func fetchFaviconURL(ctx context.Context, current *url.URL, accept string) (faviconResponse, error) {
 	for redirects := 0; redirects <= 3; redirects++ {
 		checked, err := netpolicy.CheckURL(ctx, current.String())
 		if err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return faviconResponse{}, faviconTimeout
+			}
 			if errors.Is(err, netpolicy.ErrURLUnavailable) {
 				return faviconResponse{}, faviconTransient
 			}
@@ -224,7 +251,8 @@ func declaredFavicon(body []byte, base *url.URL) *url.URL {
 	if err != nil {
 		return nil
 	}
-	var icon, apple *url.URL
+	bestKind, bestDistance := 2, ^uint64(0)
+	var best *url.URL
 	var visit func(*html.Node)
 	visit = func(node *html.Node) {
 		if node.Type == html.ElementNode && node.Data == "link" {
@@ -233,14 +261,15 @@ func declaredFavicon(body []byte, base *url.URL) *url.URL {
 			if href != "" {
 				if parsed, parseErr := url.Parse(href); parseErr == nil {
 					candidate := base.ResolveReference(parsed)
-					if icon == nil && containsString(tokens, "icon") && !containsString(tokens, "mask-icon") {
-						icon = candidate
-					} else if apple == nil {
-						for _, token := range tokens {
-							if strings.HasPrefix(token, "apple-touch-icon") {
-								apple = candidate
-							}
-						}
+					kind := 2
+					if containsString(tokens, "icon") && !containsString(tokens, "mask-icon") {
+						kind = 0
+					} else if hasAppleIcon(tokens) {
+						kind = 1
+					}
+					distance := faviconSizeDistance(htmlAttribute(node, "sizes"))
+					if kind < 2 && (kind < bestKind || kind == bestKind && distance < bestDistance) {
+						bestKind, bestDistance, best = kind, distance, candidate
 					}
 				}
 			}
@@ -250,10 +279,39 @@ func declaredFavicon(body []byte, base *url.URL) *url.URL {
 		}
 	}
 	visit(document)
-	if icon != nil {
-		return icon
+	return best
+}
+
+func hasAppleIcon(tokens []string) bool {
+	for _, token := range tokens {
+		if strings.HasPrefix(token, "apple-touch-icon") {
+			return true
+		}
 	}
-	return apple
+	return false
+}
+
+func faviconSizeDistance(raw string) uint64 {
+	best := ^uint64(0)
+	for _, size := range strings.Fields(strings.ToLower(raw)) {
+		width, height, ok := strings.Cut(size, "x")
+		if !ok {
+			continue
+		}
+		w, wErr := strconv.ParseUint(width, 10, 32)
+		h, hErr := strconv.ParseUint(height, 10, 32)
+		if wErr == nil && hErr == nil {
+			best = min(best, absDiff(w, faviconSize)+absDiff(h, faviconSize))
+		}
+	}
+	return best
+}
+
+func absDiff(value uint64, target int) uint64 {
+	if value > uint64(target) {
+		return value - uint64(target)
+	}
+	return uint64(target) - value
 }
 
 func htmlAttribute(node *html.Node, name string) string {

@@ -104,7 +104,7 @@ func TestFaviconNormalizationSupportsCurrentFormatsAndBounds(t *testing.T) {
 		t.Fatal("oversized image dimensions were accepted")
 	}
 	base := httptest.NewRequest(http.MethodGet, "https://example.com/page", nil).URL
-	if icon := declaredFavicon([]byte(`<link rel="apple-touch-icon" href="apple.png"><link rel="icon" href="site.png">`), base); icon.String() != "https://example.com/site.png" {
+	if icon := declaredFavicon([]byte(`<link rel="apple-touch-icon" href="apple.png"><link rel="icon" sizes="any" href="site.svg"><link rel="icon" sizes="32x32" href="site.png">`), base); icon.String() != "https://example.com/site.png" {
 		t.Fatalf("declared favicon = %v", icon)
 	}
 }
