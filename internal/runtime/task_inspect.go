@@ -408,6 +408,9 @@ func storedToolResult(item store.ConversationItem) (provider.ReplayToolResult, e
 		ProviderName:   textValue(action["provider_name"]), Name: textValue(action["name"]),
 		Success: action["success"] == true, Payload: modelToolPayload(payload),
 	}
+	if webtool.IsBrowserTool(result.Name) {
+		result.Payload = webtool.BrowserModelPayload(result.Payload)
+	}
 	if strings.TrimSpace(result.ProviderCallID) == "" || strings.TrimSpace(result.Name) == "" {
 		return provider.ReplayToolResult{}, errors.New("stored tool result is invalid")
 	}
@@ -627,7 +630,7 @@ func (c *Chat) persistChatToolRound(
 				}
 			}
 		}
-	} else if call.Name != webtool.SearchName && call.Name != webtool.FetchName && call.Name != noemamcp.ConnectServiceToolName && call.Name != adapter.DefinitionTemplateTool && call.Name != adapter.ProposeDefinitionTool && !supportsLocalChatTool(call.Name) {
+	} else if call.Name != webtool.SearchName && call.Name != webtool.FetchName && !webtool.IsBrowserTool(call.Name) && call.Name != noemamcp.ConnectServiceToolName && call.Name != adapter.DefinitionTemplateTool && call.Name != adapter.ProposeDefinitionTool && !supportsLocalChatTool(call.Name) {
 		if c.adapters != nil {
 			if binding, bindErr := c.adapters.Binding(call.Name); bindErr == nil {
 				if c.adapters.Validate(binding, call.Payload) != nil {
@@ -741,6 +744,30 @@ func (c *Chat) persistChatToolRound(
 		}
 		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
 		return payload, success, false, nil
+	}
+	if webtool.IsBrowserTool(call.Name) {
+		result, approval, err := c.prepareChatBrowser(request.conversation, turn, callItem, assignment, providerRound, call.Name, call.Payload)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if approval != nil {
+			c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: approval})
+			c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
+			c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
+			c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})
+			return nil, false, true, nil
+		}
+		resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{CallItemID: callItem.ID,
+			Provider: assignment.ProviderKind, ProviderRound: providerRound, OutputIndex: call.Index, ProviderCallID: call.ProviderCallID,
+			ProviderName: call.ProviderName, Name: call.Name, Success: result.Success, Payload: result.Stored}, time.Now())
+		if err != nil {
+			return nil, false, false, err
+		}
+		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
+		if result.OutcomeUncertain {
+			return result.Model, false, true, c.failUncertainTurn(request.input, turn)
+		}
+		return result.Model, result.Success, false, nil
 	}
 	if mcpBinding != nil {
 		payload, success, approval, err := c.prepareMCPAction(

@@ -265,6 +265,8 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 			_, _, _, err = c.executeReviewedAdapter(action)
 		} else if action.CapabilityName == webtool.FetchName {
 			_, _, _, err = c.executeReviewedWebFetch(action)
+		} else if webtool.IsBrowserTool(action.CapabilityName) {
+			_, _, err = c.executeReviewedBrowser(action)
 		} else if strings.HasPrefix(action.CapabilityName, "mcp.") {
 			var notice *store.ConversationItem
 			_, _, notice, err = c.executeReviewedMCP(action)

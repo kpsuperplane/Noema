@@ -20,7 +20,7 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	if err := accounts.Initialize(context.Background(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	service, err := webtool.New(database, accounts, nil)
+	service, err := webtool.New(database, accounts, nil, "", 2, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +45,21 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	reviewer, _, _ := tasks.taskExecutionTools(context.Background(), "reviewer")
 	if !hasGenerationTool(executor, webtool.SearchName) || hasGenerationTool(planner, webtool.SearchName) || hasGenerationTool(reviewer, webtool.SearchName) {
 		t.Fatal("web tools do not match Task role policy")
+	}
+	browserService, err := webtool.New(database, accounts, nil, "/bin/false", 2, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat.web = browserService
+	browserChatTools, err := chat.chatTools(context.Background())
+	if err != nil || !hasGenerationTool(browserChatTools, webtool.BrowseOpenName) {
+		t.Fatalf("browser Chat tools = %#v, %v", browserChatTools, err)
+	}
+	browserTasks := &TaskExecution{database: database, web: browserService}
+	browserExecutor, _, _ := browserTasks.taskExecutionTools(context.Background(), "executor")
+	browserPlanner, _, _ := browserTasks.taskExecutionTools(context.Background(), "planner")
+	if !hasGenerationTool(browserExecutor, webtool.BrowseCloseName) || hasGenerationTool(browserPlanner, webtool.BrowseOpenName) {
+		t.Fatal("browser tools do not match Task role policy")
 	}
 	chat.openRouter = generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: actionReviewToolName,
@@ -71,6 +86,40 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	_, success, approval, err := chat.prepareWebFetchAction(conversation, turn, call, assignment, 0, json.RawMessage(`{"url":"https://1.1.1.1/private"}`))
 	if err != nil || success || approval == nil {
 		t.Fatalf("reviewed fetch = %v, %#v, %v", success, approval, err)
+	}
+	browserChat, browserDatabase, _ := chatFixture(t)
+	browserAccounts, err := provider.NewAccountService(t.TempDir(), browserDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := browserAccounts.Initialize(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	browserChat.web, err = webtool.New(browserDatabase, browserAccounts, nil, "/bin/false", 2, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browserChat.openRouter = chat.openRouter
+	browserConversation, err := browserDatabase.EnsurePrimaryConversation(context.Background(), "openrouter", "/workspace", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	browserTurn, _, err := browserDatabase.BeginConversationTurn(context.Background(), browserConversation.ID, "Browse", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	browserItems, err := browserDatabase.StartConversationToolRound(context.Background(), browserTurn, store.ConversationToolRound{Provider: "openrouter",
+		Call: store.ConversationToolCallInput{Name: webtool.BrowseOpenName, ProviderCallID: "browser-review", ProviderName: webtool.BrowseOpenName, Arguments: json.RawMessage(`{"url":"https://1.1.1.1/browser"}`)}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	browserAssignment, err := browserChat.primaryAssignment(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, browserApproval, err := browserChat.prepareChatBrowser(browserConversation, browserTurn, browserItems[len(browserItems)-1], browserAssignment, 0, webtool.BrowseOpenName, json.RawMessage(`{"url":"https://1.1.1.1/browser"}`))
+	if err != nil || result.Success || browserApproval == nil {
+		t.Fatalf("reviewed browser = %#v, %#v, %v", result, browserApproval, err)
 	}
 }
 

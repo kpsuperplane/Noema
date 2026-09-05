@@ -555,6 +555,36 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			messages = append(messages, incremental...)
 			continue
 		}
+		if webtool.IsBrowserTool(call.Name) {
+			result, paused, actionErr := r.prepareTaskBrowser(ctx, task, run, callItem, call.Name, call.Payload)
+			if actionErr != nil {
+				r.failRun(ctx, run, "browser_action_unavailable", false)
+				return
+			}
+			if paused && result.Model == nil {
+				return
+			}
+			status := "completed"
+			if !result.Success {
+				status = "failed"
+			}
+			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
+				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(result.Stored), "success": result.Success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			if result.OutcomeUncertain {
+				if err := r.database.CompleteTaskUncertainResult(ctx, run.ID, run.Generation, resultInput, time.Now()); err != nil && !errors.Is(err, store.ErrStaleRun) {
+					r.failRun(ctx, run, "task_transition_failed", false)
+				}
+				return
+			}
+			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
+				return
+			}
+			stallReason = progress.observe(call, result.Model, result.Success, sideEffect)
+			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
+			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: result.Success, Payload: result.Model}}}
+			messages = append(messages, incremental...)
+			continue
+		}
 		payload, success, terminal, taskWrite := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
 		finishToolSpan(success)
 		wroteTask = wroteTask || taskWrite
@@ -956,6 +986,9 @@ func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]
 	if kind == "executor" && r.web != nil && r.web.Explicit(ctx) {
 		tools = append(tools, webtool.Tools...)
 	}
+	if kind == "executor" && r.web != nil && r.web.BrowserAvailable(ctx) {
+		tools = append(tools, webtool.BrowserTools...)
+	}
 	if r.mcp != nil {
 		values, err := r.mcp.Bindings(ctx)
 		if err == nil {
@@ -1022,6 +1055,13 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		}
 		payload, success := r.web.Execute(ctx, name, raw, "task:"+run.ID+":"+name)
 		return payload, success, false, false
+	case webtool.BrowseOpenName, webtool.BrowseSnapshotName, webtool.BrowseInteractName, webtool.BrowseWaitName,
+		webtool.BrowseHistoryName, webtool.BrowseSwitchName, webtool.BrowseCloseName:
+		if r.web == nil || run.Kind != "executor" {
+			return toolFailure("unavailable", "browser is unavailable"), false, false, false
+		}
+		result := r.web.ExecuteBrowser(ctx, taskBrowserOwner(task.ID, run.Generation), name, raw, "task:"+run.ID+":"+name)
+		return result.Model, result.Success, result.OutcomeUncertain, false
 	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
 		if r.adapters == nil || run.Kind != "executor" {
 			return toolFailure("unavailable", "Adapter setup is unavailable"), false, false, false
@@ -1179,7 +1219,8 @@ func taskToolAllowed(kind, name string) bool {
 		return kind == "executor" || kind == "reviewer"
 	case taskCaptureName, taskListName:
 		return kind == "executor"
-	case webtool.SearchName, webtool.FetchName:
+	case webtool.SearchName, webtool.FetchName, webtool.BrowseOpenName, webtool.BrowseSnapshotName,
+		webtool.BrowseInteractName, webtool.BrowseWaitName, webtool.BrowseHistoryName, webtool.BrowseSwitchName, webtool.BrowseCloseName:
 		return kind == "executor"
 	case taskFinishExecution, taskContinueExecution:
 		return kind == "executor"
@@ -1299,6 +1340,9 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 				return nil, wroteTask, err
 			}
 			success, _ := result.Payload["success"].(bool)
+			if webtool.IsBrowserTool(name) {
+				payload = webtool.BrowserModelPayload(payload)
+			}
 			resultProviderName, _ := result.Payload["provider_name"].(string)
 			if resultProviderName == "" {
 				resultProviderName = providerName
@@ -1468,6 +1512,12 @@ func (r *TaskExecution) finishTaskTerminal(ctx context.Context, run store.TaskRu
 	}
 	if transitionErr != nil {
 		return transitionErr
+	}
+	if r.web != nil {
+		if task, err := r.database.Task(ctx, run.TaskID); err == nil &&
+			(task.Generation != run.Generation || task.StageKey == "done" || task.StageKey == "cancelled") {
+			r.web.CloseBrowser(taskBrowserOwner(run.TaskID, run.Generation))
+		}
 	}
 	return nil
 }

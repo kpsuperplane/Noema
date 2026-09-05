@@ -23,14 +23,16 @@ const configLimit = 1024 * 1024
 
 // Config contains non-secret browser authentication configuration.
 type Config struct {
-	Authority          string
-	Origin             string
-	RPID               string
-	ListenAddress      string
-	Secure             bool
-	DevNoAuth          bool
-	GraphiQL           bool
-	LocalGraphQLSocket bool
+	Authority            string
+	Origin               string
+	RPID                 string
+	ListenAddress        string
+	Secure               bool
+	DevNoAuth            bool
+	GraphiQL             bool
+	LocalGraphQLSocket   bool
+	BrowserMaxSessions   int
+	BrowserMaxOldSpaceMB int
 }
 
 // Recovery owns serialized one-time recovery-code rotation.
@@ -49,6 +51,35 @@ func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, erro
 	web, err := childMap(document, "web")
 	if err != nil {
 		return Config{}, nil, err
+	}
+	browser := map[string]any{}
+	if raw, exists := document["browser"]; exists {
+		var ok bool
+		browser, ok = raw.(map[string]any)
+		if !ok {
+			return Config{}, nil, errors.New("config.yaml field browser must be a mapping")
+		}
+	}
+	browserMaxSessions, err := configBoundedInt(browser, "max_sessions", 2, 1, 8, "browser.max_sessions")
+	if err != nil {
+		return Config{}, nil, err
+	}
+	browserOldSpace, err := configBoundedInt(browser, "max_old_space_mb", 1024, 256, 4096, "browser.max_old_space_mb")
+	if err != nil {
+		return Config{}, nil, err
+	}
+	for name, value := range map[string]*int{"NOEMA_BROWSER__MAX_SESSIONS": &browserMaxSessions, "NOEMA_BROWSER__MAX_OLD_SPACE_MB": &browserOldSpace} {
+		if raw, exists := os.LookupEnv(name); exists {
+			parsed, parseErr := strconv.Atoi(raw)
+			minimum, maximum := 1, 8
+			if name == "NOEMA_BROWSER__MAX_OLD_SPACE_MB" {
+				minimum, maximum = 256, 4096
+			}
+			if parseErr != nil || parsed < minimum || parsed > maximum {
+				return Config{}, nil, fmt.Errorf("%s is invalid", name)
+			}
+			*value = parsed
+		}
 	}
 	recoveryValue, recoveryExists := web["recovery_code"]
 	recoveryCode, recoveryIsString := recoveryValue.(string)
@@ -149,7 +180,26 @@ func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, erro
 	config.ListenAddress = resolvedAddress
 	config.GraphiQL = graphiQL
 	config.LocalGraphQLSocket = localSocket
+	config.BrowserMaxSessions = browserMaxSessions
+	config.BrowserMaxOldSpaceMB = browserOldSpace
 	return config, &Recovery{path: paths.Config()}, nil
+}
+
+func configBoundedInt(values map[string]any, key string, fallback, minimum, maximum int, field string) (int, error) {
+	raw, exists := values[key]
+	if !exists {
+		return fallback, nil
+	}
+	value, ok := raw.(int)
+	if !ok {
+		if unsigned, valid := raw.(uint64); valid && unsigned <= uint64(maximum) {
+			value, ok = int(unsigned), true
+		}
+	}
+	if !ok || value < minimum || value > maximum {
+		return 0, fmt.Errorf("config.yaml field %s is invalid", field)
+	}
+	return value, nil
 }
 
 // Attempt rotates the code before it reports whether one candidate matched.

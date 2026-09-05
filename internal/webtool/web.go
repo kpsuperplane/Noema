@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -30,10 +31,16 @@ var Tools = []provider.GenerationTool{
 
 // Service executes web tools with current account, URL, and model authorities.
 type Service struct {
-	database   *store.Store
-	accounts   *provider.AccountService
-	generators map[string]provider.Generator
-	endpoints  map[string]string
+	database           *store.Store
+	accounts           *provider.AccountService
+	generators         map[string]provider.Generator
+	endpoints          map[string]string
+	browserPath        string
+	browserMaxSessions int
+	browserOldSpaceMB  int
+	browserMu          sync.Mutex
+	browsers           map[string]*browserSession
+	browserGeneration  uint64
 }
 
 // BindingSnapshot identifies the exact provider authority used by a reviewed fetch.
@@ -52,15 +59,34 @@ func (s *Service) CurrentBinding(ctx context.Context, name string) (BindingSnaps
 }
 
 // New creates one web tool service.
-func New(database *store.Store, accounts *provider.AccountService, generators map[string]provider.Generator) (*Service, error) {
+func New(database *store.Store, accounts *provider.AccountService, generators map[string]provider.Generator, browserPath string, maxSessions, oldSpaceMB int) (*Service, error) {
 	if database == nil || accounts == nil {
 		return nil, errors.New("web tool dependencies are unavailable")
 	}
-	return &Service{database: database, accounts: accounts, generators: generators, endpoints: map[string]string{
-		"duckduckgo_public": "https://html.duckduckgo.com/html/", "exa": "https://api.exa.ai",
-		"tinyfish_search": "https://api.search.tinyfish.ai", "tinyfish_fetch": "https://api.fetch.tinyfish.ai",
-		"firecrawl": "https://api.firecrawl.dev/v2",
-	}}, nil
+	path := strings.TrimSpace(browserPath)
+	if maxSessions < 1 || maxSessions > 8 || oldSpaceMB < 256 || oldSpaceMB > 4096 {
+		return nil, errors.New("browser limits are invalid")
+	}
+	return &Service{database: database, accounts: accounts, generators: generators, browserPath: path,
+		browserMaxSessions: maxSessions, browserOldSpaceMB: oldSpaceMB, browsers: make(map[string]*browserSession), endpoints: map[string]string{
+			"duckduckgo_public": "https://html.duckduckgo.com/html/", "exa": "https://api.exa.ai",
+			"tinyfish_search": "https://api.search.tinyfish.ai", "tinyfish_fetch": "https://api.fetch.tinyfish.ai",
+			"firecrawl": "https://api.firecrawl.dev/v2",
+		}}, nil
+}
+
+// Close stops all browser workers.
+func (s *Service) Close() {
+	s.browserMu.Lock()
+	sessions := make([]*browserSession, 0, len(s.browsers))
+	for owner, session := range s.browsers {
+		delete(s.browsers, owner)
+		sessions = append(sessions, session)
+	}
+	s.browserMu.Unlock()
+	for _, session := range sessions {
+		session.close()
+	}
 }
 
 // Explicit reports whether configured web tools replace native hosted web.

@@ -67,6 +67,9 @@ func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error)
 	if c.web != nil && c.web.Explicit(ctx) {
 		result = append(result, webtool.Tools...)
 	}
+	if c.web != nil && c.web.BrowserAvailable(ctx) {
+		result = append(result, webtool.BrowserTools...)
+	}
 	if c.adapters != nil {
 		result = append(result, c.adapters.SetupTools()...)
 		bindings, err := c.adapters.Bindings()
@@ -89,6 +92,9 @@ func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error)
 
 func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
 	if c.web != nil && c.web.Explicit(ctx) && (name == webtool.SearchName || name == webtool.FetchName) {
+		return true
+	}
+	if c.web != nil && c.web.BrowserAvailable(ctx) && webtool.IsBrowserTool(name) {
 		return true
 	}
 	if supportsLocalChatTool(name) {
@@ -142,6 +148,13 @@ func (c *Chat) executeChatTool(
 			return c.web.Execute(ctx, name, arguments, "conversation:"+conversation.ID+":"+requestID)
 		}
 		return toolFailure("unavailable", "web tool is unavailable"), false
+	case webtool.BrowseOpenName, webtool.BrowseSnapshotName, webtool.BrowseInteractName, webtool.BrowseWaitName,
+		webtool.BrowseHistoryName, webtool.BrowseSwitchName, webtool.BrowseCloseName:
+		if c.web != nil {
+			result := c.web.ExecuteBrowser(ctx, chatBrowserOwner(conversation.ID), name, arguments, "conversation:"+conversation.ID+":"+requestID)
+			return result.Model, result.Success
+		}
+		return toolFailure("unavailable", "browser is unavailable"), false
 	case updateOwnNameToolName:
 		return c.updateOwnName(ctx, arguments)
 	case luaRunName:
