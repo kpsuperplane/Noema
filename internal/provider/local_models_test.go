@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestLocalModelCatalogSelectionPreservesPinnedContract(t *testing.T) {
 }
 
 func TestLocalProbeIsBoundedAndPrivate(t *testing.T) {
-	if mode := os.Getenv("NOEMA_LOCAL_PROBE_HELPER"); mode != "" {
+	if mode := localProbeTestMode(); mode != "" {
 		if mode == "timeout" {
 			time.Sleep(10 * time.Second)
 			return
@@ -64,18 +65,54 @@ func TestLocalProbeIsBoundedAndPrivate(t *testing.T) {
 		return
 	}
 
-	t.Setenv("NOEMA_LOCAL_PROBE_HELPER", "output")
-	_, err := localProbeOutput(context.Background(), os.Args[0], "-test.run=TestLocalProbeIsBoundedAndPrivate")
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = localProbeOutput(context.Background(), executable, nil,
+		"-test.run=^TestLocalProbeIsBoundedAndPrivate$", "--", "noema-local-probe=output")
 	if err != errLocalProbeTooLarge || strings.Contains(fmt.Sprint(err), "private-hardware-value") {
 		t.Fatalf("large probe error = %v", err)
 	}
 
-	t.Setenv("NOEMA_LOCAL_PROBE_HELPER", "timeout")
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	_, err = localProbeOutput(ctx, os.Args[0], "-test.run=TestLocalProbeIsBoundedAndPrivate")
+	_, err = localProbeOutput(ctx, executable, nil,
+		"-test.run=^TestLocalProbeIsBoundedAndPrivate$", "--", "noema-local-probe=timeout")
 	if err == nil || time.Since(started) > time.Second {
 		t.Fatalf("timed probe = %v after %s", err, time.Since(started))
 	}
+}
+
+func TestLocalProbeUsesFixedPathAndMinimalEnvironment(t *testing.T) {
+	if localProbeTestMode() == "environment" {
+		_, _ = fmt.Fprintf(os.Stdout, "%s|%s", os.Getenv("NOEMA_PROVIDER_SECRET"), os.Getenv("LC_ALL"))
+		os.Exit(0)
+	}
+	if _, err := localProbeOutput(context.Background(), "probe-from-path", nil); err != errLocalProbePath {
+		t.Fatalf("relative probe path error = %v", err)
+	}
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NOEMA_PROVIDER_SECRET", "must-not-reach-child")
+	output, err := localProbeOutput(context.Background(), executable, []string{"LANG=C", "LC_ALL=C"},
+		"-test.run=^TestLocalProbeUsesFixedPathAndMinimalEnvironment$", "--", "noema-local-probe=environment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "|C" {
+		t.Fatalf("probe environment = %q", output)
+	}
+}
+
+func localProbeTestMode() string {
+	for _, argument := range os.Args {
+		if value, found := strings.CutPrefix(argument, "noema-local-probe="); found {
+			return value
+		}
+	}
+	return ""
 }

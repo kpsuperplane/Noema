@@ -9,7 +9,8 @@ import (
 )
 
 func detectLocalHardware(ctx context.Context) ([]LocalHardwareProfile, error) {
-	value, err := localProbeOutput(ctx, "sysctl", "-n", "hw.memsize")
+	environment := []string{"LANG=C", "LC_ALL=C"}
+	value, err := localProbeOutput(ctx, "/usr/sbin/sysctl", environment, "-n", "hw.memsize")
 	if err != nil {
 		return nil, errors.New("physical memory is unavailable")
 	}
@@ -20,7 +21,7 @@ func detectLocalHardware(ctx context.Context) ([]LocalHardwareProfile, error) {
 	unified := runtime.GOARCH == "arm64"
 	var vram *int
 	if !unified {
-		if value, probeErr := localProbeOutput(ctx, "system_profiler", "SPDisplaysDataType"); probeErr == nil {
+		if value, probeErr := localProbeOutput(ctx, "/usr/sbin/system_profiler", environment, "SPDisplaysDataType"); probeErr == nil {
 			vram = parseMacVRAMGB(value)
 		}
 	}

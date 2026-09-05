@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ const (
 )
 
 var errLocalProbeTooLarge = errors.New("local hardware probe output is too large")
+var errLocalProbePath = errors.New("local hardware probe executable path is invalid")
 
 type limitedProbeOutput struct {
 	buffer   bytes.Buffer
@@ -40,11 +42,16 @@ func (w *limitedProbeOutput) Write(data []byte) (int, error) {
 	return length, nil
 }
 
-func localProbeOutput(ctx context.Context, program string, arguments ...string) (string, error) {
+func localProbeOutput(ctx context.Context, program string, environment []string, arguments ...string) (string, error) {
+	if !filepath.IsAbs(program) || filepath.Clean(program) != program {
+		return "", errLocalProbePath
+	}
 	probeContext, cancel := context.WithTimeout(ctx, localProbeTimeout)
 	defer cancel()
 	var output limitedProbeOutput
 	command := exec.CommandContext(probeContext, program, arguments...)
+	command.Env = make([]string, len(environment))
+	copy(command.Env, environment)
 	command.Stdout, command.Stderr = &output, io.Discard
 	if err := command.Run(); err != nil {
 		if probeContext.Err() != nil {
