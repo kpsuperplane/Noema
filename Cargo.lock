@@ -4021,28 +4021,13 @@ dependencies = [
 name = "noema-capabilities-mcp"
 version = "0.1.0"
 dependencies = [
- "bytes",
- "cap-std",
- "futures-util",
- "http",
  "jsonschema",
- "libc",
  "noema-capabilities",
- "noema-home",
- "process-wrap",
- "psl",
- "reqwest 0.13.4",
  "ring",
- "rmcp",
  "serde",
  "serde_json",
- "sse-stream",
- "tempfile",
  "thiserror 2.0.18",
- "time",
  "tokio",
- "tokio-util",
- "url",
 ]
 
 [[package]]
