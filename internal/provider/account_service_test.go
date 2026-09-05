@@ -67,6 +67,9 @@ func TestSecretAccountFilesAndRollback(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.LoadSecretAtRevision(ctx, account.ID, 2); !errors.Is(err, provider.ErrAccountConflict) {
+		t.Fatalf("stale credential revision error = %v", err)
+	}
 	current, err := database.ProviderAccount(ctx, account.ID)
 	if err != nil || current.Metadata.CredentialRevision() != 1 {
 		t.Fatalf("credential revision changed after rollback: %#v, %v", current, err)

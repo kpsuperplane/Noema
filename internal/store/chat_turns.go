@@ -611,6 +611,9 @@ UPDATE conversations SET agent_status = ?, updated_at_ms = ? WHERE conversation_
 		agentStatus, millis(now), turn.ConversationID); err != nil {
 		return ConversationItem{}, fmt.Errorf("finish conversation status: %w", err)
 	}
+	if err := completeResumingConversationChoicesTx(ctx, tx, turn.ID, now); err != nil {
+		return ConversationItem{}, err
+	}
 	item, err := conversationItemTx(ctx, tx, itemID)
 	if err != nil {
 		return ConversationItem{}, err

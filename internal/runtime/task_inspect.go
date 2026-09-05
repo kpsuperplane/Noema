@@ -463,7 +463,7 @@ func (c *Chat) executeChatToolRounds(
 		var forcedFinalization bool
 		result, forcedFinalization, err = c.generateChatToolContinuation(
 			request, turn, assignment, generator, nextRound, stopReason, memoryContext,
-			result.ID, hostedState, incremental,
+			result.ID, hostedState, incremental, nil,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
@@ -495,12 +495,21 @@ func (c *Chat) persistChatToolRound(
 ) (json.RawMessage, bool, bool, error) {
 	var mcpBinding *noemamcp.Binding
 	var multipleChoice *multipleChoiceArguments
+	var choiceCredentialRevision uint64
+	var choiceToolCatalogDigest string
 	if call.Name == fileDownloadName {
 		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
 			return nil, false, false, errors.New("file.download arguments are invalid")
 		}
 	} else if call.Name == presentMultipleChoiceName {
 		multipleChoice, _ = parseMultipleChoiceArguments(call.Payload)
+		if multipleChoice != nil {
+			var authorityErr error
+			choiceCredentialRevision, choiceToolCatalogDigest, authorityErr = c.multipleChoiceAuthority(c.ctx, assignment)
+			if authorityErr != nil {
+				return nil, false, false, authorityErr
+			}
+		}
 	} else if call.Name != noemamcp.ConnectServiceToolName && !supportsLocalChatTool(call.Name) {
 		if c.mcp == nil {
 			return nil, false, false, errors.New("MCP tool is unavailable")
@@ -523,7 +532,10 @@ func (c *Chat) persistChatToolRound(
 			ProviderCallID: call.ProviderCallID,
 			ProviderName:   call.ProviderName, Name: call.Name, Arguments: call.Payload,
 		},
-		MultipleChoice: storedMultipleChoiceInput(multipleChoice, assignment, generation.ID, hostedState),
+		MultipleChoice: storedMultipleChoiceInput(
+			multipleChoice, assignment, generation.ID, hostedState,
+			choiceCredentialRevision, choiceToolCatalogDigest,
+		),
 	}, time.Now())
 	if err != nil {
 		return nil, false, false, err
@@ -674,6 +686,7 @@ func (c *Chat) generateChatToolContinuation(
 	previousResponseID string,
 	hostedState bool,
 	incremental provider.GenerationMessage,
+	expectedCredentialRevision *uint64,
 ) (provider.GenerationResult, bool, error) {
 	stored, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
@@ -723,10 +736,11 @@ func (c *Chat) generateChatToolContinuation(
 			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
 			ConversationID: turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
-			HostedWebSearch:    hostedWeb,
-			PreviousResponseID: previousResponseID,
-			StoreResponse:      responseContinuation,
-			FastMode:           assignment.FastMode,
+			HostedWebSearch:            hostedWeb,
+			PreviousResponseID:         previousResponseID,
+			StoreResponse:              responseContinuation,
+			ExpectedCredentialRevision: expectedCredentialRevision,
+			FastMode:                   assignment.FastMode,
 		}, func(event provider.StreamEvent) {
 			if event.Kind == provider.TextDelta {
 				c.publish(Event{

@@ -13,6 +13,7 @@ import (
 // ConversationChoiceContinuation is one answered choice ready for exact resumption.
 type ConversationChoiceContinuation struct {
 	Prompt    ConversationItem
+	Call      ConversationItem
 	Selection ConversationItem
 	Result    ConversationItem
 	Turn      ConversationTurn
@@ -158,18 +159,13 @@ WHERE turn_id = ? AND conversation_id = ?`, prompt.TurnID, conversationID,
 	}
 	prompt.Payload["lifecycle"] = "answered"
 	prompt.Payload["interaction_revision"] = 2
-	return ConversationChoiceContinuation{Prompt: prompt, Selection: selection, Result: result, Turn: turn}, nil
+	call.Status = "completed"
+	return ConversationChoiceContinuation{Prompt: prompt, Call: call, Selection: selection, Result: result, Turn: turn}, nil
 }
 
 // ClaimConversationChoice moves one answered choice and its original turn into execution.
 func (s *Store) ClaimConversationChoice(ctx context.Context, promptItemID string, now time.Time) (ConversationChoiceContinuation, error) {
 	return s.changeConversationChoice(ctx, promptItemID, "answered", "resuming", "running", now)
-}
-
-// CompleteConversationChoice marks one resumed choice as complete.
-func (s *Store) CompleteConversationChoice(ctx context.Context, promptItemID string, now time.Time) error {
-	_, err := s.changeConversationChoice(ctx, promptItemID, "resuming", "completed", "", now)
-	return err
 }
 
 // ReleaseConversationChoice restores one interrupted claim for restart recovery.
@@ -360,4 +356,15 @@ func optionalText(value *string) any {
 		return nil
 	}
 	return *value
+}
+
+func completeResumingConversationChoicesTx(ctx context.Context, tx *sql.Tx, turnID string, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `
+UPDATE conversation_items
+SET payload_json = json_set(payload_json, '$.lifecycle', 'completed'), updated_at_ms = ?
+WHERE turn_id = ? AND kind = 'multiple_choice_prompt'
+  AND json_extract(payload_json, '$.lifecycle') = 'resuming'`, millis(now), turnID); err != nil {
+		return fmt.Errorf("complete resumed multiple-choice prompt: %w", err)
+	}
+	return nil
 }

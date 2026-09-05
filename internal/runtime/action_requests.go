@@ -350,7 +350,7 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 	}
 	result, _, err := c.generateChatToolContinuation(
 		request, turn, assignment, generator, 0, "", c.memoryRootContext(),
-		responseID, hostedState, incremental,
+		responseID, hostedState, incremental, nil,
 	)
 	if err != nil {
 		c.failTurn(request.input, turn, err)

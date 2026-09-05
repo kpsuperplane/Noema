@@ -487,12 +487,24 @@ func codexTokenNeedsRefresh(accessToken string, now time.Time) bool {
 
 // LoadSecret returns one credential through a typed wrapper.
 func (s *AccountService) LoadSecret(ctx context.Context, id string) (Secret, error) {
+	return s.loadSecret(ctx, id, nil)
+}
+
+// LoadSecretAtRevision returns the credential only when its revision is current.
+func (s *AccountService) LoadSecretAtRevision(ctx context.Context, id string, expectedRevision uint64) (Secret, error) {
+	return s.loadSecret(ctx, id, &expectedRevision)
+}
+
+func (s *AccountService) loadSecret(ctx context.Context, id string, expectedRevision *uint64) (Secret, error) {
 	gate := s.gate(id)
 	gate.Lock()
 	defer gate.Unlock()
 	account, err := s.persistence.ProviderAccount(ctx, id)
 	if err != nil {
 		return Secret{}, err
+	}
+	if expectedRevision != nil && account.Metadata.CredentialRevision() != *expectedRevision {
+		return Secret{}, ErrAccountConflict
 	}
 	path, err := s.credentialPath(account)
 	if err != nil {

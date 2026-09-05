@@ -651,7 +651,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			openAIRequest = request
 			return provider.GenerationResult{}, nil
 		}),
-		2, "", "", "resp_openai", true, incremental,
+		2, "", "", "resp_openai", true, incremental, nil,
 	)
 	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
 		len(openAIRequest.Messages) != 1 || openAIRequest.Messages[0].ToolResult == nil ||
@@ -669,7 +669,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 				called = true
 				return provider.GenerationResult{}, nil
 			}),
-			2, "", "", "", true, provider.GenerationMessage{},
+			2, "", "", "", true, provider.GenerationMessage{}, nil,
 		)
 		if err == nil || called || !strings.Contains(err.Error(), "provider-hosted web state") {
 			t.Fatalf("missing %s hosted state = called %t, error %v", providerKind, called, err)

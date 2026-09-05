@@ -448,6 +448,7 @@ func TestConversationMultipleChoiceSelectionIsAtomicOrderedAndRecoverable(t *tes
 				"role": "noema", "provider_kind": "openrouter", "provider_account_id": "provider_account:test",
 				"selection_mode": "noema_recommended", "model_profile": "openai/test", "reasoning_effort": "high",
 			},
+			ToolCatalogDigest: "catalog:test",
 		},
 	}, now)
 	if err != nil || len(items) != 2 || items[1].Kind != ConversationMultipleChoicePrompt {
@@ -470,6 +471,9 @@ func TestConversationMultipleChoiceSelectionIsAtomicOrderedAndRecoverable(t *tes
 	if selected[0].(map[string]any)["id"] != "b" || selected[1].(map[string]any)["id"] != "a" || choice.Result.ParentItemID != items[0].ID {
 		t.Fatalf("choice resolution = %#v", choice)
 	}
+	if choice.Call.ID != items[0].ID || choice.Call.Status != "completed" {
+		t.Fatalf("completed choice call = %#v", choice.Call)
+	}
 	if _, err := database.ResolveConversationChoice(ctx, conversation.ID, prompt.ID, []string{"b"}, nil, now); err == nil {
 		t.Fatal("second selection succeeded")
 	}
@@ -491,5 +495,18 @@ func TestConversationMultipleChoiceSelectionIsAtomicOrderedAndRecoverable(t *tes
 	}
 	if count, err := database.RecoverConversationTurns(ctx, now.Add(time.Second)); err != nil || count != 0 {
 		t.Fatalf("generic recovery changed choice turn = %d, %v", count, err)
+	}
+	claimed, err = database.ClaimConversationChoice(ctx, prompt.ID, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CompleteConversationTurn(
+		ctx, claimed.Turn, "Continued", "", nil, now.Add(3*time.Second),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var lifecycle string
+	if err := database.db.QueryRow(`SELECT json_extract(payload_json, '$.lifecycle') FROM conversation_items WHERE item_id = ?`, prompt.ID).Scan(&lifecycle); err != nil || lifecycle != "completed" {
+		t.Fatalf("durable continuation choice lifecycle = %q, %v", lifecycle, err)
 	}
 }

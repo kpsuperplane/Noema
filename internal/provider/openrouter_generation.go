@@ -69,7 +69,12 @@ func (g *OpenRouterGenerator) Generate(
 	if err != nil {
 		return GenerationResult{}, err
 	}
-	secret, err := g.accounts.LoadSecret(ctx, request.AccountID)
+	var secret Secret
+	if request.ExpectedCredentialRevision == nil {
+		secret, err = g.accounts.LoadSecret(ctx, request.AccountID)
+	} else {
+		secret, err = g.accounts.LoadSecretAtRevision(ctx, request.AccountID, *request.ExpectedCredentialRevision)
+	}
 	if err != nil {
 		return GenerationResult{}, err
 	}

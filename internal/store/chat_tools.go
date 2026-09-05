@@ -43,12 +43,14 @@ type ConversationMultipleChoiceOption struct {
 
 // ConversationMultipleChoiceInput contains validated state for one paused tool call.
 type ConversationMultipleChoiceInput struct {
-	Prompt            string
-	SelectionMode     string
-	Options           []ConversationMultipleChoiceOption
-	ProviderSelection map[string]any
-	ResponseID        string
-	HostedState       bool
+	Prompt             string
+	SelectionMode      string
+	Options            []ConversationMultipleChoiceOption
+	ProviderSelection  map[string]any
+	ResponseID         string
+	HostedState        bool
+	CredentialRevision uint64
+	ToolCatalogDigest  string
 }
 
 // ConversationToolResultInput is one terminal result for a stored provider call.
@@ -234,7 +236,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 	if choice := round.MultipleChoice; choice != nil {
 		if strings.TrimSpace(choice.Prompt) == "" ||
 			(choice.SelectionMode != "pick_one" && choice.SelectionMode != "pick_many") ||
-			len(choice.Options) == 0 || choice.ProviderSelection == nil {
+			len(choice.Options) == 0 || choice.ProviderSelection == nil || choice.ToolCatalogDigest == "" {
 			return nil, errors.New("conversation multiple-choice prompt is invalid")
 		}
 		promptID := stableConversationOutputID(
@@ -249,6 +251,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 				"options": choiceOptionsPayload(choice.Options), "lifecycle": "pending", "interaction_revision": 1,
 				"provider_selection": choice.ProviderSelection, "provider_round": round.Call.ProviderRound,
 				"response_id": choice.ResponseID, "hosted_state": choice.HostedState,
+				"credential_revision": choice.CredentialRevision, "tool_catalog_digest": choice.ToolCatalogDigest,
 				"call_item_id": callID,
 			},
 			Metadata: metadata("multiple_choice_prompt", round.Call.OutputIndex), CreatedAt: now,
@@ -270,6 +273,9 @@ UPDATE conversations SET agent_status = 'idle', updated_at_ms = ? WHERE conversa
 			millis(now), turn.ConversationID); err != nil {
 			return nil, fmt.Errorf("pause conversation for multiple choice: %w", err)
 		}
+	}
+	if err := completeResumingConversationChoicesTx(ctx, tx, turn.ID, now); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit conversation tool round: %w", err)

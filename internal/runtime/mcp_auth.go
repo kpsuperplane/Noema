@@ -168,7 +168,7 @@ func (c *Chat) finishMCPAuthCallWithAssignment(request store.MCPAuthRequest, pay
 	incremental := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: request.ProviderCallID,
 		ProviderName: request.ProviderName, Name: request.CapabilityName, Arguments: json.RawMessage(request.ArgumentsJSON), Success: success, Payload: payload}}
 	result, _, err := c.generateChatToolContinuation(queued, continuation, assignment, generator, request.ProviderRound+1,
-		"", c.memoryRootContext(), responseID, hostedState, incremental)
+		"", c.memoryRootContext(), responseID, hostedState, incremental, nil)
 	if err != nil {
 		c.failTurn(queued.input, continuation, err)
 		return nil
