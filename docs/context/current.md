@@ -18,23 +18,24 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
-The Go evidence gate passed. The replacement now uses Go schema version 27.
-It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task lifecycle, and notifications.
+The Go evidence gate passed. The replacement now uses Go schema version 30.
+It includes authentication, onboarding, Chat, Projects, Agents, Artifacts, Task lifecycle, integrations, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
 Apple Foundation Models uses one bounded Swift bridge process for each Chat turn or Task run.
-Primary Chat supports durable recovery, A2UI interactions, all Project tools, and bounded `task.inspect`, `file.parse`, and Memory loops.
+Primary Chat supports durable recovery, context admission, compaction checkpoints, A2UI, and bounded tool loops.
 It reviews exact `file.download` calls, pauses for decisions, and resumes from known or uncertain outcomes.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
+Task runs snapshot and enforce continuation, tool, active-time, retry, review, and audit limits.
+Primary Chat receives durable Task capture, waiting, recovery, completion, and integration-ready notices without repeated cards.
 Native Memory owns bounded reads, search, citations, hierarchy, model updates, crash-safe publication, checkpoints, and root prompt context.
-Until context compaction moves to Go, a replaceable 70-percent pending-source threshold schedules automatic updates.
 Artifact storage owns safe local files, external URLs, versions, metadata, integrity checks, and authorized delivery.
 Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
 `file.parse` uses isolated conversion for DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, EPUB, and spreadsheet formats.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
 Built-in Tasks run all roles and Task tools, while preserving artifact sources, capture time zones, and Executor-only hosted web access.
 MCP, bounded Lua, ACP Task runs, Agent naming, HTTP adapters, direct credentials, adapter OAuth, and Task runtime events now use Go.
-Primary Chat also uses Go for bounded progress audits. Web-fetch model settings use the current assignment authority.
+Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private GraphQL socket now use Go.
 
 ## Current constraints
 
@@ -160,11 +161,6 @@ Primary Chat also uses Go for bounded progress audits. Web-fetch model settings 
   The provider-neutral package is `docs/validation/personal-assistant-milestone-1-acceptance.md`.
 - The human waived second-provider and exact fixed-route portability for Milestone 1.
   The accepted evidence verifies outcomes but does not prove portability.
-- Active-run restart and explicit-reopen authentication recovery reached reviewer-approved terminal success.
-- The development watcher now stops its prior server process during a file-watch restart.
-  The live acceptance runner retries read-only socket checks during restart downtime.
-- The `noema-dev` service owns Task roots under `/var/lib/noema-dev/tasks`.
-  Repository paths and `/root` ACLs do not grant service access.
 
 ### Clients and product surfaces
 
@@ -287,8 +283,11 @@ Primary Chat also uses Go for bounded progress audits. Web-fetch model settings 
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
-- The Go migration keeps all current production capabilities and client outcomes.
-  Native Windows WAL stress remains a cutover gate.
+- Authored Go production uses 70,182 lines, or 40.34% of the Rust baseline.
+  The inclusive Go total uses 172,005 lines, or 71.72% of the Rust baseline.
+- Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
+- Local models are the next schema writer at version 31. Browser support follows at version 32 after approved Obscura assets exist.
+- Native Windows WAL stress remains a cutover gate.
 
 ## Validation defaults
 

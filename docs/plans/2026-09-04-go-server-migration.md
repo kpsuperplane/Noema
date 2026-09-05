@@ -96,14 +96,14 @@ Do not use generated code to hide authored growth.
 Each protection must address a retained capability, current failure, concrete threat, or client contract.
 Remove speculative reliability, distributed coordination, and security machinery.
 
-At commit `7117a86e`, the Go counts are:
+At commit `3a4a04f5`, the Go counts are:
 
 | Class | Lines | Rust comparison |
 | --- | ---: | ---: |
-| Authored production | 66,845 | 38.42% of Rust production |
-| Tests | 21,173 | Separate evidence cost |
+| Authored production | 70,182 | 40.34% of Rust production |
+| Tests | 22,211 | Separate evidence cost |
 | Generated GraphQL | 79,612 | Separate generated cost |
-| Inclusive total | 167,630 | 69.90% of all Rust code |
+| Inclusive total | 172,005 | 71.72% of all Rust code |
 
 Measure this gate before each migration-unit merge and before cutover.
 If authored production reaches 70%, stop and run a reduction review.
@@ -406,10 +406,19 @@ Target 2,800 production lines and 850 test lines.
 Stop at 3,900 production lines or 1,300 test lines.
 Use seven focused tests for parsing, network policy, extraction bounds, providers, schema, settings, and runtime routing.
 
+This slice is complete. The Go web shell now serves the SPA, GraphiQL, and private GraphQL socket.
+
+### Task execution policy and primary notification slices
+
+Schema version 29 stores the six Task execution limits and immutable run snapshots.
+Schema version 30 stores the primary Chat work-event cursor.
+Task captures, gates, recoveries, notified completions, and integration readiness now enter primary Chat once.
+Context admission and compaction use hidden durable checkpoints without another schema change.
+
 ### Local model runtime slice
 
-Implement this slice after schema version 28.
-Use schema version 29 for installations, durable events, and local model assignments.
+Implement this slice after schema version 30.
+Use schema version 31 for installations, durable events, and local model assignments.
 Use one concrete service for installation work, cancellation, one `llama-server` process, and runtime status.
 Use one generation mutex because the retained runtime supports one active local generation.
 Do not add a registry, pool, reaper, lease, scheduler, or Artifact framework.
@@ -439,7 +448,7 @@ The direct Rust surface is approximately 9,800 production lines.
 ### Browser route and execution slice
 
 Implement this slice only after approved Noema-specific Obscura artifacts exist.
-Use schema version 30 for the ordered browser route and observed browser links.
+Use schema version 32 for the ordered browser route and observed browser links.
 Keep browser sessions process-local. Add no session table.
 One session belongs to one Chat conversation or Task generation.
 A provider switch starts fresh and transfers no browser state.
@@ -773,8 +782,8 @@ The first native Memory unit includes:
 Lexical search, exact page reads, root prompt context, model tools, durable replay, and update events now use Go authorities.
 Manual updates and the assigned Memory model use the current GraphQL contract.
 Consolidation checks citations and editable page scope before one atomic publication and checkpoint update.
-A replaceable 70-percent pending-source threshold schedules one automatic primary Chat update.
-Chat context compaction remains a later unit and will replace that temporary trigger.
+A 70-percent pending-source threshold schedules one automatic primary Chat Memory update.
+Chat context admission now uses model limits, a 70-percent soft threshold, and hidden durable checkpoints.
 
 ### Chat action request and file download unit
 
@@ -993,10 +1002,10 @@ The migration size gate supersedes the original phase forecast.
 Authored production must remain below 139,192 lines.
 The inclusive checked-in total must remain below 191,860 lines.
 
-At commit `7117a86e`, authored production is 66,845 lines.
-Tests use 21,173 lines. Generated GraphQL uses 79,612 lines.
-The inclusive total is 167,630 lines.
-Authored production is 38.42 percent of Rust. The inclusive total is 69.90 percent.
+At commit `3a4a04f5`, authored production is 70,182 lines.
+Tests use 22,211 lines. Generated GraphQL uses 79,612 lines.
+The inclusive total is 172,005 lines.
+Authored production is 40.34 percent of Rust. The inclusive total is 71.72 percent.
 The smaller inclusive headroom governs current planning.
 
 Generated GraphQL code remains a separate reported class.
@@ -1017,23 +1026,21 @@ Only one active path owns a new schema version. Other paths must use the current
 schema or wait for that version to merge. Generated GraphQL changes merge after
 the schema owner. The main branch then validates the combined result.
 
-The current wave has these independent paths:
+The current wave has these paths:
 
 | Path | Owned outcome | Shared limit |
 | --- | --- | --- |
-| Built-in Task execution | Run provider Planner, Executor, and Reviewer roles | No schema change |
-| MCP runtime | Discover, authenticate, govern, and invoke MCP tools | Owns schema versions 19–22 |
-| Task Live Activities | Reconcile Task projection and APNs delivery | Owns schema version 23 |
+| Local models | Install models, run one llama.cpp process, and route all local roles | Owns schema version 31 |
+| Browser preparation | Record approved Obscura assets and retained execution contracts | Waits for schema version 31 |
 | Integration | Review, merge, measure, and validate the combined server | No feature expansion |
 
-Later waves can run these paths in parallel after their listed dependency merges:
+The next wave has these dependencies:
 
 | Path | Dependency |
 | --- | --- |
-| Adapter review, OAuth, HTTP, and Lua | Action requests |
-| Hosted web and interactive browser tools | Action requests |
-| Local and Apple model runtimes | Provider account authority |
-| Chat choices, A2UI, settings, and debug reads | Primary Chat runtime |
+| Browser route and execution | Approved Noema-specific Obscura assets and schema version 31 |
+| Desktop sidecar cutover | Complete Go capability inventory and release builds |
+| Rust server removal | Client acceptance and archived Rust rollback proof |
 
 The final serial wave changes the desktop sidecar, removes the development gate,
 runs acceptance, and removes the Rust server closure.
@@ -1062,7 +1069,7 @@ Stop and request a product decision if any condition occurs:
 - a required capability has no viable pure-Go implementation;
 - a current verified product path must be retired;
 - the build loop misses the evidence gate;
-- the migration exceeds its forecast by 50 percent;
+- authored or inclusive Go code reaches its 80-percent hard limit;
 - rollback cannot start the retained Rust server with its archived home.
 
 ## 15. Approved Decisions
