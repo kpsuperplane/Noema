@@ -373,7 +373,7 @@ func (r *mutationRootResolver) AuthenticateAcpAgent(ctx context.Context, input m
 
 // SaveWebFetchSummarizerPreference is the resolver for the saveWebFetchSummarizerPreference field.
 func (r *mutationRootResolver) SaveWebFetchSummarizerPreference(ctx context.Context, input model.SaveWebFetchSummarizerPreferenceInput) (*model.AgentModelPreference, error) {
-	panic(fmt.Errorf("not implemented: SaveWebFetchSummarizerPreference - saveWebFetchSummarizerPreference"))
+	return r.saveWebFetchSummarizerPreference(ctx, input)
 }
 
 // SaveWebToolProviderBinding is the resolver for the saveWebToolProviderBinding field.
@@ -725,7 +725,7 @@ func (r *queryRootResolver) TaskExecutionPolicy(ctx context.Context) (*model.Tas
 
 // WebFetchSettings is the resolver for the webFetchSettings field.
 func (r *queryRootResolver) WebFetchSettings(ctx context.Context) (*model.WebFetchSettings, error) {
-	panic(fmt.Errorf("not implemented: WebFetchSettings - webFetchSettings"))
+	return r.webFetchSettings(ctx)
 }
 
 // WebToolSettings is the resolver for the webToolSettings field.
