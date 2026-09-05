@@ -404,7 +404,7 @@ The [results](evidence/2026-09-05-recurrence-drafts-results.json) record saved r
 The [component check](evidence/2026-09-05-truncation-component-check.mjs) verifies ordinary Unicode text, disabled measurement, resizing, and rerendering.
 Its [fixture](evidence/2026-09-05-truncation-component.jsx) uses the installed hook. The live dialog supplies the crash regression evidence.
 The [validation record](evidence/2026-09-05-recurrence-drafts-validation.json) records passing frontend checks and the patch removal condition.
-TIME-07 passes in Chromium. Future execution variants under TIME-08 remain pending.
+TIME-07 passes in Chromium. The later deadline check covers future execution under TIME-08.
 
 ## Recurrence history and manual execution
 
@@ -430,6 +430,21 @@ One Executor produced `81`. The browser displayed that result after reload.
 The [results](evidence/2026-09-05-recurrence-auto-template-results.json) retain exact files, timestamps, revisions, and completion.
 The [validation record](evidence/2026-09-05-recurrence-auto-validation.json) records scope and reused checks.
 TIME-06 passes for the live scheduler, Codex, and Chromium. No production change was required.
+
+## Recurrence controls across deadlines
+
+The [deadline driver](evidence/2026-09-05-recurrence-deadline-controls.mjs) controlled two minute-based recurrences through the development socket.
+Pause and skip-next prevented work at 23:16 UTC.
+Resume applied the configured missed-run policy and kept the next normal slot.
+At 23:17 UTC, each recurrence created exactly one new occurrence.
+Both recurrences were ended. Their records stayed unchanged across 23:18 UTC, with no extra occurrence.
+The [completion check](evidence/2026-09-05-recurrence-control-completion.mjs) confirmed result `21` from each permitted occurrence.
+Each had one Executor run and successful planning and review.
+The [browser check](evidence/2026-09-05-recurrence-control-views.mjs) verified paused, skipped, and ended states at desktop and phone widths.
+Ended templates remained readable, with Run now and Edit schedule controls absent.
+The [results](evidence/2026-09-05-recurrence-deadline-controls-results.json) retain exact states before and after each deadline.
+The [validation record](evidence/2026-09-05-recurrence-deadline-validation.json) records scope and reused checks.
+TIME-08 passes. Restart recovery under both missed-run policies remains pending in TIME-04.
 
 ## Case results
 
@@ -523,7 +538,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-05 | Pass · live Codex/Chromium | The active recurrence remains in Scheduled after its manual occurrence completes and its initial occurrence is cancelled. History survives reload. | — |
 | TIME-06 | Pass · live Codex/Chromium | The automatic slot copies the exact edited template and revision. The earlier Task file stays unchanged. The new Task completes the edited request. | — |
 | TIME-07 | Pass · Chromium | Fixed the recurrence schedule dialog crash. Competing browser drafts preserve current text and timing. The stale description survives reload for an explicit save. | — |
-| TIME-08 | Partial | Pause, resume, and skip next update schedule state. End preserves readable content and rejects edits. Future execution variants remain pending. | — |
+| TIME-08 | Pass · live scheduler/Codex/Chromium | Pause and skip prevent work at the deadline. Resume permits one next-slot occurrence. End prevents later occurrences and preserves readable, immutable templates. | — |
 | TIME-09 | Pass · live Codex/Chromium | Browser Run now creates one manual occurrence and preserves the next normal slot through completion. Its history link opens the correct result. | — |
 | TIME-10 | Not run | Controlled setup pending. | — |
 | TIME-11 | Partial | Fixed duplicate fall-back previews. Spring and fall preview assertions pass. Actual scheduled transition checks remain pending. | — |
