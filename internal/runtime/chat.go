@@ -18,6 +18,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/project"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 const (
@@ -142,6 +143,7 @@ type Chat struct {
 	mcp        *noemamcp.Service
 	adapters   *adapter.Service
 	projects   *project.Service
+	web        *webtool.Service
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
@@ -222,6 +224,7 @@ func NewChat(
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
 	var chatFoundation *provider.FoundationGenerator
+	var webTools *webtool.Service
 	for _, service := range services {
 		switch value := service.(type) {
 		case *noemamcp.Service:
@@ -230,12 +233,14 @@ func NewChat(
 			adapterService = value
 		case *provider.FoundationGenerator:
 			chatFoundation = value
+		case *webtool.Service:
+			webTools = value
 		}
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
 		openRouter: openRouter, codex: codex, openAI: openAI, foundation: chatFoundation, home: homeRoot,
-		memory: memoryStore, mcp: mcpService, adapters: adapterService,
+		memory: memoryStore, mcp: mcpService, adapters: adapterService, web: webTools,
 		projects: project.New(database, homeRoot),
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
@@ -506,7 +511,7 @@ func (c *Chat) execute(request queuedTurn) {
 		return
 	}
 	memoryContext := c.memoryRootContext()
-	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative)
+	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative) && (c.web == nil || !c.web.Explicit(c.ctx))
 	projectContext, err := c.projectContext(c.ctx)
 	if err != nil {
 		c.failTurn(request.input, turn, err)

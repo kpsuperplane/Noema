@@ -11,6 +11,7 @@ import (
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 func (c *Chat) prepareMCPAction(
@@ -262,6 +263,8 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	if action.State == store.ActionExecutable {
 		if action.AuthorizationContext["adapter_binding"] != nil {
 			_, _, _, err = c.executeReviewedAdapter(action)
+		} else if action.CapabilityName == webtool.FetchName {
+			_, _, _, err = c.executeReviewedWebFetch(action)
 		} else if strings.HasPrefix(action.CapabilityName, "mcp.") {
 			var notice *store.ConversationItem
 			_, _, notice, err = c.executeReviewedMCP(action)

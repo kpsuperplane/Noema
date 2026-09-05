@@ -11,6 +11,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/home"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 func (r *TaskExecution) prepareTaskMCP(ctx context.Context, task store.Task, run store.TaskRun, call store.TaskRunItem,
@@ -128,6 +129,8 @@ func (r *TaskExecution) ResolveActionRequest(ctx context.Context, actionID strin
 	var success, paused bool
 	if action.AuthorizationContext["adapter_binding"] != nil {
 		payload, success, paused, err = r.executeTaskAdapterAction(ctx, action)
+	} else if action.CapabilityName == webtool.FetchName {
+		payload, success, paused, err = r.executeTaskWebFetch(ctx, action)
 	} else {
 		payload, success, paused, err = r.executeTaskMCPAction(ctx,
 			store.Task{ID: action.TaskID}, store.TaskRun{ID: action.RunID, TaskID: action.TaskID, Generation: action.TaskGeneration}, call, action)

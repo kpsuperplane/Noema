@@ -3,10 +3,13 @@ module github.com/kpsuperplane/noema
 go 1.26.6
 
 require (
+	codeberg.org/readeck/go-readability/v2 v2.1.2
 	github.com/99designs/gqlgen v0.17.95
 	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
+	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/abemedia/go-cfb v0.2.0
 	github.com/adhocore/gronx v1.20.3
+	github.com/andybalholm/cascadia v1.3.4
 	github.com/arnodel/golua v0.1.2
 	github.com/coder/websocket v1.8.15
 	github.com/ergochat/webpush-go/v2 v2.0.0
@@ -27,14 +30,18 @@ require (
 )
 
 require (
+	github.com/JohannesKaufmann/dom v0.3.1 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
+	github.com/go-shiori/dom v0.0.0-20230515143342-73569d674e1c // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/x v0.3.0 // indirect
+	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/itlightning/dateparse v0.2.1 // indirect
 	github.com/ncruces/go-sqlite3-wasm/v5 v5.0.35304 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect

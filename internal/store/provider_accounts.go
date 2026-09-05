@@ -227,6 +227,15 @@ WHERE provider_account_id='provider_account:foundation_local:default'`,
 	return nil
 }
 
+// MarkProviderAuthenticationFailed records a remote rejection only for the attempted credential revision.
+func (s *Store) MarkProviderAuthenticationFailed(ctx context.Context, id string, revision uint64, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE provider_accounts SET status='unauthenticated',
+last_checked_at_ms=?,last_error_code='authentication_failed',last_error_message='Provider rejected the credential.',updated_at_ms=?
+WHERE provider_account_id=? AND COALESCE(CAST(json_extract(metadata_json,'$.credentialRevision') AS INTEGER),0)=?`,
+		millis(now.UTC()), millis(now.UTC()), id, revision)
+	return err
+}
+
 func cloneProviderMetadata(source provider.AccountMetadata) provider.AccountMetadata {
 	result := make(provider.AccountMetadata, len(source)+2)
 	for key, value := range source {

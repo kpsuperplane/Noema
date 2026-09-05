@@ -26,6 +26,7 @@ import (
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/kpsuperplane/noema/internal/web"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 func main() {
@@ -160,9 +161,16 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if _, err := foundationGenerator.RefreshAccount(ctx, time.Now()); err != nil {
 		return err
 	}
+	webTools, err := webtool.New(taskStore, providerAccounts, map[string]provider.Generator{
+		"openrouter": openRouterGenerator, "codex": codexGenerator, "openai": openAIGenerator,
+		"foundation_local": foundationGenerator,
+	})
+	if err != nil {
+		return err
+	}
 	chatRuntime, err := noemaruntime.NewChat(
 		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
-		mcpService, adapterService, foundationGenerator,
+		mcpService, adapterService, foundationGenerator, webTools,
 	)
 	if err != nil {
 		return err
@@ -172,7 +180,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
 		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
-		mcpService, adapterService, artifacts, foundationGenerator,
+		mcpService, adapterService, artifacts, foundationGenerator, webTools,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)

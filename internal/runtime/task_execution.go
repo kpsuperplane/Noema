@@ -19,6 +19,7 @@ import (
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 const (
@@ -55,6 +56,7 @@ type TaskExecution struct {
 	adapters                              *adapter.Service
 	artifacts                             *artifact.Service
 	root                                  *os.Root
+	web                                   *webtool.Service
 	openRouter, codex, openAI, foundation provider.Generator
 	ctx                                   context.Context
 	cancel                                context.CancelFunc
@@ -78,6 +80,7 @@ func NewTaskExecution(
 	var adapterService *adapter.Service
 	var artifactService *artifact.Service
 	var foundationGenerator *provider.FoundationGenerator
+	var webTools *webtool.Service
 	for _, service := range services {
 		switch value := service.(type) {
 		case *noemamcp.Service:
@@ -88,6 +91,8 @@ func NewTaskExecution(
 			artifactService = value
 		case *provider.FoundationGenerator:
 			foundationGenerator = value
+		case *webtool.Service:
+			webTools = value
 		}
 	}
 	if artifactService == nil {
@@ -100,7 +105,7 @@ func NewTaskExecution(
 	}
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, foundation: foundationGenerator,
-		mcp: mcpService, adapters: adapterService, artifacts: artifactService,
+		mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 	}
 	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
@@ -272,7 +277,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
 			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
-			HostedWebSearch: run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative), FastMode: run.FastMode,
+			HostedWebSearch: run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)), FastMode: run.FastMode,
 		}, func(provider.StreamEvent) {})
 		elapsed := time.Since(started).Milliseconds()
 		usage := store.TaskRunUsage{ProviderCalls: 1, InputTokens: int64(result.Usage.InputTokens), CachedInputTokens: int64(result.Usage.CachedInputTokens), OutputTokens: int64(result.Usage.OutputTokens), ActiveMilliseconds: elapsed}
@@ -365,6 +370,29 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				}
 				return
 			}
+			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
+				return
+			}
+			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
+			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+			messages = append(messages, incremental...)
+			continue
+		}
+		if call.Name == webtool.FetchName {
+			payload, success, paused, actionErr := r.prepareTaskWebFetch(ctx, task, run, callItem, call.Payload)
+			if actionErr != nil {
+				r.failRun(ctx, run, "web_action_unavailable", false)
+				return
+			}
+			if paused && payload == nil {
+				return
+			}
+			status := "completed"
+			if !success {
+				status = "failed"
+			}
+			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
+				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
@@ -679,6 +707,9 @@ func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]
 	if kind == "planner" {
 		return tools, bindings, adapterBindings
 	}
+	if kind == "executor" && r.web != nil && r.web.Explicit(ctx) {
+		tools = append(tools, webtool.Tools...)
+	}
 	if r.mcp != nil {
 		values, err := r.mcp.Bindings(ctx)
 		if err == nil {
@@ -739,6 +770,12 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		return payload, success, false, false
 	}
 	switch name {
+	case webtool.SearchName, webtool.FetchName:
+		if r.web == nil || run.Kind != "executor" {
+			return toolFailure("unavailable", "web tool is unavailable"), false, false, false
+		}
+		payload, success := r.web.Execute(ctx, name, raw, "task:"+run.ID+":"+name)
+		return payload, success, false, false
 	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
 		if r.adapters == nil || run.Kind != "executor" {
 			return toolFailure("unavailable", "Adapter setup is unavailable"), false, false, false
@@ -895,6 +932,8 @@ func taskToolAllowed(kind, name string) bool {
 	case taskInspectName:
 		return kind == "executor" || kind == "reviewer"
 	case taskCaptureName, taskListName:
+		return kind == "executor"
+	case webtool.SearchName, webtool.FetchName:
 		return kind == "executor"
 	case taskFinishExecution, taskContinueExecution:
 		return kind == "executor"

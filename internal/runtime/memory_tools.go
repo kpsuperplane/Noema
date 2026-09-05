@@ -10,6 +10,7 @@ import (
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
 var (
@@ -63,6 +64,9 @@ func supportsLocalChatTool(name string) bool {
 
 func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error) {
 	result := localChatTools()
+	if c.web != nil && c.web.Explicit(ctx) {
+		result = append(result, webtool.Tools...)
+	}
 	if c.adapters != nil {
 		result = append(result, c.adapters.SetupTools()...)
 		bindings, err := c.adapters.Bindings()
@@ -84,6 +88,9 @@ func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error)
 }
 
 func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
+	if c.web != nil && c.web.Explicit(ctx) && (name == webtool.SearchName || name == webtool.FetchName) {
+		return true
+	}
 	if supportsLocalChatTool(name) {
 		return true
 	}
@@ -130,6 +137,11 @@ func (c *Chat) executeChatTool(
 		return c.executeProjectTool(ctx, name, requestID, correlationID, arguments)
 	}
 	switch name {
+	case webtool.SearchName, webtool.FetchName:
+		if c.web != nil {
+			return c.web.Execute(ctx, name, arguments, "conversation:"+conversation.ID+":"+requestID)
+		}
+		return toolFailure("unavailable", "web tool is unavailable"), false
 	case updateOwnNameToolName:
 		return c.updateOwnName(ctx, arguments)
 	case luaRunName:

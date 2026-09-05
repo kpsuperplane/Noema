@@ -378,12 +378,12 @@ func (r *mutationRootResolver) SaveWebFetchSummarizerPreference(ctx context.Cont
 
 // SaveWebToolProviderBinding is the resolver for the saveWebToolProviderBinding field.
 func (r *mutationRootResolver) SaveWebToolProviderBinding(ctx context.Context, input model.SaveWebToolProviderBindingInput) (*model.WebToolBindingSettings, error) {
-	panic(fmt.Errorf("not implemented: SaveWebToolProviderBinding - saveWebToolProviderBinding"))
+	return r.saveWebToolProviderBinding(ctx, input)
 }
 
 // SaveBrowserProviderRoute is the resolver for the saveBrowserProviderRoute field.
 func (r *mutationRootResolver) SaveBrowserProviderRoute(ctx context.Context, input model.SaveBrowserProviderRouteInput) (*model.WebToolBindingSettings, error) {
-	panic(fmt.Errorf("not implemented: SaveBrowserProviderRoute - saveBrowserProviderRoute"))
+	return r.saveBrowserProviderRoute(ctx, input)
 }
 
 // SaveToolProgressAuditPreference is the resolver for the saveToolProgressAuditPreference field.
@@ -734,7 +734,7 @@ func (r *queryRootResolver) WebFetchSettings(ctx context.Context) (*model.WebFet
 
 // WebToolSettings is the resolver for the webToolSettings field.
 func (r *queryRootResolver) WebToolSettings(ctx context.Context) (*model.WebToolSettings, error) {
-	panic(fmt.Errorf("not implemented: WebToolSettings - webToolSettings"))
+	return r.webToolSettings(ctx)
 }
 
 // UsageSettings is the resolver for the usageSettings field.
