@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var ErrURLUnavailable = errors.New("public URL target is unavailable")
+
 // CheckedURL is one normalized URL with pinned public addresses.
 type CheckedURL struct {
 	URL       *url.URL
@@ -34,7 +36,7 @@ func CheckURL(ctx context.Context, raw string) (CheckedURL, error) {
 	}
 	addresses, err := ResolvePublic(ctx, host)
 	if err != nil {
-		return CheckedURL{}, errors.New("public URL target is unavailable")
+		return CheckedURL{}, ErrURLUnavailable
 	}
 	return CheckedURL{URL: parsed, Addresses: addresses}, nil
 }

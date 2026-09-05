@@ -157,6 +157,14 @@ func TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing(t *testing.T) {
 	if response := serve(handler, artifactRequest); response.Code != http.StatusNoContent {
 		t.Fatalf("authenticated Artifact status = %d", response.Code)
 	}
+	faviconRequest := authRequest(http.MethodGet, "/favicons/example.com", nil)
+	if response := serve(handler, faviconRequest); response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated favicon status = %d", response.Code)
+	}
+	faviconRequest.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: token})
+	if response := serve(handler, faviconRequest); response.Code != http.StatusNoContent {
+		t.Fatalf("authenticated favicon status = %d", response.Code)
+	}
 	if response := serve(handler, authRequest(http.MethodGet, "/graphql/schema.graphql", nil)); response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated schema status = %d", response.Code)
 	}

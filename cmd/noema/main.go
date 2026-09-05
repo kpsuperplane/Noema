@@ -265,6 +265,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	mux.Handle("/mcp/oauth/callback", mcpService.CallbackHandler())
 	mux.Handle("/adapter/oauth/callback", adapterService.OAuthCallbackHandler())
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
+	mux.Handle("GET /favicons/{hostname}", web.NewFaviconHandler())
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{
 		Handler:           browserAuth.Handler(mux),

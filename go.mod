@@ -13,6 +13,7 @@ require (
 	github.com/arnodel/golua v0.1.2
 	github.com/coder/websocket v1.8.15
 	github.com/ergochat/webpush-go/v2 v2.0.0
+	github.com/fyne-io/image v0.1.1
 	github.com/giraffesyo/pdf v0.6.0
 	github.com/go-oauth2/oauth2/v4 v4.6.0
 	github.com/go-webauthn/webauthn v0.18.0
@@ -23,6 +24,7 @@ require (
 	github.com/rivo/uniseg v0.4.7
 	github.com/vektah/gqlparser/v2 v2.5.37
 	github.com/yuin/goldmark v1.8.6
+	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
 	golang.org/x/oauth2 v0.35.0
 	golang.org/x/sys v0.47.0
@@ -42,6 +44,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/itlightning/dateparse v0.2.1 // indirect
+	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
 	github.com/ncruces/go-sqlite3-wasm/v5 v5.0.35304 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
