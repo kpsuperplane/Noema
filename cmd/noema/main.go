@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/acp"
@@ -36,7 +37,7 @@ func main() {
 	if handled, status := noemaruntime.RunFileParseWorkerIfRequested(); handled {
 		os.Exit(status)
 	}
-	listen := flag.String("listen", "127.0.0.1:3737", "loopback address for the migration server")
+	listen := flag.String("listen", "", "override the configured web bind address")
 	migrationSpike := flag.Bool("migration-spike", false, "allow the incomplete migration server to start")
 	flag.Parse()
 
@@ -231,15 +232,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 	})
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
-	listener, err := net.Listen("tcp", address)
+	listener, err := net.Listen("tcp", authConfig.ListenAddress)
 	if err != nil {
 		return fmt.Errorf("listen for HTTP: %w", err)
 	}
 	defer listener.Close()
-	if err := requireLoopback(listener.Addr()); err != nil {
-		return err
-	}
-
 	resolver := noemagraphql.NewResolver(
 		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
 		artifacts, nativeMemory, notifications,
@@ -249,9 +246,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 	resolver.SetFoundation(foundationGenerator)
 	resolver.SetAdapters(adapterService)
 	graphqlHandler := noemagraphql.NewHandler(resolver)
+	webGraphQL := web.NewGraphQLHandler(graphqlHandler, noemagraphql.Schema(), authConfig.GraphiQL)
 	mux := http.NewServeMux()
-	mux.Handle("/graphql", graphqlHandler)
-	mux.Handle("/graphql/ws", graphqlHandler)
+	mux.Handle("/graphql", webGraphQL)
+	mux.Handle("/graphql/ws", webGraphQL)
+	mux.Handle("/graphql/schema.graphql", webGraphQL)
 	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
 	mux.Handle("/mcp/oauth/callback", mcpService.CallbackHandler())
 	mux.Handle("/adapter/oauth/callback", adapterService.OAuthCallbackHandler())
@@ -262,6 +261,18 @@ func run(ctx context.Context, address string, output *os.File) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}
+	serverContext, stopServers := context.WithCancel(ctx)
+	defer stopServers()
+	var localResult <-chan error
+	if authConfig.LocalGraphQLSocket {
+		local, err := web.NewLocalGraphQLServer(filepath.Join(paths.Root(), "run", "graphql.sock"), graphqlHandler)
+		if err != nil {
+			return err
+		}
+		result := make(chan error, 1)
+		localResult = result
+		go func() { result <- local.Serve(serverContext) }()
+	}
 
 	serveResult := make(chan error, 1)
 	go func() {
@@ -271,17 +282,36 @@ func run(ctx context.Context, address string, output *os.File) error {
 
 	select {
 	case <-ctx.Done():
+		stopServers()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("stop HTTP server: %w", err)
+		shutdownErr := server.Shutdown(shutdownCtx)
+		if localResult != nil {
+			if err := <-localResult; err != nil {
+				return fmt.Errorf("stop local GraphQL: %w", err)
+			}
+		}
+		if shutdownErr != nil {
+			return fmt.Errorf("stop HTTP server: %w", shutdownErr)
 		}
 		return nil
 	case err := <-serveResult:
+		stopServers()
+		if localResult != nil {
+			_ = <-localResult
+		}
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return fmt.Errorf("serve HTTP: %w", err)
+	case err := <-localResult:
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+		if err == nil {
+			return errors.New("local GraphQL server stopped")
+		}
+		return fmt.Errorf("serve local GraphQL: %w", err)
 	}
 }
 
@@ -449,14 +479,6 @@ func recoverProjectDocuments(ctx context.Context, root *os.Root, database *store
 		if _, _, err := home.CommitProjectDocumentStage(root, stage, result.Project.Folder); err != nil {
 			return fmt.Errorf("recover Project %s: %w", stage.ProjectID, err)
 		}
-	}
-	return nil
-}
-
-func requireLoopback(address net.Addr) error {
-	tcpAddress, ok := address.(*net.TCPAddr)
-	if !ok || !tcpAddress.IP.IsLoopback() {
-		return errors.New("migration server must listen on loopback")
 	}
 	return nil
 }

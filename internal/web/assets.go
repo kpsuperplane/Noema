@@ -30,11 +30,17 @@ type assetHandler struct {
 
 // NewAssetHandler serves the current Vite build and browser routes.
 func NewAssetHandler() http.Handler {
-	directory := os.Getenv("NOEMA_DEV_ASSET_DIR")
-	if directory == "" {
-		directory = filepath.FromSlash(defaultAssetDirectory)
+	return assetHandler{assets: assetFileSystem()}
+}
+
+func assetFileSystem() fs.FS {
+	if assets := packagedAssets(); assets != nil {
+		return assets
 	}
-	return assetHandler{assets: os.DirFS(directory)}
+	if directory := os.Getenv("NOEMA_DEV_ASSET_DIR"); directory != "" {
+		return os.DirFS(directory)
+	}
+	return os.DirFS(filepath.FromSlash(defaultAssetDirectory))
 }
 
 func (h assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +71,7 @@ func assetRequest(path string) (name string, contentType string, ok bool) {
 		contentType, ok = assetContentType(name)
 		return name, contentType, ok
 	}
-	if isSPAPath(path) {
+	if IsSPAPath(path) {
 		return "index.html", "text/html; charset=utf-8", true
 	}
 	return "", "", false
@@ -83,7 +89,8 @@ func staticAssetName(path string) (string, bool) {
 	return name, true
 }
 
-func isSPAPath(path string) bool {
+// IsSPAPath reports whether a path belongs to the browser application.
+func IsSPAPath(path string) bool {
 	if !strings.HasPrefix(path, "/") {
 		return false
 	}

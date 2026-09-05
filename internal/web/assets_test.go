@@ -3,6 +3,9 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -37,6 +40,37 @@ func TestAssetResponsesUseRouteSpecificHeaders(t *testing.T) {
 				t.Fatalf("Service-Worker-Allowed = %q, want %q", got, test.workerAllowed)
 			}
 		})
+	}
+}
+
+func TestGraphQLSupportServesOnlyEnabledProtectedResources(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "graphiql.html"), []byte("local GraphiQL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NOEMA_DEV_ASSET_DIR", directory)
+	var graphQLCalls int
+	graphql := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		graphQLCalls++
+		w.WriteHeader(http.StatusNoContent)
+	})
+	disabled := NewGraphQLHandler(graphql, []byte("type Query { boot: String! }"), false)
+	if response := requestAsset(disabled, http.MethodGet, "/graphql"); response.Code != http.StatusNotFound {
+		t.Fatalf("disabled GraphiQL status = %d", response.Code)
+	}
+	handler := NewGraphQLHandler(graphql, []byte("type Query { boot: String! }"), true)
+	response := requestAsset(handler, http.MethodGet, "/graphql")
+	if response.Code != http.StatusOK || response.Body.String() != "local GraphiQL" ||
+		!strings.Contains(response.Header().Get("Content-Security-Policy"), "script-src 'self'") {
+		t.Fatalf("GraphiQL response = %d %q %#v", response.Code, response.Body.String(), response.Header())
+	}
+	schema := requestAsset(handler, http.MethodGet, "/graphql/schema.graphql")
+	if schema.Code != http.StatusOK || schema.Body.String() != "type Query { boot: String! }" ||
+		schema.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("schema response = %d %q %#v", schema.Code, schema.Body.String(), schema.Header())
+	}
+	if response := requestAsset(handler, http.MethodPost, "/graphql"); response.Code != http.StatusNoContent || graphQLCalls != 1 {
+		t.Fatalf("GraphQL pass-through = %d with %d calls", response.Code, graphQLCalls)
 	}
 }
 

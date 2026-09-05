@@ -23,11 +23,14 @@ const configLimit = 1024 * 1024
 
 // Config contains non-secret browser authentication configuration.
 type Config struct {
-	Authority string
-	Origin    string
-	RPID      string
-	Secure    bool
-	DevNoAuth bool
+	Authority          string
+	Origin             string
+	RPID               string
+	ListenAddress      string
+	Secure             bool
+	DevNoAuth          bool
+	GraphiQL           bool
+	LocalGraphQLSocket bool
 }
 
 // Recovery owns serialized one-time recovery-code rotation.
@@ -62,14 +65,39 @@ func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, erro
 		return Config{}, nil, errors.New("web.recovery_code must be canonical base64url for 32 bytes")
 	}
 
-	_, port, err := net.SplitHostPort(listenAddress)
+	host, err := configString(web, "host", "127.0.0.1", false)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	port, err := configPort(web, "port", 3737)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	if value, exists := os.LookupEnv("NOEMA_WEB__HOST"); exists {
+		host = value
+	}
+	if value, exists := os.LookupEnv("NOEMA_WEB__PORT"); exists {
+		parsed, parseErr := strconv.ParseUint(value, 10, 16)
+		if parseErr != nil || parsed == 0 {
+			return Config{}, nil, errors.New("NOEMA_WEB__PORT must be an integer from 1 through 65535")
+		}
+		port = uint16(parsed)
+	}
+	if net.ParseIP(host) == nil {
+		return Config{}, nil, errors.New("web.host must be a numeric IP address")
+	}
+	resolvedAddress := net.JoinHostPort(host, strconv.Itoa(int(port)))
+	if listenAddress != "" {
+		resolvedAddress = listenAddress
+	}
+	_, portText, err := net.SplitHostPort(resolvedAddress)
 	if err != nil {
 		return Config{}, nil, errors.New("listen address must contain a host and port")
 	}
-	if port == "0" {
+	if portText == "0" {
 		return Config{}, nil, errors.New("listen port must be fixed before authentication starts")
 	}
-	publicOrigin, err := configString(web, "public_origin", "http://localhost:"+port, true)
+	publicOrigin, err := configString(web, "public_origin", "http://localhost:"+portText, true)
 	if err != nil {
 		return Config{}, nil, err
 	}
@@ -94,10 +122,33 @@ func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, erro
 		}
 		devNoAuth = parsed
 	}
+	graphiQL, err := configBool(web, "graphiql", false)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	localSocket, err := configBool(web, "local_graphql_socket", false)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	for name, target := range map[string]*bool{
+		"NOEMA_WEB__GRAPHIQL":             &graphiQL,
+		"NOEMA_WEB__LOCAL_GRAPHQL_SOCKET": &localSocket,
+	} {
+		if value, exists := os.LookupEnv(name); exists {
+			parsed, parseErr := strconv.ParseBool(value)
+			if parseErr != nil {
+				return Config{}, nil, fmt.Errorf("%s must be true or false", name)
+			}
+			*target = parsed
+		}
+	}
 	config, err := canonicalConfig(publicOrigin, rpID, devNoAuth)
 	if err != nil {
 		return Config{}, nil, err
 	}
+	config.ListenAddress = resolvedAddress
+	config.GraphiQL = graphiQL
+	config.LocalGraphQLSocket = localSocket
 	return config, &Recovery{path: paths.Config()}, nil
 }
 
@@ -254,6 +305,26 @@ func configBool(values map[string]any, key string, fallback bool) (bool, error) 
 		return false, fmt.Errorf("config.yaml field web.%s must be true or false", key)
 	}
 	return value, nil
+}
+
+func configPort(values map[string]any, key string, fallback uint16) (uint16, error) {
+	raw, exists := values[key]
+	if !exists {
+		return fallback, nil
+	}
+	var value uint64
+	switch number := raw.(type) {
+	case uint64:
+		value = number
+	case int:
+		if number > 0 {
+			value = uint64(number)
+		}
+	}
+	if value == 0 || value > 65535 {
+		return 0, fmt.Errorf("config.yaml field web.%s must be an integer from 1 through 65535", key)
+	}
+	return uint16(value), nil
 }
 
 func validRecoveryCode(value string) bool {

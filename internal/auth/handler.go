@@ -12,6 +12,7 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/web"
 )
 
 const (
@@ -126,7 +127,7 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 			s.serveGraphQL(w, r, application, native)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/artifacts/versions/") {
+		if r.URL.Path == "/graphql/schema.graphql" {
 			if native == nil && !s.config.DevNoAuth {
 				if _, authenticated := s.requireAuthenticated(w, r, false); !authenticated {
 					return
@@ -134,6 +135,21 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 			}
 			application.ServeHTTP(w, r)
 			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/artifacts/versions/") {
+			if native == nil && !s.config.DevNoAuth {
+				if _, authenticated := s.requireAuthenticated(w, r, r.Method == http.MethodGet); !authenticated {
+					return
+				}
+			}
+			application.ServeHTTP(w, r)
+			return
+		}
+		if r.Method == http.MethodGet && web.IsSPAPath(r.URL.Path) {
+			if _, _, err := s.sessions.current(r, true); err != nil {
+				writeAuthError(w, http.StatusInternalServerError, "session_unavailable")
+				return
+			}
 		}
 		application.ServeHTTP(w, r)
 	})

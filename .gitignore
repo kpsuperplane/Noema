@@ -1,4 +1,6 @@
 /target/
+/internal/web/release-assets/*
+!/internal/web/release-assets/.gitkeep
 /apps/web/target/
 /crates/noema-memory/target/
 /crates/noema-server/target/

@@ -97,6 +97,20 @@ func TestRecoveryCodeRotatesSeriallyAndPreservesConfig(t *testing.T) {
 	if _, _, err := LoadConfig(nullPaths, "127.0.0.1:3737"); err == nil {
 		t.Fatal("top-level YAML null did not fail closed")
 	}
+	configuredPaths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := home.AtomicWritePrivate(configuredPaths.Config(), []byte("web:\n  host: 0.0.0.0\n  port: 4747\n  graphiql: true\n  local_graphql_socket: true\n")); err != nil {
+		t.Fatal(err)
+	}
+	configured, _, err := LoadConfig(configuredPaths, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.ListenAddress != "0.0.0.0:4747" || !configured.GraphiQL || !configured.LocalGraphQLSocket {
+		t.Fatalf("configured web server = %#v", configured)
+	}
 }
 
 func TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing(t *testing.T) {
@@ -142,6 +156,9 @@ func TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing(t *testing.T) {
 	artifactRequest.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: token})
 	if response := serve(handler, artifactRequest); response.Code != http.StatusNoContent {
 		t.Fatalf("authenticated Artifact status = %d", response.Code)
+	}
+	if response := serve(handler, authRequest(http.MethodGet, "/graphql/schema.graphql", nil)); response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated schema status = %d", response.Code)
 	}
 
 	devServer, _, _ := newAuthTest(t, true)
