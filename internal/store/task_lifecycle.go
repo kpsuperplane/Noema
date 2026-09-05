@@ -455,11 +455,14 @@ func insertQueuedTaskRun(ctx context.Context, tx *sql.Tx, task Task, kind string
 		ReviewRound: review, ParentRunID: parentID, SelectionMode: "provider_default", ExecutorBackend: backend,
 		ExecutorAgentID: task.ExecutorAgentID, EffectiveCwd: cloneString(task.CwdOverride), QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	if backend == "provider" {
-		complexity := task.ExecutionComplexity
-		if complexity == "" {
-			complexity = "medium"
+		role := HostedModelTaskReviewer
+		if kind != "reviewer" {
+			complexity := task.ExecutionComplexity
+			if complexity == "" {
+				complexity = "medium"
+			}
+			role, _, _ = taskModelPoolIdentity(complexity)
 		}
-		role, _, _ := taskModelPoolIdentity(complexity)
 		var model, effort sql.NullString
 		var fast int
 		err = tx.QueryRowContext(ctx, `SELECT provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, fast_mode

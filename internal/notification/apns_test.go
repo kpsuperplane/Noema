@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -163,6 +165,144 @@ func TestTaskAttentionQueuesNativeWithoutWebPush(t *testing.T) {
 		len(delivery.Notification.Title) > 600 || len(delivery.Notification.Body) > 600 {
 		t.Fatalf("native Task alert = %#v", delivery.Notification)
 	}
+}
+
+func TestTaskWorkEventsReconcileDurableAttention(t *testing.T) {
+	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	database, err := store.Open(context.Background(), paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	clientID := seedAPNSClient(t, database)
+	if err := database.RegisterClientNotifications(context.Background(), clientID, []byte("task-event-device"), store.APNSDevelopment, testTime); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(paths, database, "http://localhost:3737")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	accountID := "provider_account:codex:default"
+	if _, err := database.CreateProviderAccount(ctx, provider.Account{
+		ID: accountID, ProviderKind: "codex", AccountKey: "default", DisplayName: "Codex",
+		AuthMethod: provider.AuthOAuthDeviceCode, IsActive: true, IsDefault: true,
+		Status: provider.StatusAuthenticated, Metadata: provider.AccountMetadata{}, CreatedAt: testTime, UpdatedAt: testTime,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assignments := make([]store.ModelAssignment, 0, len(store.HostedModelRoles()))
+	for _, role := range store.HostedModelRoles() {
+		assignments = append(assignments, store.ModelAssignment{
+			Role: role, ProviderKind: "codex", ProviderAccountID: accountID,
+			SelectionMode: store.ModelSelectionNoemaRecommended,
+		})
+	}
+	if created, err := database.ConfirmHostedModelAssignments(ctx, accountID, assignments); err != nil || !created {
+		t.Fatalf("model assignments = %t, %v", created, err)
+	}
+	blocked := createNotificationTask(t, database, "Blocked Task", "blocked")
+	_, run, found, err := database.ClaimTaskExecution(ctx, testTime)
+	if err != nil || !found || run.TaskID != blocked.ID {
+		t.Fatalf("blocked claim = %#v, %t, %v", run, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, run.ID, run.Generation, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BlockTaskExecution(ctx, run.ID, run.Generation, "clarification", "Choose a target.", "Two targets remain.", nil, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := database.ClaimDueAPNSDelivery(ctx, time.Now().Add(time.Minute))
+	if err != nil || delivery == nil || !strings.HasPrefix(delivery.Notification.EventKey, "task-gate:") || delivery.Notification.TaskID == nil || *delivery.Notification.TaskID != blocked.ID {
+		t.Fatalf("gate event delivery = %#v, %v", delivery, err)
+	}
+	if err := database.FinishAPNSDelivery(ctx, *delivery, store.APNSDelivered, "", "apns:gate", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	completed := createNotificationTask(t, database, "Completed Task", "completed")
+	_, planner, found, err := database.ClaimTaskExecution(ctx, testTime)
+	if err != nil || !found || planner.TaskID != completed.ID {
+		t.Fatalf("planner claim = %#v, %t, %v", planner, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, planner.ID, planner.Generation, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", testTime); err != nil {
+		t.Fatal(err)
+	}
+	_, executor, found, err := database.ClaimTaskExecution(ctx, testTime)
+	if err != nil || !found || executor.Kind != "executor" {
+		t.Fatalf("executor claim = %#v, %t, %v", executor, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, executor.ID, executor.Generation, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishTaskExecution(ctx, executor.ID, executor.Generation, false, testTime); err != nil {
+		t.Fatal(err)
+	}
+	_, reviewer, found, err := database.ClaimTaskExecution(ctx, testTime)
+	if err != nil || !found || reviewer.Kind != "reviewer" {
+		t.Fatalf("reviewer claim = %#v, %t, %v", reviewer, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, reviewer.ID, reviewer.Generation, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishTaskReview(ctx, reviewer.ID, reviewer.Generation, "approve", "Complete.", true, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err = database.ClaimDueAPNSDelivery(ctx, time.Now().Add(time.Minute))
+	wantKey := "task-complete:" + completed.ID + ":1"
+	if err != nil || delivery == nil || delivery.Notification.EventKey != wantKey || delivery.Notification.TaskID == nil || *delivery.Notification.TaskID != completed.ID {
+		t.Fatalf("completion event delivery = %#v, %v", delivery, err)
+	}
+	if err := database.FinishAPNSDelivery(ctx, *delivery, store.APNSDelivered, "", "apns:complete", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(paths, database, "http://localhost:3737")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.reconcileTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if duplicate, err := database.ClaimDueAPNSDelivery(ctx, time.Now().Add(time.Minute)); err != nil || duplicate != nil {
+		t.Fatalf("replayed event delivery = %#v, %v", duplicate, err)
+	}
+}
+
+func createNotificationTask(t *testing.T, database *store.Store, title, key string) store.Task {
+	t.Helper()
+	id, err := store.NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.CreateTask(context.Background(), id, title, "correlation:notification:"+key, testTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("queue_task\x00" + key))
+	queued, err := database.QueueTask(context.Background(), task.ID, task.Revision, task.Generation, store.TaskCommand{
+		Name: "queue_task", ClientMutationID: key, RequestDigest: hex.EncodeToString(sum[:]), CorrelationID: "correlation:notification:queue:" + key,
+	}, testTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return queued.Task
 }
 
 var testTime = time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)

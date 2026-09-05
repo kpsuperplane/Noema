@@ -139,6 +139,13 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer chatRuntime.Close()
+	taskExecution, err := noemaruntime.NewTaskExecution(
+		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
+	)
+	if err != nil {
+		return fmt.Errorf("start Task execution: %w", err)
+	}
+	defer taskExecution.Close()
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
 	listener, err := net.Listen("tcp", address)

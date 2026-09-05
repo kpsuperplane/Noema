@@ -618,7 +618,7 @@ func (r *queryRootResolver) Task(ctx context.Context, taskID string) (*model.Tas
 
 // TaskWorkspaceFile is the resolver for the taskWorkspaceFile field.
 func (r *queryRootResolver) TaskWorkspaceFile(ctx context.Context, taskID string, path string) (*model.TaskWorkspaceFileText, error) {
-	panic(fmt.Errorf("not implemented: TaskWorkspaceFile - taskWorkspaceFile"))
+	return r.taskWorkspaceFile(ctx, taskID, path)
 }
 
 // TaskSchedulePreview is the resolver for the taskSchedulePreview field.
