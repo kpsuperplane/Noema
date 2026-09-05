@@ -172,7 +172,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
 		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
-		mcpService, adapterService, foundationGenerator,
+		mcpService, adapterService, artifacts, foundationGenerator,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)

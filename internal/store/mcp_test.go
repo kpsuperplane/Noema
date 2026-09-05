@@ -192,7 +192,7 @@ func TestAdapterOAuthAuthenticationSchemaConvergesFromVersionTwentyFive(t *testi
 	}
 	defer database.Close()
 	var version int
-	if err = database.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 26 {
+	if err = database.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("schema = %d, %v", version, err)
 	}
 	rows, err := database.db.Query(`PRAGMA table_info(mcp_auth_requests)`)

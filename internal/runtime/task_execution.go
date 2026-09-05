@@ -14,6 +14,7 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/acp"
 	"github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/home"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -52,6 +53,7 @@ type TaskExecution struct {
 	database                              *store.Store
 	mcp                                   *noemamcp.Service
 	adapters                              *adapter.Service
+	artifacts                             *artifact.Service
 	root                                  *os.Root
 	openRouter, codex, openAI, foundation provider.Generator
 	ctx                                   context.Context
@@ -74,6 +76,7 @@ func NewTaskExecution(
 	ctx, cancel := context.WithCancel(parent)
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
+	var artifactService *artifact.Service
 	var foundationGenerator *provider.FoundationGenerator
 	for _, service := range services {
 		switch value := service.(type) {
@@ -81,13 +84,23 @@ func NewTaskExecution(
 			mcpService = value
 		case *adapter.Service:
 			adapterService = value
+		case *artifact.Service:
+			artifactService = value
 		case *provider.FoundationGenerator:
 			foundationGenerator = value
 		}
 	}
+	if artifactService == nil {
+		var err error
+		artifactService, err = artifact.New(root, database)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+	}
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, foundation: foundationGenerator,
-		mcp: mcpService, adapters: adapterService,
+		mcp: mcpService, adapters: adapterService, artifacts: artifactService,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 	}
 	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
@@ -259,7 +272,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
 			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
-			HostedWebSearch: hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative), FastMode: run.FastMode,
+			HostedWebSearch: run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative), FastMode: run.FastMode,
 		}, func(provider.StreamEvent) {})
 		elapsed := time.Since(started).Milliseconds()
 		usage := store.TaskRunUsage{ProviderCalls: 1, InputTokens: int64(result.Usage.InputTokens), CachedInputTokens: int64(result.Usage.CachedInputTokens), OutputTokens: int64(result.Usage.OutputTokens), ActiveMilliseconds: elapsed}
@@ -643,6 +656,8 @@ func taskExecutionTools(kind string) []provider.GenerationTool {
 			provider.GenerationTool{Name: taskReportBlocked, Description: "Open a human gate when planning cannot continue.", InputSchema: taskBlockedSchema})
 	case "executor":
 		files = append(files,
+			provider.GenerationTool{Name: taskCaptureName, Description: "Capture one native Task in this Task's Project.", InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","maxLength":65536},"schedule":{"type":"object","properties":{"scheduled_for":{"type":"string","format":"date-time"},"time_zone":{"type":"string"},"missed_run_policy":{"type":"string","enum":["skip","run_once"]},"recurrence":{"type":"object","properties":{"starts_at":{"type":"string","format":"date-time"},"cron_expression":{"type":"string"},"overlap_policy":{"type":"string","enum":["skip","queue_one","allow"]}},"required":["starts_at","cron_expression"],"additionalProperties":false}},"required":["scheduled_for"],"additionalProperties":false}},"required":["title"],"additionalProperties":false}`)},
+			provider.GenerationTool{Name: taskListName, Description: "List bounded owner-authorized Task summaries.", InputSchema: taskToolSpecs[1].InputSchema},
 			provider.GenerationTool{Name: taskInspectName, Description: "Read the exact current Task state and document.", InputSchema: taskInspectSchema},
 			provider.GenerationTool{Name: taskFilesWrite, Description: "Atomically write one bounded UTF-8 Task file.", InputSchema: taskWriteSchema},
 			provider.GenerationTool{Name: taskFilesDelete, Description: "Delete one unprotected Task file.", InputSchema: taskPathSchema},
@@ -654,7 +669,7 @@ func taskExecutionTools(kind string) []provider.GenerationTool {
 			provider.GenerationTool{Name: taskInspectName, Description: "Read the exact current Task state and document.", InputSchema: taskInspectSchema},
 			provider.GenerationTool{Name: taskFinishReview, Description: "Submit the exact review decision.", InputSchema: taskReviewSchema})
 	}
-	return files
+	return append(files, taskArtifactTools(kind)...)
 }
 
 func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]provider.GenerationTool, map[string]noemamcp.Binding, map[string]adapter.Binding) {
@@ -706,6 +721,22 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 	}
 	if !taskToolAllowed(run.Kind, name) {
 		return toolFailure("unsupported_tool", "Tool is unavailable for this Task role"), false, false, false
+	}
+	if isTaskArtifactTool(name) {
+		payload, success := r.executeTaskArtifactTool(ctx, task, run, name, raw)
+		return payload, success, false, false
+	}
+	if name == taskListName {
+		fields, err := strictProjectFields(raw)
+		if err != nil {
+			return toolFailure("invalid_input", "Task list arguments are invalid"), false, false, false
+		}
+		payload, success := (&Chat{database: r.database, home: r.root}).listTaskTool(ctx, fields)
+		return payload, success, false, false
+	}
+	if name == taskCaptureName {
+		payload, success := r.captureScopedTask(ctx, task, run, raw)
+		return payload, success, false, false
 	}
 	switch name {
 	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
@@ -863,6 +894,8 @@ func taskToolAllowed(kind, name string) bool {
 		return kind == "planner" || kind == "executor"
 	case taskInspectName:
 		return kind == "executor" || kind == "reviewer"
+	case taskCaptureName, taskListName:
+		return kind == "executor"
 	case taskFinishExecution, taskContinueExecution:
 		return kind == "executor"
 	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
@@ -871,6 +904,12 @@ func taskToolAllowed(kind, name string) bool {
 		return kind == "planner"
 	case taskFinishReview:
 		return kind == "reviewer"
+	case taskListArtifactsName:
+		return kind == "planner" || kind == "executor" || kind == "reviewer"
+	case artifactCreateLocalName:
+		return kind == "executor"
+	case taskReadArtifactName, taskParseArtifactName:
+		return kind == "executor" || kind == "reviewer"
 	default:
 		return false
 	}
