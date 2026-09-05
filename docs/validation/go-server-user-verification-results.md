@@ -9,7 +9,8 @@ The case table records only evidence from this run.
 ## Build and environment
 
 - Linux x86_64 with full access for the current run.
-- Browser checks use a disposable Go home and synthetic records.
+- Earlier browser checks used disposable Go homes and synthetic records.
+- From the user’s latest instruction, checks use the instance at `https://noema.kevinpei.com`.
 - Release source: `af0c239869c6cd3e8624bb0a4bd905ff300eb6ca`.
 - Source snapshot and temporary logs: `/var/tmp/noema-suite-run-20260905`.
 - Manual device and real-consent variants remain **Human later — Not run**.
@@ -86,6 +87,20 @@ Both runs used the release artifact recorded in the OAuth response fix.
 Validation reused `CGO_ENABLED=0 go test ./cmd/... ./internal/...`: 605 passed on the three recorded source overrides.
 Validation also reused `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`: passed on those same changes.
 No application code changed in this evidence unit. Script syntax and evidence links received focused checks.
+
+## Current instance
+
+The user authorized test data and changes on `https://noema.kevinpei.com`.
+The development socket and the domain serve the same home at `/var/lib/noema-dev`.
+A test passkey now admits the browser through normal Noema authentication.
+Its private key and browser session remain in a protected credential directory outside the repository.
+
+Cloudflare Access intercepted the public recovery POST before it reached Noema.
+The browser now resolves this domain to the local HTTPS origin with normal certificate verification.
+This tests the requested instance. It does not prove access through the Cloudflare edge.
+The [public-instance Task check](evidence/2026-09-05-public-task-check.mjs) saved a visible audit Task through the browser.
+Its [result](evidence/2026-09-05-public-task-results.json) records the Task URL and server binary hash.
+The Task remains in Inbox with exact Unicode Markdown.
 
 ## Case results
 
