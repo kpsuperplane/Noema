@@ -448,7 +448,13 @@ func (c *Chat) executeChatToolRounds(
 		if pending {
 			return
 		}
-		sideEffect := call.Name == updateOwnNameToolName || call.Name == fileDownloadName
+		sideEffect := call.Name == updateOwnNameToolName || call.Name == fileDownloadName ||
+			call.Name == noemamcp.ConnectServiceToolName || call.Name == adapter.ProposeDefinitionTool
+		if c.adapters != nil {
+			if binding, err := c.adapters.Binding(call.Name); err == nil {
+				sideEffect = !binding.Behavior.ReadOnly
+			}
+		}
 		if strings.HasPrefix(call.Name, "mcp.") && c.mcp != nil {
 			if binding, err := c.mcp.Binding(c.ctx, call.Name); err == nil {
 				sideEffect = !binding.Behavior.ReadOnly
