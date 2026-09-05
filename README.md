@@ -27,7 +27,7 @@ runs `swift build` after bridge changes.
 - Rust and Cargo for desktop, evaluations, and the Obscura release worker
 - Bun for frontend dependency installation and builds
 - `cargo-watch` for the combined development supervisor
-- CMake, Clang, and libclang for Obscura's stealth transport
+- CMake, Clang, and libclang when building Obscura release workers
 - Tesseract OCR and `prlimit` for printed English text in raster images
 - A Unix host for `cargo dev`
 - For macOS desktop builds: Xcode and its command-line tools

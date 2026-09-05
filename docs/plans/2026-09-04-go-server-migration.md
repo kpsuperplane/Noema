@@ -1,6 +1,6 @@
-# Hypothetical Go Server Migration
+# Go Server Migration Record
 
-- **Status:** Approved. Evidence gate passed. Migration in progress.
+- **Status:** Source cutover complete. Release acceptance remains open.
 - **Mode:** Implement
 - **Date:** 2026-09-04
 - **Scope:** Replace the Rust server with a Go server
@@ -11,8 +11,8 @@ This plan records the approved migration, evidence, limits, and exit gates.
 
 ## 1. Decision Summary
 
-Replace all Noema-owned Rust server code with Go. The server must not compile,
-link, launch, or retain a Rust component.
+Replace all Noema-owned Rust server code with Go. The server must not compile
+or link a Rust component. Current external executables remain integration boundaries.
 
 The Go server must preserve every current production capability. Small client
 changes are permitted when behavior remains stable.
@@ -315,7 +315,7 @@ The initial dependency choices are:
 - webpush-go for Web Push;
 - apns2 for APNs;
 - chromedp with external Chrome for interactive browsing;
-- a pinned, hash-verified Obscura stealth binary for the default browser route;
+- a pinned, hash-verified Obscura stealth binary for an interactive browser route;
 - `arnodel/golua` Lua 5.4 for bounded scripts;
 - a WebAssembly PDFium runtime and focused Go document readers.
 
@@ -338,8 +338,8 @@ test can use the Go toolchain's CGo-based test instrumentation.
 External Chrome, Obscura, `llama-server`, LibreOffice, and the Apple provider bridge can
 remain integrations. The Go server owns their limits, lifecycle, and protocol.
 
-Install Obscura only after the human selects it. Resolve one supported operating-system and architecture asset from a compiled manifest.
-Download into a bounded temporary file under `NOEMA_HOME`. Verify the pinned size and SHA-256 digest before extraction.
+Install Obscura only after the human selects it. Resolve one supported operating-system and architecture asset from the pinned release.
+Download into a bounded temporary file under `NOEMA_HOME`. Verify the published SHA-256 digest before extraction.
 Reject archive traversal, unexpected files, links, and oversized content. Publish the executable through an atomic rename.
 Keep the prior browser binding when installation fails. Reuse a verified installation without network access.
 Pin one Obscura version per Noema release. Do not resolve `latest` during installation or update silently.
@@ -347,20 +347,20 @@ Do not install the unmodified Obscura v0.1.11 release. It lacks bounded screensh
 Build and publish a pinned Noema-specific Obscura artifact for Linux amd64 and arm64, macOS amd64 and arm64, and Windows amd64.
 The private artifact must expose one versioned Noema command tool. It must preserve the existing browser contract without exposing selectors, JavaScript, cookies, or storage.
 Run one bounded stdio process per browser owner. Terminate its complete process tree on close, expiry, removal, owner change, protocol failure, or an uncertain dispatched command.
-Treat the artifact as a release prerequisite. Do not implement the production installer until approved artifacts exist for all five targets.
+Treat all five published artifacts as a release prerequisite. The installer can merge before release publication.
 
 ### Managed Obscura artifact
 
 Publish each artifact with these manifest fields:
 
 - operating system and architecture;
-- immutable download URL and archive format;
-- exact archive size and SHA-256 digest;
-- exact executable name, size, and SHA-256 digest;
+- tagged download URL and archive format;
+- archive SHA-256 digest;
+- exact executable name and size;
 - minimum operating-system requirement, including the Linux glibc baseline.
 
 Install the executable under `NOEMA_HOME/system/tools/obscura/<version>`.
-Use `NOEMA_HOME/system/tmp` for bounded staging. Reject one byte beyond the declared archive size.
+Use `NOEMA_HOME/system/tmp` for bounded staging. Reject archive and extracted data beyond their hard limits.
 Reject path separators, duplicate names, links, unexpected entries, and traversal.
 Limit one extracted file to 128 MiB. Limit total extracted data to 256 MiB.
 Publish the complete staged directory with one atomic rename.
@@ -506,7 +506,7 @@ Each merged slice must pass its gate before dependent work starts.
 | 7. Desktop sidecar | Launch Go from desktop and proxy existing commands, subscriptions, and OAuth returns. | Current desktop behavior passes without an embedded host. |
 | 8. Candidate acceptance | Run race, contract, restart, and controlled failure tests. | No current verified path loses its main outcome. |
 | 9. Cutover | Follow section 13 and complete live acceptance. | Clients, integrations, notifications, Tasks, and recovery pass. |
-| 10. Removal | Remove all replaced Rust server code after the rollback window. | Current documents name the Go server as the authority. |
+| 10. Removal | Remove all replaced Rust server code after source acceptance. | Current documents name the Go server as the authority. |
 
 Run live acceptance only after explicit approval. Record every waived provider
 or platform case.
@@ -1005,10 +1005,10 @@ The migration size gate supersedes the original phase forecast.
 Authored production must remain below 139,192 lines.
 The inclusive checked-in total must remain below 191,860 lines.
 
-At commit `3a4a04f5`, authored production is 70,182 lines.
-Tests use 22,211 lines. Generated GraphQL uses 79,612 lines.
-The inclusive total is 172,005 lines.
-Authored production is 40.34 percent of Rust. The inclusive total is 71.72 percent.
+At commit `58379dd8`, authored production is 76,679 lines.
+Tests use 24,158 lines. Generated GraphQL uses 79,612 lines.
+The inclusive total is 180,449 lines.
+Authored production is 44.07 percent of Rust. The inclusive total is 75.24 percent.
 The smaller inclusive headroom governs current planning.
 
 Generated GraphQL code remains a separate reported class.
@@ -1029,39 +1029,20 @@ Only one active path owns a new schema version. Other paths must use the current
 schema or wait for that version to merge. Generated GraphQL changes merge after
 the schema owner. The main branch then validates the combined result.
 
-The current wave has these paths:
+Implementation now includes local models, Playwright, Kernel, the desktop
+sidecar, Go development startup, and the pinned Obscura installer. The Rust
+server crates and unused Rust MCP transport are removed.
 
-| Path | Owned outcome | Shared limit |
-| --- | --- | --- |
-| Local models | Install models, run one llama.cpp process, and route all local roles | Owns schema version 31 |
-| Browser preparation | Record approved Obscura assets and retained execution contracts | Waits for schema version 31 |
-| Integration | Review, merge, measure, and validate the combined server | No feature expansion |
-
-The next wave has these dependencies:
-
-| Path | Dependency |
-| --- | --- |
-| Browser route and execution | Approved Noema-specific Obscura assets and schema version 31 |
-| Desktop sidecar cutover | Complete Go capability inventory and release builds |
-| Rust server removal | Client acceptance and archived Rust rollback proof |
-
-The final serial wave changes the desktop sidecar, removes the development gate,
-runs acceptance, and removes the Rust server closure.
+Release acceptance still needs five published Obscura assets and native Windows
+WAL stress. Other platform and client gates can run from the current source.
 
 ## 13. Cutover and Rollback
 
-Stop the Rust server. Rename the Rust home for archival use. Create a new,
-empty Go home and start the Go server.
+Create a new, empty Go home and start the Go server. Do not open or convert a
+Rust-created home.
 
-Rollback requires these steps:
-
-1. Stop the Go server.
-2. Preserve its diagnostics and Go home.
-3. Start the retained Rust binary with the archived Rust home.
-4. Verify clients and the restored Rust state.
-
-Rollback does not transfer Go-created state into Rust. Do not open a home with
-the other implementation.
+Rollback deploys the previous accepted Go build against the same Go home.
+The repository retains no Rust server binary or Rust-home rollback path.
 
 ## 14. Stop Conditions
 
@@ -1073,7 +1054,7 @@ Stop and request a product decision if any condition occurs:
 - a current verified product path must be retired;
 - the build loop misses the evidence gate;
 - authored or inclusive Go code reaches its 80-percent hard limit;
-- rollback cannot start the retained Rust server with its archived home.
+- rollback cannot start the previous accepted Go build with its Go home.
 
 ## 15. Approved Decisions
 

@@ -12,8 +12,7 @@ The current product has one server with web and desktop shells. It also has a
 native SwiftUI iPhone and iPad client. New work should be a small vertical
 slice or a net-negative reduction.
 
-The approved server direction is a complete Go replacement. The new server
-keeps all production capabilities and uses no Rust or CGo.
+The Go server source replacement is complete. The server links no Rust or CGo.
 
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Go server is the production authority. Rust remains only for retained support targets.
@@ -282,12 +281,12 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
-- Authored Go production uses 76,202 lines, or 43.80% of the Rust baseline.
-  The inclusive Go total uses 179,568 lines, or 74.88% of the Rust baseline.
+- Authored Go production uses 76,679 lines, or 44.07% of the Rust baseline.
+  The inclusive Go total uses 180,449 lines, or 75.24% of the Rust baseline.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
 - Go owns schema version 32, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
-- Desktop launches a Go sidecar. Remaining Rust supports desktop, evaluations, and the external Obscura worker.
-- Obscura publication exists. Auto-install needs its first release. Native Windows WAL stress remains a cutover gate.
+- Desktop launches a Go sidecar. Rust server crates and the unused Rust MCP transport are gone.
+- Obscura auto-installs pinned v0.1.0 assets after publication. Native Windows WAL stress remains a cutover gate.
 
 ## Validation defaults
 
