@@ -634,6 +634,19 @@ The first Chat action-request unit uses Go schema version 18. It includes:
 
 Task-origin actions and other external tools remain later migration units.
 
+### Provider-hosted search unit
+
+Codex and OpenRouter now expose their native hosted search through primary Chat.
+The unit includes:
+
+- provider-specific request and bounded stream handling;
+- exact search lifecycle, arguments, sources, citations, usage, and failures;
+- durable activity markers and provider-aware replay;
+- Codex stored-response continuation for provider-held search state;
+- closed failure when required provider state is unavailable;
+- private citation-marker removal with adjusted UTF-16 offsets;
+- raw provider text retention and safe unresolved-marker diagnostics.
+
 ### Bounded document conversion units
 
 Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
