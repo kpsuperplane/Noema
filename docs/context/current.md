@@ -18,7 +18,7 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
-The Go evidence gate passed. The replacement now uses Go schema version 25.
+The Go evidence gate passed. The replacement now uses Go schema version 26.
 It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task lifecycle, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
@@ -33,7 +33,7 @@ Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
 `file.parse` uses isolated conversion for DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, EPUB, and spreadsheet formats.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
 Built-in Tasks now run Planner, Executor, Reviewer, files, replay, gates, retries, wake-driven attention, and Live Activities in Go.
-MCP, bounded Lua, ACP Task runs, Agent naming, HTTP adapters, direct credentials, and Task runtime events now use Go.
+MCP, bounded Lua, ACP Task runs, Agent naming, HTTP adapters, direct credentials, adapter OAuth, and Task runtime events now use Go.
 Primary Chat also uses Go for bounded progress audits. Web-fetch model settings use the current assignment authority.
 
 ## Current constraints

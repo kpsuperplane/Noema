@@ -853,7 +853,16 @@ Direct adapter credentials use Go schema version 25. The unit includes:
 - durable authentication interruptions after remote rejection;
 - replacement, skip, restart recovery, and existing client intervention controls.
 
-OAuth remains a separate adapter unit. It will reuse this credential and interruption authority.
+### Adapter OAuth unit
+
+Google adapter OAuth uses Go schema version 26 and the existing adapter interruption authority.
+It preserves reviewed applications, exact scope alternatives, PKCE attempts, grants, protected tokens, refresh, and safe retry.
+Each attempt terminates within ten minutes and publishes one bounded terminal event.
+Grant deactivation advances authority revisions and removes usable token files.
+Connection attachment accepts only a current reviewed definition and an exact eligible replacement.
+Chat and Task interruptions terminate when their saved binding becomes stale.
+Management reads fail instead of returning partial OAuth authority.
+The unit adds no discovery service, device flow, durable attempt store, or background poller.
 
 ### Task runtime event unit
 
@@ -904,8 +913,8 @@ The migration size gate supersedes the original phase forecast.
 Authored production must remain below 139,192 lines.
 The inclusive checked-in total must remain below 191,860 lines.
 
-At commit `f46d4d10`, authored production is 63,282 lines.
-The inclusive total is 163,312 lines.
+At commit `6efe3000`, authored production is 65,482 lines.
+The inclusive total is 165,936 lines.
 The smaller inclusive headroom governs current planning.
 
 Generated GraphQL code remains a separate reported class.
