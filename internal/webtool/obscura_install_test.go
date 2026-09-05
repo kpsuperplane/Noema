@@ -7,8 +7,6 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,16 +17,16 @@ import (
 )
 
 func TestObscuraAssetsCoverShippedTargets(t *testing.T) {
-	tests := []struct{ goos, arch, platform, target, suffix string }{
-		{"linux", "amd64", "linux", "x86_64-unknown-linux-gnu", ".tar.gz"},
-		{"linux", "arm64", "linux", "aarch64-unknown-linux-gnu", ".tar.gz"},
-		{"darwin", "amd64", "macos", "x86_64-apple-darwin", ".tar.gz"},
-		{"darwin", "arm64", "macos", "aarch64-apple-darwin", ".tar.gz"},
-		{"windows", "amd64", "windows", "x86_64-pc-windows-msvc", ".zip"},
+	tests := []struct{ goos, arch, platform, archive, suffix string }{
+		{"linux", "amd64", "linux", "obscura-x86_64-linux-stealth.tar.gz", ".tar.gz"},
+		{"linux", "arm64", "linux", "obscura-aarch64-linux-stealth.tar.gz", ".tar.gz"},
+		{"darwin", "amd64", "macos", "obscura-x86_64-macos-stealth.tar.gz", ".tar.gz"},
+		{"darwin", "arm64", "macos", "obscura-aarch64-macos-stealth.tar.gz", ".tar.gz"},
+		{"windows", "amd64", "windows", "obscura-x86_64-windows-stealth.zip", ".zip"},
 	}
 	for _, test := range tests {
 		asset, err := obscuraAssetFor(test.goos, test.arch)
-		if err != nil || asset.platform != test.platform || asset.target != test.target || !strings.HasSuffix(asset.archive, test.suffix) {
+		if err != nil || asset.platform != test.platform || asset.archive != test.archive || !strings.HasSuffix(asset.archive, test.suffix) {
 			t.Fatalf("asset %s/%s = %#v, %v", test.goos, test.arch, asset, err)
 		}
 	}
@@ -41,29 +39,23 @@ func TestPrepareObscuraInstallsAndReusesVerifiedWorker(t *testing.T) {
 	asset, _ := obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
 	archive := obscuraTestArchive(t, asset, nil)
 	digest := sha256.Sum256(archive)
+	asset.checksum = hex.EncodeToString(digest[:])
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
-		switch filepath.Base(request.URL.Path) {
-		case asset.archive:
-			_, _ = writer.Write(archive)
-		case asset.archive + ".sha256":
-			fmt.Fprintf(writer, "%s  %s\n", hex.EncodeToString(digest[:]), asset.archive)
-		default:
-			http.NotFound(writer, request)
-		}
+		_, _ = writer.Write(archive)
 	}))
 	defer server.Close()
 	home := t.TempDir()
 	service := &Service{obscuraHome: home}
-	if err := installObscura(t.Context(), home, server.URL, server.Client()); err != nil {
+	if err := installObscura(t.Context(), home, server.URL, server.Client(), asset); err != nil {
 		t.Fatal(err)
 	}
-	path := service.obscuraWorkerPath()
+	path := service.obscuraPath()
 	if data, err := os.ReadFile(path); err != nil || string(data) != "worker" {
 		t.Fatalf("installed worker = %q, %v", data, err)
 	}
-	if err := installObscura(t.Context(), home, server.URL, server.Client()); err != nil || requests != 2 {
+	if err := installObscura(t.Context(), home, server.URL, server.Client(), asset); err != nil || requests != 1 {
 		t.Fatalf("reuse = %v, requests %d", err, requests)
 	}
 }
@@ -72,25 +64,22 @@ func TestPrepareObscuraAcceptsConcurrentInstallWinner(t *testing.T) {
 	asset, _ := obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
 	archive := obscuraTestArchive(t, asset, nil)
 	digest := sha256.Sum256(archive)
-	checksums := make(chan struct{}, 2)
+	asset.checksum = hex.EncodeToString(digest[:])
+	downloads := make(chan struct{}, 2)
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if filepath.Base(request.URL.Path) == asset.archive+".sha256" {
-			checksums <- struct{}{}
-			<-release
-			fmt.Fprintf(writer, "%s  %s\n", hex.EncodeToString(digest[:]), asset.archive)
-			return
-		}
+		downloads <- struct{}{}
+		<-release
 		_, _ = writer.Write(archive)
 	}))
 	defer server.Close()
 	home := t.TempDir()
 	results := make(chan error, 2)
 	for range 2 {
-		go func() { results <- installObscura(t.Context(), home, server.URL, server.Client()) }()
+		go func() { results <- installObscura(t.Context(), home, server.URL, server.Client(), asset) }()
 	}
-	<-checksums
-	<-checksums
+	<-downloads
+	<-downloads
 	close(release)
 	for range 2 {
 		if err := <-results; err != nil {
@@ -119,6 +108,7 @@ func TestPrepareObscuraRejectsCorruptReleaseData(t *testing.T) {
 	asset, _ := obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
 	archive := obscuraTestArchive(t, asset, nil)
 	digest := sha256.Sum256(archive)
+	asset.checksum = hex.EncodeToString(digest[:])
 	for _, test := range []struct {
 		name, checksum string
 		archive        []byte
@@ -128,16 +118,12 @@ func TestPrepareObscuraRejectsCorruptReleaseData(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				switch filepath.Ext(request.URL.Path) {
-				case ".sha256":
-					fmt.Fprintf(writer, "%s  %s", test.checksum, asset.archive)
-				default:
-					_, _ = writer.Write(test.archive)
-				}
+				_, _ = writer.Write(test.archive)
 			}))
 			defer server.Close()
 			home := t.TempDir()
-			if err := installObscura(t.Context(), home, server.URL, server.Client()); err == nil || installedObscuraPath(home, asset) != "" {
+			asset.checksum = test.checksum
+			if err := installObscura(t.Context(), home, server.URL, server.Client(), asset); err == nil || installedObscuraPath(home, asset) != "" {
 				t.Fatalf("corrupt release accepted: %v", err)
 			}
 		})
@@ -153,7 +139,7 @@ func TestObscuraArchiveRejectsUnsafeOrWrongFiles(t *testing.T) {
 	}{
 		{name: "traversal", mutate: func(files map[string][]byte) { files["../worker"] = []byte("bad") }},
 		{name: "unexpected", mutate: func(files map[string][]byte) { files["extra"] = []byte("bad") }},
-		{name: "wrong executable", mutate: func(files map[string][]byte) { files[asset.executable] = []byte("wrong") }},
+		{name: "missing companion", mutate: func(files map[string][]byte) { delete(files, asset.worker) }},
 		{name: "link", link: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -177,19 +163,14 @@ func TestObscuraArchiveRejectsUnsafeOrWrongFiles(t *testing.T) {
 
 func TestPrepareObscuraKeepsExplicitOverride(t *testing.T) {
 	service := &Service{browserPath: filepath.Join(t.TempDir(), "custom-worker")}
-	if err := service.PrepareObscura(t.Context()); err != nil || service.obscuraWorkerPath() != service.browserPath {
-		t.Fatalf("override = %q, %v", service.obscuraWorkerPath(), err)
+	if err := service.PrepareObscura(t.Context()); err != nil || service.obscuraPath() != service.browserPath {
+		t.Fatalf("override = %q, %v", service.obscuraPath(), err)
 	}
 }
 
 func obscuraTestArchive(t *testing.T, asset obscuraAsset, mutate func(map[string][]byte)) []byte {
 	t.Helper()
-	executable := []byte("worker")
-	digest := sha256.Sum256(executable)
-	metadata, _ := json.Marshal(map[string]any{"format": 1, "target": asset.target, "platform": asset.platform,
-		"architecture": asset.architecture, "executable": asset.executable, "executable_size": len(executable), "protocol": "noema-browser-worker-v1"})
-	files := map[string][]byte{asset.executable: executable, "LICENSE-NOEMA": []byte("noema"), "LICENSE-OBSCURA": []byte("obscura"),
-		"SHA256SUMS": []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(digest[:]), asset.executable)), "metadata.json": metadata}
+	files := map[string][]byte{asset.executable: []byte("worker"), asset.worker: []byte("worker")}
 	if mutate != nil {
 		mutate(files)
 	}

@@ -19,9 +19,8 @@ import (
 )
 
 const (
-	kernelResponseLimit   = 2 << 20
-	kernelScreenshotLimit = 900_000
-	kernelUploadLimit     = 256 << 10
+	kernelResponseLimit = 2 << 20
+	kernelUploadLimit   = 256 << 10
 )
 
 type browserUploadFile struct {
@@ -41,18 +40,11 @@ type kernelExecuteResponse struct {
 }
 
 type kernelCommandResult struct {
-	OK                 bool               `json:"ok"`
-	Snapshot           *kernelRawSnapshot `json:"snapshot"`
-	ElementFound       *bool              `json:"element_found"`
-	HistoryAvailable   *bool              `json:"history_available"`
-	MainDocumentStatus *int               `json:"main_document_status"`
-}
-
-type kernelRawSnapshot struct {
-	URL, Title, Text string
-	Elements         []browseElement
-	Screenshot       string `json:"screenshot"`
-	Width, Height    int
+	OK                 bool                `json:"ok"`
+	Snapshot           *browserRawSnapshot `json:"snapshot"`
+	ElementFound       *bool               `json:"element_found"`
+	HistoryAvailable   *bool               `json:"history_available"`
+	MainDocumentStatus *int                `json:"main_document_status"`
 }
 
 type kernelCallFailure struct {
@@ -123,7 +115,7 @@ func (s *Service) executeKernelBrowser(ctx context.Context, session *browserSess
 	if result.Snapshot == nil {
 		return nil, kernelDispatchedFailure(name, "Kernel browser snapshot is unavailable", uncertainIfLost, "snapshot unavailable")
 	}
-	response, err := kernelBrowserResponse(result.Snapshot, maxChars)
+	response, err := browserSnapshotResponse(result.Snapshot, maxChars, kernelProvider)
 	if err != nil {
 		return nil, kernelDispatchedFailure(name, err.Error(), uncertainIfLost, "invalid snapshot")
 	}
@@ -253,46 +245,6 @@ func safeKernelSessionID(value string) bool {
 		return false
 	}
 	return true
-}
-
-func kernelBrowserResponse(raw *kernelRawSnapshot, maxChars int) (*browseProviderResponse, error) {
-	if !utf8.ValidString(raw.URL) || !utf8.ValidString(raw.Title) || !utf8.ValidString(raw.Text) {
-		return nil, errors.New("Kernel browser snapshot is invalid")
-	}
-	text, textCut := truncateRunes(raw.Text, maxChars)
-	title, _ := truncateRunes(raw.Title, 500)
-	elementCut := len(raw.Elements) > 200
-	elements := raw.Elements
-	if elementCut {
-		elements = elements[:200]
-	}
-	for index := range elements {
-		if !utf8.ValidString(elements[index].Role) || !utf8.ValidString(elements[index].Name) {
-			return nil, errors.New("Kernel browser snapshot is invalid")
-		}
-		elements[index].Role, _ = truncateRunes(elements[index].Role, 100)
-		elements[index].Name, _ = truncateRunes(elements[index].Name, 500)
-	}
-	snapshot := &browseSnapshot{URL: raw.URL, Title: title, Text: text, Revision: 1, Elements: elements, Truncated: textCut || elementCut}
-	response := &browseProviderResponse{Provider: kernelProvider, State: "open", Snapshot: snapshot}
-	if raw.Screenshot != "" {
-		decoded, err := base64.StdEncoding.DecodeString(raw.Screenshot)
-		if err == nil && len(decoded) <= kernelScreenshotLimit && raw.Width > 0 && raw.Height > 0 {
-			response.Screenshot = &browseScreenshot{MediaType: "image/png", Data: raw.Screenshot, Width: raw.Width, Height: raw.Height}
-		}
-	}
-	return response, nil
-}
-
-func truncateRunes(value string, limit int) (string, bool) {
-	if limit < 0 {
-		limit = 0
-	}
-	if utf8.RuneCountInString(value) <= limit {
-		return value, false
-	}
-	runes := []rune(value)
-	return string(runes[:limit]), true
 }
 
 func (s *Service) browserUpload(ctx context.Context, owner string, arguments map[string]any) (artifact.File, string, string, error) {
@@ -431,32 +383,7 @@ const collectSnapshot=async()=>{
   let snapshot=null;
   for(let attempt=0;attempt<3;attempt+=1){
     try{
-      snapshot=await page.evaluate(()=>{
-        const body=document.body?document.body.cloneNode(true):null;
-        if(body)body.querySelectorAll('noscript,script,style,template').forEach(element=>element.remove());
-        const nodes=Array.from(document.querySelectorAll('a[href],button,input,textarea,select,[role="button"],[tabindex]'));
-        const elements=nodes.map((element,index)=>{
-          const reference='e'+(index+1);element.dataset.noemaRef=reference;
-          const name=element.getAttribute('aria-label')||element.innerText||element.value||element.getAttribute('placeholder')||'';
-          const form=element.form||(element.closest&&element.closest('form'));let submission=null;
-          if(form&&!['button','reset'].includes(String(element.type||'').toLowerCase())){
-            const fields=[];let omittedControlCount=0;
-            for(const control of Array.from(form.elements)){
-              const fieldName=String(control.name||'');if(!fieldName||control.disabled)continue;
-              const type=String(control.type||'').toLowerCase();
-              if(['hidden','password','file'].includes(type)){omittedControlCount+=1;continue;}
-              if(['button','reset'].includes(type))continue;
-              if((type==='checkbox'||type==='radio')&&!control.checked)continue;
-              if((control.tagName==='BUTTON'||type==='submit'||type==='image')&&control!==element)continue;
-              const values=control.tagName==='SELECT'&&control.multiple?Array.from(control.selectedOptions).map(option=>option.value):[control.value];
-              for(const value of values)fields.push({name:fieldName,value:String(value||'')});
-            }
-            submission={destination:String(element.formAction||form.action||window.location.href),method:String(element.formMethod||form.method||'get'),fields:fields.slice(0,64),omitted_control_count:omittedControlCount,truncated:fields.length>64};
-          }
-          return {reference,role:element.getAttribute('role')||element.tagName.toLowerCase(),name:String(name).trim(),href:element.href||null,disabled:Boolean(element.disabled||element.getAttribute('aria-disabled')==='true'),submission};
-        });
-        return {url:window.location.href,title:String(document.title),text:String(body?body.innerText:''),elements,width:Number(window.innerWidth)||0,height:Number(window.innerHeight)||0};
-      });break;
+      snapshot=await page.evaluate(` + browserSnapshotScript + `);break;
     }catch(error){if(attempt===2)throw error;await page.waitForLoadState('domcontentloaded',{timeout:5000}).catch(()=>{});await page.waitForTimeout(250);}
   }
   let screenshot=null;try{screenshot=(await page.screenshot({type:'png'})).toString('base64');}catch(_){}

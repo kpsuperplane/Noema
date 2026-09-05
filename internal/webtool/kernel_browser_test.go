@@ -128,7 +128,7 @@ func TestKernelScriptsKeepModelInputsAsDataAndBlockPrivateTargets(t *testing.T) 
 			t.Fatalf("request or review guard %q is absent", fragment)
 		}
 	}
-	response, err := kernelBrowserResponse(&kernelRawSnapshot{URL: "https://8.8.8.8/page", Screenshot: "invalid", Width: 800, Height: 600}, 12000)
+	response, err := browserSnapshotResponse(&browserRawSnapshot{URL: "https://8.8.8.8/page", Screenshot: "invalid", Width: 800, Height: 600}, 12000, kernelProvider)
 	if err != nil || response.Snapshot == nil || response.Screenshot != nil {
 		t.Fatalf("optional screenshot invalidated snapshot: %#v, %v", response, err)
 	}

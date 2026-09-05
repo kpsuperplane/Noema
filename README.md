@@ -4,8 +4,11 @@ Noema is an open-source, always-on, self-hosted personal agent operating
 system.
 
 The Go server owns composition, runtime, persistence, providers, capabilities,
-GraphQL, and HTTP. Rust remains for the Tauri shell, model evaluations, and the
-external Obscura worker. `apps/web` is the React UI shared by both shells.
+GraphQL, HTTP, and model evaluations. Rust remains for the Tauri shell.
+`apps/web` is the React UI shared by both shells.
+
+Noema downloads Obscura v0.2.2 directly from upstream releases and checks pinned SHA-256 digests.
+The Go browser adapter uses CDP. Obscura needs no local Rust build.
 
 The old multi-command Noema CLI surface has been removed. For standalone local
 web development, use the `go run ./cmd/noema-dev` supervisor. It runs the Go server watcher
@@ -24,10 +27,9 @@ runs `swift build` after bridge changes.
 ## Requirements
 
 - Go 1.26.6
-- Rust and Cargo for desktop, evaluations, and the Obscura release worker
+- Rust and Cargo for the Tauri desktop shell
 - Bun for frontend dependency installation and builds
 - Air v1.67.4, downloaded automatically by the Go development supervisor
-- CMake, Clang, and libclang when building Obscura release workers
 - Tesseract OCR and `prlimit` for printed English text in raster images
 - A Unix host for `go run ./cmd/noema-dev`
 - For macOS desktop builds: Xcode and its command-line tools
@@ -280,7 +282,6 @@ apps/web/                     React UI and GraphQL operation generation
 apps/ios/                     Native SwiftUI client and Live Activity extension
 graphql/                      Generated shared GraphQL schema
 crates/noema-desktop/         Tauri shell for local Go and remote servers
-crates/noema-obscura-worker/  Process-isolated browser worker
 bridges/apple-foundation/    Swift bridge for Apple Foundation Models
 cmd/noema-dev/                Go development supervisor
 cmd/noema-model-evals/        Go model qualification runner

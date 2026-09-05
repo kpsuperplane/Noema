@@ -71,7 +71,6 @@ type browserSession struct {
 	generation         uint64
 	credentialRevision uint64
 	publicRevision     uint64
-	workerRevision     uint64
 	url                string
 	title              string
 	elements           []browseElement
@@ -113,13 +112,6 @@ type browseScreenshot struct {
 	Data      string `json:"data"`
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
-}
-
-type browseWorkerResponse struct {
-	Version    int                     `json:"version"`
-	Response   *browseProviderResponse `json:"response,omitempty"`
-	Error      string                  `json:"error,omitempty"`
-	Diagnostic *browserDiagnostic      `json:"diagnostic,omitempty"`
 }
 
 type browseProviderResponse struct {
@@ -341,7 +333,7 @@ func (s *Service) ExecuteBrowser(ctx context.Context, owner, name string, raw js
 		s.removeBrowser(owner)
 		return browserFailure("route_unavailable", "browser provider route is unavailable", false)
 	}
-	if name == BrowseOpenName && route[0].ProviderKind == "obscura" && s.obscuraWorkerPath() == "" {
+	if name == BrowseOpenName && route[0].ProviderKind == "obscura" && s.obscuraPath() == "" {
 		if err := s.PrepareObscura(ctx); err != nil {
 			return browserFailure("unavailable", "browser provider is unavailable", false)
 		}
@@ -395,7 +387,7 @@ func (s *Service) ExecuteBrowser(ctx context.Context, owner, name string, raw js
 			return browserFailure("no_later_provider", "no later browser provider is configured", false)
 		}
 		next := route[session.routePosition+1]
-		if next.ProviderKind == "obscura" && s.obscuraWorkerPath() == "" {
+		if next.ProviderKind == "obscura" && s.obscuraPath() == "" {
 			if err := s.PrepareObscura(ctx); err != nil {
 				return browserFailure("unavailable", "next browser provider is unavailable", false)
 			}
@@ -444,9 +436,6 @@ func (s *Service) ExecuteBrowser(ctx context.Context, owner, name string, raw js
 	if revision != 0 && revision != session.publicRevision {
 		return browserFailure("stale_snapshot", "browser snapshot is stale", false)
 	}
-	if revision != 0 && session.providerKind == "obscura" {
-		arguments["snapshot_revision"] = session.workerRevision
-	}
 	var upload *browserUploadFile
 	if action, _ := arguments["action"].(string); name == BrowseInteractName && action == "upload_file" {
 		if session.providerKind != kernelProvider {
@@ -484,7 +473,6 @@ func (s *Service) finishBrowserResponse(ctx context.Context, owner string, sessi
 		return browserDispatchedFailure("unavailable", "browser provider response is invalid", uncertainIfLost)
 	}
 	if value.Snapshot != nil {
-		workerRevision := value.Snapshot.Revision
 		if session.providerKind == kernelProvider {
 			value.Snapshot.Revision = 1
 		}
@@ -496,7 +484,6 @@ func (s *Service) finishBrowserResponse(ctx context.Context, owner string, sessi
 		s.browserRevision++
 		session.publicRevision = s.browserRevision
 		s.browserMu.Unlock()
-		session.workerRevision = workerRevision
 		session.url = value.Snapshot.URL
 		session.title = value.Snapshot.Title
 		session.elements = value.Snapshot.Elements
@@ -656,14 +643,14 @@ func (s *Service) browserProviderAvailable(account provider.Account) bool {
 	if !account.IsActive || !hasCapability(account, browseCapability) {
 		return false
 	}
-	return account.ProviderKind == kernelProvider || account.ProviderKind == "obscura" && s.obscuraWorkerPath() != ""
+	return account.ProviderKind == kernelProvider || account.ProviderKind == "obscura" && s.obscuraPath() != ""
 }
 
 func (s *Service) newBrowserSession(ctx context.Context, account provider.Account, position int, routeKey string) (*browserSession, error) {
 	session := &browserSession{generation: s.browserGeneration, credentialRevision: account.Metadata.CredentialRevision(),
 		providerKind: account.ProviderKind, providerAccountID: account.ID, routePosition: position, routeKey: routeKey}
 	if account.ProviderKind == "obscura" {
-		process, err := startBrowserProcess(ctx, s.obscuraWorkerPath(), s.browserOldSpaceMB, session.generation)
+		process, err := startBrowserProcess(ctx, s.obscuraPath(), s.browserOldSpaceMB)
 		if err != nil {
 			return nil, err
 		}
@@ -684,10 +671,6 @@ func (s *Service) closeBrowserSessionLocked(session *browserSession) {
 		session.timer = nil
 	}
 	if session.process != nil {
-		command, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		var ignored browseWorkerResponse
-		_ = session.process.call(command, map[string]any{"version": 1, "tool": BrowseCloseName, "arguments": map[string]any{}}, &ignored)
-		cancel()
 		session.process.close()
 		session.process = nil
 	}
@@ -706,29 +689,7 @@ func (s *Service) executeBrowserProvider(ctx context.Context, session *browserSe
 	if session.providerKind != "obscura" || session.process == nil {
 		return nil, &browserProviderFailure{code: "unavailable", message: "browser provider is unavailable", drop: true}
 	}
-	request := map[string]any{"version": 1, "tool": name, "arguments": arguments}
-	uncertainIfLost := name == BrowseInteractName || name == BrowseHistoryName || name == BrowseOpenName && session.publicRevision != 0
-	var response browseWorkerResponse
-	if err := session.process.call(ctx, request, &response); err != nil {
-		code := "unavailable"
-		if uncertainIfLost {
-			code = "outcome_uncertain"
-		}
-		return nil, &browserProviderFailure{code: code, message: "browser worker response was lost", uncertain: uncertainIfLost, drop: true}
-	}
-	if response.Version != 1 || (response.Response == nil) == (response.Error == "") {
-		code := "unavailable"
-		if uncertainIfLost {
-			code = "outcome_uncertain"
-		}
-		return nil, &browserProviderFailure{code: code, message: "browser worker response is invalid", uncertain: uncertainIfLost, drop: true}
-	}
-	if response.Error != "" {
-		uncertain := response.Error == "outcome_uncertain"
-		return nil, &browserProviderFailure{code: response.Error, message: "browser operation failed", uncertain: uncertain,
-			drop: uncertain, diagnostic: response.Diagnostic}
-	}
-	return response.Response, nil
+	return executeObscuraBrowser(ctx, session, name, arguments)
 }
 
 func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage) (map[string]any, uint64, string, error) {

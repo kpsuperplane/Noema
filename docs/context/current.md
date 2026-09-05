@@ -13,7 +13,7 @@ Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 CI checks generated Go and web files. The Rust launcher is removed.
 The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
 Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
-Cargo now builds only Tauri and the standalone Obscura worker.
+Cargo now builds only the Tauri desktop shell.
 The Swift bridge is `bridges/apple-foundation`; Go owns the shared llama.cpp release manifest.
 Supporting flows now share the approved card, avatar, and existing theme.
 See `docs/plans/2026-09-04-supporting-ui/implementation.md` for implementation and validation.
@@ -201,8 +201,8 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.
   The human configures an ordered provider route. Obscura remains the default.
-  The Go server installs a pinned external Noema Obscura worker after selection.
-  Stock Obscura v0.1.11 lacks required screenshots, trusted interactions, structured snapshots, and atomic navigation outcomes.
+  Go downloads upstream Obscura v0.2.2 with pinned archive digests.
+  The CDP adapter shares Kernel snapshot logic and preserves trusted actions and main-document failure checks.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
 - A failed initial browser open keeps route state. The agent can switch providers without a snapshot revision.
@@ -227,7 +227,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   Review and approval remain the action safety boundaries.
 - One coordinator owns the active backend and public snapshot revisions.
   Every navigation reruns network and SSRF checks.
-- Browser worker commands have a 30-second deadline. A timed-out worker is discarded.
+- Browser commands have a 30-second deadline. A timed-out process is discarded.
 - Web Push registrations belong to browser sessions. Browser logout removes
   session-bound registrations. Installed mode can erase its private local data.
 - The iOS client stores normalized reads in one protected per-client cache. It
@@ -286,7 +286,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
 - Go owns schema version 32, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
 - Desktop launches a Go sidecar. The former Rust backend and evaluation dependency closure are removed.
-- Obscura auto-installs pinned v0.1.0 assets after publication. Native Windows WAL stress remains a cutover gate.
+- Obscura uses upstream releases without Cargo. Native Windows WAL stress remains a cutover gate.
 
 ## Validation defaults
 

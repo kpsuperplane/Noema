@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -19,53 +18,58 @@ import (
 )
 
 const (
-	obscuraRelease    = "v0.1.0"
-	obscuraReleaseURL = "https://github.com/kpsuperplane/Noema/releases/download/obscura-worker-" + obscuraRelease
+	obscuraRelease    = "v0.2.2"
+	obscuraReleaseURL = "https://github.com/h4ckf0r0day/obscura/releases/download/" + obscuraRelease
 	obscuraArchiveMax = int64(256 << 20)
 	obscuraFileMax    = int64(128 << 20)
 )
 
 type obscuraAsset struct {
-	platform, architecture, target, archive, executable string
+	platform, architecture, archive, executable, worker, checksum string
 }
 
 func obscuraAssetFor(goos, goarch string) (obscuraAsset, error) {
-	asset := obscuraAsset{architecture: goarch, executable: "noema-obscura-worker"}
+	asset := obscuraAsset{architecture: goarch, executable: "obscura", worker: "obscura-worker"}
+	arch := "x86_64"
+	if goarch == "arm64" {
+		arch = "aarch64"
+	}
 	switch goos + "/" + goarch {
 	case "linux/amd64":
-		asset.platform, asset.target = "linux", "x86_64-unknown-linux-gnu"
+		asset.platform, asset.checksum = "linux", "faf46c28948c10c6d44d6f46faad577adba43d63bb19b83cdb92a5e22bdd5da1"
 	case "linux/arm64":
-		asset.platform, asset.target = "linux", "aarch64-unknown-linux-gnu"
+		asset.platform, asset.checksum = "linux", "5fc7e90393e38dc60288381a523eaf8dddb9a1e2925874844c8433a69bdf75c1"
 	case "darwin/amd64":
-		asset.platform, asset.target = "macos", "x86_64-apple-darwin"
+		asset.platform, asset.checksum = "macos", "4a27584576eeca532813e0fa87a3f9e79b128bcd3e7a459a683c35a8989d2616"
 	case "darwin/arm64":
-		asset.platform, asset.target = "macos", "aarch64-apple-darwin"
+		asset.platform, asset.checksum = "macos", "ae462d3518f5683464a53d00d1703effc57e128faba6706a82ec6033348eddd8"
 	case "windows/amd64":
-		asset.platform, asset.target, asset.executable = "windows", "x86_64-pc-windows-msvc", "noema-obscura-worker.exe"
+		asset.platform, asset.checksum = "windows", "4b4ce93b80de134bd6dbb775e701538ba09e53f36c32e2f5b5084cbe65a16a5b"
+		asset.executable, asset.worker = "obscura.exe", "obscura-worker.exe"
 	default:
-		return obscuraAsset{}, errors.New("Obscura worker is unavailable for this platform")
+		return obscuraAsset{}, errors.New("Obscura is unavailable for this platform")
 	}
 	extension := ".tar.gz"
 	if goos == "windows" {
 		extension = ".zip"
 	}
-	asset.archive = "noema-obscura-worker-" + asset.platform + "-" + asset.architecture + extension
+	asset.archive = "obscura-" + arch + "-" + asset.platform + "-stealth" + extension
 	return asset, nil
 }
 
-// PrepareObscura installs the pinned worker before an Obscura route is saved.
+// PrepareObscura installs the pinned upstream release before an Obscura route is saved.
 func (s *Service) PrepareObscura(ctx context.Context) error {
 	if s.browserPath != "" {
 		return nil
 	}
-	return installObscura(ctx, s.obscuraHome, s.endpoints["obscura"], &http.Client{Timeout: 5 * time.Minute})
-}
-
-func installObscura(ctx context.Context, home, releaseURL string, client *http.Client) error {
 	asset, err := obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
 	}
+	return installObscura(ctx, s.obscuraHome, s.endpoints["obscura"], &http.Client{Timeout: 5 * time.Minute}, asset)
+}
+
+func installObscura(ctx context.Context, home, releaseURL string, client *http.Client, asset obscuraAsset) error {
 	if path := installedObscuraPath(home, asset); path != "" {
 		return nil
 	}
@@ -73,14 +77,6 @@ func installObscura(ctx context.Context, home, releaseURL string, client *http.C
 	if _, err := os.Lstat(destination); err == nil {
 		return errors.New("existing Obscura installation is invalid")
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	checksumText, err := downloadObscuraText(ctx, client, releaseURL, asset.archive+".sha256", 256)
-	if err != nil {
-		return err
-	}
-	checksum, err := parseObscuraChecksum(checksumText, asset.archive)
-	if err != nil {
 		return err
 	}
 	temporaryRoot := filepath.Join(home, "system", "tmp")
@@ -93,7 +89,7 @@ func installObscura(ctx context.Context, home, releaseURL string, client *http.C
 	}
 	defer os.RemoveAll(temporary)
 	archivePath := filepath.Join(temporary, asset.archive)
-	if err := downloadObscuraArchive(ctx, client, releaseURL, asset.archive, archivePath, checksum); err != nil {
+	if err := downloadObscuraArchive(ctx, client, releaseURL, asset.archive, archivePath, asset.checksum); err != nil {
 		return err
 	}
 	stage := filepath.Join(temporary, "package")
@@ -117,7 +113,7 @@ func installObscura(ctx context.Context, home, releaseURL string, client *http.C
 	}
 	return nil
 }
-func (s *Service) obscuraWorkerPath() string {
+func (s *Service) obscuraPath() string {
 	if s.browserPath != "" {
 		return s.browserPath
 	}
@@ -129,9 +125,8 @@ func (s *Service) obscuraWorkerPath() string {
 }
 
 func installedObscuraPath(home string, asset obscuraAsset) string {
-	path := filepath.Join(obscuraDirectory(home, asset), asset.executable)
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	path, err := verifyObscuraDirectory(obscuraDirectory(home, asset), asset)
+	if err != nil {
 		return ""
 	}
 	return path
@@ -140,40 +135,19 @@ func obscuraDirectory(home string, asset obscuraAsset) string {
 	return filepath.Join(home, "system", "tools", "obscura", obscuraRelease, asset.platform+"-"+asset.architecture)
 }
 func verifyObscuraDirectory(directory string, asset obscuraAsset) (string, error) {
-	metadataBytes, err := os.ReadFile(filepath.Join(directory, "metadata.json"))
-	if err != nil || int64(len(metadataBytes)) > obscuraFileMax {
-		return "", errors.New("Obscura metadata is invalid")
+	for _, name := range []string{asset.executable, asset.worker} {
+		path := filepath.Join(directory, name)
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			return "", errors.New("Obscura release executable is missing or invalid")
+		}
+		if err := os.Chmod(path, 0o700); err != nil {
+			return "", err
+		}
 	}
-	var metadata struct {
-		Target         string `json:"target"`
-		Executable     string `json:"executable"`
-		ExecutableSize int64  `json:"executable_size"`
-	}
-	if json.Unmarshal(metadataBytes, &metadata) != nil || metadata.Target != asset.target || metadata.Executable != asset.executable {
-		return "", errors.New("Obscura metadata does not match this platform")
-	}
-	executable := filepath.Join(directory, asset.executable)
-	info, err := os.Lstat(executable)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != metadata.ExecutableSize {
-		return "", errors.New("Obscura executable does not match its release metadata")
-	}
-	if err := os.Chmod(executable, 0o700); err != nil {
-		return "", err
-	}
-	return executable, nil
+	return filepath.Join(directory, asset.executable), nil
 }
-func downloadObscuraText(ctx context.Context, client *http.Client, releaseURL, name string, limit int64) ([]byte, error) {
-	response, err := obscuraResponse(ctx, client, releaseURL, name)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil || int64(len(data)) > limit {
-		return nil, errors.New("Obscura release metadata is invalid")
-	}
-	return data, nil
-}
+
 func downloadObscuraArchive(ctx context.Context, client *http.Client, releaseURL, name, destination, checksum string) error {
 	response, err := obscuraResponse(ctx, client, releaseURL, name)
 	if err != nil {
@@ -214,22 +188,12 @@ func obscuraResponse(ctx context.Context, client *http.Client, releaseURL, name 
 	}
 	return response, nil
 }
-func parseObscuraChecksum(data []byte, name string) (string, error) {
-	fields := strings.Fields(string(data))
-	if len(fields) != 2 || fields[1] != name || len(fields[0]) != 64 {
-		return "", errors.New("Obscura checksum metadata is invalid")
-	}
-	if _, err := hex.DecodeString(fields[0]); err != nil {
-		return "", errors.New("Obscura checksum metadata is invalid")
-	}
-	return strings.ToLower(fields[0]), nil
-}
 func extractObscuraArchive(archive, destination string, asset obscuraAsset) error {
 	seen := make(map[string]bool)
 	total := int64(0)
 	write := func(name string, size int64, reader io.Reader) error {
 		name = strings.TrimPrefix(name, "./")
-		if name == "" || strings.ContainsAny(name, `/\\`) || seen[name] || !obscuraArchiveName(name, asset.executable) {
+		if name == "" || strings.ContainsAny(name, `/\\`) || seen[name] || (name != asset.executable && name != asset.worker) {
 			return errors.New("Obscura archive entry is invalid")
 		}
 		if size < 0 || size > obscuraFileMax || total+size > obscuraArchiveMax {
@@ -298,11 +262,8 @@ func extractObscuraArchive(archive, destination string, asset obscuraAsset) erro
 			}
 		}
 	}
-	if len(seen) != 5 {
+	if len(seen) != 2 {
 		return errors.New("Obscura archive contents are incomplete")
 	}
 	return nil
-}
-func obscuraArchiveName(name, executable string) bool {
-	return name == executable || name == "LICENSE-NOEMA" || name == "LICENSE-OBSCURA" || name == "SHA256SUMS" || name == "metadata.json"
 }

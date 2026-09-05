@@ -6,7 +6,7 @@ An ORM is permitted. The former ORM exclusion no longer applies.
 ## Outcome
 
 Normal Go and web development needs no Cargo. Model evaluations exercise Go
-production code. Retained Rust owns only current native and browser targets.
+production code. Retained Rust owns the Tauri desktop shell.
 Libraries replace repeated SQL mapping, ACP protocol, and XLSX parsing code.
 One migration list owns fresh creation and upgrades. CI checks generated files.
 
@@ -31,7 +31,7 @@ Keep Go production and inclusive lines below the migration's 80-percent limits.
 The storage, ACP, parser, and tooling phases must remove more implementation
 code than they add. Go evaluation additions replace the retained Rust suite.
 Do not remove evaluations until their Go replacement preserves their features.
-Do not remove the browser worker or Tauri desktop capability.
+Preserve browser actions and the Tauri desktop capability.
 
 ## Validation
 
@@ -85,9 +85,9 @@ Do not remove the browser worker or Tauri desktop capability.
   Interrupted billed requests require a new plan before another attempt.
   No paid model calls or weight downloads ran during implementation.
 
-- Rust now contains only the desktop and standalone Obscura worker.
+- Rust now contains only the desktop.
   Cargo metadata checked all former features, binaries, and support targets.
-  The worker preserves execution, URL policy, protocol bounds, and diagnostics.
+  The Go CDP adapter preserves browser actions, URL policy, protocol bounds, and action outcomes.
   Go owns browser sessions and process orchestration.
   The Swift bridge moved to `bridges/apple-foundation`.
   Go and desktop packaging share `internal/localmodel/runtime-assets.json`.
@@ -100,3 +100,23 @@ Do not remove the browser worker or Tauri desktop capability.
   Go counts: production 78,875; tests 24,926; generated GraphQL 79,612; inclusive 183,413.
   Both migration ratios remain below 80 percent.
   All seven cleanup items are complete. No release was published or pushed.
+
+## Upstream Obscura follow-up
+
+The human requested direct downloads from upstream Obscura releases.
+Go installs v0.2.2 archives with pinned SHA-256 digests for the five supported targets.
+Each archive contains `obscura` and its companion `obscura-worker`.
+The CDP adapter reuses the existing WebSocket library, process limits, and shared browser snapshot logic.
+Network events distinguish main-document failures from subresource failures after an action.
+The custom Rust worker and its release workflow are removed.
+The estimate permits 700 added production lines and 180 added test lines, with a net code reduction.
+Unit checks cover release integrity, archive paths, process protocol bounds, action outcomes, and session authority.
+
+Go adds 198 production lines and 25 test lines after deletions. Rust loses 1,846 lines.
+The source reduction is 1,623 lines. Two Go protocol tests replace nine Rust test declarations.
+Go totals are 79,073 production lines, 24,951 test lines, and 79,612 generated GraphQL lines.
+The inclusive total is 183,636 lines. Both migration ratios remain below 80 percent.
+
+Validation passed: all Go unit tests and vet; browser script syntax; Rust format, workspace check, lint, and 10 desktop unit tests.
+The downloaded Linux archive matched its pinned digest and contained both expected executables.
+Live browser and fixture tests did not run.

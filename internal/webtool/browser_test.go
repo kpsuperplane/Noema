@@ -1,17 +1,15 @@
 package webtool
 
 import (
-	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -21,47 +19,86 @@ import (
 )
 
 func init() {
-	worker := false
-	for _, argument := range os.Args {
-		worker = worker || argument == "--noema-browser-worker-v1"
+	port := ""
+	for i, argument := range os.Args {
+		if argument == "--port" && i+1 < len(os.Args) {
+			port = os.Args[i+1]
+		}
 	}
-	if !worker {
+	if port == "" {
 		return
 	}
-	fmt.Println(`{"version":1,"ready":true}`)
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		var request struct {
-			Tool      string         `json:"tool"`
-			Arguments map[string]any `json:"arguments"`
-		}
-		if json.Unmarshal(scanner.Bytes(), &request) != nil {
-			os.Exit(2)
-		}
-		if request.Tool == BrowseCloseName {
-			fmt.Println(`{"version":1,"response":{"provider":"obscura","state":"closed"}}`)
-			continue
-		}
-		if request.Tool == BrowseOpenName && request.Arguments["url"] == "https://1.1.1.1/fail" {
-			fmt.Println(`{"version":1,"error":"unavailable"}`)
-			continue
-		}
-		if request.Tool == BrowseInteractName && request.Arguments["action"] == "upload_file" {
-			os.Exit(3)
-		}
-		if request.Tool == BrowseInteractName && request.Arguments["value"] == "loss" {
-			os.Exit(0)
-		}
-		if request.Tool == BrowseInteractName && request.Arguments["value"] == "invalid" {
-			fmt.Println(`{"version":1,"response":{"provider":"obscura","state":"broken"}}`)
-			continue
-		}
-		if request.Tool == BrowseInteractName && request.Arguments["snapshot_revision"] != float64(41) {
-			fmt.Println(`{"version":1,"error":"stale_snapshot"}`)
-			continue
-		}
-		fmt.Println(`{"version":1,"response":{"provider":"obscura","state":"open","snapshot":{"url":"https://1.1.1.1/page","title":"Page","text":"Visible text","snapshot_revision":41,"elements":[{"reference":"e1","role":"link","name":"Next","href":"https://8.8.8.8/next","disabled":false},{"reference":"e2","role":"button","name":"Submit","disabled":false,"submission":{"destination":"https://1.1.1.1/submit","method":"POST","fields":[{"name":"q","value":"safe"}],"omitted_control_count":1,"truncated":false}},{"reference":"e3","role":"link","name":"Private","href":"http://127.0.0.1/private","disabled":false}],"truncated":false},"screenshot":{"media_type":"image/png","data":"aW1hZ2U=","width":640,"height":480}}}`)
+	listener, err := net.Listen("tcp4", "127.0.0.1:"+port)
+	if err != nil {
+		os.Exit(2)
 	}
+	fmt.Fprintln(os.Stderr, "Obscura CDP server listening on ws://127.0.0.1:"+port)
+	_ = http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		invalid := false
+		for {
+			var request struct {
+				ID        int            `json:"id"`
+				Method    string         `json:"method"`
+				Params    map[string]any `json:"params"`
+				SessionID string         `json:"sessionId"`
+			}
+			if wsjson.Read(r.Context(), conn, &request) != nil {
+				return
+			}
+			result := any(map[string]any{})
+			failure := false
+			switch request.Method {
+			case "Target.createTarget":
+				result = map[string]any{"targetId": "page"}
+			case "Target.attachToTarget":
+				result = map[string]any{"sessionId": "session"}
+			case "Page.getFrameTree":
+				result = map[string]any{"frameTree": map[string]any{"frame": map[string]any{"id": "frame"}}}
+			case "Page.navigate":
+				failure = request.Params["url"] == "https://1.1.1.1/fail"
+			case "Page.captureScreenshot":
+				result = map[string]any{"data": "aW1hZ2U="}
+			case "Runtime.evaluate":
+				expression, _ := request.Params["expression"].(string)
+				if strings.Contains(expression, `const value = "loss"`) {
+					os.Exit(0)
+				}
+				if strings.Contains(expression, `const value = "invalid"`) {
+					invalid = true
+				}
+				for _, event := range []struct{ value, kind, frame string }{{"server-error", "Document", "frame"}, {"asset-error", "Script", "frame"}, {"child-error", "Document", "child"}} {
+					if strings.Contains(expression, `const value = "`+event.value+`"`) {
+						_ = wsjson.Write(r.Context(), conn, map[string]any{"method": "Network.responseReceived", "sessionId": request.SessionID, "params": map[string]any{"type": event.kind, "frameId": event.frame, "response": map[string]any{"status": 502}}})
+					}
+				}
+				if strings.Contains(expression, `const value = "oversized"`) {
+					_ = conn.Write(r.Context(), websocket.MessageText, []byte(strings.Repeat("x", browserFrameLimit+1)))
+					return
+				}
+				value := any(true)
+				if strings.Contains(expression, "const body=") {
+					value = json.RawMessage(`{"url":"https://1.1.1.1/page","title":"Page","text":"Visible text","width":640,"height":480,"elements":[{"reference":"e1","role":"link","name":"Next","href":"https://8.8.8.8/next","disabled":false},{"reference":"e2","role":"button","name":"Submit","disabled":false,"submission":{"destination":"https://1.1.1.1/submit","method":"POST","fields":[{"name":"q","value":"safe"}],"omitted_control_count":1,"truncated":false}},{"reference":"e3","role":"link","name":"Private","href":"http://127.0.0.1/private","disabled":false}]}`)
+					if invalid {
+						value = "invalid"
+					}
+				}
+				result = map[string]any{"result": map[string]any{"value": value}}
+			}
+			response := map[string]any{"id": request.ID, "sessionId": request.SessionID, "result": result}
+			if failure {
+				delete(response, "result")
+				response["error"] = map[string]any{"code": -32000, "message": "navigation failed"}
+			}
+			if wsjson.Write(r.Context(), conn, response) != nil {
+				return
+			}
+		}
+	}))
 	os.Exit(0)
 }
 
@@ -94,25 +131,6 @@ func TestBrowserWorkerProtocolPolicyAndLifecycle(t *testing.T) {
 	service.browserPath = ""
 	if !service.BrowserAvailable(ctx) {
 		t.Fatal("installable default browser is unavailable")
-	}
-	asset, _ := obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
-	archive := obscuraTestArchive(t, asset, nil)
-	digest := sha256.Sum256(archive)
-	requests := 0
-	release := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		requests++
-		if filepath.Base(request.URL.Path) == asset.archive+".sha256" {
-			fmt.Fprintf(writer, "%s  %s\n", hex.EncodeToString(digest[:]), asset.archive)
-			return
-		}
-		_, _ = writer.Write(archive)
-	}))
-	service.endpoints["obscura"] = release.URL
-	result := service.ExecuteBrowser(ctx, "conversation:auto-install", BrowseOpenName,
-		json.RawMessage(`{"url":"https://1.1.1.1/start"}`), "test:auto-install")
-	release.Close()
-	if result.Success || requests != 2 || installedObscuraPath(service.obscuraHome, asset) == "" {
-		t.Fatalf("default installation = success %t, requests %d", result.Success, requests)
 	}
 	service.browserPath = executable
 
@@ -196,7 +214,7 @@ func TestBrowserWorkerProtocolPolicyAndLifecycle(t *testing.T) {
 	}
 	failed := service.ExecuteBrowser(ctx, "conversation:failed", BrowseOpenName,
 		json.RawMessage(`{"url":"https://1.1.1.1/fail"}`), "test:failed")
-	if failed.Success || currentBrowserSession(t, service, "conversation:failed").timer == nil {
+	if failed.Success || currentBrowserSession(t, service, "conversation:failed").timer == nil || !strings.Contains(string(failed.Stored), "CDP Page.navigate failed (-32000)") {
 		t.Fatalf("failed open = %#v", failed)
 	}
 	invalidOpen := service.ExecuteBrowser(ctx, "conversation:invalid", BrowseOpenName,
@@ -211,10 +229,7 @@ func TestBrowserWorkerProtocolPolicyAndLifecycle(t *testing.T) {
 	if strings.Contains(string(filtered), "private") || !strings.Contains(string(filtered), "kept") {
 		t.Fatalf("filtered browser payload = %s", filtered)
 	}
-	reader := bufio.NewReaderSize(strings.NewReader(strings.Repeat("x", browserFrameLimit+1)+"\n"), 64*1024)
-	if _, err := readBrowserFrame(reader); err == nil {
-		t.Fatal("oversized worker frame was accepted")
-	}
+
 }
 
 func currentBrowserRevision(t *testing.T, service *Service, owner string) uint64 {
@@ -234,4 +249,33 @@ func currentBrowserSession(t *testing.T, service *Service, owner string) *browse
 		t.Fatal("browser session is unavailable")
 	}
 	return session
+}
+
+func TestObscuraTracksOnlyCurrentMainDocumentFailures(t *testing.T) {
+	path, _ := os.Executable()
+	process, err := startBrowserProcess(t.Context(), path, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer process.close()
+	session := &browserSession{process: process, publicRevision: 1}
+	for _, value := range []string{"server-error", "normal", "asset-error", "child-error"} {
+		result, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{"action": "click", "ref": "e2", "value": value})
+		if failure != nil || (result.State == "outcome_uncertain") != (value == "server-error") {
+			t.Fatalf("%s = %#v, %#v", value, result, failure)
+		}
+	}
+}
+
+func TestObscuraRejectsOversizedResponseAfterAction(t *testing.T) {
+	path, _ := os.Executable()
+	process, err := startBrowserProcess(t.Context(), path, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer process.close()
+	_, failure := executeObscuraBrowser(t.Context(), &browserSession{process: process, publicRevision: 1}, BrowseInteractName, map[string]any{"action": "fill", "ref": "e2", "value": "oversized"})
+	if failure == nil || !failure.uncertain || !failure.drop {
+		t.Fatalf("oversized response = %#v", failure)
+	}
 }
