@@ -62,12 +62,16 @@ func (c *Chat) inspectTask(ctx context.Context, arguments json.RawMessage) (json
 	if err != nil {
 		return toolFailure("not_found", "Task document is unavailable"), false
 	}
+	var projectID any
+	if task.ProjectID != "" {
+		projectID = task.ProjectID
+	}
 	payload, _ := json.Marshal(map[string]any{
 		"task_id": task.ID, "title": task.Title,
 		"task_document": document.Content, "task_document_digest": document.Digest,
 		"result_document": nil, "review_document": nil,
 		"stage_id": store.TaskStageID(task.State), "generation": 1, "revision": task.Revision,
-		"project_id": nil, "scheduled_for": nil, "schedule_time_zone": nil,
+		"project_id": projectID, "scheduled_for": nil, "schedule_time_zone": nil,
 		"recurrence_id": nil, "recurrence_revision": nil, "recurrence_scheduled_for": nil,
 	})
 	return payload, true
@@ -697,6 +701,10 @@ func (c *Chat) generateChatToolContinuation(
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
+	projectContext, err := c.projectContext(c.ctx)
+	if err != nil {
+		return provider.GenerationResult{}, false, err
+	}
 	environment, err := c.modelEnvironment(c.ctx, request.conversation, request.location, time.Now())
 	if err != nil {
 		return provider.GenerationResult{}, false, err
@@ -706,14 +714,16 @@ func (c *Chat) generateChatToolContinuation(
 		return provider.GenerationResult{}, false, err
 	}
 	transport := provider.ToolTransportNative
+	requestProjectContext := projectContext
 	if stopReason != "" {
 		environment += "\n\n" + toolFinalizationInstruction(stopReason)
 		messages = compactToolFinalizationMessages(messages, modelToolPayloadLimit)
 		tools = nil
 		transport = provider.ToolTransportNone
+		requestProjectContext = ""
 	}
 	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, transport)
-	developer := developerMessages(environment, memoryContext, hostedWeb)
+	developer := developerMessages(environment, memoryContext, requestProjectContext, hostedWeb)
 	messages = append(developer, messages...)
 	replayMessages := messages
 	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
@@ -724,6 +734,9 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	if continuingResponse {
 		messages = []provider.GenerationMessage{incremental}
+		if requestProjectContext != "" {
+			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})
+		}
 		if stopReason != "" {
 			messages = append(messages, provider.GenerationMessage{
 				Role: "developer", Content: toolFinalizationInstruction(stopReason),
@@ -778,7 +791,7 @@ func (c *Chat) generateChatToolContinuation(
 		environment += "\n\n" + toolFinalizationInstruction(stopReason)
 	}
 	messages = compactToolFinalizationMessages(messages[len(developer):], payloadLimit)
-	messages = append(developerMessages(environment, memoryContext, false), messages...)
+	messages = append(developerMessages(environment, memoryContext, "", false), messages...)
 	tools = nil
 	transport = provider.ToolTransportNone
 	hostedWeb = false

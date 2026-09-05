@@ -12,6 +12,7 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/project"
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -155,12 +156,23 @@ func TestProjectToolsMoveConflictAndLifecycleKeepAuthority(t *testing.T) {
 		t.Fatalf("conflicting move = %s, %t; current %#v, document %#v, error %v", failed, success, current, document, err)
 	}
 	taskID, _ := store.NewTaskID()
+	if _, err := home.CreatePendingTaskDocument(chat.home, taskID, "# Linked\n"); err != nil {
+		t.Fatal(err)
+	}
 	task, err := database.CreateTaskWithOptions(ctx, taskID, "Linked",
 		store.TaskCommand{Name: "task.capture", ClientMutationID: "linked-task",
 			RequestDigest: strings.Repeat("a", 64), CorrelationID: "correlation:test:linked-task"},
 		store.TaskCreateOptions{ProjectID: projectID, ExecutorAgentID: store.TaskExecutorAgentID}, time.Now())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(chat.home, taskID); err != nil {
+		t.Fatal(err)
+	}
+	inspected, success := chat.executeChatTool(ctx, conversation, taskInspectName,
+		projectTestArguments(t, map[string]any{"task_id": task.Task.ID}), "task-inspect-linked", "turn:inspect")
+	if !success || projectTestValue(t, inspected)["project_id"] != projectID {
+		t.Fatalf("linked Task inspection = %s, %t", inspected, success)
 	}
 	archived, success := chat.executeChatTool(ctx, conversation, projectArchiveName,
 		projectTestArguments(t, map[string]any{"project_id": projectID, "expected_revision": 2}), "project-archive", "turn:lifecycle")
@@ -176,6 +188,66 @@ func TestProjectToolsMoveConflictAndLifecycleKeepAuthority(t *testing.T) {
 		taskErr != nil || linked.State != store.TaskCaptured || linked.Revision != 1 || linked.ProjectID != projectID {
 		t.Fatalf("reopen Project = %s, %t; current %#v, error %v", reopened, success, current, err)
 	}
+}
+
+func TestProjectToolStringContracts(t *testing.T) {
+	chat, _, conversation := chatFixture(t)
+	ctx := context.Background()
+	unicodeName := strings.Repeat("é", 200)
+	created, success := chat.executeChatTool(ctx, conversation, projectCreateName,
+		projectTestArguments(t, map[string]any{"name": unicodeName}), "project-unicode", "turn:unicode")
+	if !success {
+		t.Fatalf("Unicode Project creation = %s", created)
+	}
+	projectID := projectTestValue(t, created)["project"].(map[string]any)["project_id"].(string)
+	longName, longDescription := strings.Repeat("n", 201), strings.Repeat("d", 20001)
+	updated, success := chat.executeChatTool(ctx, conversation, projectUpdateName,
+		projectTestArguments(t, map[string]any{"project_id": projectID, "expected_revision": 1,
+			"name": longName, "description": longDescription}), "project-long-update", "turn:unicode")
+	if !success {
+		t.Fatalf("schema-valid Project update = %s", updated)
+	}
+}
+
+func TestPrimaryChatRefreshesProjectContextForContinuation(t *testing.T) {
+	chat, _, conversation := chatFixture(t)
+	var requests []provider.GenerateRequest
+	chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest,
+		_ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		requests = append(requests, request)
+		if len(requests) == 1 {
+			return provider.GenerationResult{ID: "project-context-initial", ToolCalls: []provider.GenerationToolCall{{
+				ProviderCallID: "project-context-create", ProviderName: projectCreateName,
+				Name: projectCreateName, Payload: json.RawMessage(`{"name":"Context refresh"}`),
+			}}}, nil
+		}
+		return provider.GenerationResult{ID: "project-context-final", Text: "Created."}, nil
+	})
+	events, err := chat.Subscribe(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	if _, err = chat.SendTurn(context.Background(), SendTurnInput{
+		ConversationID: conversation.ID, Input: "Create the project.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if len(requests) != 2 || !requestProjectContextContains(requests[0], `"projects":[]`) ||
+		!requestProjectContextContains(requests[1], `"name":"Context refresh"`) {
+		t.Fatalf("Project context requests = %#v", requests)
+	}
+}
+
+func requestProjectContextContains(request provider.GenerateRequest, text string) bool {
+	for _, message := range request.Messages {
+		if message.Role == "developer" && strings.Contains(message.Content, "Project placement:") &&
+			strings.Contains(message.Content, text) {
+			return true
+		}
+	}
+	return false
 }
 
 func projectTestArguments(t *testing.T, value any) json.RawMessage {

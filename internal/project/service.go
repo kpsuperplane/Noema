@@ -74,9 +74,13 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Result, error)
 		return Result{}, ErrInvalidInput
 	}
 	canonical := struct {
-		WorkspaceID, Name, Description string
-		Folder, Document               *string
-	}{input.WorkspaceID, input.Name, input.Description, input.Folder, input.Document}
+		WorkspaceID      string  `json:"workspaceId"`
+		Name             string  `json:"name"`
+		Description      string  `json:"description"`
+		Folder           *string `json:"folder,omitempty"`
+		ClientMutationID string  `json:"clientMutationId"`
+		Document         *string `json:"projectDocument,omitempty"`
+	}{input.WorkspaceID, input.Name, input.Description, input.Folder, input.Command.RequestID, input.Document}
 	command, err := projectCommand("project.create", input.Command, canonical)
 	if err != nil {
 		return Result{}, err
@@ -223,11 +227,12 @@ func (s *Service) UpdateDocument(ctx context.Context, input DocumentInput) (Resu
 		return Result{}, ErrInvalidInput
 	}
 	canonical := struct {
-		ProjectID        string
-		ExpectedDigest   string
-		Content          string
-		ExpectedRevision int64
-	}{input.ProjectID, input.ExpectedDigest, input.Content, input.ExpectedRevision}
+		ProjectID              string `json:"projectId"`
+		ExpectedRevision       int64  `json:"expectedRevision"`
+		ExpectedDocumentDigest string `json:"expectedDocumentDigest"`
+		Content                string `json:"content"`
+		ClientMutationID       string `json:"clientMutationId"`
+	}{input.ProjectID, input.ExpectedRevision, input.ExpectedDigest, input.Content, input.Command.RequestID}
 	command, err := projectCommand("project.update", input.Command, canonical)
 	if err != nil {
 		return Result{}, err
@@ -286,8 +291,8 @@ func (s *Service) SetArchived(ctx context.Context, projectID string, revision in
 		name = "project.archive"
 	}
 	command, err := projectCommand(name, request, struct {
-		ProjectID string
-		Revision  int64
+		ProjectID        string `json:"projectId"`
+		ExpectedRevision int64  `json:"expectedRevision"`
 	}{projectID, revision})
 	if err != nil {
 		return Result{}, err

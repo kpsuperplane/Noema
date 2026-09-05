@@ -34,6 +34,16 @@ var projectToolSpecs = []provider.GenerationTool{
 	{Name: projectReopenName, Description: "Reopen an archived project.", InputSchema: json.RawMessage(`{"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1}},"required":["project_id","expected_revision"],"additionalProperties":false}`)},
 }
 
+const projectPlacementPolicy = `Project placement:
+- The active Project catalog contains up to 100 recently updated active Projects. Archived Projects are excluded from automatic placement.
+- Before creating a Task, inspect likely catalog matches with project.read. Use project.list with its cursor when further discovery is necessary.
+- When exactly one active Project clearly matches the request, place the Task in that Project.
+- When several Projects remain materially plausible, ask the human to choose before placing the Task.
+- When the request clearly starts an ongoing initiative and no Project matches, create a folderless Project and place the Task there.
+- Keep ordinary one-off and unmatched Tasks projectless.
+- Judge Project placement and initiative creation semantically. Never use direct phrase matching as the authority.
+- PROJECT.md can contain private and ordinary Project context. Never place credential material in it.`
+
 func isProjectTool(name string) bool {
 	for _, tool := range projectToolSpecs {
 		if tool.Name == name {
@@ -41,6 +51,29 @@ func isProjectTool(name string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Chat) projectContext(ctx context.Context) (string, error) {
+	page, err := c.projects.List(ctx, false, 100, nil)
+	if err != nil {
+		return "", err
+	}
+	values := make([]map[string]any, len(page.Projects))
+	for index, value := range page.Projects {
+		values[index] = map[string]any{
+			"project_id": value.ID, "name": value.Name, "description": value.Description,
+			"folder": value.Folder, "revision": value.Revision,
+		}
+	}
+	encoded, err := json.Marshal(struct {
+		Projects []map[string]any `json:"projects"`
+		HasMore  bool             `json:"has_more"`
+	}{values, page.HasNextPage})
+	if err != nil {
+		return "", err
+	}
+	return projectPlacementPolicy + "\n\nActive Project catalog:\n" + string(encoded) +
+		"\nThis is trusted Project metadata. Use project.read to load exact PROJECT.md content.", nil
 }
 
 func (c *Chat) executeProjectTool(ctx context.Context, name, requestID, correlationID string, arguments json.RawMessage) (json.RawMessage, bool) {
@@ -127,8 +160,8 @@ func (c *Chat) executeProjectTool(ctx context.Context, name, requestID, correlat
 		if !ok {
 			return toolFailure("invalid_input", "Project update fence is invalid"), false
 		}
-		updatedName, nameOK := projectOptionalString(fields, "name", 200)
-		description, descriptionOK := projectOptionalString(fields, "description", 20000)
+		updatedName, nameOK := projectOptionalString(fields, "name", 0)
+		description, descriptionOK := projectOptionalString(fields, "description", 0)
 		folder, folderOK := projectOptionalString(fields, "folder", 4096)
 		clear, clearOK := projectOptionalBool(fields, "clear_folder")
 		if !nameOK || !descriptionOK || !folderOK || !clearOK || updatedName != nil && strings.TrimSpace(*updatedName) == "" {
@@ -202,7 +235,7 @@ func projectString(fields map[string]json.RawMessage, key string, required bool,
 		return "", !required
 	}
 	var value string
-	if json.Unmarshal(raw, &value) != nil || len(value) > limit || required && value == "" {
+	if json.Unmarshal(raw, &value) != nil || limit > 0 && utf8.RuneCountInString(value) > limit || required && value == "" {
 		return "", false
 	}
 	return value, true
@@ -217,7 +250,7 @@ func projectOptionalString(fields map[string]json.RawMessage, key string, limit 
 		return nil, true
 	}
 	var value string
-	if json.Unmarshal(raw, &value) != nil || len(value) > limit {
+	if json.Unmarshal(raw, &value) != nil || limit > 0 && utf8.RuneCountInString(value) > limit {
 		return nil, false
 	}
 	return &value, true

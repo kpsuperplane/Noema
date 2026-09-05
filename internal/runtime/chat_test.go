@@ -127,7 +127,8 @@ func TestChatSerializesDetachedTurnsAndPublishesOrderedEvents(t *testing.T) {
 		t.Fatalf("stored transcript = %#v", page.Items)
 	}
 	messages := firstRequest["messages"].([]any)
-	if !strings.Contains(messages[1].(map[string]any)["content"].(string), "America/Los_Angeles") ||
+	encodedMessages, _ := json.Marshal(messages)
+	if !strings.Contains(string(encodedMessages), "America/Los_Angeles") ||
 		messages[len(messages)-1].(map[string]any)["content"] != "first" ||
 		firstRequest["max_completion_tokens"] != float64(8192) {
 		t.Fatalf("provider messages = %#v", messages)
@@ -601,7 +602,9 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		incrementalResult = incrementalResult ||
 			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
 	}
-	if replayedCall || !incrementalResult || len(requests[1].Messages) != 1 {
+	if replayedCall || !incrementalResult || len(requests[1].Messages) != 2 ||
+		requests[1].Messages[1].Role != "developer" ||
+		!strings.Contains(requests[1].Messages[1].Content, "Active Project catalog:") {
 		t.Fatalf("Codex incremental continuation = call %t, result %t, messages %#v",
 			replayedCall, incrementalResult, requests[1].Messages)
 	}
@@ -655,8 +658,10 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		2, "", "", "resp_openai", true, incremental, nil,
 	)
 	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
-		len(openAIRequest.Messages) != 1 || openAIRequest.Messages[0].ToolResult == nil ||
-		openAIRequest.Messages[0].ToolResult.ProviderCallID != "call_openai" {
+		len(openAIRequest.Messages) != 2 || openAIRequest.Messages[0].ToolResult == nil ||
+		openAIRequest.Messages[0].ToolResult.ProviderCallID != "call_openai" ||
+		openAIRequest.Messages[1].Role != "developer" ||
+		!strings.Contains(openAIRequest.Messages[1].Content, "Active Project catalog:") {
 		t.Fatalf("OpenAI incremental continuation = %#v, %v", openAIRequest, err)
 	}
 	for _, providerKind := range []string{"codex", "openai"} {

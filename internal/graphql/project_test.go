@@ -20,25 +20,29 @@ import (
 func TestProjectAuthorityFlow(t *testing.T) {
 	resolver := openTestResolver(t)
 	ctx := context.Background()
-	created, err := resolver.createProject(ctx, model.CreateProjectInput{
+	createInput := model.CreateProjectInput{
 		WorkspaceID: personalWorkspaceID, Name: "Plan", Description: "Exact",
 		ClientMutationID: "project-create",
-	})
+	}
+	created, err := resolver.createProject(ctx, createInput)
 	if err != nil || created.Project.Revision != 1 {
 		t.Fatalf("create Project = %#v, %v", created, err)
 	}
+	assertProjectReceipt(t, resolver.Store, "project.create", createInput.ClientMutationID, createInput)
 	document, err := resolver.projectDocument(ctx, created.Project.ProjectID)
 	if err != nil || document.Content != "# Plan\n\nExact\n" {
 		t.Fatalf("Project document = %#v, %v", document, err)
 	}
-	saved, err := resolver.updateProjectDocument(ctx, model.UpdateProjectDocumentInput{
+	saveInput := model.UpdateProjectDocumentInput{
 		ProjectID: created.Project.ProjectID, ExpectedRevision: 1,
 		ExpectedDocumentDigest: document.Digest, Content: "# Current\n",
 		ClientMutationID: "project-document",
-	})
+	}
+	saved, err := resolver.updateProjectDocument(ctx, saveInput)
 	if err != nil || saved.Project.Revision != 2 || saved.Document.Content != "# Current\n" {
 		t.Fatalf("save Project document = %#v, %v", saved, err)
 	}
+	assertProjectReceipt(t, resolver.Store, "project.update", saveInput.ClientMutationID, saveInput)
 	folder := t.TempDir()
 	updated, err := resolver.updateProject(ctx, model.UpdateProjectInput{
 		ProjectID: created.Project.ProjectID, ExpectedRevision: 2, Folder: &folder,
@@ -47,14 +51,28 @@ func TestProjectAuthorityFlow(t *testing.T) {
 	if err != nil || updated.Project.Folder == nil {
 		t.Fatalf("move Project = %#v, %v", updated, err)
 	}
-	archived, err := resolver.setProjectArchived(ctx, created.Project.ProjectID, 3, "project-archive", true)
+	archiveInput := model.ArchiveProjectInput{ProjectID: created.Project.ProjectID,
+		ExpectedRevision: 3, ClientMutationID: "project-archive"}
+	archived, err := resolver.setProjectArchived(ctx, archiveInput.ProjectID,
+		archiveInput.ExpectedRevision, archiveInput.ClientMutationID, true)
 	if err != nil || archived.Project.ArchivedAt == nil {
 		t.Fatalf("archive Project = %#v, %v", archived, err)
 	}
-	reopened, err := resolver.setProjectArchived(ctx, created.Project.ProjectID, 4, "project-reopen", false)
+	assertProjectReceipt(t, resolver.Store, "project.archive", archiveInput.ClientMutationID, struct {
+		ProjectID        string `json:"projectId"`
+		ExpectedRevision int    `json:"expectedRevision"`
+	}{archiveInput.ProjectID, archiveInput.ExpectedRevision})
+	reopenInput := model.ReopenProjectInput{ProjectID: created.Project.ProjectID,
+		ExpectedRevision: 4, ClientMutationID: "project-reopen"}
+	reopened, err := resolver.setProjectArchived(ctx, reopenInput.ProjectID,
+		reopenInput.ExpectedRevision, reopenInput.ClientMutationID, false)
 	if err != nil || reopened.Project.ArchivedAt != nil {
 		t.Fatalf("reopen Project = %#v, %v", reopened, err)
 	}
+	assertProjectReceipt(t, resolver.Store, "project.reopen", reopenInput.ClientMutationID, struct {
+		ProjectID        string `json:"projectId"`
+		ExpectedRevision int    `json:"expectedRevision"`
+	}{reopenInput.ProjectID, reopenInput.ExpectedRevision})
 	current, err := resolver.projectDocument(ctx, created.Project.ProjectID)
 	if err != nil {
 		t.Fatal(err)
@@ -62,13 +80,7 @@ func TestProjectAuthorityFlow(t *testing.T) {
 	recoveryInput := model.UpdateProjectDocumentInput{ProjectID: created.Project.ProjectID,
 		ExpectedRevision: 5, ExpectedDocumentDigest: current.Digest, Content: "# Recovered\n",
 		ClientMutationID: "project-document-recovery"}
-	canonical := struct {
-		ProjectID        string
-		ExpectedDigest   string
-		Content          string
-		ExpectedRevision int64
-	}{recoveryInput.ProjectID, recoveryInput.ExpectedDocumentDigest, recoveryInput.Content, int64(recoveryInput.ExpectedRevision)}
-	encoded, err := json.Marshal(canonical)
+	encoded, err := json.Marshal(recoveryInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +119,22 @@ func TestProjectAuthorityFlow(t *testing.T) {
 	existingDocument, err := resolver.projectDocument(ctx, existing.Project.ProjectID)
 	if err != nil || existingDocument.Content != "# Existing\n" {
 		t.Fatalf("existing Project document = %#v, %v", existingDocument, err)
+	}
+}
+
+func assertProjectReceipt(t *testing.T, database *store.Store, name, clientID string, input any) {
+	t.Helper()
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(encoded)
+	_, found, err := database.LookupProjectReceipt(context.Background(), store.ProjectCommand{
+		ActorID: projectActorID, Name: name, ClientMutationID: clientID,
+		RequestDigest: hex.EncodeToString(digest[:]),
+	})
+	if err != nil || !found {
+		t.Fatalf("Project receipt %q changed: found %t, error %v", name, found, err)
 	}
 }
 
