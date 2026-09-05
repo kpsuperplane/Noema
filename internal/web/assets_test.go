@@ -21,6 +21,8 @@ func TestAssetResponsesUseRouteSpecificHeaders(t *testing.T) {
 	}{
 		{"/assets/app-a1B2.js", "application", "application/javascript; charset=utf-8", "public, max-age=31536000, immutable", ""},
 		{"/assets/styles-a1B2.css", "styles", "text/css; charset=utf-8", "public, max-age=31536000, immutable", ""},
+		{"/assets/font-a1B2.woff", "woff", "font/woff", "public, max-age=31536000, immutable", ""},
+		{"/assets/font-a1B2.woff2", "woff2", "font/woff2", "public, max-age=31536000, immutable", ""},
 		{"/assets/manifest.webmanifest", "manifest", "application/manifest+json; charset=utf-8", "no-cache", ""},
 		{"/assets/sw.js", "worker", "application/javascript; charset=utf-8", "no-cache", "/"},
 		{"/favicon.ico", "icon", "image/x-icon", "no-cache", ""},
@@ -123,6 +125,8 @@ func testAssetHandler() http.Handler {
 		"index.html":           &fstest.MapFile{Data: []byte("application shell")},
 		"app-a1B2.js":          &fstest.MapFile{Data: []byte("application")},
 		"styles-a1B2.css":      &fstest.MapFile{Data: []byte("styles")},
+		"font-a1B2.woff":       &fstest.MapFile{Data: []byte("woff")},
+		"font-a1B2.woff2":      &fstest.MapFile{Data: []byte("woff2")},
 		"manifest.webmanifest": &fstest.MapFile{Data: []byte("manifest")},
 		"sw.js":                &fstest.MapFile{Data: []byte("worker")},
 		"favicon.ico":          &fstest.MapFile{Data: []byte("icon")},

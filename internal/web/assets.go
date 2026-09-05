@@ -118,6 +118,10 @@ func assetContentType(name string) (string, bool) {
 		return "image/x-icon", true
 	case "ttf":
 		return "font/ttf", true
+	case "woff":
+		return "font/woff", true
+	case "woff2":
+		return "font/woff2", true
 	case "webmanifest":
 		return "application/manifest+json; charset=utf-8", true
 	case "html":
@@ -129,7 +133,8 @@ func assetContentType(name string) (string, bool) {
 
 func cacheControl(name string) string {
 	extension := name[strings.LastIndexByte(name, '.')+1:]
-	if name != "sw.js" && (extension == "js" || extension == "css" || extension == "ttf") {
+	if name != "sw.js" && (extension == "js" || extension == "css" || extension == "ttf" ||
+		extension == "woff" || extension == "woff2") {
 		return "public, max-age=31536000, immutable"
 	}
 	return "no-cache"
