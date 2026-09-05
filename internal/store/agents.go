@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 
 var (
 	ErrAgentNotFound               = errors.New("Agent not found")
+	ErrInvalidAgentDisplayName     = errors.New("invalid Agent display name")
 	ErrAcpAgentNotFound            = errors.New("ACP Agent not found")
 	ErrAcpAgentRevisionConflict    = errors.New("ACP Agent revision conflict")
 	ErrAcpAgentAuthenticationBusy  = errors.New("ACP Agent authentication is active")
@@ -85,6 +87,24 @@ ORDER BY CASE system_role
 func (s *Store) Agent(ctx context.Context, id string) (Agent, error) {
 	return scanAgent(s.db.QueryRowContext(ctx,
 		"SELECT agent_id, display_name, system_role FROM agents WHERE agent_id = ?", id))
+}
+
+// UpdatePrimaryAgentDisplayName changes the primary Agent's visible name.
+func (s *Store) UpdatePrimaryAgentDisplayName(
+	ctx context.Context,
+	displayName string,
+	now time.Time,
+) (Agent, error) {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" || utf8.RuneCountInString(displayName) > 128 {
+		return Agent{}, ErrInvalidAgentDisplayName
+	}
+	return scanAgent(s.db.QueryRowContext(ctx, `
+UPDATE agents
+SET display_name = ?, updated_at_ms = ?
+WHERE agent_id = ? AND system_role = 'primary'
+RETURNING agent_id, display_name, system_role`,
+		displayName, millis(now.UTC()), PrimaryAgentID))
 }
 
 // CreateAcpAgent creates one custom Agent and its process configuration.
