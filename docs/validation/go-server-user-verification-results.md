@@ -355,6 +355,19 @@ The [validation record](evidence/2026-09-05-memory-validation.json) records sour
 No production code changed. The synthetic preferences remain in the authorized test instance.
 Empty-state, deep hierarchy, bounded root context, and remaining Memory failure cases are not established by these checks.
 
+## Live Memory search reconstruction
+
+The [rebuild driver](evidence/2026-09-05-memory-rebuild.mjs) runs the same two exact Memory searches before and after a server restart.
+The [before](evidence/2026-09-05-memory-rebuild-before.json) and [after](evidence/2026-09-05-memory-rebuild-after.json) records contain matching search results, articles, citations, and source-file hashes.
+The [process record](evidence/2026-09-05-memory-rebuild-process.json) confirms a new server process.
+The existing development supervisor restarted its server watcher. Memory was idle before the restart and opened without an error afterward.
+The browser’s existing authenticated session remained usable.
+
+The Go Memory store builds its lexical search index in process memory from the Markdown tree.
+Startup and publication rebuild that index. The older SQLite search description was stale and has been corrected in the current authorities.
+The [validation record](evidence/2026-09-05-memory-rebuild-validation.json) identifies source hashes, compared queries, and reused Go checks.
+No production code changed. This check covers the current three-article test tree.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -469,7 +482,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | MEM-07 | Pass · live Chromium | Pointer hover and keyboard focus show the exact source type, date, excerpt, and identity at desktop and phone widths. | — |
 | MEM-08 | Partial · live Chat | Search and deeper page reads return the corrected fact and unchanged leisure interest. Bounded root-context injection remains pending. | — |
 | MEM-09 | Not run | Controlled setup pending. | — |
-| MEM-10 | Not run | Controlled setup pending. | — |
+| MEM-10 | Pass · live Linux/Chromium | Restart rebuilds the current lexical index from Markdown. Exact searches, article content, citations, and source-file hashes remain unchanged. | — |
 | MEM-11 | Not run | Controlled setup pending. | — |
 | MEM-12 | Not run | Controlled setup pending. | — |
 | ACTION-01 | Not run | Controlled setup pending. | — |

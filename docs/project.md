@@ -131,7 +131,7 @@ tables.
 | Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
-| Indexes, caches, temporary files, and derived search/vector state | `system/`, including rebuildable memory FTS |
+| Indexes, caches, temporary files, and derived search/vector state | `system/` |
 | Introspection into database-backed state | chat/task drill-ins, advanced inspection, and explicit export tools |
 
 ## Primary objects
@@ -281,8 +281,9 @@ from backups. Exports should support machine-readable and human-readable forms.
 ## Current storage model
 
 SQLite owns stored state. The native Markdown tree owns durable memory prose.
-A separate SQLite FTS projection supports rebuildable memory search. The
-filesystem owns durable documents, protected credentials, and artifacts.
+Memory search builds its lexical index in process memory from Markdown.
+It rebuilds the index at startup and after publication. The filesystem owns
+durable documents, protected credentials, and artifacts.
 
 Chat and task details provide focused inspection. Advanced inspection and
 explicit export tools expose broader database-backed state.
