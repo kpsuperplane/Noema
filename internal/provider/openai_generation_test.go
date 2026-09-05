@@ -38,7 +38,10 @@ func TestOpenAIGeneratorPreservesResponsesWireAndProtectedSetup(t *testing.T) {
 	var deltas []string
 	result, err := generator.Generate(context.Background(), GenerateRequest{
 		AccountID: openAIDefaultAccountID, Model: "gpt-5.6-terra",
-		Messages:        []GenerationMessage{{Role: "user", Content: "Find it."}},
+		Messages: []GenerationMessage{
+			{Role: "developer", Content: "Use stable Noema context."},
+			{Role: "user", Content: "Find it."},
+		},
 		ReasoningEffort: "high", MaxOutputTokens: &maxTokens, ConversationID: "conversation:one",
 		ToolTransport: ToolTransportNative, ToolChoice: ToolChoiceAuto,
 		HostedWebSearch: true, FastMode: true,
@@ -62,14 +65,46 @@ func TestOpenAIGeneratorPreservesResponsesWireAndProtectedSetup(t *testing.T) {
 	body := <-requestSeen
 	include := body["include"].([]any)
 	if body["model"] != "gpt-5.6-terra" || body["max_output_tokens"] != float64(256) ||
-		body["prompt_cache_retention"] != "24h" || body["prompt_cache_key"] != "conversation:one" ||
-		body["store"] != true || body["stream"] != true || body["service_tier"] != "priority" ||
+		body["prompt_cache_retention"] != nil || body["prompt_cache_key"] != "conversation:one" ||
+		body["store"] != false || body["stream"] != true || body["service_tier"] != "priority" ||
 		len(include) != 2 || include[0] != "reasoning.encrypted_content" || include[1] != "web_search_call.action.sources" {
 		t.Fatalf("OpenAI request controls = %#v", body)
+	}
+	cache := body["prompt_cache_options"].(map[string]any)
+	input := body["input"].([]any)
+	developer := input[0].(map[string]any)["content"].([]any)[0].(map[string]any)
+	breakpoint := developer["prompt_cache_breakpoint"].(map[string]any)
+	if cache["mode"] != "explicit" || cache["ttl"] != "30m" ||
+		developer["type"] != "input_text" || developer["text"] != "Use stable Noema context." ||
+		breakpoint["mode"] != "explicit" {
+		t.Fatalf("OpenAI explicit prompt cache = %#v, input %#v", cache, input)
 	}
 	tools := body["tools"].([]any)
 	if len(tools) != 1 || tools[0].(map[string]any)["external_web_access"] != true {
 		t.Fatalf("OpenAI hosted tool = %#v", tools)
+	}
+}
+
+func TestOpenAIBackgroundRequestKeepsNonGPT56CacheWithoutStorage(t *testing.T) {
+	request := basicOpenAIGenerationRequest()
+	request.Model = "gpt-5.5"
+	request.Messages = []GenerationMessage{{Role: "developer", Content: "Stable context."}}
+	body, _, err := prepareResponsesGeneration(request, responsesGenerationProfile{
+		accountID: openAIDefaultAccountID, providerName: "OpenAI",
+		promptCacheRetention: "24h", forwardMaxOutput: true,
+		includeEncryptedReasoning: true, promptCacheOptions: true, stream: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if json.Unmarshal(body, &wire) != nil || wire["store"] != false ||
+		wire["prompt_cache_retention"] != "24h" || wire["prompt_cache_options"] != nil {
+		t.Fatalf("OpenAI legacy cache request = %#v", wire)
+	}
+	input := wire["input"].([]any)
+	if input[0].(map[string]any)["content"] != "Stable context." {
+		t.Fatalf("OpenAI legacy cache input = %#v", input)
 	}
 }
 

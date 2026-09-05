@@ -292,21 +292,27 @@ func codexGenerationStatusError(status int) error {
 }
 
 type codexGenerationPayload struct {
-	Model                string             `json:"model"`
-	Input                []any              `json:"input"`
-	MaxOutputTokens      *uint32            `json:"max_output_tokens,omitempty"`
-	PreviousResponseID   string             `json:"previous_response_id,omitempty"`
-	Temperature          *float32           `json:"temperature,omitempty"`
-	Reasoning            *codexReasoning    `json:"reasoning,omitempty"`
-	ServiceTier          string             `json:"service_tier,omitempty"`
-	Tools                []codexToolPayload `json:"tools,omitempty"`
-	Include              []string           `json:"include,omitempty"`
-	ToolChoice           string             `json:"tool_choice,omitempty"`
-	ParallelToolCalls    *bool              `json:"parallel_tool_calls,omitempty"`
-	PromptCacheKey       string             `json:"prompt_cache_key,omitempty"`
-	PromptCacheRetention string             `json:"prompt_cache_retention,omitempty"`
-	Store                bool               `json:"store"`
-	Stream               bool               `json:"stream"`
+	Model                string                       `json:"model"`
+	Input                []any                        `json:"input"`
+	MaxOutputTokens      *uint32                      `json:"max_output_tokens,omitempty"`
+	PreviousResponseID   string                       `json:"previous_response_id,omitempty"`
+	Temperature          *float32                     `json:"temperature,omitempty"`
+	Reasoning            *codexReasoning              `json:"reasoning,omitempty"`
+	ServiceTier          string                       `json:"service_tier,omitempty"`
+	Tools                []codexToolPayload           `json:"tools,omitempty"`
+	Include              []string                     `json:"include,omitempty"`
+	ToolChoice           string                       `json:"tool_choice,omitempty"`
+	ParallelToolCalls    *bool                        `json:"parallel_tool_calls,omitempty"`
+	PromptCacheKey       string                       `json:"prompt_cache_key,omitempty"`
+	PromptCacheOptions   *responsesPromptCacheOptions `json:"prompt_cache_options,omitempty"`
+	PromptCacheRetention string                       `json:"prompt_cache_retention,omitempty"`
+	Store                bool                         `json:"store"`
+	Stream               bool                         `json:"stream"`
+}
+
+type responsesPromptCacheOptions struct {
+	Mode string `json:"mode"`
+	TTL  string `json:"ttl"`
 }
 
 type codexReasoning struct {
@@ -334,7 +340,7 @@ func prepareCodexGeneration(
 type responsesGenerationProfile struct {
 	accountID, providerName, promptCacheRetention string
 	forwardMaxOutput, includeEncryptedReasoning   bool
-	store, stream                                 bool
+	promptCacheOptions, stream                    bool
 }
 
 func prepareResponsesGeneration(
@@ -350,7 +356,7 @@ func prepareResponsesGeneration(
 	}
 	previousResponseID := strings.TrimSpace(request.PreviousResponseID)
 	if previousResponseID != request.PreviousResponseID ||
-		(previousResponseID != "" && (!validCodexHeader(previousResponseID) || (!request.StoreResponse && !profile.store))) {
+		(previousResponseID != "" && (!validCodexHeader(previousResponseID) || !request.StoreResponse)) {
 		return nil, openRouterToolNameMap{}, fmt.Errorf("%s previous response id is invalid", profile.providerName)
 	}
 	if request.HostedWebSearch && request.ToolTransport != ToolTransportNative {
@@ -374,11 +380,30 @@ func prepareResponsesGeneration(
 	if request.HostedWebSearch {
 		tools = append(tools, codexToolPayload{Type: "web_search", ExternalWebAccess: boolPointer(true)})
 	}
+	explicitPromptCache := profile.promptCacheOptions && openAIGPT56Model(model)
+	cacheBreakpoints := make(map[int]struct{}, 4)
+	if explicitPromptCache {
+		for index := len(request.Messages) - 1; index >= 0 && len(cacheBreakpoints) < 4; index-- {
+			message := request.Messages[index]
+			if message.Role == "developer" && strings.TrimSpace(message.Content) != "" {
+				cacheBreakpoints[index] = struct{}{}
+			}
+		}
+	}
 	input := make([]any, 0, len(request.Messages)*2)
-	for _, message := range request.Messages {
+	for index, message := range request.Messages {
 		lowered, err := lowerCodexMessage(message, toolNames)
 		if err != nil {
 			return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation history is invalid", profile.providerName)
+		}
+		if _, ok := cacheBreakpoints[index]; ok {
+			lowered = []any{map[string]any{
+				"role": "developer",
+				"content": []any{map[string]any{
+					"type": "input_text", "text": message.Content,
+					"prompt_cache_breakpoint": map[string]any{"mode": "explicit"},
+				}},
+			}}
 		}
 		input = append(input, lowered...)
 	}
@@ -390,9 +415,13 @@ func prepareResponsesGeneration(
 		PreviousResponseID:   previousResponseID,
 		PromptCacheKey:       strings.TrimSpace(request.ConversationID),
 		PromptCacheRetention: profile.promptCacheRetention,
-		Store:                profile.store || request.StoreResponse,
+		Store:                request.StoreResponse,
 		Stream:               profile.stream,
 		Tools:                tools,
+	}
+	if explicitPromptCache {
+		payload.PromptCacheOptions = &responsesPromptCacheOptions{Mode: "explicit", TTL: "30m"}
+		payload.PromptCacheRetention = ""
 	}
 	if profile.forwardMaxOutput {
 		payload.MaxOutputTokens = request.MaxOutputTokens
@@ -433,6 +462,10 @@ func prepareResponsesGeneration(
 		return nil, openRouterToolNameMap{}, ErrGenerationRequestTooLarge
 	}
 	return body, toolNames, nil
+}
+
+func openAIGPT56Model(model string) bool {
+	return model == "gpt-5.6" || strings.HasPrefix(model, "gpt-5.6-")
 }
 
 func responsesToolControls(request GenerateRequest, hasTools bool, providerName string) (string, *bool, error) {

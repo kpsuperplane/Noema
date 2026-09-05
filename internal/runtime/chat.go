@@ -405,7 +405,7 @@ func (c *Chat) execute(request queuedTurn) {
 		ToolTransport:   provider.ToolTransportNative,
 		ToolChoice:      provider.ToolChoiceAuto,
 		HostedWebSearch: hostedWeb,
-		StoreResponse:   assignment.ProviderKind == "codex",
+		StoreResponse:   responseIDContinuationProvider(assignment.ProviderKind),
 		FastMode:        assignment.FastMode,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {
@@ -425,6 +425,10 @@ func (c *Chat) execute(request queuedTurn) {
 func hostedWebSearchEnabled(providerKind string, transport provider.ToolTransport) bool {
 	return transport == provider.ToolTransportNative &&
 		(providerKind == "codex" || providerKind == "openai" || providerKind == "openrouter")
+}
+
+func responseIDContinuationProvider(providerKind string) bool {
+	return providerKind == "codex" || providerKind == "openai"
 }
 
 func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {

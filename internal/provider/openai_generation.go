@@ -61,7 +61,7 @@ func (g *OpenAIGenerator) Generate(
 	body, toolNames, err := prepareResponsesGeneration(request, responsesGenerationProfile{
 		accountID: openAIDefaultAccountID, providerName: "OpenAI",
 		promptCacheRetention: "24h", forwardMaxOutput: true,
-		includeEncryptedReasoning: true, store: true, stream: true,
+		includeEncryptedReasoning: true, promptCacheOptions: true, stream: true,
 	})
 	if err != nil {
 		return GenerationResult{}, err
