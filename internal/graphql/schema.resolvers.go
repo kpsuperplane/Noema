@@ -140,37 +140,37 @@ func (r *mutationRootResolver) SkipAdapterAuthentication(ctx context.Context, in
 
 // InstallLocalModel is the resolver for the installLocalModel field.
 func (r *mutationRootResolver) InstallLocalModel(ctx context.Context, input model.InstallLocalModelInput) (*model.LocalModelInstallation, error) {
-	panic(fmt.Errorf("not implemented: InstallLocalModel - installLocalModel"))
+	return nil, errLocalModelManagementUnavailable
 }
 
 // ImportLocalModel is the resolver for the importLocalModel field.
 func (r *mutationRootResolver) ImportLocalModel(ctx context.Context, input model.ImportLocalModelInput) (*model.LocalModelInstallation, error) {
-	panic(fmt.Errorf("not implemented: ImportLocalModel - importLocalModel"))
+	return nil, errLocalModelManagementUnavailable
 }
 
 // CancelLocalModelInstall is the resolver for the cancelLocalModelInstall field.
 func (r *mutationRootResolver) CancelLocalModelInstall(ctx context.Context, installationID string) (*model.LocalModelInstallation, error) {
-	panic(fmt.Errorf("not implemented: CancelLocalModelInstall - cancelLocalModelInstall"))
+	return nil, errLocalModelManagementUnavailable
 }
 
 // RemoveLocalModel is the resolver for the removeLocalModel field.
 func (r *mutationRootResolver) RemoveLocalModel(ctx context.Context, installationID string) (bool, error) {
-	panic(fmt.Errorf("not implemented: RemoveLocalModel - removeLocalModel"))
+	return false, errLocalModelManagementUnavailable
 }
 
 // ActivateLocalModel is the resolver for the activateLocalModel field.
 func (r *mutationRootResolver) ActivateLocalModel(ctx context.Context, installationID string) (*model.LocalModelInstallation, error) {
-	panic(fmt.Errorf("not implemented: ActivateLocalModel - activateLocalModel"))
+	return nil, errLocalModelManagementUnavailable
 }
 
 // SaveDefaultModelPreference is the resolver for the saveDefaultModelPreference field.
 func (r *mutationRootResolver) SaveDefaultModelPreference(ctx context.Context, input model.SaveDefaultModelPreferenceInput) (*model.DefaultModelPreference, error) {
-	panic(fmt.Errorf("not implemented: SaveDefaultModelPreference - saveDefaultModelPreference"))
+	return nil, errLocalModelManagementUnavailable
 }
 
 // RetryLocalModelRuntime is the resolver for the retryLocalModelRuntime field.
 func (r *mutationRootResolver) RetryLocalModelRuntime(ctx context.Context) (model.LocalModelRuntimeStatus, error) {
-	panic(fmt.Errorf("not implemented: RetryLocalModelRuntime - retryLocalModelRuntime"))
+	return model.LocalModelRuntimeStatusInactive, errLocalModelManagementUnavailable
 }
 
 // CreateProject is the resolver for the createProject field.
@@ -561,22 +561,22 @@ func (r *queryRootResolver) LocalStatus(ctx context.Context) (*model.LocalStatus
 
 // LocalModelSetup is the resolver for the localModelSetup field.
 func (r *queryRootResolver) LocalModelSetup(ctx context.Context) (*model.LocalModelSetup, error) {
-	return localModelSetup(), nil
+	return localModelSetup(ctx)
 }
 
 // LocalModelCatalog is the resolver for the localModelCatalog field.
 func (r *queryRootResolver) LocalModelCatalog(ctx context.Context) ([]*model.LocalModelCatalogEntry, error) {
-	panic(fmt.Errorf("not implemented: LocalModelCatalog - localModelCatalog"))
+	return localModelCatalog(ctx)
 }
 
 // LocalModelInstallations is the resolver for the localModelInstallations field.
 func (r *queryRootResolver) LocalModelInstallations(ctx context.Context) ([]*model.LocalModelInstallation, error) {
-	panic(fmt.Errorf("not implemented: LocalModelInstallations - localModelInstallations"))
+	return []*model.LocalModelInstallation{}, nil
 }
 
 // DefaultModelPreference is the resolver for the defaultModelPreference field.
 func (r *queryRootResolver) DefaultModelPreference(ctx context.Context) (*model.DefaultModelPreference, error) {
-	panic(fmt.Errorf("not implemented: DefaultModelPreference - defaultModelPreference"))
+	return nil, nil
 }
 
 // OnboardingStatus is the resolver for the onboardingStatus field.

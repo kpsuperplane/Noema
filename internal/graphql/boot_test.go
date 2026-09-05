@@ -18,12 +18,55 @@ func TestFreshHomeReportsTruthfulUnavailableLocalModel(t *testing.T) {
 	if status.PrimaryAgentDisplayName != nil {
 		t.Fatalf("fresh primary agent name = %q, want nil", *status.PrimaryAgentDisplayName)
 	}
-	setup := localModelSetup()
+	setup, err := localModelSetup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if setup.IsReady || setup.RuntimeStatus != model.LocalModelRuntimeStatusInactive {
 		t.Fatalf("fresh local model setup = %#v", setup)
 	}
-	if setup.RecommendedModel != nil || setup.Installation != nil {
+	if setup.Installation != nil {
 		t.Fatalf("fresh local model setup advertises unavailable state: %#v", setup)
+	}
+}
+
+func TestLocalModelSettingsReadContract(t *testing.T) {
+	resolver := openProviderTestResolver(t)
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+	response := postGraphQL(t, server.URL, `query {
+  localModelSetup { isReady runtimeStatus recommendedModel { modelId } }
+  localModelCatalog {
+    modelId name license priority repo revision isRecommended compatibleBackend
+    selectedBuild { file sha256 downloadGb backends }
+    hardwareFit { backend ramGb vramGb unifiedMemory explanation }
+  }
+  localModelInstallations { installationId }
+  defaultModelPreference { providerKind }
+}`, nil)
+	setup := response.Data["localModelSetup"].(map[string]any)
+	if setup["isReady"] != false || setup["runtimeStatus"] != "INACTIVE" {
+		t.Fatalf("local model setup = %#v", setup)
+	}
+	catalog := response.Data["localModelCatalog"].([]any)
+	if len(catalog) != 1 || catalog[0].(map[string]any)["modelId"] != "gemma-4-e4b-it" {
+		t.Fatalf("local model catalog = %#v", catalog)
+	}
+	if installations := response.Data["localModelInstallations"].([]any); len(installations) != 0 {
+		t.Fatalf("local model installations = %#v", installations)
+	}
+	if response.Data["defaultModelPreference"] != nil {
+		t.Fatalf("default model preference = %#v", response.Data["defaultModelPreference"])
+	}
+}
+
+func TestLocalModelManagementReturnsUnavailable(t *testing.T) {
+	resolver := openProviderTestResolver(t)
+	if _, err := resolver.MutationRoot().InstallLocalModel(context.Background(), model.InstallLocalModelInput{ModelID: "gemma-4-e4b-it"}); err != errLocalModelManagementUnavailable {
+		t.Fatalf("install error = %v", err)
+	}
+	if status, err := resolver.MutationRoot().RetryLocalModelRuntime(context.Background()); status != model.LocalModelRuntimeStatusInactive || err != errLocalModelManagementUnavailable {
+		t.Fatalf("retry result = %s, %v", status, err)
 	}
 }
 
