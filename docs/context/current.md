@@ -20,7 +20,7 @@ The Rust server remains the production authority until the final cutover.
 
 The Go evidence gate passed. The replacement now uses Go schema version 18.
 It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task lifecycle, and notifications.
-OpenRouter and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
+OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 Primary Chat supports durable recovery and bounded `task.inspect`, `file.parse`, and Memory tool loops.
 It reviews exact `file.download` calls, pauses for decisions, and resumes from known or uncertain outcomes.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.

@@ -647,6 +647,19 @@ The unit includes:
 - private citation-marker removal with adjusted UTF-16 offsets;
 - raw provider text retention and safe unresolved-marker diagnostics.
 
+### OpenAI Responses unit
+
+The OpenAI account now uses its protected API-key authority for production generation.
+It shares the exact Responses behavior that also applies to Codex, while keeping provider-specific authentication and status handling.
+
+The unit includes:
+
+- native tools, hosted search, reasoning, citations, usage, and Fast mode;
+- stored Chat response identifiers with incremental continuation input;
+- non-stored Memory, review, and other background generations;
+- current GPT-5.6 cache options and bounded developer-message breakpoints;
+- bounded streams, cancellation, and safe provider errors.
+
 ### Bounded document conversion units
 
 Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
