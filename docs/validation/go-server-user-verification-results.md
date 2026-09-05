@@ -310,6 +310,19 @@ The [validation record](evidence/2026-09-05-a2ui-validation.json) records source
 Desktop and phone views keep the form controls visible and reachable. No production code changed.
 Other providers and native clients remain outside this evidence.
 
+## Live transcript pagination
+
+The [pagination driver](evidence/2026-09-05-chat-pagination.mjs) captures a 100-item baseline before a new streamed response.
+It compares three older pages and their adjacent head page against the same baseline.
+Its [results](evidence/2026-09-05-chat-pagination-results.json) show 40 ordered items without gaps, duplicates, or changed content.
+At least one older-page read occurs during text streaming.
+The browser also loads older history through its own named GraphQL operation after wheel input.
+The driver excludes its direct queries from that browser assertion.
+After completion and reload, the same older pages retain their exact content.
+
+The [validation record](evidence/2026-09-05-chat-pagination-validation.json) identifies the tested revision, comparison window, driver hashes, and reused checks.
+No production code changed. This evidence covers the tested window in Codex and Chromium.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -350,7 +363,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | CHAT-02 | Partial · live Codex | Eight tool calls have eight matching successful results. The final answer matches stored Project and Task state. Other providers remain pending. Live Chat capture checks above. | — |
 | CHAT-03 | Partial · live Codex/Chromium | A dropped text delta and closed WebSocket recover to one exact response. Tool-result disconnect remains pending. | — |
 | CHAT-04 | Not run | Controlled setup pending. | — |
-| CHAT-05 | Not run | Controlled setup pending. | — |
+| CHAT-05 | Pass · live Codex/Chromium | Browser history loads during a new response. Forty adjacent items retain exact content and order without gaps or duplicates, including after reload. | — |
 | CHAT-06 | Partial · live Chromium | Unicode, emoji, paragraphs, code, lists, and links survive reload and a second browser read. Native clients remain pending. | — |
 | CHAT-07 | Not run | Controlled setup pending. | — |
 | CHAT-08 | Pass · live Codex | The explicit foreground request returns its exact response in Chat and creates no Task. Other provider variants remain pending. | — |
