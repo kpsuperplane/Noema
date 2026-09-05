@@ -632,7 +632,19 @@ The first Chat action-request unit uses Go schema version 18. It includes:
 - HTML rejection and optional parsing through the current file worker;
 - existing web and iOS pending-intervention operations.
 
-Task-origin actions and other external tools remain later migration units.
+Task Executors request capability tool calls. They do not decide review or create action requests.
+For each call, the capability router resolves the binding, checks its source input,
+and applies current ownership, policy, authentication, and availability rules.
+
+The selected execution route controls the result:
+
+- `ExecuteImmediately` invokes the tool without an action request;
+- `HumanReview` saves one exact action request for a human decision;
+- `LlmReview` saves one exact action request for reviewer classification.
+
+A Task origin adds the Task generation, run, worker claim, and current-run check.
+The shared capability policy remains the only authority that decides whether to surface an action request.
+Task capability routing and other external tools remain later migration units.
 
 ### Provider-hosted search unit
 
@@ -772,7 +784,7 @@ Later waves can run these paths in parallel after their listed dependency merges
 
 | Path | Dependency |
 | --- | --- |
-| Task execution and ACP runs | Task lifecycle and action requests |
+| Task execution and ACP runs | Task lifecycle and shared capability policy |
 | MCP setup, OAuth, and dynamic calls | Action requests |
 | Adapter review, OAuth, HTTP, and Luau | Action requests |
 | Hosted web and interactive browser tools | Action requests |
