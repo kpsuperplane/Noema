@@ -131,6 +131,10 @@ func (p *toolProgress) observe(call provider.GenerationToolCall, payload json.Ra
 	if len(p.recent) > progressRecentLimit {
 		p.recent = p.recent[len(p.recent)-progressRecentLimit:]
 	}
+	return p.deterministicStop()
+}
+
+func (p *toolProgress) deterministicStop() string {
 	if p.window.FailureStreak >= failedToolLimit {
 		return "consecutive tool failures"
 	}
@@ -160,12 +164,17 @@ func (p *toolProgress) apply(outcome progressAuditOutcome) {
 	if outcome.NextGoal != nil {
 		p.currentGoal = boundedRunes(*outcome.NextGoal, progressTextLimit)
 	}
+	p.resetWindow()
+}
+
+func (p *toolProgress) resetWindow() {
 	p.window = progressAuditStats{ToolCounts: make(map[string]int)}
 }
 
 func cloneProgressStats(value progressAuditStats) progressAuditStats {
+	source := value.ToolCounts
 	value.ToolCounts = make(map[string]int, len(value.ToolCounts))
-	for name, count := range value.ToolCounts {
+	for name, count := range source {
 		value.ToolCounts[name] = count
 	}
 	return value

@@ -15,11 +15,6 @@ type AcpPermissionResult struct {
 	OptionID        string
 }
 
-const (
-	TaskMaxAutomaticRetries = int64(3)
-	TaskMaxReviewRounds     = int64(3)
-)
-
 // TaskRunItemInput is one durable provider or tool transcript item.
 type TaskRunItemInput struct {
 	Kind, Status, CorrelationID, ParentID, Content string
@@ -123,16 +118,23 @@ ORDER BY r.queued_at_ms,r.run_id LIMIT 1`).Scan(&runID)
 	if err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
-	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='leased',updated_at_ms=?
+	policy, err := taskExecutionPolicyTx(ctx, tx)
+	if err != nil {
+		return Task{}, TaskRun{}, false, err
+	}
+	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='leased',updated_at_ms=?,max_provider_continuations=?,
+max_tool_calls=?,max_active_minutes=?,progress_audit_interval=?,max_automatic_retries=?,max_review_rounds=?
 WHERE run_id=? AND status='queued' AND task_generation=? AND run_id=(SELECT current_run_id FROM tasks WHERE task_id=? AND generation=?)`,
-		millis(now), run.ID, run.Generation, task.ID, run.Generation)
+		millis(now), policy.MaxProviderContinuations, policy.MaxToolCalls, policy.MaxActiveMinutes,
+		policy.ProgressAuditInterval, policy.MaxAutomaticRetries, policy.MaxReviewRounds,
+		run.ID, run.Generation, task.ID, run.Generation)
 	if err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
 	if count, _ := changed.RowsAffected(); count != 1 {
 		return Task{}, TaskRun{}, false, ErrStaleRun
 	}
-	run.Status, run.UpdatedAt = "leased", now.UTC()
+	run.Status, run.UpdatedAt, run.ExecutionPolicy = "leased", now.UTC(), policy
 	if err = tx.Commit(); err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
@@ -416,7 +418,7 @@ completed_at_ms=?,cancelled_at_ms=NULL,revision=?,updated_at_ms=? WHERE task_id=
 			}
 			return appendTaskExecutionEvent(ctx, tx, *task, run, "task.completed", map[string]any{"notify_human": notifyHuman}, now)
 		case "request_changes":
-			if run.ReviewRound >= TaskMaxReviewRounds {
+			if run.ReviewRound >= run.ExecutionPolicy.MaxReviewRounds {
 				return openTaskExecutionGate(ctx, tx, task, run, "recovery", feedback, "Review rounds are exhausted.", "review_rounds_exhausted", "executor", now)
 			}
 			return queueTaskExecutionChild(ctx, tx, task, run, "executor", 0, run.ReviewRound+1, now)
@@ -456,7 +458,7 @@ func (s *Store) FailTaskExecution(ctx context.Context, runID string, generation 
 		if err != nil {
 			return err
 		}
-		if retryable && run.AttemptIndex < TaskMaxAutomaticRetries {
+		if retryable && run.AttemptIndex < run.ExecutionPolicy.MaxAutomaticRetries {
 			return queueTaskExecutionChild(ctx, tx, task, *run, run.Kind, run.AttemptIndex+1, run.ReviewRound, now)
 		}
 		return openTaskExecutionGate(ctx, tx, task, *run, "recovery", "The run failed and needs a recovery decision.", message, "infrastructure_retries_exhausted", run.Kind, now)
@@ -560,10 +562,14 @@ func insertTaskExecutionRun(ctx context.Context, tx *sql.Tx, task Task, kind str
 			return TaskRun{}, err
 		}
 	}
+	policy, err := taskExecutionPolicyTx(ctx, tx)
+	if err != nil {
+		return TaskRun{}, err
+	}
 	run := TaskRun{ID: id, TaskID: task.ID, InstanceName: "Task " + strings.ToUpper(kind[:1]) + kind[1:], Kind: kind,
 		Status: "queued", AgentID: task.ExecutorAgentID, Generation: task.Generation, AttemptIndex: attempt, ReviewRound: review,
 		ParentRunID: parent.ID, SelectionMode: "provider_default", ExecutorBackend: "provider", ExecutorAgentID: task.ExecutorAgentID,
-		EffectiveCwd: effectiveCwd, QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+		EffectiveCwd: effectiveCwd, ExecutionPolicy: policy, QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	var acpLaunch *AcpLaunch
 	if kind == "executor" && task.ExecutorAcpConnectionRevision != nil {
 		run.ExecutorBackend = "acp"
@@ -596,10 +602,13 @@ func insertTaskExecutionRun(ctx context.Context, tx *sql.Tx, task Task, kind str
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO task_runs (run_id,task_id,task_generation,instance_name,run_kind,status,agent_id,attempt_index,
 review_round,parent_run_id,provider_kind,provider_account_id,selection_mode,model_profile,reasoning_effort,fast_mode,executor_backend,
-executor_agent_id,effective_cwd,queued_at_ms,created_at_ms,updated_at_ms) VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+executor_agent_id,effective_cwd,max_provider_continuations,max_tool_calls,max_active_minutes,progress_audit_interval,
+max_automatic_retries,max_review_rounds,queued_at_ms,created_at_ms,updated_at_ms)
+VALUES (?,?,?,?,?,'queued',?,?,?,?, ?,?,?,?,?,?, ?,?,?, ?,?,?,?,?,?, ?,?,?)`,
 		run.ID, run.TaskID, run.Generation, run.InstanceName, run.Kind, run.AgentID, run.AttemptIndex, run.ReviewRound, parent.ID,
 		run.ProviderKind, run.ProviderAccountID, run.SelectionMode, nullableString(run.ModelProfile), nullableString(run.ReasoningEffort), run.FastMode,
-		run.ExecutorBackend, run.ExecutorAgentID, nullableString(run.EffectiveCwd), millis(now), millis(now), millis(now))
+		run.ExecutorBackend, run.ExecutorAgentID, nullableString(run.EffectiveCwd), policy.MaxProviderContinuations, policy.MaxToolCalls,
+		policy.MaxActiveMinutes, policy.ProgressAuditInterval, policy.MaxAutomaticRetries, policy.MaxReviewRounds, millis(now), millis(now), millis(now))
 	if err == nil && acpLaunch != nil {
 		run.AcpLaunch = acpLaunch
 		err = insertAcpLaunchTx(ctx, tx, run.ID, *acpLaunch, now)
@@ -735,7 +744,7 @@ func validTaskRunItem(item TaskRunItemInput) bool {
 	validKind := item.Kind == "model_input" || item.Kind == "assistant_output" || item.Kind == "tool_call" ||
 		item.Kind == "tool_result" || item.Kind == "progress_notice" || item.Kind == "task_submission" ||
 		item.Kind == "task_review" || item.Kind == "failure" || item.Kind == "cancellation"
-	validStatus := item.Status == "pending" || item.Status == "running" || item.Status == "completed" || item.Status == "failed"
+	validStatus := item.Status == "pending" || item.Status == "running" || item.Status == "completed" || item.Status == "failed" || item.Status == "skipped"
 	return validKind && validStatus && item.Round >= 0 && len(item.Content) <= 512<<10
 }
 

@@ -335,9 +335,10 @@ func (r *TaskExecution) completeTaskMCPResult(ctx context.Context, action store.
 		status = "failed"
 	}
 	arguments, _ := call.Payload["arguments"]
+	sideEffect, _ := call.Payload["side_effect"].(bool)
 	return r.database.CompleteTaskIntervention(ctx, action.RunID, action.TaskGeneration, store.TaskRunItemInput{
 		Kind: "tool_result", Status: status, Round: call.Round, ParentID: call.ID,
 		Payload: map[string]any{"name": action.CapabilityName, "arguments": arguments, "result": payload,
-			"success": success, "provider_call_id": action.AuthorizationContext["provider_call_id"], "provider_name": action.AuthorizationContext["provider_name"]},
+			"success": success, "side_effect": sideEffect, "provider_call_id": action.AuthorizationContext["provider_call_id"], "provider_name": action.AuthorizationContext["provider_name"]},
 	}, action.State == store.ActionOutcomeUncertain, time.Now())
 }

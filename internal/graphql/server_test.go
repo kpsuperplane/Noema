@@ -392,23 +392,20 @@ func TestTaskEventsUseGraphQLTransportWS(t *testing.T) {
 	}
 }
 
-func TestUnimplementedFieldReturnsClearError(t *testing.T) {
+func TestTaskExecutionPolicyKeepsClientMutationShape(t *testing.T) {
 	server := newTestServer(t)
-	body, err := json.Marshal(map[string]any{"query": `{ taskExecutionPolicy { maxToolCalls } }`})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := http.Post(server.URL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	var result graphQLResponse
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "not implemented: TaskExecutionPolicy") {
-		t.Fatalf("unexpected GraphQL errors: %#v", result.Errors)
+	root := postGraphQL(t, server.URL, `mutation($input: TaskExecutionPolicyInput!) {
+  updateTaskExecutionPolicy(input: $input) {
+    maxProviderContinuations maxToolCalls maxActiveMinutes progressAuditInterval
+    maxAutomaticRetries maxReviewRounds
+  }
+}`, map[string]any{"input": map[string]any{"maxProviderContinuations": 60, "maxToolCalls": 300,
+		"maxActiveMinutes": 90, "progressAuditInterval": 15}})
+	policy := root.Data["updateTaskExecutionPolicy"].(map[string]any)
+	if policy["maxProviderContinuations"] != float64(60) || policy["maxToolCalls"] != float64(300) ||
+		policy["maxActiveMinutes"] != float64(90) || policy["progressAuditInterval"] != float64(15) ||
+		policy["maxAutomaticRetries"] != float64(3) || policy["maxReviewRounds"] != float64(3) {
+		t.Fatalf("Task execution policy = %#v", policy)
 	}
 }
 

@@ -2,9 +2,90 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestTaskExecutionPolicyUpgradeValidationAndClaimSnapshots(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v28.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacy.Exec(schemaAtVersion(28) + `PRAGMA user_version=28;`); err != nil {
+		t.Fatal(err)
+	}
+	_ = legacy.Close()
+	database, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	policy, err := database.TaskExecutionPolicy(t.Context())
+	if err != nil || policy != (TaskExecutionPolicy{80, 400, 120, 20, 3, 3}) {
+		t.Fatalf("default policy = %#v, %v", policy, err)
+	}
+	updated := TaskExecutionPolicy{42, 210, 90, 14, 0, 1}
+	if policy, err = database.UpdateTaskExecutionPolicy(t.Context(), updated); err != nil || policy != updated {
+		t.Fatalf("updated policy = %#v, %v", policy, err)
+	}
+	invalid := updated
+	invalid.ProgressAuditInterval = 43
+	if _, err = database.UpdateTaskExecutionPolicy(t.Context(), invalid); err == nil {
+		t.Fatal("invalid policy was accepted")
+	}
+	account := createReadyModelAccount(t, database)
+	if _, err = database.ConfirmHostedModelAssignments(t.Context(), account.ID, testModelAssignments(account, "model-a")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	id, _ := NewTaskID()
+	if _, err = database.CreateTask(t.Context(), id, "Snapshot", "correlation:policy:create", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.QueueTask(t.Context(), id, 1, 1, testTaskLifecycleCommand("queue_task", "policy"), now); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := database.TaskRuns(t.Context(), id, 10)
+	if err != nil || len(runs) != 1 || runs[0].ExecutionPolicy != updated {
+		t.Fatalf("queued policy = %#v, %v", runs, err)
+	}
+	_, run, found, err := database.ClaimTaskExecution(t.Context(), now)
+	if err != nil || !found || run.ExecutionPolicy != updated {
+		t.Fatalf("claimed policy = %#v, %t, %v", run.ExecutionPolicy, found, err)
+	}
+	if err = database.StartTaskExecution(t.Context(), run.ID, run.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FinishTaskPlanning(t.Context(), run.ID, run.Generation, "simple", now); err != nil {
+		t.Fatal(err)
+	}
+	runs, err = database.TaskRuns(t.Context(), id, 10)
+	if err != nil || len(runs) != 2 || runs[0].ExecutionPolicy != updated {
+		t.Fatalf("child queued policy = %#v, %v", runs, err)
+	}
+	refreshed := updated
+	refreshed.MaxAutomaticRetries = 0
+	if _, err = database.UpdateTaskExecutionPolicy(t.Context(), refreshed); err != nil {
+		t.Fatal(err)
+	}
+	_, run, found, err = database.ClaimTaskExecution(t.Context(), now)
+	if err != nil || !found || run.ExecutionPolicy != refreshed {
+		t.Fatalf("refreshed claim policy = %#v, %t, %v", run.ExecutionPolicy, found, err)
+	}
+	if err = database.StartTaskExecution(t.Context(), run.ID, run.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FailTaskExecution(t.Context(), run.ID, run.Generation, "failed", "Failed.", true, now); err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.Task(t.Context(), id)
+	if err != nil || task.StageKey != "waiting" {
+		t.Fatalf("zero-retry snapshot task = %#v, %v", task, err)
+	}
+}
 
 func TestTaskExecutionRecoveryAndCurrentRunTransitions(t *testing.T) {
 	database := openTestStore(t)

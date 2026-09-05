@@ -305,7 +305,7 @@ func (r *mutationRootResolver) UpdateTaskModelPoolEntry(ctx context.Context, poo
 
 // UpdateTaskExecutionPolicy is the resolver for the updateTaskExecutionPolicy field.
 func (r *mutationRootResolver) UpdateTaskExecutionPolicy(ctx context.Context, input model.TaskExecutionPolicyInput) (*model.TaskExecutionPolicy, error) {
-	panic(fmt.Errorf("not implemented: UpdateTaskExecutionPolicy - updateTaskExecutionPolicy"))
+	return r.updateTaskExecutionPolicy(ctx, input)
 }
 
 // StartProviderAuthAttempt is the resolver for the startProviderAuthAttempt field.
@@ -724,7 +724,7 @@ func (r *queryRootResolver) TaskModelPools(ctx context.Context, complexity *mode
 
 // TaskExecutionPolicy is the resolver for the taskExecutionPolicy field.
 func (r *queryRootResolver) TaskExecutionPolicy(ctx context.Context) (*model.TaskExecutionPolicy, error) {
-	panic(fmt.Errorf("not implemented: TaskExecutionPolicy - taskExecutionPolicy"))
+	return r.taskExecutionPolicy(ctx)
 }
 
 // WebFetchSettings is the resolver for the webFetchSettings field.
