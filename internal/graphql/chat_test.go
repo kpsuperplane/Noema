@@ -301,6 +301,30 @@ func TestConversationMultipleChoiceItemsPreserveOrderedContract(t *testing.T) {
 	}
 }
 
+func TestConversationNotificationReferencesPreserveClientContract(t *testing.T) {
+	taskValue, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationTaskReference,
+		Payload: map[string]any{"task_id": "task:0123456789abcdef0123456789abcdef"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, ok := taskValue.(model.TaskReference)
+	if !ok || task.TaskID != "task:0123456789abcdef0123456789abcdef" {
+		t.Fatalf("Task reference = %#v", taskValue)
+	}
+	artifactValue, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationArtifactReference,
+		Payload: map[string]any{"artifact_id": "artifact:one", "artifact_version_id": "artifact_version:one",
+			"title": "Result", "artifact_kind": "report", "storage_kind": "local_file",
+			"download_url": "/artifacts/versions/one/download", "media_type": "text/plain"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, ok := artifactValue.(model.ArtifactReference)
+	if !ok || artifact.ArtifactVersionID == nil || *artifact.ArtifactVersionID != "artifact_version:one" ||
+		artifact.DownloadURL == nil || *artifact.DownloadURL != "/artifacts/versions/one/download" {
+		t.Fatalf("Artifact reference = %#v", artifactValue)
+	}
+}
+
 func TestConversationA2UISurfacePreservesClientContract(t *testing.T) {
 	interactionID := "interaction:test"
 	value, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationA2UICard, Payload: map[string]any{

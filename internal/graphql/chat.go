@@ -315,6 +315,26 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		}
 		recoverable, _ := item.Payload["recoverable"].(bool)
 		return model.ErrorNotice{Message: message, Recoverable: recoverable}, nil
+	case store.ConversationTaskReference:
+		id, _ := item.Payload["task_id"].(string)
+		if id == "" {
+			return nil, errors.New("stored Task reference is invalid")
+		}
+		return model.TaskReference{TaskID: id}, nil
+	case store.ConversationArtifactReference:
+		artifactID, _ := item.Payload["artifact_id"].(string)
+		versionID, _ := item.Payload["artifact_version_id"].(string)
+		title, _ := item.Payload["title"].(string)
+		kind, _ := item.Payload["artifact_kind"].(string)
+		storage, _ := item.Payload["storage_kind"].(string)
+		if artifactID == "" || versionID == "" || title == "" || kind == "" || storage == "" {
+			return nil, errors.New("stored Artifact reference is invalid")
+		}
+		return model.ArtifactReference{ArtifactID: artifactID, ArtifactVersionID: &versionID,
+			Title: title, ArtifactKind: kind, StorageKind: storage,
+			ExternalURL: chatOptionalString(chatPayloadString(item.Payload, "external_url")),
+			DownloadURL: chatOptionalString(chatPayloadString(item.Payload, "download_url")),
+			MediaType:   chatOptionalString(chatPayloadString(item.Payload, "media_type"))}, nil
 	default:
 		return nil, fmt.Errorf("conversation item kind %q is unsupported", item.Kind)
 	}
@@ -382,6 +402,11 @@ func chatOptionalString(value string) *string {
 	}
 	copy := value
 	return &copy
+}
+
+func chatPayloadString(payload map[string]any, key string) string {
+	value, _ := payload[key].(string)
+	return value
 }
 
 func (r *Resolver) primaryConversationModel(

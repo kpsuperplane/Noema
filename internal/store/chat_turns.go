@@ -38,6 +38,8 @@ const (
 	ConversationA2UICard                ConversationItemKind = "a2ui_card"
 	ConversationApprovalRequest         ConversationItemKind = "approval_request"
 	ConversationErrorNotice             ConversationItemKind = "error_notice"
+	ConversationArtifactReference       ConversationItemKind = "artifact_reference"
+	ConversationTaskReference           ConversationItemKind = "task_reference"
 )
 
 // ConversationItem is one durable visible transcript record.

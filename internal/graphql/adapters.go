@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -1011,6 +1012,12 @@ func (r *Resolver) saveAdapterConnectionPolicy(ctx context.Context, input model.
 	def, _, err := findAdapter(snapshot, c.ConnectionID)
 	if err != nil {
 		return nil, err
+	}
+	if c.Status == "active" {
+		if err = r.Store.RecordCapabilityReady(ctx, "api", adapter.DisplayName(def), c.ConnectionID,
+			fmt.Sprint(c.ConnectionRevision), len(c.AllowedOperations), time.Now()); err != nil {
+			return nil, err
+		}
 	}
 	return adapterCapabilityConnection(def, c), nil
 }

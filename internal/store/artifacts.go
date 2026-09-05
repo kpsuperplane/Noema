@@ -223,7 +223,7 @@ WHERE artifact_version_id = ?`, versionID))
 // ArtifactsForOwner lists current Artifacts from newest to oldest.
 func (s *Store) ArtifactsForOwner(ctx context.Context, owner ArtifactOwner, limit int) ([]ArtifactWithVersions, error) {
 	if limit < 1 {
-		limit = 1
+		limit = -1
 	} else if limit > 100 {
 		limit = 100
 	}

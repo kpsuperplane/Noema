@@ -413,6 +413,8 @@ func (c *Chat) run() {
 			}
 		}
 	}()
+	workWake := c.database.SubscribeWork(c.ctx)
+	_ = c.drainPrimaryNotifications()
 	for _, recovery := range c.recoveredActions {
 		if c.ctx.Err() != nil {
 			return
@@ -453,6 +455,8 @@ func (c *Chat) run() {
 			c.resolveMultipleChoice(request)
 		case request := <-c.a2ui:
 			c.resolveA2UI(request)
+		case <-workWake:
+			_ = c.drainPrimaryNotifications()
 		}
 	}
 }

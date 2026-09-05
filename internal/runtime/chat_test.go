@@ -906,6 +906,24 @@ func TestProviderUsageAggregationRejectsOverflow(t *testing.T) {
 	}
 }
 
+func TestPrimaryNotificationNarrationDisablesToolsAndHostedSearch(t *testing.T) {
+	chat, _, conversation := chatFixture(t)
+	var request provider.GenerateRequest
+	chat.openRouter = generatorFunc(func(_ context.Context, value provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		request = value
+		return provider.GenerationResult{Text: "Connected.", Model: "test-model"}, nil
+	})
+	text, _, err := chat.narratePrimaryNotification(conversation, "Narrate readiness.")
+	if err != nil || text != "Connected." {
+		t.Fatalf("narration = %q, %v", text, err)
+	}
+	if len(request.Tools) != 0 || request.ToolTransport != provider.ToolTransportNone ||
+		request.ToolChoice != provider.ToolChoiceNone || request.HostedWebSearch ||
+		request.Messages[len(request.Messages)-1].Role != "developer" {
+		t.Fatalf("notification provider controls = %#v", request)
+	}
+}
+
 func TestTaskInspectFinalizationCompactsReplay(t *testing.T) {
 	messages := []provider.GenerationMessage{
 		{Role: "user", Content: "old"},

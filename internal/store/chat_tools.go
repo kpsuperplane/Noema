@@ -671,7 +671,7 @@ INSERT INTO conversation_items (
     kind, status, author_actor_id, content_text, provider_content_text,
     payload_json, metadata_json, created_at_ms, updated_at_ms
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.ID, item.ConversationID, item.TurnID, item.ParentItemID, item.Sequence,
+		item.ID, item.ConversationID, nullableText(item.TurnID), nullableText(item.ParentItemID), item.Sequence,
 		item.Kind, item.Status, item.AuthorActorID, content, providerContent,
 		string(payload), string(metadata), millis(item.CreatedAt), millis(item.CreatedAt)); err != nil {
 		return ConversationItem{}, fmt.Errorf("create conversation output item: %w", err)

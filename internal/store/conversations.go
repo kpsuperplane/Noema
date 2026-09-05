@@ -82,9 +82,13 @@ INSERT INTO conversations (
 UPDATE local_human_state SET primary_conversation_id = ? WHERE state_id = 1`, id); err != nil {
 		return Conversation{}, fmt.Errorf("select primary conversation: %w", err)
 	}
-	return commitConversation(tx, Conversation{
+	conversation, err := commitConversation(tx, Conversation{
 		ID: id, Provider: providerKind, CWD: cwd, CreatedAt: now, UpdatedAt: now,
 	})
+	if err == nil {
+		s.NotifyWork()
+	}
+	return conversation, err
 }
 
 // Conversation returns one local-human-owned Chat by exact identifier.
