@@ -71,7 +71,7 @@ func TestPrimaryFinalAnswerPresenceAndRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	session := addNotificationSession(t, database, now)
 	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
