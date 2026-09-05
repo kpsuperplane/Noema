@@ -1,0 +1,166 @@
+{
+  "origin": "https://noema.kevinpei.com",
+  "tasks": [
+    {
+      "policy": "RUN_ONCE",
+      "initial": {
+        "taskId": "task:a0a3475c8c6c8770b4beb694248cfdf6",
+        "revision": 1,
+        "generation": 1,
+        "stage": {
+          "key": "inbox"
+        },
+        "schedule": {
+          "scheduledFor": "2026-09-05T23:45:09Z",
+          "missedRunPolicy": "RUN_ONCE"
+        },
+        "runs": []
+      },
+      "afterRestart": {
+        "taskId": "task:a0a3475c8c6c8770b4beb694248cfdf6",
+        "stage": {
+          "key": "doing"
+        },
+        "resultDocument": null,
+        "schedule": {
+          "scheduledFor": "2026-09-05T23:45:09Z",
+          "missedRunPolicy": "RUN_ONCE"
+        },
+        "runs": [
+          {
+            "runId": "run:9f759d5bfb2ac91c91de6d85712b1c74",
+            "kind": "PLANNER",
+            "status": "RUNNING"
+          }
+        ]
+      },
+      "afterSecondRestart": {
+        "taskId": "task:a0a3475c8c6c8770b4beb694248cfdf6",
+        "title": "Migration audit — missed deadline RUN_ONCE",
+        "taskDocument": "# Missed deadline audit\n\n## Requirements\n- Calculate 6 × 7.\n- Write only `42` to `RESULT.md`.\n- Do not access external services.\n- Do not change files outside this Task.\n\n## Plan\n1. Compute 6 × 7 as 42.\n2. Create `RESULT.md` containing exactly `42` and no other text.\n3. Verify that the result file contains only the required value and that no external services or files outside this Task are accessed or modified.\n\n## Progress\n- Computed 6 × 7 = 42.\n- Created `RESULT.md` containing exactly `42`.\n",
+        "stage": {
+          "key": "done"
+        },
+        "completedAt": "2026-09-05T23:46:00.163Z",
+        "schedule": {
+          "scheduledFor": "2026-09-05T23:45:09Z"
+        },
+        "runs": [
+          {
+            "runId": "run:a87489031e0605f9088da17c4893eac4",
+            "kind": "REVIEWER",
+            "status": "COMPLETED"
+          },
+          {
+            "runId": "run:00ae1b722c5a747055db49654c0aa689",
+            "kind": "EXECUTOR",
+            "status": "COMPLETED"
+          },
+          {
+            "runId": "run:9f759d5bfb2ac91c91de6d85712b1c74",
+            "kind": "PLANNER",
+            "status": "COMPLETED"
+          }
+        ]
+      }
+    },
+    {
+      "policy": "SKIP",
+      "initial": {
+        "taskId": "task:68d09d4f13c3adca486f0d2cda1190ca",
+        "revision": 1,
+        "generation": 1,
+        "stage": {
+          "key": "inbox"
+        },
+        "schedule": {
+          "scheduledFor": "2026-09-05T23:45:09Z",
+          "missedRunPolicy": "SKIP"
+        },
+        "runs": []
+      },
+      "afterRestart": {
+        "taskId": "task:68d09d4f13c3adca486f0d2cda1190ca",
+        "stage": {
+          "key": "cancelled"
+        },
+        "resultDocument": null,
+        "schedule": {
+          "scheduledFor": "2026-09-05T23:45:09Z",
+          "missedRunPolicy": "SKIP"
+        },
+        "runs": []
+      },
+      "afterSecondRestart": {
+        "taskId": "task:68d09d4f13c3adca486f0d2cda1190ca",
+        "title": "Migration audit — missed deadline SKIP",
+        "taskDocument": "# Missed deadline audit\n\nCalculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.",
+        "stage": {
+          "key": "cancelled"
+        },
+        "completedAt": null,
+        "schedule": {
+          "scheduledFor": "2026-09-05T23:45:09Z"
+        },
+        "runs": []
+      }
+    }
+  ],
+  "startedAt": "2026-09-05T23:44:49.131Z",
+  "appBefore": {
+    "pid": 3212806,
+    "name": "noema",
+    "cwd": "/var/lib/noema-dev",
+    "exe": "/run/noema-dev/noema"
+  },
+  "watcherBefore": {
+    "pid": 3198779,
+    "name": "air",
+    "cwd": "/root/noema",
+    "exe": "/root/.cache/go-build/82/828351c6d24ebcb13555cafe5f7a7bcdc614abb29943038bddefb1f8de19f2f2-d/air"
+  },
+  "due": "2026-09-05T23:45:09.181Z",
+  "stopRequestedAt": "2026-09-05T23:44:49.233Z",
+  "confirmedAbsentAfterDeadlineAt": "2026-09-05T23:45:10.742Z",
+  "appAfter": {
+    "pid": 3215820,
+    "name": "noema",
+    "cwd": "/var/lib/noema-dev",
+    "exe": "/run/noema-dev/noema"
+  },
+  "availableAfterRestartAt": "2026-09-05T23:45:13.214Z",
+  "completion": {
+    "task": {
+      "taskId": "task:a0a3475c8c6c8770b4beb694248cfdf6",
+      "title": "Migration audit — missed deadline RUN_ONCE",
+      "taskDocument": "# Missed deadline audit\n\n## Requirements\n- Calculate 6 × 7.\n- Write only `42` to `RESULT.md`.\n- Do not access external services.\n- Do not change files outside this Task.\n\n## Plan\n1. Compute 6 × 7 as 42.\n2. Create `RESULT.md` containing exactly `42` and no other text.\n3. Verify that the result file contains only the required value and that no external services or files outside this Task are accessed or modified.\n\n## Progress\n- Computed 6 × 7 = 42.\n- Created `RESULT.md` containing exactly `42`.\n",
+      "stage": {
+        "key": "done"
+      },
+      "completedAt": "2026-09-05T23:46:00.163Z",
+      "schedule": {
+        "scheduledFor": "2026-09-05T23:45:09Z"
+      },
+      "runs": [
+        {
+          "runId": "run:a87489031e0605f9088da17c4893eac4",
+          "kind": "REVIEWER",
+          "status": "COMPLETED"
+        },
+        {
+          "runId": "run:00ae1b722c5a747055db49654c0aa689",
+          "kind": "EXECUTOR",
+          "status": "COMPLETED"
+        },
+        {
+          "runId": "run:9f759d5bfb2ac91c91de6d85712b1c74",
+          "kind": "PLANNER",
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    "result": "42",
+    "browserResultVisible": true
+  },
+  "secondRestartPreserved": true
+}

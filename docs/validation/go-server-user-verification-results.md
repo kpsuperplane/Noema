@@ -444,7 +444,7 @@ The [browser check](evidence/2026-09-05-recurrence-control-views.mjs) verified p
 Ended templates remained readable, with Run now and Edit schedule controls absent.
 The [results](evidence/2026-09-05-recurrence-deadline-controls-results.json) retain exact states before and after each deadline.
 The [validation record](evidence/2026-09-05-recurrence-deadline-validation.json) records scope and reused checks.
-TIME-08 passes. Restart recovery under both missed-run policies remains pending in TIME-04.
+TIME-08 passes. The TIME-04 restart checks below cover both missed-run policies.
 
 ## Stored daylight-saving transitions
 
@@ -489,6 +489,20 @@ The future occurrence uses the edited title and revision. Repeated queue handoff
 The [validation record](evidence/2026-09-05-recurrence-race-validation.json) records passing focused tests, broad Go tests, and vet.
 This unit adds 94 test lines and no production code.
 Together with the one-time race cases, this completes TIME-12 for controlled scheduler state.
+
+## Missed deadlines across live restarts
+
+The [one-time driver](evidence/2026-09-05-missed-restart.mjs) stopped the requested instance across a deadline with RUN_ONCE and SKIP Tasks.
+The [recurrence driver](evidence/2026-09-05-missed-recurrence-restart.mjs) repeated the check for established recurrences.
+Each driver confirmed app absence after the deadline. The development supervisor then restored the app with a new process ID.
+RUN_ONCE executed once in both cases. SKIP cancelled the one-time Task and recorded the recurring slot without creating a Task.
+The [one-time completion check](evidence/2026-09-05-missed-restart-completion.mjs) and [recurrence completion check](evidence/2026-09-05-missed-recurrence-completion.mjs) verified result `42` after browser reload.
+Each permitted Task completed planning, execution, and review with one Executor.
+Both recurrence templates ended after recovery. Their initial Tasks were cancelled before the tested deadline.
+The [preservation check](evidence/2026-09-05-missed-restart-preservation.mjs) confirmed exact completed state and run identities after the second restart.
+The [one-time results](evidence/2026-09-05-missed-restart-results.json) and [recurrence results](evidence/2026-09-05-missed-recurrence-restart-results.json) retain timings and observed state.
+The [validation record](evidence/2026-09-05-missed-restart-validation.json) records scope, driver hashes, healthy processes, and reused Go checks.
+TIME-04 passes for the live Codex and Chromium path. The host clock was unchanged.
 
 ## Case results
 
@@ -578,7 +592,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
 | TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
 | TIME-03 | Not run | Controlled setup pending. | — |
-| TIME-04 | Not run | Controlled setup pending. | — |
+| TIME-04 | Pass · live Codex/Chromium | One-time and recurring RUN_ONCE execute once after restart. SKIP avoids execution. Completed state survives a second restart. | — |
 | TIME-05 | Pass · live Codex/Chromium | The active recurrence remains in Scheduled after its manual occurrence completes and its initial occurrence is cancelled. History survives reload. | — |
 | TIME-06 | Pass · live Codex/Chromium | The automatic slot copies the exact edited template and revision. The earlier Task file stays unchanged. The new Task completes the edited request. | — |
 | TIME-07 | Pass · Chromium | Fixed the recurrence schedule dialog crash. Competing browser drafts preserve current text and timing. The stale description survives reload for an explicit save. | — |
