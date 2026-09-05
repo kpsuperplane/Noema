@@ -13,7 +13,7 @@ const styles = stylex.create({
     gap: "var(--spacing-2)",
     fontSize: 14,
     alignItems: "flex-end",
-    "@container chat-transcript (width < 600px)": {
+    "@container (width < 600px)": {
       gap: "var(--spacing-0)"
     }
   },
@@ -31,7 +31,7 @@ const styles = stylex.create({
     flexDirection: "column",
     gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
     overflowWrap: "anywhere",
-    "@container chat-transcript (width < 600px)": {
+    "@container (width < 600px)": {
       maxWidth: "100%"
     }
   },

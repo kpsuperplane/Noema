@@ -182,6 +182,9 @@ surface abstraction.
 The web app uses Astryx and StyleX. Generated GraphQL types are the client
 contract; do not add hand-maintained mirrors for generated query shapes.
 
+Transcript styles use unnamed size queries against the nearest container.
+StyleX 0.19 runtime injection retains only the first rule for each named container query.
+
 Task detail shows `Workspace` and `Transcript`.
 Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Transcript.
 The wide layout keeps a top boundary and a vertical divider between the views.

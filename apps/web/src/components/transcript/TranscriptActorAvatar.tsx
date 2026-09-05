@@ -17,7 +17,7 @@ const styles = stylex.create({
     alignSelf: "flex-end",
     flexShrink: 0,
     overflow: "hidden",
-    "@container chat-transcript (width < 600px)": {
+    "@container (width < 600px)": {
       display: "none"
     }
   },
