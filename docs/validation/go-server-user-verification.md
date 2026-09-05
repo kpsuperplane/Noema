@@ -1,6 +1,6 @@
 # Go server user verification suite
 
-Prepared: 2026-09-05. Status: **Not run**.
+Prepared: 2026-09-05. Execution: **In progress**. See the [current results](go-server-user-verification-results.md).
 
 This suite checks user outcomes after the Rust-to-Go server replacement.
 It is a verification specification, not an execution report.
@@ -52,7 +52,8 @@ All cases start as **Not run**, including cases covered by older Rust evidence.
 | P1 | Supported daily capability or recovery path. Required for its declared release scope. |
 | P2 | Secondary presentation or operator experience. Record failures before release. |
 
-Use these result states: **Not run**, **Pass**, **Fail**, **Blocked**, **Not applicable**, and **Waived**.
+Use these result states: **Not run**, **Partial**, **Pass**, **Fail**, **Blocked**, **Not applicable**, and **Waived**.
+Partial means that evidence covers only the named variant or portion. It is not a complete case pass.
 A missing account, device, or service makes a required case Blocked.
 Use Not applicable only for a capability excluded from that specific supported configuration.
 A waiver requires an explicit owner, reason, and follow-up. A waiver is not a pass.
