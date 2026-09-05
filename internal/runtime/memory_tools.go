@@ -45,12 +45,13 @@ func localChatTools() []provider.GenerationTool {
 		fileDownloadTool(),
 		luaRunTool(),
 		presentMultipleChoiceTool(),
+		presentA2UITool(),
 		updateOwnNameTool(),
 	}
 }
 
 func supportsLocalChatTool(name string) bool {
-	return name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
+	return name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == presentA2UIName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
@@ -119,6 +120,24 @@ func (c *Chat) executeChatTool(
 		return c.searchMemory(arguments)
 	case noemamcp.ConnectServiceToolName:
 		return c.connectMCPService(ctx, arguments)
+	case presentA2UIName:
+		jsonl, err := parseA2UIArguments(arguments)
+		if err != nil {
+			payload, _ := json.Marshal(map[string]any{"status": "VALIDATION_FAILED", "message": err.Error()})
+			return payload, false
+		}
+		batch, repair := reduceA2UI(conversation.ID, jsonl)
+		if repair != nil {
+			payload, _ := json.Marshal(repair)
+			return payload, false
+		}
+		for _, surface := range batch.Surfaces {
+			if len(surface.Actions) != 0 {
+				return toolFailure("invalid_input", "action-bearing A2UI call was not intercepted"), false
+			}
+		}
+		payload, _ := json.Marshal(map[string]any{"status": "published", "surface_count": len(batch.Surfaces)})
+		return payload, true
 	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
 		if c.adapters != nil {
 			return c.adapters.ExecuteSetup(name, arguments)

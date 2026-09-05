@@ -34,6 +34,18 @@ type ConversationToolRound struct {
 	Reasoning                 []json.RawMessage
 	Call                      ConversationToolCallInput
 	MultipleChoice            *ConversationMultipleChoiceInput
+	A2UI                      *ConversationA2UIInput
+}
+
+// ConversationA2UIInput contains one validated A2UI projection and its resume authority.
+type ConversationA2UIInput struct {
+	Projection         map[string]any
+	HasActions         bool
+	ProviderSelection  map[string]any
+	ResponseID         string
+	HostedState        bool
+	CredentialRevision uint64
+	ToolCatalogDigest  string
 }
 
 // ConversationMultipleChoiceOption is one ordered choice exposed to the human.
@@ -332,12 +344,52 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 		items = append(items, prompt)
 		turnStatus = "waiting_for_tool"
 	}
+	if surface := round.A2UI; surface != nil && len(surface.Projection) != 0 {
+		if surface.HasActions && (surface.ProviderSelection == nil || surface.ToolCatalogDigest == "") {
+			return nil, errors.New("conversation A2UI authority is invalid")
+		}
+		projection := cloneJSONMap(surface.Projection)
+		interactionID := fmt.Sprintf("interaction:%s:%s:%s", turn.ConversationID, turn.ID, round.Call.ProviderCallID)
+		if surface.HasActions {
+			projection["interaction_id"] = interactionID
+			projection["interaction_revision"] = 1
+			projection["lifecycle"] = "pending"
+		}
+		cardID := stableConversationOutputID(turn.ID, "a2ui_card", round.Call.ProviderRound, round.Call.OutputIndex)
+		card, err := insertConversationOutputTx(ctx, tx, ConversationItem{
+			ID: cardID, ConversationID: turn.ConversationID, TurnID: turn.ID,
+			ParentItemID: callID, Sequence: sequence + 1, Kind: ConversationA2UICard,
+			Status: "completed", AuthorActorID: "agent:primary",
+			Payload: map[string]any{
+				"id":     fmt.Sprintf("a2ui:%s:%d", turn.ID, round.Call.OutputIndex),
+				"schema": "a2ui.v0.9.1", "payload": projection,
+				"interaction_state": func() string {
+					if surface.HasActions {
+						return "pending"
+					}
+					return "completed"
+				}(),
+				"provider_selection": surface.ProviderSelection, "provider_round": round.Call.ProviderRound,
+				"response_id": surface.ResponseID, "hosted_state": surface.HostedState,
+				"credential_revision": surface.CredentialRevision, "tool_catalog_digest": surface.ToolCatalogDigest,
+				"call_item_id": callID,
+			},
+			Metadata: metadata("a2ui_card", round.Call.OutputIndex), CreatedAt: now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, card)
+		if surface.HasActions {
+			turnStatus = "waiting_for_tool"
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE conversation_turns SET status = ?, updated_at_ms = ?
 WHERE turn_id = ? AND conversation_id = ?`, turnStatus, millis(now), turn.ID, turn.ConversationID); err != nil {
 		return nil, fmt.Errorf("start conversation tool turn: %w", err)
 	}
-	if round.MultipleChoice != nil {
+	if round.MultipleChoice != nil || round.A2UI != nil && round.A2UI.HasActions {
 		if _, err := tx.ExecContext(ctx, `
 UPDATE conversations SET agent_status = 'idle', updated_at_ms = ? WHERE conversation_id = ?`,
 			millis(now), turn.ConversationID); err != nil {
@@ -347,10 +399,20 @@ UPDATE conversations SET agent_status = 'idle', updated_at_ms = ? WHERE conversa
 	if err := completeResumingConversationChoicesTx(ctx, tx, turn.ID, now); err != nil {
 		return nil, err
 	}
+	if err := completeResumingConversationA2UITx(ctx, tx, turn.ID, "completed", now); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit conversation tool round: %w", err)
 	}
 	return items, nil
+}
+
+func cloneJSONMap(value map[string]any) map[string]any {
+	encoded, _ := json.Marshal(value)
+	var cloned map[string]any
+	_ = json.Unmarshal(encoded, &cloned)
+	return cloned
 }
 
 // FinishConversationToolCall atomically closes one call and stores its result.

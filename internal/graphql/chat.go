@@ -79,6 +79,21 @@ func (r *Resolver) sendMultipleChoiceSelection(
 	return &model.TurnAccepted{ConversationID: accepted.ConversationID, ClientMessageID: accepted.ClientMessageID}, nil
 }
 
+func (r *Resolver) sendA2UIAction(
+	ctx context.Context, input model.ProviderInteractionActionInput,
+) (*model.TurnAccepted, error) {
+	if r.Chat == nil {
+		return nil, errors.New("Chat runtime is unavailable")
+	}
+	accepted, err := r.Chat.SendA2UIAction(ctx, input.ConversationID, input.InteractionID,
+		input.ExpectedRevision, input.SurfaceID, input.SourceComponentID, input.ActionName,
+		input.Context, input.DataModel, input.ClientMessageID)
+	if err != nil {
+		return nil, err
+	}
+	return &model.TurnAccepted{ConversationID: accepted.ConversationID, ClientMessageID: accepted.ClientMessageID}, nil
+}
+
 func (r *Resolver) conversationEvents(
 	ctx context.Context,
 	conversationID string,
@@ -239,6 +254,43 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 			return nil, errors.New("stored multiple-choice selection is invalid")
 		}
 		return model.MultipleChoiceSelection{PromptItemID: promptID, SelectionMode: mode, SelectedOptions: options}, nil
+	case store.ConversationA2UICard:
+		projection, _ := item.Payload["payload"].(map[string]any)
+		surfaces, _ := projection["surfaces"].(map[string]any)
+		if len(surfaces) != 1 {
+			return nil, errors.New("stored A2UI projection is invalid")
+		}
+		var snapshot map[string]any
+		for _, value := range surfaces {
+			snapshot, _ = value.(map[string]any)
+		}
+		catalog, _ := projection["catalog"].(map[string]any)
+		actions, _ := snapshot["actions"].([]any)
+		id, _ := item.Payload["id"].(string)
+		surfaceID, _ := snapshot["surface_id"].(string)
+		version, _ := snapshot["version"].(string)
+		lifecycle, _ := projection["lifecycle"].(string)
+		if state, _ := item.Payload["interaction_state"].(string); state == "completed" || state == "failed" {
+			lifecycle = state
+		}
+		if lifecycle == "" {
+			lifecycle = "completed"
+		}
+		if id == "" || surfaceID == "" || version != "v0.9.1" || catalog == nil || snapshot == nil {
+			return nil, errors.New("stored A2UI surface is invalid")
+		}
+		var interactionID *string
+		if value, ok := projection["interaction_id"].(string); ok && value != "" {
+			interactionID = &value
+		}
+		var interactionRevision *int
+		if value, ok := projection["interaction_revision"].(float64); ok {
+			revision := int(value)
+			interactionRevision = &revision
+		}
+		return model.A2UISurface{ID: id, InteractionID: interactionID, SurfaceID: surfaceID,
+			Version: version, Revision: intJSONModel(snapshot["revision"]), InteractionRevision: interactionRevision,
+			Lifecycle: lifecycle, Catalog: catalog, Snapshot: snapshot, HasActions: len(actions) != 0}, nil
 	case store.ConversationActivity, store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
 		id, _ := item.Payload["id"].(string)
 		kind, _ := item.Payload["activity_kind"].(string)
@@ -267,6 +319,8 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		return nil, fmt.Errorf("conversation item kind %q is unsupported", item.Kind)
 	}
 }
+
+func intJSONModel(value any) int { number, _ := value.(float64); return int(number) }
 
 func multipleChoiceModeModel(value any) (model.MultipleChoiceSelectionMode, error) {
 	switch value {

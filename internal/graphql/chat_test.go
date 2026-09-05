@@ -301,6 +301,30 @@ func TestConversationMultipleChoiceItemsPreserveOrderedContract(t *testing.T) {
 	}
 }
 
+func TestConversationA2UISurfacePreservesClientContract(t *testing.T) {
+	interactionID := "interaction:test"
+	value, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationA2UICard, Payload: map[string]any{
+		"id": "a2ui:test", "schema": "a2ui.v0.9.1", "interaction_state": "pending",
+		"payload": map[string]any{"interaction_id": interactionID, "interaction_revision": float64(1), "lifecycle": "pending",
+			"catalog": map[string]any{"catalog_id": "com.noema.a2ui/catalog/v0.9.1"}, "surfaces": map[string]any{
+				"main": map[string]any{"surface_id": "main", "version": "v0.9.1", "revision": float64(3),
+					"components": map[string]any{"root": map[string]any{"component": "TextField", "variant": "obscured"}},
+					"data_model": map[string]any{"private": "kept"}, "actions": []any{map[string]any{"name": "submit"}},
+				},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	surface, ok := value.(model.A2UISurface)
+	if !ok || surface.InteractionID == nil || *surface.InteractionID != interactionID ||
+		surface.InteractionRevision == nil || *surface.InteractionRevision != 1 || surface.Revision != 3 ||
+		!surface.HasActions || surface.Snapshot["data_model"].(map[string]any)["private"] != "kept" {
+		t.Fatalf("A2UI GraphQL surface = %#v", value)
+	}
+}
+
 func openChatTestResolver(t *testing.T) *Resolver {
 	t.Helper()
 	resolver := openProviderTestResolver(t)

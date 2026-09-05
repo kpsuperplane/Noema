@@ -34,6 +34,7 @@ const (
 	ConversationReasoning               ConversationItemKind = "reasoning"
 	ConversationMultipleChoicePrompt    ConversationItemKind = "multiple_choice_prompt"
 	ConversationMultipleChoiceSelection ConversationItemKind = "multiple_choice_selection"
+	ConversationA2UICard                ConversationItemKind = "a2ui_card"
 	ConversationApprovalRequest         ConversationItemKind = "approval_request"
 	ConversationErrorNotice             ConversationItemKind = "error_notice"
 )
@@ -487,8 +488,10 @@ WHERE conversation_id IN (
     SELECT conversation_id FROM conversation_turns
     WHERE status IN ('input_received', 'running', 'waiting_for_tool') AND NOT EXISTS (
         SELECT 1 FROM conversation_items choice WHERE choice.turn_id = conversation_turns.turn_id
-        AND choice.kind = 'multiple_choice_prompt'
-        AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming')
+        AND ((choice.kind = 'multiple_choice_prompt'
+        AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming'))
+        OR (choice.kind = 'a2ui_card'
+        AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming')))
     )
 )`, millis(now)); err != nil {
 		return 0, fmt.Errorf("restore recovered conversations: %w", err)
@@ -499,8 +502,10 @@ WHERE status IN ('pending', 'running') AND turn_id IN (
     SELECT turn_id FROM conversation_turns
     WHERE status IN ('input_received', 'running', 'waiting_for_tool') AND NOT EXISTS (
         SELECT 1 FROM conversation_items choice WHERE choice.turn_id = conversation_turns.turn_id
-        AND choice.kind = 'multiple_choice_prompt'
-        AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming')
+        AND ((choice.kind = 'multiple_choice_prompt'
+        AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming'))
+        OR (choice.kind = 'a2ui_card'
+        AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming')))
     )
 )`, millis(now)); err != nil {
 		return 0, fmt.Errorf("cancel recovered conversation items: %w", err)
@@ -510,8 +515,10 @@ UPDATE conversation_turns
 SET status = 'cancelled', completed_at_ms = ?, updated_at_ms = ?
 WHERE status IN ('input_received', 'running', 'waiting_for_tool') AND NOT EXISTS (
     SELECT 1 FROM conversation_items choice WHERE choice.turn_id = conversation_turns.turn_id
-    AND choice.kind = 'multiple_choice_prompt'
-    AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming')
+    AND ((choice.kind = 'multiple_choice_prompt'
+    AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming'))
+    OR (choice.kind = 'a2ui_card'
+    AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming')))
 )`, millis(now), millis(now))
 	if err != nil {
 		return 0, fmt.Errorf("cancel recovered conversation turns: %w", err)
@@ -634,6 +641,13 @@ UPDATE conversations SET agent_status = ?, updated_at_ms = ? WHERE conversation_
 		return ConversationItem{}, fmt.Errorf("finish conversation status: %w", err)
 	}
 	if err := completeResumingConversationChoicesTx(ctx, tx, turn.ID, now); err != nil {
+		return ConversationItem{}, err
+	}
+	a2uiState := "completed"
+	if kind == ConversationErrorNotice {
+		a2uiState = "failed"
+	}
+	if err := completeResumingConversationA2UITx(ctx, tx, turn.ID, a2uiState, now); err != nil {
 		return ConversationItem{}, err
 	}
 	item, err := conversationItemTx(ctx, tx, itemID)
