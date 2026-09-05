@@ -10,6 +10,7 @@ The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
 One migration registry now drives fresh creation and upgrades at version 32.
 `go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
 CI checks generated Go and web files. The Rust launcher is removed.
+The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.
@@ -251,8 +252,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   Task `task:18d07a17681adac7353` completed with a reviewed accessible HTML artifact.
 - Browser review compares parsed interaction meaning across snapshots and optional input shapes.
   The unchanged retry returned `human_declined_equivalent_action` before a second action request.
-- The fixture kept consent withdrawn with no receipt, zero deliveries, and zero attempts.
-  The Task Reviewer approved the result.
 - Current reviewer policy can execute an authorized medium-risk write.
   Do not add mandatory review, decline notes, or a general consent registry now.
 - The Milestone 3 evidence record is `docs/validation/personal-assistant-milestone-3-acceptance.md`.

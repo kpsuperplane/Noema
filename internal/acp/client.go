@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	sdk "github.com/coder/acp-go-sdk"
 	"github.com/kpsuperplane/noema/internal/childenv"
 )
 
@@ -55,14 +57,14 @@ func probeWithTimeout(ctx context.Context, command Command, timeout time.Duratio
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	session, err := start(command)
+	session, err := start(command, nil)
 	if err != nil {
 		return ProbeResult{}, fmt.Errorf("%w: %v", ErrInitializationFailed, err)
 	}
 	defer func() { err = errors.Join(err, session.close()) }()
 
 	var initialized initializeResult
-	err = session.exchange(probeCtx, 1, "initialize", initializeParams{
+	err = session.exchange(probeCtx, "initialize", initializeParams{
 		ProtocolVersion:    protocolVersion,
 		ClientCapabilities: map[string]any{},
 		ClientInfo:         implementation{Name: "noema", Version: "go-migration"},
@@ -98,14 +100,14 @@ func Authenticate(ctx context.Context, command Command, methodID string) (err er
 	if strings.TrimSpace(methodID) == "" {
 		return ErrAuthenticationFailed
 	}
-	session, err := start(command)
+	session, err := start(command, nil)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrAuthenticationFailed, err)
 	}
 	defer func() { err = errors.Join(err, session.close()) }()
 
 	var initialized initializeResult
-	if err := session.exchange(ctx, 1, "initialize", initializeParams{
+	if err := session.exchange(ctx, "initialize", initializeParams{
 		ProtocolVersion:    protocolVersion,
 		ClientCapabilities: map[string]any{},
 		ClientInfo:         implementation{Name: "noema", Version: "go-migration"},
@@ -113,7 +115,7 @@ func Authenticate(ctx context.Context, command Command, methodID string) (err er
 		return authenticationError(ctx)
 	}
 	var authenticated map[string]any
-	if err := session.exchange(ctx, 2, "authenticate", map[string]string{"methodId": methodID}, &authenticated); err != nil {
+	if err := session.exchange(ctx, "authenticate", map[string]string{"methodId": methodID}, &authenticated); err != nil {
 		return authenticationError(ctx)
 	}
 	return nil
@@ -174,31 +176,15 @@ func nonEmptyString(value any) bool {
 	return ok && strings.TrimSpace(text) != ""
 }
 
-type rpcRequest struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      int    `json:"id"`
-	Method  string `json:"method"`
-	Params  any    `json:"params"`
-}
-
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id"`
-	Result  json.RawMessage `json:"result"`
-	Error   *struct {
-		Code int `json:"code"`
-	} `json:"error"`
-}
-
 type session struct {
-	stdin   io.WriteCloser
-	stdout  io.ReadCloser
-	reader  *bufio.Reader
-	process *managedProcess
-	once    sync.Once
+	stdin      io.WriteCloser
+	stdout     io.ReadCloser
+	connection *sdk.Connection
+	process    *managedProcess
+	once       sync.Once
 }
 
-func start(command Command) (*session, error) {
+func start(command Command, handler sdk.MethodHandler) (*session, error) {
 	if strings.TrimSpace(command.Path) == "" {
 		return nil, errors.New("ACP command is empty")
 	}
@@ -225,52 +211,51 @@ func start(command Command) (*session, error) {
 		_ = cmd.Wait()
 		return nil, err
 	}
-	return &session{
-		stdin: stdin, stdout: stdout, reader: bufio.NewReader(stdout),
-		process: newManagedProcess(cmd, tree),
-	}, nil
+	reader := &protocolReader{reader: bufio.NewReader(stdout), ready: make(chan struct{})}
+	connection := sdk.NewConnection(handler, stdin, reader)
+	// SDK diagnostics can contain peer data. Install the logger before reading.
+	connection.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	close(reader.ready)
+	return &session{stdin: stdin, stdout: stdout, connection: connection,
+		process: newManagedProcess(cmd, tree)}, nil
 }
 
-func (s *session) exchange(ctx context.Context, id int, method string, params any, target any) error {
-	message, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params})
+func (s *session) exchange(ctx context.Context, method string, params any, target any) error {
+	// Closing stdin also interrupts an SDK write blocked by an unresponsive peer.
+	stop := context.AfterFunc(ctx, func() { _ = s.stdin.Close(); _ = s.stdout.Close() })
+	defer stop()
+	result, err := sdk.SendRequest[json.RawMessage](s.connection, ctx, method, params)
 	if err != nil {
 		return err
 	}
-	message = append(message, '\n')
-	if err := s.write(ctx, message); err != nil {
-		return err
-	}
-	for {
-		line, err := await(ctx, func() ([]byte, error) { return readMessage(s.reader) })
-		if err != nil {
-			return err
-		}
-		var response rpcResponse
-		if err := json.Unmarshal(line, &response); err != nil {
-			return err
-		}
-		if response.ID == nil {
-			continue
-		}
-		if response.JSONRPC != "2.0" || *response.ID != id || response.Error != nil || len(response.Result) == 0 {
-			return errors.New("invalid ACP JSON-RPC response")
-		}
-		return json.Unmarshal(response.Result, target)
-	}
+	return json.Unmarshal(result, target)
 }
 
-func writeMessage(writer io.Writer, message []byte) error {
-	for len(message) > 0 {
-		written, err := writer.Write(message)
+// protocolReader enforces Noema's message bound and fails closed on invalid JSON-RPC.
+type protocolReader struct {
+	reader  *bufio.Reader
+	ready   chan struct{}
+	pending []byte
+}
+
+func (r *protocolReader) Read(p []byte) (int, error) {
+	<-r.ready
+	if len(r.pending) == 0 {
+		line, err := readMessage(r.reader)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if written == 0 {
-			return io.ErrShortWrite
+		var envelope struct {
+			JSONRPC string `json:"jsonrpc"`
 		}
-		message = message[written:]
+		if json.Unmarshal(line, &envelope) != nil || envelope.JSONRPC != "2.0" {
+			return 0, errors.New("invalid ACP JSON-RPC message")
+		}
+		r.pending = line
 	}
-	return nil
+	n := copy(p, r.pending)
+	r.pending = r.pending[n:]
+	return n, nil
 }
 
 func readMessage(reader *bufio.Reader) ([]byte, error) {
@@ -287,26 +272,6 @@ func readMessage(reader *bufio.Reader) ([]byte, error) {
 		if !errors.Is(err, bufio.ErrBufferFull) {
 			return nil, err
 		}
-	}
-}
-
-type asyncResult[T any] struct {
-	value T
-	err   error
-}
-
-func await[T any](ctx context.Context, call func() (T, error)) (T, error) {
-	result := make(chan asyncResult[T], 1)
-	go func() {
-		value, err := call()
-		result <- asyncResult[T]{value: value, err: err}
-	}()
-	select {
-	case <-ctx.Done():
-		var zero T
-		return zero, ctx.Err()
-	case result := <-result:
-		return result.value, result.err
 	}
 }
 

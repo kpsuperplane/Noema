@@ -67,3 +67,8 @@ Do not remove the browser worker or Tauri desktop capability.
   Linux document workers now limit writable data mappings; address reservations caused intermittent failures.
   Go tests and vet, web lint/build, and all retained Rust checks passed.
   The new supervisor adds 136 production lines and 60 test lines; Rust loses 993 lines.
+
+- ACP SDK replacement complete: coder/acp-go-sdk v0.13.5 owns JSON-RPC dispatch.
+  Local limits, secret-free diagnostics, exact permission handling, and process cleanup remain.
+  Existing ACP unit tests and race tests passed; 99 implementation lines removed.
+  Full Go validation found unrelated active public-page edits with two stale text assertions.
