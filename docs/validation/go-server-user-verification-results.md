@@ -406,6 +406,18 @@ Its [fixture](evidence/2026-09-05-truncation-component.jsx) uses the installed h
 The [validation record](evidence/2026-09-05-recurrence-drafts-validation.json) records passing frontend checks and the patch removal condition.
 TIME-07 passes in Chromium. Future execution variants under TIME-08 remain pending.
 
+## Recurrence history and manual execution
+
+The [browser driver](evidence/2026-09-05-recurrence-history.mjs) created a future recurrence and cancelled its initial occurrence.
+Run now created one separate manual occurrence without changing the next normal slot.
+One Executor wrote `72`. Planner and Reviewer runs also completed.
+After reload, the active recurrence stayed in Scheduled while both occurrences were terminal.
+Desktop and phone history showed separate manual and scheduled entries.
+The manual history link opened the correct result. The fixture was then ended.
+The [results](evidence/2026-09-05-recurrence-history-results.json) retain occurrence identities, timing, completion, and cleanup.
+The [validation record](evidence/2026-09-05-recurrence-history-validation.json) records scope and reused frontend checks.
+TIME-05 and TIME-09 pass for live Codex and Chromium. Automatic template copying remains pending under TIME-06.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -495,11 +507,11 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
 | TIME-03 | Not run | Controlled setup pending. | — |
 | TIME-04 | Not run | Controlled setup pending. | — |
-| TIME-05 | Not run | Controlled setup pending. | — |
+| TIME-05 | Pass · live Codex/Chromium | The active recurrence remains in Scheduled after its manual occurrence completes and its initial occurrence is cancelled. History survives reload. | — |
 | TIME-06 | Partial | A manual occurrence copies the updated template. Existing Task content remains unchanged. Automatic future-slot copy remains pending. | — |
 | TIME-07 | Pass · Chromium | Fixed the recurrence schedule dialog crash. Competing browser drafts preserve current text and timing. The stale description survives reload for an explicit save. | — |
 | TIME-08 | Partial | Pause, resume, and skip next update schedule state. End preserves readable content and rejects edits. Future execution variants remain pending. | — |
-| TIME-09 | Partial | One manual occurrence starts with the updated document and preserves the next normal slot. Browser history remains pending. | — |
+| TIME-09 | Pass · live Codex/Chromium | Browser Run now creates one manual occurrence and preserves the next normal slot through completion. Its history link opens the correct result. | — |
 | TIME-10 | Not run | Controlled setup pending. | — |
 | TIME-11 | Partial | Fixed duplicate fall-back previews. Spring and fall preview assertions pass. Actual scheduled transition checks remain pending. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
