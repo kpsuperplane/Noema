@@ -863,13 +863,21 @@ func processDueRecurrenceTx(
 			return "", nil
 		}
 		due := *value.PendingCoalescedAt
+		next := value.NextRunAt
+		if next != nil && !next.After(now) {
+			instant, err := schedule.NextAtOrAfter(value.CronExpression, value.TimeZone, now.Add(time.Second))
+			if err != nil {
+				return "", err
+			}
+			next = &instant
+		}
 		task, _, err := materializeOccurrenceTx(ctx, tx, &value, "", due, "scheduled", true,
 			"actor:system:scheduler", "correlation:schedule:"+id, now)
 		if err != nil {
 			return "", err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE task_recurrences SET pending_coalesced_at_ms = NULL,
-updated_at_ms = ? WHERE recurrence_id = ? AND revision = ?`, millis(now), id, value.Revision)
+next_run_at_ms = ?, updated_at_ms = ? WHERE recurrence_id = ? AND revision = ?`, nullableTime(next), millis(now), id, value.Revision)
 		return task.ID, err
 	}
 	due := *value.NextRunAt

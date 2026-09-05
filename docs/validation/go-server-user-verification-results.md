@@ -457,6 +457,18 @@ The [validation record](evidence/2026-09-05-dst-store-validation.json) records i
 The test adds 71 lines. No production change was required.
 TIME-11 passes for controlled scheduler time. The live server clock was unchanged.
 
+## Recurrence overlap policy counts
+
+The [overlap test](../../internal/store/task_schedules_test.go) keeps a Task active across two later slots using production store commands.
+Skip creates no later Task. Allow creates one Task for each later slot.
+Queue one initially failed: completing its catch-up Task released another Task for an older overlapped slot.
+The release transaction now advances expired timing and preserves any future next slot.
+Queue one releases exactly one catch-up Task. A further scheduler wake creates no extra Task.
+A fourth case verifies preservation of a future slot set by Skip next.
+The [validation record](evidence/2026-09-05-overlap-store-validation.json) contains the before-and-after results and passing broad Go checks.
+The fix adds eight production lines and 114 test lines. Both Go migration ratios remain below 80 percent.
+TIME-10 passes for controlled scheduler state. Provider execution remains covered by the separate live deadline checks.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -551,7 +563,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-07 | Pass · Chromium | Fixed the recurrence schedule dialog crash. Competing browser drafts preserve current text and timing. The stale description survives reload for an explicit save. | — |
 | TIME-08 | Pass · live scheduler/Codex/Chromium | Pause and skip prevent work at the deadline. Resume permits one next-slot occurrence. End prevents later occurrences and preserves readable, immutable templates. | — |
 | TIME-09 | Pass · live Codex/Chromium | Browser Run now creates one manual occurrence and preserves the next normal slot through completion. Its history link opens the correct result. | — |
-| TIME-10 | Not run | Controlled setup pending. | — |
+| TIME-10 | Pass · controlled scheduler state | Skip creates no later Task while active. Queue one releases one catch-up Task. Allow creates both due occurrences. Fixed extra queue-one catch-up work. | — |
 | TIME-11 | Pass · controlled scheduler time | Production scheduling skips the missing spring minute and creates no duplicate run for the repeated fall minute. The next valid day queues one occurrence. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
 | PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |

@@ -185,6 +185,120 @@ func TestDueSchedulesApplyMissedAndOverlapPolicies(t *testing.T) {
 	})
 }
 
+func TestRecurrenceOverlapPoliciesAcrossActiveSlots(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		policy      schedule.OverlapPolicy
+		activeSlots int
+		skipFuture  bool
+	}{
+		{"skip", schedule.OverlapSkip, 2, false},
+		{"queue_one", schedule.OverlapQueueOne, 2, false},
+		{"allow", schedule.OverlapAllow, 2, false},
+		{"queue_one preserves future skip", schedule.OverlapQueueOne, 1, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := test.policy
+			database := openTestStore(t)
+			ctx := t.Context()
+			first := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+			id, err := NewTaskID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := normalizedTestSchedule(t, first, schedule.MissedRunOnce, policy)
+			created, err := database.CreateTaskWithOptions(ctx, id, "Overlap audit", testTaskCommand("overlap-create"),
+				TaskCreateOptions{Schedule: &value}, first.Add(-time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := database.ProcessDueTaskSchedules(ctx, first, false, nil); err != nil {
+				t.Fatal(err)
+			}
+			started, err := database.StartTask(ctx, id, "run:active", first)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for minute := 1; minute <= test.activeSlots; minute++ {
+				at := first.Add(time.Duration(minute) * time.Minute)
+				newTasks, _, err := database.ProcessDueTaskSchedules(ctx, at, false, nil)
+				want := 0
+				if policy == schedule.OverlapAllow {
+					want = 1
+				}
+				if err != nil || len(newTasks) != want {
+					t.Fatalf("active slot %d = %#v, %v; want %d new Tasks", minute, newTasks, err, want)
+				}
+			}
+			recurrence, err := database.TaskRecurrence(ctx, created.RecurrenceID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if policy == schedule.OverlapQueueOne {
+				if recurrence.PendingCoalescedAt == nil || !recurrence.PendingCoalescedAt.Equal(first.Add(time.Minute)) {
+					t.Fatalf("pending slot = %#v", recurrence.PendingCoalescedAt)
+				}
+			} else if recurrence.PendingCoalescedAt != nil {
+				t.Fatalf("unexpected pending slot = %#v", recurrence.PendingCoalescedAt)
+			}
+			finishedAt := first.Add(time.Duration(test.activeSlots)*time.Minute + 30*time.Second)
+			wantNext := first.Add(time.Duration(test.activeSlots+1) * time.Minute)
+			if test.skipFuture {
+				if _, err := database.SkipTaskRecurrenceNext(ctx, created.RecurrenceID, recurrence.Revision,
+					testTaskCommand("skip-future"), finishedAt); err != nil {
+					t.Fatal(err)
+				}
+				wantNext = wantNext.Add(time.Minute)
+			}
+			if _, err := database.FinishTask(ctx, id, started.CurrentRunID, TaskCompleted, finishedAt); err != nil {
+				t.Fatal(err)
+			}
+			for wake := 0; wake < 2; wake++ {
+				newTasks, _, err := database.ProcessDueTaskSchedules(ctx, finishedAt, false, nil)
+				want := 0
+				if policy == schedule.OverlapQueueOne && wake == 0 {
+					want = 1
+				}
+				if err != nil || len(newTasks) != want {
+					t.Fatalf("release wake %d = %#v, %v; want %d new Tasks", wake, newTasks, err, want)
+				}
+				if policy == schedule.OverlapQueueOne && wake == 0 {
+					catchup, err := database.StartTask(ctx, newTasks[0].TaskID, "run:catchup", finishedAt)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := database.FinishTask(ctx, catchup.ID, catchup.CurrentRunID, TaskCompleted, finishedAt); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			recurrence, err = database.TaskRecurrence(ctx, created.RecurrenceID)
+			if err != nil || recurrence.PendingCoalescedAt != nil || recurrence.NextRunAt == nil || !recurrence.NextRunAt.Equal(wantNext) {
+				t.Fatalf("released recurrence retains past work = %#v, %v", recurrence, err)
+			}
+			occurrences, err := database.TaskRecurrenceOccurrences(ctx, created.RecurrenceID, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tasks := make(map[string]bool)
+			for _, occurrence := range occurrences {
+				if occurrence.TaskID != "" {
+					if tasks[occurrence.TaskID] {
+						t.Fatalf("duplicate Task in history: %s", occurrence.TaskID)
+					}
+					tasks[occurrence.TaskID] = true
+				} else if policy == schedule.OverlapSkip && occurrence.Resolution != "skipped" {
+					t.Fatalf("skip resolution = %#v", occurrence)
+				}
+			}
+			wantTasks := map[schedule.OverlapPolicy]int{schedule.OverlapSkip: 1, schedule.OverlapQueueOne: 2, schedule.OverlapAllow: 3}[policy]
+			if len(tasks) != wantTasks {
+				t.Fatalf("Task count = %d, want %d; occurrences = %#v", len(tasks), wantTasks, occurrences)
+			}
+		})
+	}
+}
+
 func TestDueSchedulesRespectDaylightSavingTransitions(t *testing.T) {
 	for _, test := range []struct {
 		name, cron, first, transition, next string

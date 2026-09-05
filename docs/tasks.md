@@ -240,6 +240,9 @@ A repeated fall-back minute executes at most once.
 `skip` records a missed slot.
 `run_once` queues one representative occurrence before normal cadence resumes.
 Overlap policies are `skip`, `queue_one`, and `allow`.
+`queue_one` keeps one pending occurrence while a Task is active.
+When that occurrence is released, older overlapped slots do not create further catch-up Tasks.
+A future slot set by Skip next remains unchanged.
 
 Run now is separate execution authority.
 For a pending scheduled Task, it runs that same Task early.
