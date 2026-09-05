@@ -25,7 +25,7 @@ func testManifest() Manifest {
 				OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"name": {Type: "string", MaxBytes: &limit}}, Required: []string{"name"}, AdditionalProperties: &closed}}}}}
 }
 
-func TestCompileEnforcesClosedCredentialFreeLuaContract(t *testing.T) {
+func TestCompileEnforcesClosedLuaContract(t *testing.T) {
 	manifest := testManifest()
 	if _, err := Compile(manifest); err != nil {
 		t.Fatalf("Compile() = %v", err)
@@ -62,6 +62,126 @@ func TestCompileEnforcesClosedCredentialFreeLuaContract(t *testing.T) {
 	raw = []byte(strings.Replace(string(raw), `"schema_version":9`, `"schema_version":9,"schema_version":9`, 1))
 	if _, err := CompileJSON(raw); err == nil {
 		t.Fatal("duplicate manifest field compiled")
+	}
+	raw, _ = json.Marshal(testManifest())
+	raw = []byte(strings.Replace(string(raw), `"authentication":{"kind":"none"}`, `"authentication":{"kind":"none","setup":null}`, 1))
+	if _, err := CompileJSON(raw); err == nil {
+		t.Fatal("open none authentication compiled")
+	}
+}
+
+func testCredentialAuthentication() Authentication {
+	return Authentication{Kind: "credential", Setup: &CredentialSetup{CredentialType: "API key", SetupURL: "https://example.com/keys",
+		Instructions: []string{"Create one key."}, Input: CredentialInput{Kind: "fields", Fields: []CredentialField{{ID: "api_key", Label: "API key"}}}},
+		RequestAuth: &Transform{Language: "lua", Source: `return function(input) return {headers={Authorization="Bearer "..input.credentials.api_key},query={signature=input.credentials.api_key}} end`}}
+}
+
+func TestCredentialManifestAndRequestAuthenticationAreClosed(t *testing.T) {
+	manifest := testManifest()
+	manifest.Authentication = testCredentialAuthentication()
+	definition, err := Compile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := encodeRequest(definition, definition.Operations[0], json.RawMessage(`{"id":"ordinary-id"}`), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sensitive, secretValues, err := applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request)
+	if err != nil || request.headers["Authorization"] != "Bearer secret-marker" || !strings.Contains(request.rawURL, "signature=secret-marker") || !sensitive["authorization"] || !sensitive["signature"] || len(secretValues) != 2 {
+		t.Fatalf("request authentication = %#v, %#v, %#v, %v", request, sensitive, secretValues, err)
+	}
+	manifest.Authentication.RequestAuth.Source = `return function(input) return {headers={Host=input.credentials.api_key}} end`
+	definition, err = Compile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, _ = encodeRequest(definition, definition.Operations[0], json.RawMessage(`{"id":"ordinary-id"}`), "")
+	if _, _, err = applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request); err == nil {
+		t.Fatal("dangerous credential header was accepted")
+	}
+	manifest.Authentication.RequestAuth.Source = `return function(input) return {body=input.credentials.api_key} end`
+	if _, err = Compile(manifest); err != nil {
+		t.Fatal(err)
+	}
+	request, _, _ = encodeRequest(definition, definition.Operations[0], json.RawMessage(`{"id":"ordinary-id"}`), "")
+	if _, _, err = applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request); err == nil {
+		t.Fatal("open credential result was accepted")
+	}
+	manifest.Authentication = testCredentialAuthentication()
+	manifest.Authentication.Setup.SetupURL = "https://example.com/keys?account=ordinary#new"
+	if _, err = Compile(manifest); err == nil {
+		t.Fatal("credential setup URL with query and fragment compiled")
+	}
+}
+
+func TestCredentialSetupPublishesAndReplacesProtectedGeneration(t *testing.T) {
+	directory := t.TempDir()
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	database, err := store.Open(t.Context(), filepath.Join(directory, "noema.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	service, err := NewService(root, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := testManifest()
+	manifest.Reviewed, manifest.Authentication = true, testCredentialAuthentication()
+	definition, err := service.files.installDefinition(manifest, "https://example.com/docs", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, connection, err := service.SetupCredentialConnection(t.Context(), definition.SemanticDigest, "", CredentialInputValue{FieldValues: map[string]string{"api_key": "first-secret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialPath := filepath.Join(directory, "adapters", "connections", connection.ConnectionID, "credentials", connection.Authentication.GenerationID+".json")
+	info, err := os.Stat(credentialPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("credential mode = %v", info.Mode().Perm())
+	}
+	connectionRaw, _ := os.ReadFile(filepath.Join(directory, "adapters", "connections", connection.ConnectionID, "connection.json"))
+	if strings.Contains(string(connectionRaw), "first-secret") {
+		t.Fatal("connection descriptor contains credential material")
+	}
+	connection.Status = "authentication_required"
+	connection.ConnectionRevision++
+	if _, err = service.files.replaceConnection(connection); err != nil {
+		t.Fatal(err)
+	}
+	_, replaced, err := service.SetupCredentialConnection(t.Context(), definition.SemanticDigest, connection.ConnectionID, CredentialInputValue{FieldValues: map[string]string{"api_key": "second-secret"}})
+	if err != nil || replaced.Authentication.Revision != 2 {
+		t.Fatalf("replacement = %#v, %v", replaced, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(credentialPath))
+	if err != nil || len(entries) != 1 || entries[0].Name() != replaced.Authentication.GenerationID+".json" {
+		t.Fatalf("credential generations = %#v, %v", entries, err)
+	}
+	fields, err := service.files.loadCredential(replaced)
+	if err != nil || fields["api_key"] != "second-secret" {
+		t.Fatalf("credential = %#v, %v", fields, err)
+	}
+}
+
+func TestDocumentCredentialAndDynamicSanitizationPreserveOrdinaryFields(t *testing.T) {
+	setup := CredentialSetup{Input: CredentialInput{Kind: "document", MediaType: "application/json", Fields: []CredentialField{{ID: "token", Label: "Token"}},
+		Normalize: &Transform{Language: "lua", Source: `return function(input) local value=json.decode(input.document); return {token=value.token} end`}}}
+	fields, err := normalizeCredential(setup, CredentialInputValue{Document: []byte(`{"token":"secret-marker"}`)})
+	if err != nil || fields["token"] != "secret-marker" {
+		t.Fatalf("document = %#v, %v", fields, err)
+	}
+	value := sanitizeSensitiveOutput(map[string]any{"ordinary_id": "ordinary-value", "token": "secret-marker", "debug": "echo Bearer secret-marker", "url": "https://example.com/a?keep=ordinary&token=secret-marker"}, map[string]bool{"token": true}, []string{"Bearer secret-marker", "secret-marker"}).(map[string]any)
+	if value["ordinary_id"] != "ordinary-value" || value["token"] != "[REDACTED]" || value["debug"] != "echo [REDACTED]" || value["url"] != "https://example.com/a?keep=ordinary" {
+		t.Fatalf("sanitized result = %#v", value)
 	}
 }
 

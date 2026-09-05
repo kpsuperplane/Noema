@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/home"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -190,12 +191,82 @@ func (r *TaskExecution) ResumeMCPAuthentication(ctx context.Context, attemptID s
 	return handled, nil
 }
 
+// ResumeAdapterAuthentication resumes Task calls after one credential replacement.
+func (r *TaskExecution) ResumeAdapterAuthentication(ctx context.Context, connectionID string) (bool, error) {
+	requests, err := r.database.AdapterAuthRequestsForConnection(ctx, connectionID)
+	if err != nil {
+		return false, err
+	}
+	handled := false
+	var firstErr error
+	for _, request := range requests {
+		if request.TaskID == "" {
+			continue
+		}
+		handled = true
+		var authority struct {
+			Binding adapter.Binding `json:"binding"`
+		}
+		if json.Unmarshal([]byte(request.BindingJSON), &authority) != nil {
+			continue
+		}
+		binding, callErr := currentAdapterCredentialBinding(r.adapters, authority.Binding)
+		if callErr != nil {
+			continue
+		}
+		request, err = r.database.BeginAdapterAuthResume(ctx, request, time.Now())
+		if err != nil {
+			firstErr = errors.Join(firstErr, err)
+			continue
+		}
+		payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
+		payload, success, callErr = r.adapters.Call(ctx, binding, json.RawMessage(request.ArgumentsJSON))
+		if errors.Is(callErr, adapter.ErrAuthenticationRequired) {
+			if _, err = r.database.RetryAdapterAuthentication(ctx, request, time.Now()); err != nil {
+				firstErr = errors.Join(firstErr, err)
+			}
+			continue
+		}
+		state, failure := store.ActionSucceeded, ""
+		if errors.Is(callErr, adapter.ErrOutcomeUncertain) {
+			state, failure, payload, success = store.ActionOutcomeUncertain, "outcome_uncertain", toolFailure("outcome_uncertain", "Adapter call outcome is uncertain"), false
+		} else if callErr != nil || !success {
+			state, failure = store.ActionFailed, "adapter_call_failed"
+		}
+		if request.ActionID != "" {
+			if _, _, err = r.database.FinishMCPAuthAction(ctx, request, state, payload, failure, "completed", time.Now()); err != nil {
+				firstErr = errors.Join(firstErr, err)
+				continue
+			}
+		}
+		call, loadErr := r.taskAuthCall(ctx, request)
+		if loadErr != nil {
+			firstErr = errors.Join(firstErr, loadErr)
+			continue
+		}
+		if err = r.completeTaskMCPResult(ctx, store.ActionRequest{TaskID: request.TaskID, RunID: request.RunID, TaskGeneration: request.TaskGeneration, CapabilityName: request.CapabilityName, State: state, AuthorizationContext: map[string]any{"provider_call_id": request.ProviderCallID, "provider_name": request.ProviderName}}, call, payload, success); err != nil {
+			firstErr = errors.Join(firstErr, err)
+			continue
+		}
+		if request.ActionID == "" {
+			if _, err = r.database.FinishMCPAuthRequest(ctx, request.ID, request.Revision, "completed", failure, time.Now()); err != nil {
+				firstErr = errors.Join(firstErr, err)
+			}
+		}
+	}
+	return handled, firstErr
+}
+
 // SkipMCPAuthentication closes one exact Task call without credentials.
 func (r *TaskExecution) SkipMCPAuthentication(ctx context.Context, request store.MCPAuthRequest) (store.MCPAuthRequest, error) {
 	if request.TaskID == "" {
 		return store.MCPAuthRequest{}, errors.New("Task authentication request is unavailable")
 	}
-	payload := toolFailure("authentication_skipped", "MCP authentication was skipped")
+	label := "MCP"
+	if request.AuthorityKind == "adapter_connection" {
+		label = "Adapter"
+	}
+	payload := toolFailure("authentication_skipped", label+" authentication was skipped")
 	var err error
 	if request.ActionID != "" {
 		request, _, err = r.database.FinishMCPAuthAction(ctx, request, store.ActionFailed, payload,

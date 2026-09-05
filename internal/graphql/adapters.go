@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,13 +28,24 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 	transition := &model.AdapterDefinitionTransition{AddedOperations: []string{}, ChangedOperations: []string{}, RemovedOperations: []string{}}
 	transition.AffectedConnections = len(value.AffectedConnections)
 	previous := map[string]string{}
+	var previousAuthentication *adapter.Authentication
 	for _, digest := range value.Replaces {
 		for _, prior := range snapshot.Definitions {
 			if prior.SemanticDigest == digest {
+				copy := prior.Manifest.Authentication
+				previousAuthentication = &copy
 				for _, operation := range prior.Operations {
 					previous[operation.OperationID] = operation.Digest
 				}
 			}
+		}
+	}
+	if previousAuthentication != nil {
+		left, _ := json.Marshal(*previousAuthentication)
+		right, _ := json.Marshal(value.Manifest.Authentication)
+		transition.AuthenticationChanged = string(left) != string(right)
+		if transition.AuthenticationChanged {
+			transition.AuthenticationRequiredConnections = len(value.AffectedConnections)
 		}
 	}
 	for _, operation := range value.Operations {
@@ -52,10 +64,13 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 	sort.Strings(transition.RemovedOperations)
 	result := &model.AdapterDefinition{SemanticDigest: value.SemanticDigest, DefinitionID: value.Manifest.DefinitionID,
 		AdapterID: value.Manifest.AdapterID, DisplayName: adapter.DisplayName(value), DefinitionRevision: value.Manifest.DefinitionRevision,
-		SourceReference: value.SourceReference, Origin: value.Manifest.Origin, AuthenticationMode: "none", Scopes: []string{},
+		SourceReference: value.SourceReference, Origin: value.Manifest.Origin, AuthenticationMode: value.Manifest.Authentication.Kind, Scopes: []string{},
 		Transition:   transition,
 		ManifestJSON: string(manifest), Reviewed: value.Manifest.Reviewed, Superseded: value.Superseded,
 		Connections: []*model.AdapterConnection{}, ConnectionActions: []*model.AdapterNextAction{}}
+	if value.Manifest.Authentication.Kind == "credential" {
+		result.CredentialSetup = credentialSetupModel(value.Manifest.Authentication)
+	}
 	for _, operation := range value.Operations {
 		arguments := make([]string, len(operation.Arguments))
 		for i := range operation.Arguments {
@@ -77,16 +92,50 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 	for _, connection := range snapshot.Connections {
 		if connection.SemanticDigest == value.SemanticDigest {
 			result.Connections = append(result.Connections, adapterDefinitionConnection(value, connection))
+			if connection.Status == "authentication_required" && value.Manifest.Authentication.Kind == "credential" {
+				revision := connection.ConnectionRevision
+				action := &model.AdapterNextAction{Kind: "set_up_credential", SemanticDigest: value.SemanticDigest, ConnectionID: &connection.ConnectionID, ExpectedConnectionRevision: &revision, OperationIds: []string{}, MissingScopes: []string{}}
+				result.ConnectionActions = append(result.ConnectionActions, action)
+				result.NextAction = action
+			}
 			if connection.DataSharingPolicy == "" || connection.UnsafeActionPolicy == "" {
 				revision, policy := connection.ConnectionRevision, connection.PolicyRevision
 				result.ConnectionActions = append(result.ConnectionActions, &model.AdapterNextAction{Kind: "review_connection_policy", SemanticDigest: value.SemanticDigest, ConnectionID: &connection.ConnectionID, ExpectedConnectionRevision: &revision, ExpectedPolicyRevision: &policy, OperationIds: []string{}, MissingScopes: []string{}})
 			}
 		}
 	}
+	if value.Manifest.Reviewed && !value.Superseded && value.Manifest.Authentication.Kind == "credential" && len(result.Connections) == 0 {
+		result.NextAction = &model.AdapterNextAction{Kind: "set_up_credential", SemanticDigest: value.SemanticDigest, OperationIds: []string{}, MissingScopes: []string{}}
+	}
 	result.ConnectionCount = len(result.Connections)
 	if !value.Manifest.Reviewed && !value.Superseded {
 		result.NextAction = &model.AdapterNextAction{Kind: "review_definition", SemanticDigest: value.SemanticDigest, OperationIds: []string{}, MissingScopes: []string{}}
 	}
+	return result
+}
+
+func credentialSetupModel(auth adapter.Authentication) *model.AdapterCredentialSetup {
+	setup := auth.Setup
+	if setup == nil {
+		return nil
+	}
+	result := &model.AdapterCredentialSetup{CredentialType: setup.CredentialType, SetupURL: setup.SetupURL, Instructions: setup.Instructions, InputKind: setup.Input.Kind, Fields: []*model.AdapterCredentialField{}}
+	for _, field := range setup.Input.Fields {
+		result.Fields = append(result.Fields, &model.AdapterCredentialField{FieldID: field.ID, Label: field.Label})
+	}
+	transform := func(value *adapter.Transform) *model.AdapterCredentialTransform {
+		if value == nil {
+			return nil
+		}
+		digest := sha256.Sum256([]byte(value.Source))
+		return &model.AdapterCredentialTransform{Language: "lua", SourceDigest: hex.EncodeToString(digest[:]), Source: value.Source}
+	}
+	if setup.Input.Kind == "document" {
+		media := setup.Input.MediaType
+		result.DocumentMediaType = &media
+		result.NormalizationTransform = transform(setup.Input.Normalize)
+	}
+	result.RequestAuthTransform = transform(auth.RequestAuth)
 	return result
 }
 
@@ -108,7 +157,15 @@ func adapterDefinitionConnection(def adapter.Definition, value adapter.Connectio
 	}
 	return &model.AdapterConnection{ConnectionID: value.ConnectionID, Status: value.Status, ConnectionRevision: value.ConnectionRevision,
 		PolicyRevision: value.PolicyRevision, GrantedScopes: []string{}, AllowedOperations: value.AllowedOperations,
-		PolicyConfigured: value.DataSharingPolicy != "" && value.UnsafeActionPolicy != "", OperationAccess: access}
+		CredentialRevision: credentialRevision(value), PolicyConfigured: value.DataSharingPolicy != "" && value.UnsafeActionPolicy != "", OperationAccess: access}
+}
+
+func credentialRevision(value adapter.Connection) *int {
+	if value.Authentication.Kind != "credential" || value.Authentication.Revision == 0 {
+		return nil
+	}
+	revision := value.Authentication.Revision
+	return &revision
 }
 
 func adapterCapabilityConnection(def adapter.Definition, value adapter.Connection) *model.CapabilityConnection {
@@ -141,8 +198,18 @@ func adapterCapabilityConnection(def adapter.Definition, value adapter.Connectio
 	return &model.CapabilityConnection{Kind: model.CapabilityIntegrationKindAPI, DefinitionID: def.Manifest.DefinitionID,
 		ConnectionID: value.ConnectionID, Name: name, ConnectionLabel: label, SourceRevision: def.SemanticDigest,
 		ConnectionRevision: strconv.Itoa(value.ConnectionRevision), PolicyRevision: value.PolicyRevision, Status: status,
-		HealthStatus: "unknown", AuthStatus: "not_required", DataSharingPolicy: sharing, UnsafeActionPolicy: unsafe,
+		HealthStatus: "unknown", AuthStatus: adapterAuthStatus(value), CredentialRevision: credentialRevision(value), DataSharingPolicy: sharing, UnsafeActionPolicy: unsafe,
 		ToolCount: len(def.Operations), AvailableToolCount: available, DisabledToolCount: disabled, SourceDetails: map[string]any{"origin": def.Manifest.Origin}}
+}
+
+func adapterAuthStatus(value adapter.Connection) string {
+	if value.Authentication.Kind == "none" {
+		return "not_required"
+	}
+	if value.Status == "authentication_required" {
+		return "authentication_required"
+	}
+	return "active"
 }
 
 func adapterToolModel(def adapter.Definition, connection adapter.Connection, op adapter.CompiledOperation) *model.CapabilityManagedTool {
@@ -297,6 +364,152 @@ func (r *Resolver) approveAdapterDefinition(ctx context.Context, input model.App
 		return nil, err
 	}
 	return definitionModel(def, snapshot), nil
+}
+
+func (r *Resolver) setupAdapterConnection(ctx context.Context, input model.SetupAdapterConnectionInput) (*model.AdapterDefinition, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(input.FieldValues) > 16 {
+		return nil, errors.New("adapter credential fields are invalid")
+	}
+	fields := make(map[string]string, len(input.FieldValues))
+	seen := make(map[string]bool, len(input.FieldValues))
+	for _, field := range input.FieldValues {
+		if field == nil || seen[field.FieldID] {
+			return nil, errors.New("adapter credential fields are invalid")
+		}
+		seen[field.FieldID] = true
+		fields[field.FieldID] = field.Value
+	}
+	var document []byte
+	if input.DocumentBase64 != nil {
+		if len(*input.DocumentBase64) > 176<<10 {
+			return nil, errors.New("adapter credential document is too large")
+		}
+		document, err = base64.StdEncoding.DecodeString(*input.DocumentBase64)
+		if err != nil {
+			return nil, errors.New("adapter credential document is invalid")
+		}
+	}
+	replacement := ""
+	if input.ReplacementConnectionID != nil {
+		replacement = *input.ReplacementConnectionID
+	}
+	definition, _, err := service.SetupCredentialConnection(ctx, input.SemanticDigest, replacement, adapter.CredentialInputValue{FieldValues: fields, Document: document})
+	if err != nil {
+		return nil, err
+	}
+	if replacement != "" {
+		var resumeErr error
+		if r.TaskExecution != nil {
+			_, taskErr := r.TaskExecution.ResumeAdapterAuthentication(ctx, replacement)
+			resumeErr = errors.Join(resumeErr, taskErr)
+		}
+		if r.Chat != nil {
+			resumeErr = errors.Join(resumeErr, r.Chat.ResumeAdapterAuthentication(ctx, replacement))
+		}
+		if resumeErr != nil {
+			return nil, resumeErr
+		}
+	}
+	snapshot, err := service.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	return definitionModel(definition, snapshot), nil
+}
+
+func adapterAuthenticationModel(value store.MCPAuthRequest, displayName string) *model.AdapterAuthenticationIntervention {
+	states := map[string]model.McpAuthenticationRequestState{"awaiting_user": model.McpAuthenticationRequestStateAwaitingUser,
+		"authorizing": model.McpAuthenticationRequestStateAuthorizing, "resuming": model.McpAuthenticationRequestStateResuming,
+		"completed": model.McpAuthenticationRequestStateCompleted, "cancelled": model.McpAuthenticationRequestStateCancelled,
+		"superseded": model.McpAuthenticationRequestStateSuperseded}
+	result := &model.AdapterAuthenticationIntervention{RequestID: value.ID, Revision: value.Revision, ServiceDisplayName: displayName, CapabilityName: value.CapabilityName, State: states[value.State]}
+	if value.TaskID != "" {
+		result.TaskID = &value.TaskID
+	}
+	if value.Failure != "" {
+		result.FailureCode = &value.Failure
+	}
+	return result
+}
+
+func (r *Resolver) pendingAdapterAuthentications(ctx context.Context, conversationID, taskID *string, limit int) ([]model.HumanIntervention, error) {
+	values, err := r.Store.PendingAdapterAuthRequests(ctx, localHumanID, conversationID, taskID, limit)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := r.Adapters.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, connection := range snapshot.Connections {
+		for _, definition := range snapshot.Definitions {
+			if definition.SemanticDigest == connection.SemanticDigest {
+				names[connection.ConnectionID] = adapter.DisplayName(definition)
+			}
+		}
+	}
+	result := make([]model.HumanIntervention, 0, len(values))
+	for _, value := range values {
+		display := names[value.AuthorityID]
+		if display == "" {
+			display = value.AuthorityID
+		}
+		result = append(result, adapterAuthenticationModel(value, display))
+	}
+	return result, nil
+}
+
+func (r *Resolver) skipAdapterAuthentication(ctx context.Context, input model.SkipAdapterAuthenticationInput) (*model.AdapterAuthenticationIntervention, error) {
+	if _, err := r.requireAdapters(ctx); err != nil {
+		return nil, err
+	}
+	request, err := r.Store.MCPAuthRequest(ctx, input.RequestID, input.ExpectedRevision)
+	if err != nil || request.AuthorityKind != "adapter_connection" || request.OwnerHumanID != localHumanID {
+		return nil, errors.New("adapter authentication request is unavailable")
+	}
+	if request.TaskID != "" {
+		if r.TaskExecution == nil {
+			return nil, errors.New("Task execution runtime is unavailable")
+		}
+		request, err = r.TaskExecution.SkipMCPAuthentication(ctx, request)
+	} else {
+		if r.Chat == nil {
+			return nil, errors.New("Chat runtime is unavailable")
+		}
+		request, err = r.Chat.SkipAdapterAuthentication(ctx, request.ID, request.Revision)
+	}
+	if err != nil {
+		return nil, err
+	}
+	display := request.AuthorityID
+	if snapshot, loadErr := r.Adapters.Snapshot(); loadErr == nil {
+		for _, connection := range snapshot.Connections {
+			if connection.ConnectionID == request.AuthorityID {
+				for _, definition := range snapshot.Definitions {
+					if definition.SemanticDigest == connection.SemanticDigest {
+						display = adapter.DisplayName(definition)
+					}
+				}
+			}
+		}
+	}
+	return adapterAuthenticationModel(request, display), nil
+}
+
+func (r *Resolver) startAdapterAuthentication(ctx context.Context, input model.StartAdapterAuthenticationInput) (*model.AdapterOauthSetupAttempt, error) {
+	if _, err := r.requireAdapters(ctx); err != nil {
+		return nil, err
+	}
+	request, err := r.Store.MCPAuthRequest(ctx, input.RequestID, input.ExpectedRevision)
+	if err != nil || request.AuthorityKind != "adapter_connection" || request.OwnerHumanID != localHumanID {
+		return nil, errors.New("adapter authentication request is unavailable")
+	}
+	return nil, errors.New("direct adapter credentials must be replaced")
 }
 func (r *Resolver) cancelAdapterDefinition(ctx context.Context, input model.CancelAdapterDefinitionInput) (bool, error) {
 	service, err := r.requireAdapters(ctx)

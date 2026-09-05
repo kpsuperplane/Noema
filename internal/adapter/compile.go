@@ -58,8 +58,8 @@ func Compile(manifest Manifest) (Definition, error) {
 }
 
 func validateManifest(manifest *Manifest) error {
-	if manifest.SchemaVersion != 9 || manifest.Authentication.Kind != "none" {
-		return errors.New("adapter authentication is unsupported")
+	if manifest.SchemaVersion != 9 || validateAuthentication(manifest.Authentication) != nil {
+		return errors.New("adapter authentication is invalid")
 	}
 	if !validID(manifest.DefinitionID) || !validID(manifest.AdapterID) || !validID(manifest.DefinitionRevision) {
 		return errors.New("adapter identity is invalid")
@@ -84,6 +84,54 @@ func validateManifest(manifest *Manifest) error {
 		seen[operation.OperationID] = true
 	}
 	return nil
+}
+
+func validateAuthentication(value Authentication) error {
+	if value.Kind == "none" {
+		if value.Setup != nil || value.RequestAuth != nil {
+			return errors.New("adapter authentication is invalid")
+		}
+		return nil
+	}
+	if value.Kind != "credential" || value.Setup == nil || value.RequestAuth == nil || !validTransform(value.RequestAuth) {
+		return errors.New("adapter authentication is invalid")
+	}
+	setup := value.Setup
+	parsed, err := url.Parse(setup.SetupURL)
+	if !boundedText(setup.CredentialType, 128, false) || len(setup.SetupURL) > 4096 || strings.TrimSpace(setup.SetupURL) != setup.SetupURL || err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || len(setup.Instructions) < 1 || len(setup.Instructions) > 8 {
+		return errors.New("adapter credential setup is invalid")
+	}
+	for _, instruction := range setup.Instructions {
+		if !boundedText(instruction, 512, false) {
+			return errors.New("adapter credential setup is invalid")
+		}
+	}
+	input := setup.Input
+	if len(input.Fields) < 1 || len(input.Fields) > 16 {
+		return errors.New("adapter credential setup is invalid")
+	}
+	seen := map[string]bool{}
+	for _, field := range input.Fields {
+		if !validID(field.ID) || seen[field.ID] || !boundedText(field.Label, 128, false) {
+			return errors.New("adapter credential field is invalid")
+		}
+		seen[field.ID] = true
+	}
+	if input.Kind == "fields" {
+		if input.MediaType != "" || input.Normalize != nil {
+			return errors.New("adapter credential input is invalid")
+		}
+		return nil
+	}
+	if input.Kind != "document" || input.MediaType != "application/json" || !validTransform(input.Normalize) {
+		return errors.New("adapter credential input is invalid")
+	}
+	return nil
+}
+
+func validTransform(value *Transform) bool {
+	return value != nil && value.Language == "lua" && len(value.Source) > 0 && len(value.Source) <= 32<<10 &&
+		strings.IndexFunc(value.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) < 0 && script.ValidateFunction(value.Source) == nil
 }
 
 func validateOperation(operation *Operation) error {
@@ -323,8 +371,7 @@ func validateResponse(response *Response, paginated bool) error {
 			return errors.New("response transform is required")
 		}
 	}
-	if response.Transform != nil && (response.Transform.Language != "lua" || len(response.Transform.Source) == 0 || len(response.Transform.Source) > 32<<10 ||
-		strings.IndexFunc(response.Transform.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) >= 0 || script.ValidateFunction(response.Transform.Source) != nil) {
+	if response.Transform != nil && !validTransform(response.Transform) {
 		return errors.New("response transform is invalid")
 	}
 	if !validateOutputSchema(response.OutputSchema, 0, new(int)) {

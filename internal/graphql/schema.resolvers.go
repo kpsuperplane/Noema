@@ -145,12 +145,12 @@ func (r *mutationRootResolver) ResolveMcpSetupIntervention(ctx context.Context, 
 
 // StartAdapterAuthentication is the resolver for the startAdapterAuthentication field.
 func (r *mutationRootResolver) StartAdapterAuthentication(ctx context.Context, input model.StartAdapterAuthenticationInput) (*model.AdapterOauthSetupAttempt, error) {
-	panic(fmt.Errorf("not implemented: StartAdapterAuthentication - startAdapterAuthentication"))
+	return r.startAdapterAuthentication(ctx, input)
 }
 
 // SkipAdapterAuthentication is the resolver for the skipAdapterAuthentication field.
 func (r *mutationRootResolver) SkipAdapterAuthentication(ctx context.Context, input model.SkipAdapterAuthenticationInput) (*model.AdapterAuthenticationIntervention, error) {
-	panic(fmt.Errorf("not implemented: SkipAdapterAuthentication - skipAdapterAuthentication"))
+	return r.skipAdapterAuthentication(ctx, input)
 }
 
 // InstallLocalModel is the resolver for the installLocalModel field.
@@ -448,7 +448,7 @@ func (r *mutationRootResolver) CancelAdapterDefinition(ctx context.Context, inpu
 
 // SetupAdapterConnection is the resolver for the setupAdapterConnection field.
 func (r *mutationRootResolver) SetupAdapterConnection(ctx context.Context, input model.SetupAdapterConnectionInput) (*model.AdapterDefinition, error) {
-	return nil, fmt.Errorf("credential adapter setup is unavailable")
+	return r.setupAdapterConnection(ctx, input)
 }
 
 // DeleteAdapterConnection is the resolver for the deleteAdapterConnection field.

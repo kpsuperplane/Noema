@@ -112,6 +112,15 @@ func NewTaskExecution(
 			}
 		}
 	}
+	if err == nil {
+		var connections []string
+		connections, err = database.AwaitingAdapterAuthConnections(ctx, true)
+		for _, connectionID := range connections {
+			if _, err = runtime.ResumeAdapterAuthentication(ctx, connectionID); err != nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		cancel()
 		return nil, err

@@ -1,8 +1,9 @@
-// Package adapter owns reviewed HTTP API definitions and credential-free connections.
+// Package adapter owns reviewed HTTP API definitions and connections.
 package adapter
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -28,7 +29,88 @@ type Manifest struct {
 }
 
 type Authentication struct {
-	Kind string `json:"kind"`
+	Kind        string           `json:"kind"`
+	Setup       *CredentialSetup `json:"setup,omitempty"`
+	RequestAuth *Transform       `json:"request_auth,omitempty"`
+}
+
+func (a *Authentication) UnmarshalJSON(raw []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	var kind string
+	if err := json.Unmarshal(fields["kind"], &kind); err != nil {
+		return err
+	}
+	if kind == "none" {
+		if len(fields) != 1 {
+			return errors.New("adapter authentication is invalid")
+		}
+		a.Kind = kind
+		return nil
+	}
+	if kind != "credential" || len(fields) != 3 || fields["setup"] == nil || fields["request_auth"] == nil {
+		return errors.New("adapter authentication is invalid")
+	}
+	var setup CredentialSetup
+	var request Transform
+	if decodeExactJSON(fields["setup"], &setup) != nil || decodeExactJSON(fields["request_auth"], &request) != nil {
+		return errors.New("adapter authentication is invalid")
+	}
+	*a = Authentication{Kind: kind, Setup: &setup, RequestAuth: &request}
+	return nil
+}
+
+type CredentialSetup struct {
+	CredentialType string          `json:"credential_type"`
+	SetupURL       string          `json:"setup_url"`
+	Instructions   []string        `json:"instructions"`
+	Input          CredentialInput `json:"input"`
+}
+
+type CredentialInput struct {
+	Kind      string            `json:"kind"`
+	MediaType string            `json:"media_type,omitempty"`
+	Fields    []CredentialField `json:"fields"`
+	Normalize *Transform        `json:"normalize,omitempty"`
+}
+
+func (i *CredentialInput) UnmarshalJSON(raw []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	var kind string
+	if err := json.Unmarshal(fields["kind"], &kind); err != nil {
+		return err
+	}
+	var values []CredentialField
+	if err := json.Unmarshal(fields["fields"], &values); err != nil {
+		return err
+	}
+	if kind == "fields" {
+		if len(fields) != 2 {
+			return errors.New("adapter credential input is invalid")
+		}
+		*i = CredentialInput{Kind: kind, Fields: values}
+		return nil
+	}
+	if kind != "document" || len(fields) != 4 {
+		return errors.New("adapter credential input is invalid")
+	}
+	var media string
+	var normalize Transform
+	if json.Unmarshal(fields["media_type"], &media) != nil || decodeExactJSON(fields["normalize"], &normalize) != nil {
+		return errors.New("adapter credential input is invalid")
+	}
+	*i = CredentialInput{Kind: kind, MediaType: media, Fields: values, Normalize: &normalize}
+	return nil
+}
+
+type CredentialField struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 type Authorization struct {
@@ -139,6 +221,18 @@ type Connection struct {
 	UnsafeActionPolicy string                       `json:"unsafe_action_policy,omitempty"`
 	AllowedOperations  []string                     `json:"allowed_operations"`
 	Overrides          map[string]OperationOverride `json:"operation_overrides,omitempty"`
+	Authentication     ConnectionAuthentication     `json:"authentication"`
+}
+
+type ConnectionAuthentication struct {
+	Kind         string `json:"kind"`
+	GenerationID string `json:"generation_id,omitempty"`
+	Revision     int    `json:"revision,omitempty"`
+}
+
+type CredentialInputValue struct {
+	FieldValues map[string]string
+	Document    []byte
 }
 
 type OperationOverride struct {
@@ -153,6 +247,7 @@ type Binding struct {
 	Name, Description, ConnectionID, DefinitionID          string
 	SemanticDigest, OperationID, OperationDigest           string
 	ConnectionRevision, PolicyRevision, ToolPolicyRevision int
+	CredentialRevision                                     int
 	InputSchema                                            json.RawMessage
 	Behavior                                               store.ActionBehavior
 	ReviewRoute                                            store.ActionReviewRoute
