@@ -1,6 +1,10 @@
 import { resolve } from "node:path";
 
-import { prepareGoServer, prepareLocalRuntime } from "./prepare-local-runtime";
+import {
+  prepareFoundationBridge,
+  prepareGoServer,
+  prepareLocalRuntime
+} from "./prepare-local-runtime";
 
 const mode = process.argv[2];
 if (mode !== "build" && mode !== "dev") {
@@ -8,6 +12,9 @@ if (mode !== "build" && mode !== "dev") {
 }
 
 await prepareGoServer();
+if (mode === "build") {
+  await prepareFoundationBridge();
+}
 await prepareLocalRuntime();
 const webRoot = resolve(import.meta.dir, "../../../apps/web");
 const frontend = Bun.spawn(["bun", "run", mode === "build" ? "build:tauri" : "dev:tauri"], {
