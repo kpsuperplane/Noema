@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -433,13 +434,13 @@ func (c *Chat) executeChatToolRounds(
 			c.finishGeneratedTurn(request.input, turn, assignment, result, providerRound, usage)
 			return
 		}
-		if len(result.ToolCalls) != 1 || !supportsChatTool(result.ToolCalls[0].Name) {
+		if len(result.ToolCalls) != 1 || !c.supportsChatTool(c.ctx, result.ToolCalls[0].Name) {
 			c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
 			return
 		}
 		call := result.ToolCalls[0]
 		toolPayload, success, pending, err := c.persistChatToolRound(
-			request, turn, assignment, result, call, providerRound,
+			request, turn, assignment, result, call, providerRound, hostedState,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
@@ -488,11 +489,22 @@ func (c *Chat) persistChatToolRound(
 	generation provider.GenerationResult,
 	call provider.GenerationToolCall,
 	providerRound int,
+	hostedState bool,
 ) (json.RawMessage, bool, bool, error) {
+	var mcpBinding *noemamcp.Binding
 	if call.Name == fileDownloadName {
 		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
 			return nil, false, false, errors.New("file.download arguments are invalid")
 		}
+	} else if call.Name != noemamcp.ConnectServiceToolName && !supportsLocalChatTool(call.Name) {
+		if c.mcp == nil {
+			return nil, false, false, errors.New("MCP tool is unavailable")
+		}
+		binding, err := c.mcp.Binding(c.ctx, call.Name)
+		if err != nil || noemamcp.ValidateArguments(binding.InputSchema, call.Payload) != nil {
+			return nil, false, false, errors.New("MCP tool arguments or authority are invalid")
+		}
+		mcpBinding = &binding
 	}
 	normalized := normalizeProviderText(generation.Text, generation.Citations)
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
@@ -546,6 +558,35 @@ func (c *Chat) persistChatToolRound(
 			CallItemID: callItem.ID, Provider: assignment.ProviderKind,
 			ProviderRound: providerRound, OutputIndex: call.Index,
 			ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
+			Name: call.Name, Success: success, Payload: payload,
+		}, time.Now())
+		if err != nil {
+			return nil, false, false, err
+		}
+		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
+		return payload, success, false, nil
+	}
+	if mcpBinding != nil {
+		payload, success, approval, err := c.prepareMCPAction(
+			request.conversation, turn, callItem, assignment, providerRound, generation.ID, hostedState,
+			*mcpBinding, call.Payload,
+		)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if approval != nil {
+			c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: approval})
+			c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
+			c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
+			c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})
+			return nil, false, true, nil
+		}
+		resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
+			CallItemID: callItem.ID, Provider: assignment.ProviderKind, ProviderRound: providerRound,
+			OutputIndex: call.Index, ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
 			Name: call.Name, Success: success, Payload: payload,
 		}, time.Now())
 		if err != nil {
@@ -631,7 +672,10 @@ func (c *Chat) generateChatToolContinuation(
 		return provider.GenerationResult{}, false, err
 	}
 	environment := runtimeEnvironment(request.conversation, request.location, time.Now())
-	tools := chatTools()
+	tools, err := c.chatTools(c.ctx)
+	if err != nil {
+		return provider.GenerationResult{}, false, err
+	}
 	transport := provider.ToolTransportNative
 	if stopReason != "" {
 		environment += "\n\n" + toolFinalizationInstruction(stopReason)

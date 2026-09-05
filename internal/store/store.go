@@ -15,7 +15,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 18
+const schemaVersion = 22
 
 // Store is one open Noema database.
 type Store struct {
@@ -99,7 +99,7 @@ func (s *Store) initialize(ctx context.Context) error {
 	} else if version < 1 || version > schemaVersion {
 		return fmt.Errorf("unsupported Go schema version %d", version)
 	} else {
-		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL}
+		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL, schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL}
 		for next := version + 1; next <= schemaVersion; next++ {
 			if _, err := tx.ExecContext(ctx, migrations[next]); err != nil {
 				return fmt.Errorf("apply schema version %d: %w", next, err)
@@ -117,8 +117,19 @@ func (s *Store) initialize(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, recoverAcpAuthenticationSQL); err != nil {
 		return fmt.Errorf("recover ACP authentication: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, recoverMcpOAuthSQL); err != nil {
+		return fmt.Errorf("recover MCP OAuth: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE mcp_auth_requests SET state='awaiting_user',
+ oauth_attempt_id=NULL,failure_code='server_restarted' WHERE state='authorizing'`); err != nil {
+		return fmt.Errorf("recover MCP authentication: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE mcp_auth_requests SET state='cancelled',
+ oauth_attempt_id=NULL,failure_code='outcome_uncertain' WHERE state='resuming'`); err != nil {
+		return fmt.Errorf("recover MCP call resumption: %w", err)
+	}
 	if version != schemaVersion {
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 18"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 22"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	}
@@ -150,7 +161,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL + schemaV9SQL + schemaV10SQL + schemaV11SQL + schemaV12SQL + schemaV13SQL + schemaV14SQL + schemaV15SQL + schemaV16SQL + schemaV17SQL + schemaV18SQL
+` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL + schemaV9SQL + schemaV10SQL + schemaV11SQL + schemaV12SQL + schemaV13SQL + schemaV14SQL + schemaV15SQL + schemaV16SQL + schemaV17SQL + schemaV18SQL + schemaV19SQL + schemaV20SQL + schemaV21SQL + schemaV22SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -626,6 +637,12 @@ SET state = 'failed',
     safe_message = 'Authentication stopped when the server restarted.',
     completed_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
 WHERE state = 'pending';
+`
+
+const recoverMcpOAuthSQL = `
+UPDATE mcp_oauth_attempts
+SET status = 'failed', failure_code = 'server_restarted', updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+WHERE status = 'waiting_for_user';
 `
 
 func backfillTaskWorkEvents(ctx context.Context, tx *sql.Tx) error {

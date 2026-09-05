@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -106,6 +107,17 @@ type actionContinuation struct {
 	trigger store.ConversationItem
 }
 
+type mcpAuthResolution struct {
+	attemptID, requestID string
+	revision             int
+	skip                 bool
+	reply                chan mcpAuthResult
+}
+type mcpAuthResult struct {
+	request store.MCPAuthRequest
+	err     error
+}
+
 type subscriber struct {
 	conversationID string
 	events         chan Event
@@ -121,8 +133,10 @@ type Chat struct {
 	openAI     provider.Generator
 	home       *os.Root
 	memory     *noemamemory.Store
+	mcp        *noemamcp.Service
 	turns      chan queuedTurn
 	actions    chan actionResolution
+	mcpAuth    chan mcpAuthResolution
 	done       chan struct{}
 	closeOnce  sync.Once
 	closeErr   error
@@ -148,6 +162,7 @@ func NewChat(
 	openAI provider.Generator,
 	homeRoot *os.Root,
 	memoryStore *noemamemory.Store,
+	mcpServices ...*noemamcp.Service,
 ) (*Chat, error) {
 	if database == nil || openRouter == nil || codex == nil || openAI == nil || homeRoot == nil || memoryStore == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
@@ -178,13 +193,29 @@ func NewChat(
 		return nil, fmt.Errorf("recover stopped Chat turns: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	var mcpService *noemamcp.Service
+	if len(mcpServices) != 0 {
+		mcpService = mcpServices[0]
+	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore,
+		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService,
 		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
+		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
 		done:             make(chan struct{}),
 		recoveredActions: recoveredActions,
 		subscribers:      make(map[uint64]subscriber),
+	}
+	requests, err := database.RecoverConversationMCPAuthRequests(chat.ctx)
+	for _, request := range requests {
+		payload := toolFailure("outcome_uncertain", "MCP tool outcome is uncertain after restart")
+		if err = chat.finishMCPAuthCall(request, payload, false); err != nil {
+			break
+		}
+	}
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("recover MCP authentication results: %w", err)
 	}
 	go chat.run()
 	return chat, nil
@@ -244,6 +275,11 @@ func (c *Chat) SubscribeAll(ctx context.Context) <-chan Event {
 func (c *Chat) SubscribeMemory(ctx context.Context) <-chan Event {
 	events, _ := c.subscribe(ctx, memoryEventChannel, false)
 	return events
+}
+
+// NotifyHumanInterventionsChanged publishes one durable intervention invalidation.
+func (c *Chat) NotifyHumanInterventionsChanged(conversationID string) {
+	c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: conversationID})
 }
 
 func (c *Chat) subscribe(ctx context.Context, conversationID string, ready bool) (<-chan Event, error) {
@@ -334,6 +370,9 @@ func (c *Chat) run() {
 		case request := <-c.actions:
 			action, err := c.resolveActionRequest(request)
 			request.reply <- actionResolutionResult{action: action, err: err}
+		case request := <-c.mcpAuth:
+			value, err := c.resolveMCPAuthentication(request)
+			request.reply <- mcpAuthResult{request: value, err: err}
 		}
 	}
 }
@@ -397,11 +436,16 @@ func (c *Chat) execute(request queuedTurn) {
 		providerMessages...,
 	)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
+	tools, err := c.chatTools(c.ctx)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
 	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
 		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
-		Tools:           chatTools(),
+		Tools:           tools,
 		ToolTransport:   provider.ToolTransportNative,
 		ToolChoice:      provider.ToolChoiceAuto,
 		HostedWebSearch: hostedWeb,

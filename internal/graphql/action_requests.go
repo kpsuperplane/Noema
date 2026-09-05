@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -24,7 +25,7 @@ func (r *Resolver) pendingActionRequests(
 	}
 	result := make([]*model.GovernedAction, 0, len(actions))
 	for _, action := range actions {
-		projected, err := actionRequestModel(action)
+		projected, err := r.actionRequestModel(ctx, action)
 		if err != nil {
 			return nil, err
 		}
@@ -47,26 +48,70 @@ func (r *Resolver) pendingHumanInterventions(
 	for _, action := range actions {
 		result = append(result, action)
 	}
+	mcpRequests, err := r.pendingMCPAuthentications(ctx, conversationID, taskID, first)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, mcpRequests...)
+	setups, err := r.pendingMCPSetups(ctx, conversationID, first)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, setups...)
 	return result, nil
 }
 
 func (r *Resolver) resolveActionRequest(
 	ctx context.Context, input model.ResolveGovernedActionInput,
 ) (*model.GovernedAction, error) {
-	if r.Chat == nil {
-		return nil, errors.New("chat runtime is unavailable")
-	}
 	decision := "decline"
 	if input.Decision == model.GovernedActionDecisionApprove {
 		decision = "approve"
 	}
-	action, err := r.Chat.ResolveActionRequest(
-		ctx, input.ActionID, input.ExpectedRevision, "human:local", decision,
-	)
+	current, err := r.Store.ActionRequest(ctx, input.ActionID, input.ExpectedRevision)
 	if err != nil {
 		return nil, err
 	}
-	return actionRequestModel(action)
+	var action store.ActionRequest
+	if current.TaskID != "" {
+		if r.TaskExecution == nil {
+			return nil, errors.New("Task execution runtime is unavailable")
+		}
+		action, err = r.TaskExecution.ResolveActionRequest(ctx, input.ActionID, input.ExpectedRevision, "human:local", decision)
+	} else {
+		if r.Chat == nil {
+			return nil, errors.New("Chat runtime is unavailable")
+		}
+		action, err = r.Chat.ResolveActionRequest(ctx, input.ActionID, input.ExpectedRevision, "human:local", decision)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.actionRequestModel(ctx, action)
+}
+
+func (r *Resolver) actionRequestModel(ctx context.Context, action store.ActionRequest) (*model.GovernedAction, error) {
+	result, err := actionRequestModel(action)
+	if err != nil || action.TaskID == "" || r.home == nil {
+		return result, err
+	}
+	task, err := r.Store.Task(ctx, action.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	document, err := home.ReadTaskDocument(r.home, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	summary := r.taskSummaryModel(ctx, task, personalWorkspaceID, document.Content)
+	result.Task = &model.TaskCard{TaskID: summary.TaskID, Workspace: summary.Workspace, Project: summary.Project,
+		Title: summary.Title, TaskDocumentPreview: summary.TaskDocumentPreview, Stage: summary.Stage,
+		Revision: summary.Revision, Generation: summary.Generation, ExecutorAgentID: summary.ExecutorAgentID,
+		ExecutorBackend: summary.ExecutorBackend, CwdOverride: summary.CwdOverride, EffectiveCwd: summary.EffectiveCwd,
+		EffectiveCwdSource: summary.EffectiveCwdSource, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt,
+		Schedule: summary.Schedule, CompletedAt: summary.CompletedAt, CurrentRun: summary.CurrentRun,
+		ActiveGate: summary.ActiveGate, ValidActions: summary.ValidActions}
+	return result, nil
 }
 
 func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, error) {
@@ -78,12 +123,28 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 	if action.ReviewRoute == store.ActionHumanReview {
 		reviewRoute = model.ExecutionReviewRouteHumanReview
 	}
-	conversationID := action.ConversationID
-	target := &model.ActionRequestTarget{ServiceName: actionString("Public web"),
-		ServiceID: actionString("public_web"), ConnectionID: actionString("file_download")}
+	var conversationID, taskID, runID *string
+	if action.ConversationID != "" {
+		conversationID = &action.ConversationID
+	}
+	if action.TaskID != "" {
+		taskID, runID = &action.TaskID, &action.RunID
+	}
 	destination, _ := action.AuthorizationContext["destination"].(map[string]any)
+	service, _ := action.AuthorizationContext["service"].(map[string]any)
+	serviceName := textField(service, "display_name", "External service")
+	target := &model.ActionRequestTarget{ServiceName: actionString(serviceName)}
+	if value := textField(destination, "service_id", ""); value != "" {
+		target.ServiceID = actionString(value)
+	}
+	if value := textField(destination, "connection_id", ""); value != "" {
+		target.ConnectionID = actionString(value)
+	}
+	if value := textField(service, "connection_label", ""); value != "" {
+		target.ConnectionLabel = actionString(value)
+	}
 	result := &model.GovernedAction{
-		ActionID: action.ID, Revision: action.Revision, ConversationID: &conversationID,
+		ActionID: action.ID, Revision: action.Revision, ConversationID: conversationID, TaskID: taskID, RunID: runID,
 		CapabilityName: action.CapabilityName, ReviewRoute: reviewRoute,
 		Behavior: &model.ToolBehavior{
 			ReadOnly: action.Behavior.ReadOnly, Idempotent: action.Behavior.RepeatSafe,
@@ -91,9 +152,9 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 		},
 		SafeSummary: action.SafeSummary, Target: target,
 		Disclosure: &model.ActionRequestDisclosure{
-			Recipient: "Public web", ContentSummary: "Public web receives the request data shown in Review details.",
+			Recipient: serviceName, ContentSummary: serviceName + " receives the request data shown in Review details.",
 		},
-		Consequence: "This changes data outside Noema in Public web.", Destination: destination,
+		Consequence: "This can change data outside Noema in " + serviceName + ".", Destination: destination,
 		Arguments: action.Arguments, State: state,
 	}
 	if action.Assessment != nil {
@@ -110,6 +171,14 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 		result.FailureCode = actionString(action.FailureCode)
 	}
 	return result, nil
+}
+
+func textField(value map[string]any, key, fallback string) string {
+	text, _ := value[key].(string)
+	if text == "" {
+		return fallback
+	}
+	return text
 }
 
 func actionAssessmentModel(value store.ActionAssessment) (*model.GovernedActionAssessment, error) {

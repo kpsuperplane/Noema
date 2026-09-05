@@ -3,13 +3,256 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
+	original, database, conversation := chatFixture(t)
+	if err := original.Close(); err != nil {
+		t.Fatal(err)
+	}
+	remoteCalls := 0
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "calendar", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "lookup", Description: "Find an event",
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
+			DestructiveHint: runtimeBool(false), OpenWorldHint: runtimeBool(true)}},
+		func(_ context.Context, _ *mcpsdk.CallToolRequest, input struct {
+			Query string `json:"query"`
+		}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			remoteCalls++
+			return nil, map[string]any{"event": input.Query}, nil
+		})
+	httpServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	defer httpServer.Close()
+	paths, err := home.FromRoot(original.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpService, err := noemamcp.NewService(paths, database, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := mcpService.Create(context.Background(), noemamcp.SetupInput{DisplayName: "Calendar",
+		TransportKind: "streamable_http", URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("setup = %#v, %v", setup, err)
+	}
+	server, err := mcpService.SaveConnectionPolicy(context.Background(), setup.Server.ID,
+		setup.Server.ConnectionRevision, 0, "allow_automatically", "reviewer_may_approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := mcpService.Bindings(context.Background())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("bindings = %#v, %v", bindings, err)
+	}
+	requests := 0
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		requests++
+		if requests == 1 {
+			found := false
+			for _, tool := range request.Tools {
+				if tool.Name == bindings[0].Name {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("MCP tool was not advertised: %#v", request.Tools)
+			}
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "mcp-1",
+				ProviderName: bindings[0].Name, Name: bindings[0].Name, Payload: json.RawMessage(`{"query":"standup"}`)}}}, nil
+		}
+		return provider.GenerationResult{Text: "The standup is listed."}, nil
+	})
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory, mcpService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = chat.Close() })
+	events, err := chat.Subscribe(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "Find standup."}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if remoteCalls != 1 || requests != 2 || !server.Enabled {
+		t.Fatalf("calls = %d, requests = %d, server = %#v", remoteCalls, requests, server)
+	}
+}
+
+func runtimeBool(value bool) *bool { return &value }
+
+func TestMCPAuthenticationInterruptionIsDurableAndSkippable(t *testing.T) {
+	original, database, conversation := chatFixture(t)
+	if err := original.Close(); err != nil {
+		t.Fatal(err)
+	}
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "mail", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "read", Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true}},
+		func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{"ok": true}, nil
+		})
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil)
+	var unauthorized atomic.Bool
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if unauthorized.Load() {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, request)
+	}))
+	defer httpServer.Close()
+	paths, _ := home.FromRoot(original.home.Name())
+	service, err := noemamcp.NewService(paths, database, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := service.Create(context.Background(), noemamcp.SetupInput{DisplayName: "Mail", TransportKind: "streamable_http", URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("setup = %#v, %v", setup, err)
+	}
+	if _, err := service.SaveConnectionPolicy(context.Background(), setup.Server.ID, setup.Server.ConnectionRevision, 0, "allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, _ := service.Bindings(context.Background())
+	unauthorized.Store(true)
+	requests := 0
+	generator := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		requests++
+		if requests == 1 {
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "auth-1", ProviderName: bindings[0].Name, Name: bindings[0].Name, Payload: json.RawMessage(`{}`)}}}, nil
+		}
+		return provider.GenerationResult{Text: "Authentication was skipped."}, nil
+	})
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = chat.Close() })
+	events, _ := chat.Subscribe(context.Background(), conversation.ID)
+	<-events
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "Read mail."}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	pending, err := database.PendingMCPAuthRequests(context.Background(), "human:local", &conversation.ID, nil, 10)
+	if err != nil || len(pending) != 1 || pending[0].State != "awaiting_user" {
+		t.Fatalf("pending = %#v, %v", pending, err)
+	}
+	if _, err := chat.SkipMCPAuthentication(context.Background(), pending[0].ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	request, err := database.MCPAuthRequest(context.Background(), pending[0].ID, 1)
+	if err != nil || request.State != "cancelled" || requests != 2 {
+		t.Fatalf("request = %#v, calls = %d, %v", request, requests, err)
+	}
+}
+
+func TestReviewedMCPAuthenticationSurvivesRestartAndCompletesAction(t *testing.T) {
+	original, database, conversation := chatFixture(t)
+	if err := original.Close(); err != nil {
+		t.Fatal(err)
+	}
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "calendar", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "change", Annotations: &mcpsdk.ToolAnnotations{}},
+		func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{"changed": true}, nil
+		})
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil)
+	var unauthorized atomic.Bool
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if unauthorized.Load() {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, request)
+	}))
+	defer httpServer.Close()
+	paths, _ := home.FromRoot(original.home.Name())
+	service, err := noemamcp.NewService(paths, database, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := service.Create(t.Context(), noemamcp.SetupInput{DisplayName: "Calendar",
+		TransportKind: "streamable_http", URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("setup = %#v, %v", setup, err)
+	}
+	if _, err := service.SaveConnectionPolicy(t.Context(), setup.Server.ID, setup.Server.ConnectionRevision,
+		0, "allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, _ := service.Bindings(t.Context())
+	unauthorized.Store(true)
+	requests := 0
+	generator := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		requests++
+		if requests == 1 {
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "reviewed-auth",
+				ProviderName: bindings[0].Name, Name: bindings[0].Name, Payload: json.RawMessage(`{}`)}}}, nil
+		}
+		return provider.GenerationResult{Text: "The calendar change was skipped."}, nil
+	})
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, _ := chat.Subscribe(t.Context(), conversation.ID)
+	<-events
+	if _, err := chat.SendTurn(t.Context(), SendTurnInput{ConversationID: conversation.ID, Input: "Change it."}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	actions, err := database.PendingActionRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
+	if err != nil || len(actions) != 1 {
+		t.Fatalf("pending actions = %#v, %v", actions, err)
+	}
+	if action, err := chat.ResolveActionRequest(t.Context(), actions[0].ID, 1, "human:local", "approve"); err != nil || action.State != store.ActionExecuting {
+		t.Fatalf("suspended action = %#v, %v", action, err)
+	}
+	collectCompletedTurns(t, events, 1)
+	pending, err := database.PendingMCPAuthRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
+	if err != nil || len(pending) != 1 || pending[0].ActionID != actions[0].ID {
+		t.Fatalf("pending authentication = %#v, %v", pending, err)
+	}
+	if err := chat.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	action, err := database.ActionRequest(t.Context(), actions[0].ID, 1)
+	if err != nil || action.State != store.ActionExecuting {
+		t.Fatalf("recovered action = %#v, %v", action, err)
+	}
+	recoveryEvents, _ := restarted.Subscribe(t.Context(), conversation.ID)
+	<-recoveryEvents
+	if _, err := restarted.SkipMCPAuthentication(t.Context(), pending[0].ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, recoveryEvents, 1)
+	action, err = database.ActionRequest(t.Context(), actions[0].ID, 1)
+	if err != nil || action.State != store.ActionFailed || requests != 2 {
+		t.Fatalf("finished action = %#v, requests = %d, %v", action, requests, err)
+	}
+}
 
 func TestGovernedDownloadRequiresApprovalAndResumesExactChatCall(t *testing.T) {
 	original, database, conversation := chatFixture(t)
