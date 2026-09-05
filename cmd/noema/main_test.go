@@ -39,7 +39,7 @@ func TestProjectDocumentRecoveryUsesCommittedReceipt(t *testing.T) {
 	command := store.ProjectCommand{ActorID: "actor:human:local", Name: "project.create",
 		ClientMutationID: "committed", RequestDigest: committedRequest}
 	if _, err := database.CreateProject(context.Background(), committedID, "workspace:personal",
-		"Committed", "", nil, stage.Document.Digest, command, time.Now()); err != nil {
+		"Committed", "", nil, stage.Document.Digest, false, command, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 

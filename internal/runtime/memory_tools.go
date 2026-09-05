@@ -28,7 +28,7 @@ var (
 )
 
 func localChatTools() []provider.GenerationTool {
-	return []provider.GenerationTool{
+	result := []provider.GenerationTool{
 		fileParseTool(),
 		taskInspectTool(),
 		{
@@ -46,10 +46,11 @@ func localChatTools() []provider.GenerationTool {
 		presentMultipleChoiceTool(),
 		updateOwnNameTool(),
 	}
+	return append(result, projectToolSpecs...)
 }
 
 func supportsLocalChatTool(name string) bool {
-	return name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
+	return isProjectTool(name) || name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
@@ -86,7 +87,16 @@ func (c *Chat) executeChatTool(
 	conversation store.Conversation,
 	name string,
 	arguments json.RawMessage,
+	requestID string,
+	turnID string,
 ) (json.RawMessage, bool) {
+	if isProjectTool(name) {
+		correlationID := ""
+		if turnID != "" {
+			correlationID = "correlation:turn:" + turnID
+		}
+		return c.executeProjectTool(ctx, name, requestID, correlationID, arguments)
+	}
 	switch name {
 	case updateOwnNameToolName:
 		return c.updateOwnName(ctx, arguments)

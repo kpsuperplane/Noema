@@ -13,6 +13,7 @@ import (
 
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
+	"github.com/kpsuperplane/noema/internal/project"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -134,6 +135,7 @@ type Chat struct {
 	home       *os.Root
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
+	projects   *project.Service
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
@@ -210,7 +212,8 @@ func NewChat(
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
 		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService,
-		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
+		projects: project.New(database, homeRoot),
+		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
 		choices:          make(chan choiceResolution, turnQueueLimit),
 		done:             make(chan struct{}),
@@ -232,6 +235,9 @@ func NewChat(
 	go chat.run()
 	return chat, nil
 }
+
+// Projects returns the Project authority used by primary Chat.
+func (c *Chat) Projects() *project.Service { return c.projects }
 
 // SendTurn validates and queues one turn without binding execution to the request context.
 func (c *Chat) SendTurn(ctx context.Context, input SendTurnInput) (TurnAccepted, error) {

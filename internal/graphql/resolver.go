@@ -10,6 +10,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/notification"
+	"github.com/kpsuperplane/noema/internal/project"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -35,8 +36,8 @@ type Resolver struct {
 	Memory           *memory.Store
 	MCP              *mcp.Service
 	Notifications    *notification.Service
+	Projects         *project.Service
 	providerAuth     map[string]providerAuthService
-	projectMu        sync.Mutex
 	taskMu           sync.Mutex
 }
 
@@ -70,6 +71,11 @@ func NewResolver(
 		MCP:              mcpService,
 		Notifications:    notifications,
 		providerAuth:     make(map[string]providerAuthService),
+	}
+	if chat != nil {
+		resolver.Projects = chat.Projects()
+	} else {
+		resolver.Projects = project.New(taskStore, homeRoot)
 	}
 	if openRouter != nil {
 		resolver.providerAuth["openrouter"] = openRouter

@@ -620,7 +620,8 @@ func (c *Chat) persistChatToolRound(
 			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
 		return payload, success, false, nil
 	}
-	toolPayload, success := c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload)
+	toolPayload, success := c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload,
+		call.ProviderCallID, turn.ID)
 	resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
 		CallItemID: callItem.ID, Provider: assignment.ProviderKind,
 		ProviderRound: providerRound, OutputIndex: call.Index,

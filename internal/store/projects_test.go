@@ -17,7 +17,7 @@ func TestProjectCommandsReceiptsAndLifecycle(t *testing.T) {
 	id, _ := NewProjectID()
 	create := testProjectCommand("project.create", "create", "create")
 	documentDigest := testProjectDigest("# Plan\n\nExact\n")
-	result, err := database.CreateProject(ctx, id, "workspace:personal", "Plan", "Exact", nil, documentDigest, create, now)
+	result, err := database.CreateProject(ctx, id, "workspace:personal", "Plan", "Exact", nil, documentDigest, false, create, now)
 	if err != nil || result.Project.Revision != 1 || result.Event.Kind != "project.created" {
 		t.Fatalf("create Project = %#v, %v", result, err)
 	}
@@ -37,7 +37,7 @@ func TestProjectCommandsReceiptsAndLifecycle(t *testing.T) {
 	if _, err := DecodeWorkEventCursor("1"); !errors.Is(err, ErrInvalidCursor) {
 		t.Fatalf("decimal event cursor error = %v", err)
 	}
-	replay, err := database.CreateProject(ctx, id, "workspace:personal", "Plan", "Exact", nil, documentDigest, create, now)
+	replay, err := database.CreateProject(ctx, id, "workspace:personal", "Plan", "Exact", nil, documentDigest, false, create, now)
 	if err != nil || !replay.Replayed || replay.Event.ID != result.Event.ID {
 		t.Fatalf("create replay = %#v, %v", replay, err)
 	}
@@ -68,7 +68,7 @@ func TestProjectReceiptRejectsChangedRequest(t *testing.T) {
 	id, _ := NewProjectID()
 	command := testProjectCommand("project.create", "same", "first")
 	if _, err := database.CreateProject(context.Background(), id, "workspace:personal", "One", "", nil,
-		testProjectDigest("# One\n"), command, time.Now()); err != nil {
+		testProjectDigest("# One\n"), false, command, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	command.RequestDigest = testProjectCommand("project.create", "same", "second").RequestDigest
@@ -85,7 +85,7 @@ func TestProjectPaginationUsesEveryEdgeCursor(t *testing.T) {
 	for index := 0; index < 3; index++ {
 		id, _ := NewProjectID()
 		_, err := database.CreateProject(ctx, id, "workspace:personal", string(rune('A'+index)), "", nil,
-			testProjectDigest(string(rune('A'+index))),
+			testProjectDigest(string(rune('A'+index))), false,
 			testProjectCommand("project.create", string(rune('a'+index)), string(rune('a'+index))), now.Add(time.Duration(index)*time.Second))
 		if err != nil {
 			t.Fatal(err)

@@ -2,6 +2,9 @@ package graphql
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -59,10 +62,19 @@ func TestProjectAuthorityFlow(t *testing.T) {
 	recoveryInput := model.UpdateProjectDocumentInput{ProjectID: created.Project.ProjectID,
 		ExpectedRevision: 5, ExpectedDocumentDigest: current.Digest, Content: "# Recovered\n",
 		ClientMutationID: "project-document-recovery"}
-	recoveryCommand, err := projectCommand("project.update", recoveryInput.ClientMutationID, recoveryInput)
+	canonical := struct {
+		ProjectID        string
+		ExpectedDigest   string
+		Content          string
+		ExpectedRevision int64
+	}{recoveryInput.ProjectID, recoveryInput.ExpectedDocumentDigest, recoveryInput.Content, int64(recoveryInput.ExpectedRevision)}
+	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
+	digest := sha256.Sum256(encoded)
+	recoveryCommand := store.ProjectCommand{ActorID: projectActorID, Name: "project.update",
+		ClientMutationID: recoveryInput.ClientMutationID, RequestDigest: hex.EncodeToString(digest[:])}
 	stage, next, err := home.PrepareProjectDocumentReplace(resolver.home, created.Project.ProjectID,
 		updated.Project.Folder, current.Digest, recoveryInput.Content, recoveryCommand.RequestDigest)
 	if err != nil {
