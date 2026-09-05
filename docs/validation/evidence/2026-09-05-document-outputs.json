@@ -1,0 +1,166 @@
+[
+  {
+    "call_id": "call_fake_1",
+    "name": "file.parse",
+    "payload": {
+      "content": "# Intro\n\n- \\*first\\*\n\n| Name | Count |\n| --- | --- |\n| A\\|B | 2 |",
+      "content_format": "markdown",
+      "error": null,
+      "format": "docx",
+      "parser": "anydoc",
+      "path": "資料.docx",
+      "returned_chars": 65,
+      "source_bytes": 371,
+      "status": "converted",
+      "truncated": false
+    },
+    "provider_name": "parse",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_3",
+    "name": "file.parse",
+    "payload": {
+      "content": "## Plan\n\n- One  item\n\n| A | B |\n| --- | --- |",
+      "content_format": "markdown",
+      "error": null,
+      "format": "odt",
+      "parser": "anydoc",
+      "path": "資料.odt",
+      "returned_chars": 45,
+      "source_bytes": 349,
+      "status": "converted",
+      "truncated": false
+    },
+    "provider_name": "parse",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_5",
+    "name": "file.parse",
+    "payload": {
+      "content": "## Deck title\n\nBody\n\n> Remember this",
+      "content_format": "markdown",
+      "error": null,
+      "format": "odp",
+      "parser": "anydoc",
+      "path": "資料.odp",
+      "returned_chars": 36,
+      "source_bytes": 350,
+      "status": "converted",
+      "truncated": false
+    },
+    "provider_name": "parse",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_7",
+    "name": "file.parse",
+    "payload": {
+      "content": "Hello € —\n\nNext",
+      "content_format": "markdown",
+      "error": null,
+      "format": "rtf",
+      "parser": "anydoc",
+      "path": "資料.rtf",
+      "returned_chars": 15,
+      "source_bytes": 93,
+      "status": "converted",
+      "truncated": false
+    },
+    "provider_name": "parse",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_9",
+    "name": "file.parse",
+    "payload": {
+      "content": "café 日本語 🧭\n\nhttps://example.com/a?b=c",
+      "content_format": "text",
+      "error": null,
+      "format": "txt",
+      "parser": "utf8",
+      "path": "資料.txt",
+      "returned_chars": 37,
+      "source_bytes": 47,
+      "status": "converted",
+      "truncated": false
+    },
+    "provider_name": "parse",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_11",
+    "name": "file.parse",
+    "payload": {
+      "content": null,
+      "content_format": null,
+      "error": "malformed",
+      "format": "docx",
+      "parser": "anydoc",
+      "path": "broken.docx",
+      "returned_chars": 0,
+      "source_bytes": 14,
+      "status": "failed",
+      "truncated": false
+    },
+    "provider_name": "parse",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_13",
+    "name": "file.parse",
+    "payload": {
+      "content": null,
+      "content_format": null,
+      "error": "invalid_utf8",
+      "format": "txt",
+      "parser": null,
+      "path": "bad.txt",
+      "returned_chars": 0,
+      "source_bytes": 6,
+      "status": "failed",
+      "truncated": false
+    },
+    "provider_name": "parse",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_15",
+    "name": "file.parse",
+    "payload": {
+      "error": "file path is outside the working-directory boundary"
+    },
+    "provider_name": "parse",
+    "success": false
+  },
+  {
+    "call_id": "call_fake_17",
+    "name": "file.parse",
+    "payload": {
+      "error": "file path contains a symbolic link"
+    },
+    "provider_name": "parse",
+    "success": false
+  },
+  {
+    "call_id": "call_fake_19",
+    "name": "code.run_lua",
+    "payload": {
+      "value": {
+        "label": "café 日本語 🧭",
+        "percent": 25,
+        "remaining": 1800,
+        "values": [
+          null,
+          1,
+          {
+            "x": true
+          }
+        ]
+      }
+    },
+    "provider_name": "run_lua",
+    "success": true
+  }
+]

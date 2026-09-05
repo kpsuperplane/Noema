@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require=createRequire('/root/noema/apps/web/package.json');
 const { WebSocketServer }=require('ws');
 const root='/var/tmp/noema-suite-run-20260905';
-export async function startFakeServices() {
+export async function startFakeServices(onInput = () => {}) {
   const cert=await readFile(root+'/fake-ca.pem');
   const pin=createHash('sha256').update(new X509Certificate(cert).publicKey.export({type:'spki',format:'der'})).digest('base64');
   const key=await readFile(root+'/fake-credentials/key.pem');
@@ -13,6 +13,7 @@ export async function startFakeServices() {
   let sequence=0;
   const secret=()=>randomBytes(24).toString('base64url');
   async function generate(body,send) {
+    onInput(body);
     const reply=replies.shift() || {text:'Controlled request complete.'};
     const n=++sequence, id=`resp_fake_${n}`;
     receipts.push({kind:'model',number:n,model:body.model,tools:body.tools?.map(t=>t.name).filter(Boolean),apiTools:body.tools?.filter(t=>t.name?.startsWith('lookup')).map(t=>({name:t.name,description:t.description})),inputTypes:body.input?.map(i=>i.type||i.role)});

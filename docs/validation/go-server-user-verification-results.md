@@ -64,6 +64,29 @@ The [concurrent probe](evidence/2026-09-05-concurrent-api-probe.go.txt) uses pro
 Two concurrent calls refresh the shared grant once. Both return the intended account records.
 After revocation, two saved calls fail before reaching the fake API.
 
+## Document, Lua, and target checks
+
+All four [cross-builds](evidence/2026-09-05-cross-build-results.json) passed: Linux arm64, macOS amd64, macOS arm64, and Windows amd64.
+These builds do not prove native startup or client behavior.
+They use the source overrides recorded in the OAuth response fix.
+
+The [document driver](evidence/2026-09-05-document-check.mjs) passed nine assertions before a later browser wait timed out.
+The [document results](evidence/2026-09-05-document-results.json) record those completed assertions.
+The [fixture preparation](evidence/2026-09-05-prepare-documents.py) reuses known document structures and independent expected text.
+The release parsed DOCX, ODT, ODP, RTF, and Unicode text through Chat.
+It rejected malformed DOCX, invalid UTF-8, parent traversal, and symbolic links.
+Other formats and archive limits remain pending.
+
+The first Lua call returned the expected result to the provider, but its final message was not visible within 30 seconds.
+The [isolated Lua driver](evidence/2026-09-05-lua-check.mjs) passed both cases in a fresh conversation.
+Its [results](evidence/2026-09-05-lua-results.json) cover calculations, JSON preservation, and prohibited execution.
+The longer-transcript browser timeout remains unresolved. It is not recorded as a Lua failure or a complete Chat pass.
+Both runs used the release artifact recorded in the OAuth response fix.
+
+Validation reused `CGO_ENABLED=0 go test ./cmd/... ./internal/...`: 605 passed on the three recorded source overrides.
+Validation also reused `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`: passed on those same changes.
+No application code changed in this evidence unit. Script syntax and evidence links received focused checks.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -240,16 +263,16 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-16 | Not run | Controlled setup pending. | — |
 | FILE-01 | Not run | Controlled setup pending. | — |
 | FILE-02 | Not run | Controlled setup pending. | — |
-| FILE-03 | Not run | Controlled setup pending. | — |
-| FILE-04 | Not run | Controlled setup pending. | — |
+| FILE-03 | Partial | DOCX, ODT, and RTF preserve known structure through the packaged Chat tool. DOC remains pending. | — |
+| FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
 | FILE-05 | Not run | Controlled setup pending. | — |
 | FILE-06 | Not run | Controlled setup pending. | — |
 | FILE-07 | Not run | Controlled setup pending. | — |
-| FILE-08 | Not run | Controlled setup pending. | — |
-| FILE-09 | Not run | Controlled setup pending. | — |
+| FILE-08 | Pass · controlled Linux | Unicode filenames and text survive Chat parsing. Invalid UTF-8 returns an explicit failure. | — |
+| FILE-09 | Partial | Malformed DOCX, parent traversal, and symbolic links are rejected. Oversized and unsafe archives remain pending. | — |
 | FILE-10 | Not run | Controlled setup pending. | — |
-| CALC-01 | Not run | Controlled setup pending. | — |
-| CALC-02 | Not run | Controlled setup pending. | — |
+| CALC-01 | Pass · controlled Linux | Budget, percentage, structured JSON, nulls, and Unicode match independent values. | — |
+| CALC-02 | Pass · controlled Linux | Unbounded Lua and file, process, environment, and network access fail within 15 seconds each. | — |
 | ART-01 | Not run | Controlled setup pending. | — |
 | ART-02 | Not run | Controlled setup pending. | — |
 | ART-03 | Not run | Controlled setup pending. | — |
