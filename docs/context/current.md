@@ -188,7 +188,7 @@ ACP runs, remaining capability tools, remaining integrations, Task Live Activiti
 - The Tauri app defaults to its embedded host and can connect to one remote
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.
-  The human configures an ordered provider route. Obscura remains the default.
+  The human configures an ordered provider route. Obscura remains the default. The Go server installs its pinned external binary after selection.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
 - A failed initial browser open keeps route state. The agent can switch providers without a snapshot revision.
