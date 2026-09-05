@@ -216,7 +216,7 @@ func TestOpenRouterCallbackHandlerRejectsInvalidRequestsWithoutEcho(t *testing.T
 	handler.ServeHTTP(valid, httptest.NewRequest(
 		http.MethodGet, "/provider/oauth/callback/"+attempt.ID+"?code=one-use&code=ignored-secret", nil,
 	))
-	if valid.Code != http.StatusOK || !strings.Contains(valid.Body.String(), "Authentication completed.") ||
+	if valid.Code != http.StatusOK || !strings.Contains(valid.Body.String(), "You’re signed in") ||
 		strings.Contains(valid.Body.String(), "one-use") || strings.Contains(valid.Body.String(), "ignored-secret") {
 		t.Fatalf("valid callback = %d %q", valid.Code, valid.Body.String())
 	}

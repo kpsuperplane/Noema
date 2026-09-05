@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/kpsuperplane/noema/internal/publicpage"
 	"net/http"
 	"net/url"
 	"strings"
@@ -381,16 +382,15 @@ func (s *Service) CallbackHandler() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet || r.URL.Path != "/mcp/oauth/callback" || len(r.URL.RawQuery) > 16384 {
-			http.Error(w, "Invalid MCP OAuth callback.", http.StatusBadRequest)
+			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
 		id := r.URL.Query().Get("attemptId")
 		if err := s.CompleteOAuth(r.Context(), id, absoluteCallback(r)); err != nil {
-			http.Error(w, "Noema could not complete this MCP connection.", http.StatusBadRequest)
+			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("<!doctype html><title>Noema MCP OAuth</title><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p>"))
+		publicpage.Callback(w, http.StatusOK, true)
 	})
 }
 

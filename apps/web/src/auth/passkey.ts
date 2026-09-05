@@ -18,11 +18,12 @@ export function passkeysSupported() {
   return Boolean(window.PublicKeyCredential && navigator.credentials);
 }
 
-export async function enrollPasskey() {
+export async function enrollPasskey(signal?: AbortSignal) {
   const start = await postJson<CeremonyStart<PublicKeyCredentialCreationOptionsJSON>>(
     "/auth/passkey/register/start"
   );
   const credential = await navigator.credentials.create({
+    signal,
     publicKey: creationOptionsFromJson(start.options.publicKey)
   });
   if (!(credential instanceof PublicKeyCredential)) {
@@ -35,11 +36,12 @@ export async function enrollPasskey() {
   window.dispatchEvent(new Event("noema:browser-session-changed"));
 }
 
-export async function authenticateWithPasskey() {
+export async function authenticateWithPasskey(signal?: AbortSignal) {
   const start = await postJson<CeremonyStart<PublicKeyCredentialRequestOptionsJSON>>(
     "/auth/passkey/login/start"
   );
   const credential = await navigator.credentials.get({
+    signal,
     publicKey: requestOptionsFromJson(start.options.publicKey)
   });
   if (!(credential instanceof PublicKeyCredential)) {

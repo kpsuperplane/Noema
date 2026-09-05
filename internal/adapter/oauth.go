@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/kpsuperplane/noema/internal/publicpage"
 	"io"
 	"net"
 	"net/http"
@@ -102,16 +103,19 @@ func (s *Service) SetOAuthCompletionHandler(handler func(OAuthAttemptEvent)) {
 func (s *Service) OAuthCallbackHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" || len(r.URL.RequestURI()) > 8<<10 {
-			http.Error(w, "OAuth callback is invalid", http.StatusBadRequest)
+			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
-		_, err := s.CompleteOAuth(r.Context(), s.oauthCallback+"?"+r.URL.RawQuery)
+		event, err := s.CompleteOAuth(r.Context(), s.oauthCallback+"?"+r.URL.RawQuery)
 		if err != nil {
-			http.Error(w, "Noema could not finish this connection. Return to Noema.", http.StatusBadRequest)
+			if event.Status == "failed" && event.GrantID != "" {
+				publicpage.Write(w, http.StatusBadRequest, publicpage.Page{Return: true, Title: "You’re signed in. Setup needs attention", Intro: "Your account access is saved.", Note: "Return to Noema to review this connection and finish setup."})
+				return
+			}
+			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, "<!doctype html><title>Noema</title><p>Connection complete. You can return to Noema.</p>")
+		publicpage.Callback(w, http.StatusOK, true)
 	})
 }
 
@@ -559,12 +563,14 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 		return OAuthAttemptEvent{}, err
 	}
 	if err = s.setGrantConnections(current.GrantID, "active"); err != nil {
-		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "failed"})
-		return OAuthAttemptEvent{}, err
+		event := OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "failed"}
+		s.setOAuthEvent(event)
+		return event, err
 	}
 	if err = s.reconcile(ctx); err != nil {
-		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "failed"})
-		return OAuthAttemptEvent{}, err
+		event := OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "failed"}
+		s.setOAuthEvent(event)
+		return event, err
 	}
 	event := OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "completed"}
 	s.setOAuthEvent(event)

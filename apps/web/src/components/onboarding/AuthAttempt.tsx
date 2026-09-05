@@ -1,4 +1,5 @@
-import type React from "react";
+import React from "react";
+import { SetupActions, SetupNote } from "../shell/SetupFrame";
 import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
@@ -13,6 +14,15 @@ export function AuthAttempt({
   attempt: ProviderAuthAttemptView;
   onCancel: () => void;
 }) {
+  const [copyStatus, setCopyStatus] = React.useState("");
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(attempt.userCode ?? "");
+      setCopyStatus("Code copied.");
+    } catch {
+      setCopyStatus("Select the code and copy it manually.");
+    }
+  }
   async function openLoginPage(event: React.MouseEvent<HTMLButtonElement>) {
     if (!attempt.verificationUrl) {
       return;
@@ -29,53 +39,50 @@ export function AuthAttempt({
   }
 
   return (
-    <VStack gap={3} {...stylex.props(styles.root)} aria-live="polite">
-      <strong {...stylex.props(styles.status)}>
-        {attempt.status === "STARTING" ? "Starting login" : "Waiting for login"}
-      </strong>
-      {attempt.verificationUrl ? (
-        <Button
-          as="a"
-          href={attempt.verificationUrl}
-          target="_blank"
-          rel="noreferrer"
-          label="Open login page"
-          onClick={openLoginPage}
-        >
-          Open login page
-        </Button>
+    <VStack gap={3} aria-live="polite">
+      {attempt.userCode ? (
+        <VStack gap={2} hAlign="center">
+          <SetupNote>Enter this code on the sign-in page.</SetupNote>
+          <code {...stylex.props(styles.userCode)}>{attempt.userCode}</code>
+          <Button
+            variant="secondary"
+            label="Copy code"
+            onClick={() => void copyCode()}
+          />
+          {copyStatus ? <SetupNote>{copyStatus}</SetupNote> : null}
+        </VStack>
       ) : null}
-      {attempt.userCode ? <code {...stylex.props(styles.userCode)}>{attempt.userCode}</code> : null}
-      {attempt.instructions ? <p {...stylex.props(styles.instructions)}>{attempt.instructions}</p> : null}
-      <p {...stylex.props(styles.continuation)}>Noema will continue automatically.</p>
-      <Button type="button" variant="ghost" label="Cancel connection" onClick={onCancel} />
+      {attempt.instructions ? (
+        <SetupNote>{attempt.instructions}</SetupNote>
+      ) : null}
+      <SetupActions>
+        <Button variant="secondary" label="Cancel sign-in" onClick={onCancel} />
+        {attempt.verificationUrl ? (
+          <Button
+            as="a"
+            variant="primary"
+            href={attempt.verificationUrl}
+            target="_blank"
+            rel="noreferrer"
+            label="Open sign-in page"
+            onClick={openLoginPage}
+          />
+        ) : null}
+      </SetupActions>
+      <SetupNote>Noema continues after you finish signing in.</SetupNote>
     </VStack>
   );
 }
 
 const styles = stylex.create({
-  root: {
-    width: "100%",
-    maxWidth: 560,
-    minWidth: 0,
-  },
-  status: { textWrap: "balance" },
-  instructions: { margin: "var(--spacing-0)", textWrap: "pretty" },
   userCode: {
-    width: "fit-content",
     maxWidth: "100%",
     borderRadius: "var(--radius-element)",
     backgroundColor: "var(--surface-sunken)",
-    padding: "var(--spacing-1-5) var(--spacing-2)",
+    padding: "var(--spacing-2) var(--spacing-3)",
     fontFamily: "var(--font-mono)",
     fontSize: "var(--font-size-lg)",
-    lineHeight: 1.35,
-    whiteSpace: "normal",
-    overflowWrap: "anywhere"
-  },
-  continuation: {
-    margin: "var(--spacing-0)",
-    fontSize: "var(--font-size-base)",
-    color: "var(--muted-foreground)"
+    overflowWrap: "anywhere",
+    textAlign: "center"
   }
 });

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/net/html"
 )
 
 const defaultAssetDirectory = "target/web-assets"
@@ -48,6 +50,47 @@ func (h assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Public pages use the current app stylesheet, including its fonts and Astryx controls.
+	// Resolve the build output instead of maintaining a second theme snapshot.
+	if r.URL.Path == "/assets/supporting.css" {
+		index, err := fs.ReadFile(h.assets, "index.html")
+		if err == nil {
+			tokens := html.NewTokenizer(strings.NewReader(string(index)))
+			for tokens.Next() != html.ErrorToken {
+				token := tokens.Token()
+				if token.Type != html.StartTagToken && token.Type != html.SelfClosingTagToken {
+					continue
+				}
+				if token.Data != "link" {
+					continue
+				}
+				rel, href := "", ""
+				for _, attribute := range token.Attr {
+					if attribute.Key == "rel" {
+						rel = attribute.Val
+					}
+					if attribute.Key == "href" {
+						href = attribute.Val
+					}
+				}
+				if rel != "stylesheet" {
+					continue
+				}
+				name, ok := staticAssetName(href)
+				if !ok || !strings.HasSuffix(name, ".css") {
+					continue
+				}
+				if body, err := fs.ReadFile(h.assets, name); err == nil {
+					w.Header().Set("Content-Type", "text/css; charset=utf-8")
+					w.Header().Set("Cache-Control", "no-cache")
+					_, _ = w.Write(body)
+					return
+				}
+			}
+		}
+		http.NotFound(w, r)
+		return
+	}
 	name, contentType, ok := assetRequest(r.URL.Path)
 	if !ok {
 		http.NotFound(w, r)
@@ -59,6 +102,10 @@ func (h assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
+	// The desktop loopback callback uses the server's public fonts.
+	if strings.HasPrefix(contentType, "font/") {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
 	w.Header().Set("Cache-Control", cacheControl(name))
 	if name == "sw.js" {
 		w.Header().Set("Service-Worker-Allowed", "/")

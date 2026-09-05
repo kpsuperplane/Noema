@@ -54,6 +54,25 @@ transport, runtime, and policy internals outside the default flow. The current
 shell restores Chat, Tasks, Memory, and Settings after setup. Do not hide these
 destinations to preserve an obsolete staged rollout.
 
+Supporting flows reuse `SetupFrame`, `SetupCard`, and the existing animated avatar.
+The avatar centre meets the card edge. The title position stays fixed.
+`theme/supporting.css` owns the shared card geometry, wash, spacing, and actions.
+Desktop action pairs use equal columns. The primary action follows the secondary action.
+Provider choices reuse `ListCardButton`. Model review groups resolved model names by their jobs.
+The Customize disclosure keeps all nine assignments and their existing preference controls.
+
+`internal/publicpage` renders consent and callback pages without authenticated JavaScript.
+Its stylesheet resolves the current Vite entry CSS through `/assets/supporting.css`.
+This avoids a second theme snapshot. Public pages use a static avatar fallback.
+Run `bun scripts/render-public-buttons.tsx` from `apps/web` after an Astryx upgrade.
+This regenerates public form controls from the installed Button component.
+
+Recovery keeps its own state during native authorization and PWA reauthentication.
+Browser Back restores passkey focus. Forward restores recovery field focus.
+Native handoff does not claim that token exchange has completed.
+A saved adapter grant with failed activation remains a partial setup result.
+Human intervention cards remain part of their existing Chat flow.
+
 ## State authorities
 
 - SQLite owns durable conversations, transcript items, tasks, provider and tool

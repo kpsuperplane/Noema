@@ -89,13 +89,12 @@ impl PendingConnection {
             .url();
         open::that(authorization_url.as_str())
             .map_err(|_| "Noema could not open the system browser.".to_string())?;
-        let (code, returned_state) =
-            tokio::time::timeout(CALLBACK_TIMEOUT, receive_callback(&listener, &redirect))
-                .await
-                .map_err(|_| "Noema sign-in expired. Try again.".to_string())??;
-        if returned_state.secret() != expected_state.secret() {
-            return Err("Noema rejected an invalid sign-in response.".to_string());
-        }
+        let code = tokio::time::timeout(
+            CALLBACK_TIMEOUT,
+            receive_callback(&listener, &redirect, &self.origin, &expected_state),
+        )
+        .await
+        .map_err(|_| "Noema sign-in expired. Try again.".to_string())??;
         let http = oauth2::reqwest::Client::builder()
             .redirect(oauth2::reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(15))
@@ -127,7 +126,9 @@ impl PendingConnection {
 async fn receive_callback(
     listener: &TcpListener,
     redirect: &str,
-) -> Result<(AuthorizationCode, CsrfToken), String> {
+    origin: &str,
+    expected_state: &CsrfToken,
+) -> Result<AuthorizationCode, String> {
     let (mut stream, peer) = listener
         .accept()
         .await
@@ -135,27 +136,57 @@ async fn receive_callback(
     if !peer.ip().is_loopback() {
         return Err("Noema rejected a non-local sign-in response.".to_string());
     }
-    let result = read_callback(&mut stream, redirect).await;
-    let (status, message) = if result.is_ok() {
-        ("200 OK", "Authorization complete. Return to Noema.")
+    let response = read_callback(&mut stream, redirect).await;
+    let denied = matches!(&response, Ok(CallbackResponse::Denied(state)) if state.secret() == expected_state.secret());
+    let result = match response {
+        Ok(CallbackResponse::Authorized(code, state))
+            if state.secret() == expected_state.secret() =>
+        {
+            Ok(code)
+        }
+        _ => Err("Noema did not complete this sign-in. Try again.".to_string()),
+    };
+    let (status, title, intro, note) = if denied {
+        (
+            "200 OK",
+            "Connection declined",
+            "No new access was granted.",
+            "Return to Noema Desktop when you’re ready.",
+        )
+    } else if result.is_ok() {
+        (
+            "200 OK",
+            "Continue in Noema Desktop",
+            "The app will finish connecting.",
+            "If the app did not open, return to it now.",
+        )
     } else {
         (
             "400 Bad Request",
-            "Noema rejected this authorization response.",
+            "Sign-in did not finish",
+            "Return to Noema Desktop to try again.",
+            "Start a new connection from the app.",
         )
     };
+    // The origin was validated by trusted_origin. No callback values enter this page.
+    let message = format!(
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>{title} · Noema</title><link rel="stylesheet" href="{origin}/assets/supporting.css"></head>
+<body data-setup="public"><main data-setup="body"><div data-setup="surface"><div data-setup="avatar" aria-hidden="true"><img src="{origin}/assets/noema-avatar.svg" alt=""></div><section data-setup="card" aria-labelledby="title"><header data-setup="header"><h1 id="title" data-setup="title">{title}</h1><p data-setup="note">{intro}</p></header><p data-setup="note">{note}</p></section></div></main></body></html>"#
+    );
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n{message}",
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\n\r\n{message}",
         message.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
     result
 }
 
-async fn read_callback(
-    stream: &mut TcpStream,
-    redirect: &str,
-) -> Result<(AuthorizationCode, CsrfToken), String> {
+enum CallbackResponse {
+    Authorized(AuthorizationCode, CsrfToken),
+    Denied(CsrfToken),
+}
+
+async fn read_callback(stream: &mut TcpStream, redirect: &str) -> Result<CallbackResponse, String> {
     let target = read_callback_target(stream).await?;
     let base = url::Url::parse(redirect)
         .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
@@ -178,12 +209,23 @@ async fn read_callback(
     if values.len() != 2 || values.values().any(|entries| entries.len() != 1) {
         return Err("Noema received an invalid sign-in response.".to_string());
     }
-    let code = single(&values, "code")?;
     let state = single(&values, "state")?;
-    if !(1..=128).contains(&code.len()) || !(1..=256).contains(&state.len()) {
+    if !(1..=256).contains(&state.len()) {
         return Err("Noema received an invalid sign-in response.".to_string());
     }
-    Ok((
+    if values
+        .get("error")
+        .and_then(|values| values.first())
+        .map(String::as_str)
+        == Some("access_denied")
+    {
+        return Ok(CallbackResponse::Denied(CsrfToken::new(state.to_string())));
+    }
+    let code = single(&values, "code")?;
+    if !(1..=128).contains(&code.len()) {
+        return Err("Noema received an invalid sign-in response.".to_string());
+    }
+    Ok(CallbackResponse::Authorized(
         AuthorizationCode::new(code.to_string()),
         CsrfToken::new(state.to_string()),
     ))
@@ -259,6 +301,52 @@ fn random_text(bytes: usize) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn callback_distinguishes_verified_denial_from_handoff_and_invalid_state() {
+        for (query, title, accepted) in [
+            (
+                "code=unit-code&state=unit-state",
+                "Continue in Noema Desktop",
+                true,
+            ),
+            (
+                "error=access_denied&state=unit-state",
+                "Connection declined",
+                false,
+            ),
+            (
+                "error=access_denied&state=wrong-state",
+                "Sign-in did not finish",
+                false,
+            ),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+            let address = listener.local_addr().expect("address");
+            let redirect = format!("http://{address}{CALLBACK_PATH}");
+            let client = tokio::spawn(async move {
+                let mut stream = TcpStream::connect(address).await.expect("connect");
+                let request =
+                    format!("GET {CALLBACK_PATH}?{query} HTTP/1.1\r\nHost: {address}\r\n\r\n");
+                stream.write_all(request.as_bytes()).await.expect("request");
+                let mut body = String::new();
+                stream.read_to_string(&mut body).await.expect("response");
+                body
+            });
+            let result = receive_callback(
+                &listener,
+                &redirect,
+                "https://noema.example",
+                &CsrfToken::new("unit-state".into()),
+            )
+            .await;
+            assert_eq!(result.is_ok(), accepted);
+            let body = client.await.expect("client");
+            assert!(body.contains(title));
+            assert!(!body.contains("unit-code"));
+            assert!(!body.contains("Authorization complete"));
+        }
+    }
 
     #[test]
     fn connection_parser_accepts_https_and_server_links() {

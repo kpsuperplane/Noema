@@ -139,3 +139,20 @@ func requestAsset(handler http.Handler, method string, target string) *httptest.
 	handler.ServeHTTP(response, request)
 	return response
 }
+
+func TestPublicStylesheetUsesCurrentBuildWithoutExternalRedirect(t *testing.T) {
+	for _, href := range []string{"/assets/index-current.css", "https://outside.example/style.css", "/assets/../private.css"} {
+		handler := assetHandler{assets: fstest.MapFS{
+			"index.html":        {Data: []byte(`<link rel="modulepreload" href="/assets/app.js"><link rel="stylesheet" href="` + href + `">`)},
+			"index-current.css": {Data: []byte("current theme")},
+		}}
+		response := requestAsset(handler, http.MethodGet, "/assets/supporting.css")
+		if href == "/assets/index-current.css" {
+			if response.Code != http.StatusOK || response.Body.String() != "current theme" || response.Header().Get("Cache-Control") != "no-cache" {
+				t.Fatal("public page did not receive the current theme")
+			}
+		} else if response.Code != http.StatusNotFound {
+			t.Fatal("invalid stylesheet path was accepted")
+		}
+	}
+}

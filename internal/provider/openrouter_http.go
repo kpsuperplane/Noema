@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"github.com/kpsuperplane/noema/internal/publicpage"
 	"net/http"
 	"strings"
 )
@@ -14,28 +15,23 @@ func (s *OpenRouterService) CallbackHandler() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			publicpage.Callback(w, http.StatusMethodNotAllowed, false)
 			return
 		}
 		attemptID := strings.TrimPrefix(r.URL.Path, openRouterCallbackPath)
 		if len(r.URL.RawQuery) > 8192 {
-			writeCallbackPage(w, http.StatusBadRequest, "Noema could not complete this provider connection.")
+			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
 		codes := r.URL.Query()["code"]
 		if !validAttemptID(attemptID) || len(codes) == 0 || codes[0] == "" {
-			writeCallbackPage(w, http.StatusBadRequest, "Noema could not complete this provider connection.")
+			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
 		if _, err := s.CompleteCallback(r.Context(), attemptID, codes[0]); err != nil {
-			writeCallbackPage(w, http.StatusBadRequest, "Noema could not complete this provider connection.")
+			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
-		writeCallbackPage(w, http.StatusOK, "Authentication completed.")
+		publicpage.Callback(w, http.StatusOK, true)
 	})
-}
-
-func writeCallbackPage(w http.ResponseWriter, status int, message string) {
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte("<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema Provider OAuth</title><main><p>" + message + "</p><p><a href=\"/\">Return to Noema</a></p></main>"))
 }

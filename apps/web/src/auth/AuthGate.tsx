@@ -2,9 +2,14 @@ import React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import * as stylex from "@stylexjs/stylex";
 import { AppBootSkeleton } from "@/components/shell/AppBootSkeleton";
-import { SetupFrame } from "@/components/shell/SetupFrame";
+import {
+  SetupFrame,
+  SetupCard,
+  SetupActions,
+  SetupNote
+} from "@/components/shell/SetupFrame";
+import { ErrorMarker } from "@/components/ErrorMarker";
 import { isTauriRuntime } from "@/graphql/transportMode";
 import { pwaRuntime } from "@/pwa/runtime";
 import { hasAuthenticatedSentinel } from "@/pwa/storage";
@@ -13,7 +18,8 @@ import {
   authorizeRecovery,
   enrollPasskey,
   passkeysSupported,
-  RecoveryRequestError
+  RecoveryRequestError,
+  PasskeyRequestError
 } from "./passkey";
 
 type AuthState =
@@ -22,11 +28,11 @@ type AuthState =
   | "setup_ready"
   | "login_required"
   | "recovery_required"
+  | "recovery_enroll"
+  | "recovery_expired"
+  | "recovery_complete"
   | "unavailable";
-
-type AuthStatus = {
-  state: "authenticated" | "setup_ready" | "login_required";
-};
+type AuthStatus = { state: "authenticated" | "setup_ready" | "login_required" };
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const desktop = isTauriRuntime();
@@ -45,15 +51,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [recoveryCode, setRecoveryCode] = React.useState("");
-
+  const request = React.useRef<AbortController | null>(null);
+  const primary = React.useRef<HTMLButtonElement>(null);
+  const recoveryForm = React.useRef<HTMLFormElement>(null);
   const initializeAuthentication =
     React.useCallback(async (): Promise<AuthState> => {
       const next = await readAuthStatus();
       if (next === "authenticated") {
         await pwaRuntime.authenticated();
-        return "authenticated";
-      }
-      if (next === "unavailable" && (await hasAuthenticatedSentinel())) {
+      } else if (next === "unavailable" && (await hasAuthenticatedSentinel())) {
         pwaRuntime.goOffline();
         return "authenticated";
       }
@@ -68,223 +74,297 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     });
     return () => {
       active = false;
+      request.current?.abort();
     };
   }, [desktop, initializeAuthentication]);
 
-  async function perform(action: () => Promise<void>, failureMessage: string) {
-    setWorking(true);
-    setError(null);
-    pwaRuntime.setCriticalOperation("passkey", true);
-    try {
-      await action();
-      await pwaRuntime.authenticated();
-      if (nativeAuthorization) {
-        window.location.replace("/oauth/authorize");
+  // Reauthentication must not hide an active recovery flow.
+  const visibleState =
+    state === "authenticated" &&
+    (nativeAuthorization || pwa.state === "auth_required")
+      ? "login_required"
+      : state;
+  React.useEffect(() => {
+    if (visibleState !== "recovery_enroll") return;
+    const expiry = window.setTimeout(
+      () => {
+        request.current?.abort();
+        setError(null);
+        setState("recovery_expired");
+      },
+      5 * 60 * 1000
+    );
+    return () => window.clearTimeout(expiry);
+  }, [visibleState]);
+
+  React.useEffect(() => {
+    function restoreAccessStep() {
+      if (
+        state === "authenticated" &&
+        !nativeAuthorization &&
+        pwa.state !== "auth_required"
+      )
         return;
-      }
-      setState("authenticated");
-    } catch (caught) {
-      setError(
-        caught instanceof DOMException && caught.name === "NotAllowedError"
-          ? "The passkey prompt was cancelled or timed out."
-          : failureMessage
-      );
-    } finally {
-      pwaRuntime.setCriticalOperation("passkey", false);
-      setWorking(false);
+      request.current?.abort();
+      setRecoveryCode("");
+      setError(null);
+      const recovery = window.history.state?.noemaAccess === "recovery";
+      setState(recovery ? "recovery_required" : "login_required");
+      requestAnimationFrame(() => {
+        if (recovery) recoveryForm.current?.querySelector("input")?.focus();
+        else primary.current?.focus();
+      });
     }
+    window.addEventListener("popstate", restoreAccessStep);
+    return () => window.removeEventListener("popstate", restoreAccessStep);
+  }, [state, nativeAuthorization, pwa.state]);
+
+  function showRecovery() {
+    if (window.history.state?.noemaAccess !== "recovery") {
+      window.history.pushState(
+        { ...window.history.state, noemaAccess: "recovery" },
+        ""
+      );
+    }
+    setError(null);
+    setState("recovery_required");
   }
 
-  async function recoverAndEnroll() {
+  function finish() {
+    if (nativeAuthorization) window.location.replace("/oauth/authorize");
+    else setState("authenticated");
+  }
+
+  async function perform(recovery: boolean, authorize = false) {
+    if (working) return;
     setWorking(true);
     setError(null);
+    const controller = new AbortController();
+    request.current = controller;
     pwaRuntime.setCriticalOperation("passkey", true);
     try {
-      await authorizeRecovery(recoveryCode.trim());
-      setRecoveryCode("");
-      setState("setup_ready");
-      await enrollPasskey();
+      if (authorize) {
+        await authorizeRecovery(recoveryCode.trim());
+        setRecoveryCode("");
+        setState("recovery_enroll");
+      }
+      if (recovery || visibleState === "setup_ready")
+        await enrollPasskey(controller.signal);
+      else await authenticateWithPasskey(controller.signal);
       await pwaRuntime.authenticated();
-      setState("authenticated");
+      if (recovery) setState("recovery_complete");
+      else finish();
     } catch (caught) {
       setRecoveryCode("");
+      if (controller.signal.aborted) return;
       if (caught instanceof RecoveryRequestError) {
         setError(
           caught.status === 401
-            ? "Noema did not accept that code. Read the new code from the startup config and try again."
-            : "Recovery is unavailable. Restart Noema and read the current code from the startup config."
+            ? "That code was not accepted. Each attempt replaces it. Get the new code and try again."
+            : "Noema could not check the code. Get the current code before you try again."
         );
+      } else if (
+        recovery &&
+        caught instanceof PasskeyRequestError &&
+        (caught.status === 401 || caught.status === 403)
+      ) {
+        setState("recovery_expired");
       } else {
         setError(
           caught instanceof DOMException && caught.name === "NotAllowedError"
-            ? "The passkey prompt was cancelled or timed out. Select Create passkey to try again."
-            : "Noema could not create that passkey. Select Create passkey to try again."
+            ? "The passkey prompt closed. You can try again."
+            : "Noema could not complete the passkey request. Try again."
         );
       }
     } finally {
+      request.current = null;
       pwaRuntime.setCriticalOperation("passkey", false);
       setWorking(false);
     }
   }
 
+  function showLogin() {
+    if (window.history.state?.noemaAccess === "recovery") {
+      window.history.back();
+      return;
+    }
+    setRecoveryCode("");
+    setError(null);
+    setState("login_required");
+    requestAnimationFrame(() => primary.current?.focus());
+  }
   function retryStatus() {
     setError(null);
     setState("loading");
     void initializeAuthentication().then(setState);
   }
-
-  const visibleState = nativeAuthorization
-    ? "login_required"
-    : pwa.state === "auth_required"
-      ? "login_required"
-      : state;
-
   if (visibleState === "loading") return <AppBootSkeleton />;
   if (visibleState === "authenticated") return children;
-
   const supported = passkeysSupported();
-  const setupReady = visibleState === "setup_ready";
-  const loginRequired = visibleState === "login_required";
-  const recoveryRequired = visibleState === "recovery_required";
-
+  const unavailable = visibleState === "unavailable";
+  const recovery = visibleState === "recovery_required";
+  const enroll = visibleState === "recovery_enroll";
+  const complete = visibleState === "recovery_complete";
+  const expired = visibleState === "recovery_expired";
+  const create = visibleState === "setup_ready";
+  const title = unavailable
+    ? "Noema is out of reach"
+    : !supported
+      ? "Try a passkey-ready browser"
+      : working
+        ? "Follow your device’s prompt"
+        : complete
+          ? "Your access is restored"
+          : expired
+            ? "Recovery time ran out"
+            : enroll
+              ? "Create your new passkey"
+              : recovery
+                ? "Recover access"
+                : create
+                  ? "Make Noema yours"
+                  : "Welcome back";
+  const intro = unavailable
+    ? "Check your connection and try again."
+    : !supported
+      ? "Open Noema in a current browser."
+      : working
+        ? "Your device will guide you."
+        : complete
+          ? "Use your new passkey next time."
+          : expired
+            ? "Get a new code to continue."
+            : enroll
+              ? "Save it to your device or password manager."
+              : recovery
+                ? "Use a recovery code to add a passkey."
+                : create
+                  ? "Create a passkey to get started."
+                  : "Your passkey opens the door.";
   return (
     <SetupFrame>
-      <VStack as="section" {...stylex.props(styles.root)}>
-        <VStack
-          gap={3}
-          width="min(480px, 100%)"
-          {...stylex.props(styles.content)}
-        >
-          <p {...stylex.props(styles.eyebrow)}>Private server</p>
-          <h1 {...stylex.props(styles.title)}>
-            {setupReady
-              ? "Create your Noema passkey"
-              : loginRequired
-                ? "Unlock Noema"
-                : recoveryRequired
-                  ? "Recover access"
-                : "Secure Noema"}
-          </h1>
-          <p {...stylex.props(styles.description)}>
-            {setupReady
-              ? "Use your device or password manager to create the passkey for this Noema server."
-              : loginRequired
-                ? "Use the passkey registered to this server to continue."
-                : recoveryRequired
-                  ? "Enter the recovery code from config.yaml to create another passkey. Each attempt replaces the code."
-                  : visibleState === "unavailable"
-                    ? "Noema could not read the server authentication state."
-                    : "Checking server access…"}
-          </p>
-
-          {!supported && visibleState !== "unavailable" ? (
-            <p {...stylex.props(styles.error)}>
-              This browser does not support the WebAuthn passkey APIs required
-              by Noema.
-            </p>
-          ) : null}
-          {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
-
-          {recoveryRequired && supported ? (
-            <VStack
-              as="form"
-              gap={3}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void recoverAndEnroll();
+      <SetupCard title={title} intro={intro}>
+        {error ? <ErrorMarker message={error} /> : null}
+        {!supported && !unavailable ? (
+          <SetupNote>
+            Use Safari, Chrome, Edge, or Firefox with passkey support. Open the
+            same Noema address there.
+          </SetupNote>
+        ) : null}
+        {working ? (
+          <SetupActions>
+            <Button
+              variant="secondary"
+              label="Cancel"
+              onClick={() => {
+                request.current?.abort();
               }}
-            >
-              <TextInput
-                type="password"
-                label="Recovery code"
-                description="Read the current code from config.yaml. A failed attempt also replaces it."
-                value={recoveryCode}
-                isRequired
-                isDisabled={working}
-                hasAutoFocus
-                onChange={setRecoveryCode}
+            />
+          </SetupActions>
+        ) : null}
+        {supported && !working && recovery ? (
+          <VStack
+            as="form"
+            ref={recoveryForm}
+            gap={3}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void perform(true, true);
+            }}
+          >
+            <TextInput
+              type="password"
+              label="Recovery code"
+              value={recoveryCode}
+              isRequired
+              hasAutoFocus
+              onChange={setRecoveryCode}
+            />
+            <details>
+              <summary>Where is my recovery code?</summary>
+              <p>
+                Ask the person who runs your Noema server for the current code.
+                Each attempt replaces it, even if the code is incorrect.
+              </p>
+              <p>
+                If you run the server, read <code>web.recovery_code</code> in{" "}
+                <code>config.yaml</code>.
+              </p>
+            </details>
+            <SetupActions>
+              <Button
+                variant="secondary"
+                label="Use passkey"
+                onClick={showLogin}
               />
               <Button
                 type="submit"
+                variant="primary"
                 label="Continue"
-                isDisabled={working || recoveryCode.trim().length === 0}
-                isLoading={working}
-              >
-                Continue
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                label="Use passkey"
-                isDisabled={working}
-                onClick={() => {
-                  setError(null);
-                  setState("login_required");
-                }}
-              >
-                Use passkey
-              </Button>
-            </VStack>
-          ) : null}
-
-          {setupReady && supported ? (
+                isDisabled={!recoveryCode.trim()}
+              />
+            </SetupActions>
+          </VStack>
+        ) : null}
+        {supported && !working && (create || enroll) ? (
+          <SetupActions>
             <Button
-              type="button"
+              variant="primary"
               label="Create passkey"
-              isDisabled={working}
-              isLoading={working}
-              onClick={() =>
-                void perform(
-                  enrollPasskey,
-                  "Noema could not create that passkey. Try again."
-                )
-              }
-            >
-              Create passkey
-            </Button>
-          ) : null}
-          {loginRequired && supported ? (
-            <VStack gap={2}>
-              <Button
-                type="button"
-                label="Continue with passkey"
-                isDisabled={working}
-                isLoading={working}
-                onClick={() =>
-                  void perform(
-                    authenticateWithPasskey,
-                    "Noema could not verify that passkey. Try again."
-                  )
-                }
-              >
-                Continue with passkey
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                label="Recover access"
-                isDisabled={working}
-                onClick={() => {
-                  setError(null);
-                  setState("recovery_required");
-                }}
-              >
-                Recover access
-              </Button>
-            </VStack>
-          ) : null}
-          {visibleState === "unavailable" ? (
+              onClick={() => void perform(enroll)}
+            />
+          </SetupActions>
+        ) : null}
+        {supported && !working && visibleState === "login_required" ? (
+          <SetupActions>
             <Button
-              type="button"
               variant="secondary"
-              label="Try again"
-              onClick={retryStatus}
-            >
-              Try again
-            </Button>
-          ) : null}
-        </VStack>
-      </VStack>
+              label="Recover access"
+              onClick={showRecovery}
+            />
+            <Button
+              ref={primary}
+              variant="primary"
+              label="Use passkey"
+              onClick={() => void perform(false)}
+            />
+          </SetupActions>
+        ) : null}
+        {complete ? (
+          <>
+            <SetupNote>
+              Existing passkeys and connected apps still have access. Review
+              them in Settings.
+            </SetupNote>
+            <SetupActions>
+              <Button
+                variant="primary"
+                label="Continue to Noema"
+                onClick={finish}
+              />
+            </SetupActions>
+          </>
+        ) : null}
+        {expired ? (
+          <SetupActions>
+            <Button
+              variant="secondary"
+              label="Use passkey"
+              onClick={showLogin}
+            />
+            <Button
+              variant="primary"
+              label="Enter a new code"
+              onClick={showRecovery}
+            />
+          </SetupActions>
+        ) : null}
+        {unavailable ? (
+          <SetupActions>
+            <Button variant="primary" label="Try again" onClick={retryStatus} />
+          </SetupActions>
+        ) : null}
+      </SetupCard>
     </SetupFrame>
   );
 }
@@ -300,41 +380,3 @@ async function readAuthStatus(): Promise<AuthState> {
     return "unavailable";
   }
 }
-
-const styles = stylex.create({
-  root: {
-    minHeight: "100%",
-    justifyContent: "center",
-    padding: "var(--spacing-6)",
-    "@media (max-width: 640px)": {
-      justifyContent: "flex-start",
-      padding: "var(--spacing-4)"
-    }
-  },
-  content: {
-    marginInline: "auto"
-  },
-  eyebrow: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-mono)",
-    fontSize: 12,
-    letterSpacing: "0.12em",
-    color: "var(--text-accent)",
-    textTransform: "uppercase"
-  },
-  title: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 32,
-    lineHeight: 1.1,
-    color: "var(--foreground)"
-  },
-  description: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)"
-  },
-  error: {
-    margin: "var(--spacing-0)",
-    color: "var(--destructive)"
-  }
-});

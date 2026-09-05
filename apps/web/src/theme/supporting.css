@@ -1,0 +1,169 @@
+/* Shared by SetupFrame and the public Go/desktop authorization pages.
+   CSS is necessary here because those pages render without React or StyleX. */
+[data-setup="frame"][data-setup] {
+  position: relative;
+  overflow: hidden;
+  background: var(--pine-50);
+}
+[data-setup="drag"][data-setup] {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 3;
+  height: calc(var(--spacing-12) + var(--spacing-1));
+}
+[data-setup="body"][data-setup] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: var(--spacing-6) var(--spacing-4);
+  align-items: center;
+}
+[data-setup="body"][data-setup][data-desktop] {
+  padding-block-start: calc(var(--spacing-12) + var(--spacing-1));
+}
+[data-setup="surface"][data-setup] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(456px, 100%);
+  margin-block: auto;
+  flex-shrink: 0;
+  filter: drop-shadow(
+    0 0 calc(var(--spacing-6) / 2)
+      color-mix(in srgb, var(--pine-500) 16%, transparent)
+  );
+}
+/* Deliberate 96px mount: the existing 80px avatar plus an 8px white outline. */
+[data-setup="avatar"][data-setup] {
+  position: relative;
+  z-index: 1;
+  width: 96px;
+  height: 96px;
+  box-sizing: border-box;
+  padding: var(--spacing-2);
+  margin-bottom: calc(-1 * var(--spacing-8));
+  transform: translateY(var(--spacing-4));
+  background: var(--background);
+  border-radius: var(--radius-full);
+  pointer-events: none;
+}
+[data-setup="avatar"][data-setup]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: inherit;
+  clip-path: inset(0 0 50% 0);
+}
+[data-setup="avatar"][data-setup] img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-full);
+}
+[data-setup="card"][data-setup] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: calc(var(--spacing-8) + var(--spacing-3)) var(--spacing-5)
+    var(--spacing-5);
+  background: var(--background);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-page);
+  corner-shape: var(--corner-shape-page);
+}
+[data-setup="header"][data-setup] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1-5);
+  text-align: center;
+}
+[data-setup="title"][data-setup] {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.15;
+  text-wrap: pretty;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+[data-setup="note"][data-setup] {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-base);
+  text-align: center;
+  text-wrap: pretty;
+}
+[data-setup="actions"][data-setup] {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--spacing-2);
+  padding-block-start: var(--spacing-1);
+}
+[data-setup="actions"][data-setup] > .astryx-button {
+  width: 100%;
+  min-width: 0;
+}
+[data-setup="card"][data-setup] details {
+  font-size: var(--font-size-sm);
+}
+[data-setup="card"][data-setup] summary {
+  padding-block: var(--spacing-1);
+  font-weight: 600;
+}
+[data-setup="card"][data-setup] details p {
+  margin-block: var(--spacing-2) 0;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+[data-setup="detail"][data-setup] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3);
+  border-radius: var(--radius-element);
+  background: var(--surface-sunken);
+}
+[data-setup="detail"][data-setup] p {
+  margin: 0;
+  text-wrap: pretty;
+}
+body[data-setup="public"][data-setup] {
+  margin: 0;
+  background: var(--pine-50);
+  font-family: var(--font-body);
+  color: var(--foreground);
+}
+body[data-setup="public"][data-setup] main {
+  min-height: 100svh;
+}
+@media (max-width: 480px) {
+  [data-setup="card"][data-setup] {
+    padding-inline: var(--spacing-4);
+    padding-bottom: var(--spacing-4);
+  }
+  [data-setup="actions"][data-setup] {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  form[data-setup="actions"][data-setup] {
+    grid-auto-flow: column;
+    grid-template-columns: none;
+  }
+}
+@media (forced-colors: active) {
+  [data-setup="card"][data-setup],
+  [data-setup="avatar"][data-setup]::before {
+    border-color: CanvasText;
+  }
+}

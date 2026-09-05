@@ -12,6 +12,8 @@ Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 `go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
 CI checks generated Go and web files. The Rust launcher is removed.
 The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
+Supporting flows now share the approved card, avatar, and existing theme.
+See `docs/plans/2026-09-04-supporting-ui/implementation.md` for implementation and validation.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.

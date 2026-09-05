@@ -169,6 +169,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
+  const [finishingSetup, setFinishingSetup] = React.useState(false);
   const [chosenSetupAccountId, setChosenSetupAccountId] = React.useState<string | null>(null);
   const setupProviderAccountId = chosenSetupAccountId;
   const modelSetupResult = useQuery(OnboardingModelSetupDocument, {
@@ -811,12 +812,16 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }
 
   async function confirmModels(input: ConfirmOnboardingModelSelectionsInput) {
+    if (finishingSetup) return;
+    setFinishingSetup(true);
     setOnboardingError(null);
     try {
       await confirmOnboardingModels({ variables: { input } });
       await refetchOnboardingStatus();
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to save model setup");
+    } finally {
+      setFinishingSetup(false);
     }
   }
 
@@ -990,7 +995,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           <ModelSetup
             key={modelSetup.providerAccountId}
             setup={modelSetup}
-            saving={confirmOnboardingModelsResult.loading}
+            saving={finishingSetup || confirmOnboardingModelsResult.loading}
             error={modelSetupResult.error?.message ?? displayedOnboardingError}
             onConfirm={(input) => void confirmModels(input)}
             onUseDifferentProvider={() => {
@@ -1004,7 +1009,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     return (
       <SetupFrame>
         <Onboarding
-          onboarding={onboarding}
           providerCatalog={boot.data.providerAccountCatalog}
           connectedAccounts={boot.data.providerAccounts}
           localSetup={localSetup}
@@ -1027,6 +1031,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           onCancelProviderAuth={() => void cancelCurrentProviderAuth()}
           onInstallLocal={(modelId, file) => void installRecommendedLocalModel(modelId, file)}
           onCancelLocal={(installationId) => void cancelLocalModelDownload(installationId)}
+          onRetryLocal={() => void refreshLocalSetup()}
           onRetry={() => {
             setAuthAttempt(null);
             setOnboardingError(null);

@@ -503,7 +503,7 @@ func TestNativeConsentResumesAfterPasskeyAndConsumesCSRFOnce(t *testing.T) {
 	cookie := &http.Cookie{Name: server.sessions.cookieName, Value: newToken}
 	resume := authRequest(http.MethodGet, "/oauth/authorize", nil)
 	resume.AddCookie(cookie)
-	if response := serve(handler, resume); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Noema Desktop</span>?") {
+	if response := serve(handler, resume); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Connect Noema Desktop?</h1>") {
 		t.Fatalf("resumed consent = %d %s", response.Code, response.Body.String())
 	}
 	_, csrf, found, err := taskStore.NativeOAuthBrowserRequest(context.Background(), newDigest)

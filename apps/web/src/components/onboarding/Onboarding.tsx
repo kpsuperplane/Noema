@@ -1,20 +1,24 @@
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
-import { ArrowLeft, ChevronRight, CircleStop, Download, HardDrive, Route, SquareTerminal } from "lucide-react";
-import type { ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { ErrorMarker } from "../ErrorMarker";
-import { formatBytes, formatGigabytes, installationProgress } from "../settings/localModelMetadata";
+import { ListCardButton } from "../ListCardLink";
+import { SetupCard, SetupActions, SetupNote } from "../shell/SetupFrame";
+import {
+  formatBytes,
+  formatGigabytes,
+  installationProgress
+} from "../settings/localModelMetadata";
 import { AuthAttempt } from "./AuthAttempt";
-import { statusCopy } from "./statusCopy";
 import type {
   LocalModelSetupView,
   OnboardingConnectedAccount,
   OnboardingProviderCatalog,
-  OnboardingStatus,
   ProviderAuthAttemptView
 } from "./types";
 
@@ -22,7 +26,6 @@ type CloudAuthMethod = "OAUTH_PKCE" | "OAUTH_DEVICE_CODE";
 type ProviderKind = "local_models" | "openrouter" | "codex";
 
 export function Onboarding({
-  onboarding,
   providerCatalog,
   connectedAccounts,
   localSetup,
@@ -41,9 +44,9 @@ export function Onboarding({
   onCancelProviderAuth,
   onInstallLocal,
   onCancelLocal,
-  onRetry
+  onRetry,
+  onRetryLocal
 }: {
-  onboarding: OnboardingStatus;
   providerCatalog: OnboardingProviderCatalog;
   connectedAccounts: readonly OnboardingConnectedAccount[];
   localSetup: LocalModelSetupView | null;
@@ -56,24 +59,33 @@ export function Onboarding({
   error: string | null;
   modelSetupAccountId: string | null;
   modelSetupLoading: boolean;
-  onConnect: (providerKind: string, method: CloudAuthMethod) => Promise<string | null>;
+  onConnect: (
+    providerKind: string,
+    method: CloudAuthMethod
+  ) => Promise<string | null>;
   onContinue: (providerAccountId: string) => void;
   onConnectOpenRouterApiKey: (secret: string) => void;
   onCancelProviderAuth: () => void;
   onInstallLocal: (modelId: string, file?: string | null) => void;
   onCancelLocal: (installationId: string) => void;
   onRetry: () => void;
+  onRetryLocal: () => void;
 }) {
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const [setupProviderKind, setSetupProviderKind] = useState<ProviderKind | null>(null);
-  const openRouter = providerCatalog.find((entry) => entry.providerKind === "openrouter");
-  const codex = providerCatalog.find((entry) => entry.providerKind === "codex");
-  const connected = (providerKind: string) => connectedAccounts.find(
-    (account) => account.providerKind === providerKind && account.status === "AUTHENTICATED"
+  const [setupProviderKind, setSetupProviderKind] =
+    useState<ProviderKind | null>(null);
+  const openRouter = providerCatalog.find(
+    (entry) => entry.providerKind === "openrouter"
   );
+  const codex = providerCatalog.find((entry) => entry.providerKind === "codex");
+  const connected = (providerKind: string) =>
+    connectedAccounts.find(
+      (account) =>
+        account.providerKind === providerKind &&
+        account.status === "AUTHENTICATED"
+    );
   const localAccount = connected("local_models");
-  const openRouterAccount = connected("openrouter");
   const codexAccount = connected("codex");
   const recommendation = localSetup?.recommendedModel ?? null;
   const installation = localSetup?.installation ?? null;
@@ -82,24 +94,31 @@ export function Onboarding({
     installation?.status === "QUEUED" ||
     installation?.status === "DOWNLOADING" ||
     installation?.status === "VERIFYING";
-  const authPending = attempt?.status === "STARTING" || attempt?.status === "WAITING_FOR_USER";
-  const authFailed = attempt ? isRetryableTerminalStatus(attempt.status) : false;
+  const authPending =
+    attempt?.status === "STARTING" || attempt?.status === "WAITING_FOR_USER";
+  const authFailed = attempt
+    ? isRetryableTerminalStatus(attempt.status)
+    : false;
   const modelSetupProviderKind = modelSetupLoading
     ? toProviderKind(
-        connectedAccounts.find((account) => account.providerAccountId === modelSetupAccountId)
-          ?.providerKind
+        connectedAccounts.find(
+          (account) => account.providerAccountId === modelSetupAccountId
+        )?.providerKind
       )
     : null;
   const activeProviderKind: ProviderKind | null = transferActive
     ? "local_models"
     : authPending
       ? toProviderKind(attempt.providerKind)
-      : modelSetupProviderKind ?? (providerSaving ? "openrouter" : null);
+      : (modelSetupProviderKind ?? (providerSaving ? "openrouter" : null));
   const visibleProviderKind = activeProviderKind ?? setupProviderKind;
 
-  async function startCodexConnection() {
+  async function startConnection(kind: "codex" | "openrouter") {
     const authNavigation = reserveExternalAuthNavigation();
-    const verificationUrl = await onConnect("codex", "OAUTH_DEVICE_CODE");
+    const verificationUrl = await onConnect(
+      kind,
+      kind === "codex" ? "OAUTH_DEVICE_CODE" : "OAUTH_PKCE"
+    );
     if (verificationUrl) {
       await authNavigation.open(verificationUrl);
     } else {
@@ -117,299 +136,328 @@ export function Onboarding({
       onContinue(codexAccount.providerAccountId);
       return;
     }
-    void startCodexConnection();
+    void startConnection("codex");
   }
 
+  const account = visibleProviderKind
+    ? connected(visibleProviderKind)
+    : undefined;
+  const loadingModels =
+    modelSetupLoading && account?.providerAccountId === modelSetupAccountId;
+  const loadFailed = Boolean(account && error && !loadingModels);
+  const pending = authPending && attempt?.providerKind === visibleProviderKind;
+  const failed = authFailed && attempt?.providerKind === visibleProviderKind;
+  const local = visibleProviderKind === "local_models";
+  const title =
+    visibleProviderKind === null
+      ? "Choose how Noema thinks"
+      : loadingModels
+        ? "Finding your models"
+        : loadFailed
+          ? "Your models could not load"
+          : pending
+            ? visibleProviderKind === "codex"
+              ? "Finish signing in to Codex"
+              : "Finish connecting OpenRouter"
+            : failed
+              ? attempt.status === "EXPIRED"
+                ? "Sign-in time ran out"
+                : "Sign-in did not finish"
+              : local
+                ? installation?.status === "VERIFYING"
+                  ? "Checking your download"
+                  : transferActive
+                    ? "Your model is on its way"
+                    : localSetup?.isReady
+                      ? "Your local model is ready"
+                      : installation?.status === "FAILED"
+                        ? "The download stopped"
+                        : !localSetupLoading && !recommendation
+                          ? "Local models are unavailable"
+                          : "Meet your local model"
+                : visibleProviderKind === "codex"
+                  ? "Sign in to Codex"
+                  : "Connect OpenRouter";
+  const intro =
+    visibleProviderKind === null
+      ? "Start with one. Add others later."
+      : loadingModels
+        ? "Your account is connected."
+        : loadFailed
+          ? "Your account is still connected."
+          : pending
+            ? "Keep this page open while you sign in."
+            : failed
+              ? "Start a new sign-in to continue."
+              : local
+                ? transferActive
+                  ? "You can leave this page open."
+                  : localSetup?.isReady
+                    ? "One last review, then you’re ready."
+                    : "Run models on your Noema server."
+                : visibleProviderKind === "codex"
+                  ? "Use your ChatGPT account."
+                  : "Choose from models across providers.";
+  function back() {
+    setSetupProviderKind(null);
+    setApiKeyOpen(false);
+    setApiKey("");
+    onRetry();
+  }
+  function restart() {
+    onRetry();
+    if (visibleProviderKind === "codex") void startConnection("codex");
+    else void startConnection("openrouter");
+  }
   return (
-    <VStack
-      as="section"
-      {...stylex.props(styles.root)}
-      aria-label="Noema onboarding"
-      data-slot="provider-onboarding"
-      gap={4}
-    >
+    <SetupCard title={title} intro={intro}>
       {visibleProviderKind === null ? (
-        <VStack gap={6} {...stylex.props(styles.stage)}>
-          <img
-            src={`${import.meta.env.BASE_URL}pwa-512x512.png`}
-            width="64"
-            height="64"
-            alt=""
-            {...stylex.props(styles.logo)}
+        <VStack gap={2} role="group" aria-label="Model providers">
+          <ProviderOption
+            kind="local_models"
+            label="Local"
+            description="Runs on your Noema server. No provider account needed."
+            onSelect={selectProvider}
           />
-          <VStack gap={1.5} hAlign="center">
-            <h1 {...stylex.props(styles.title)}>Welcome to Noema</h1>
-            <p {...stylex.props(styles.description)}>
-              Pick one provider to start. You can add the others later.
-            </p>
-          </VStack>
-
-          <VStack
-            gap={2}
-            role="group"
-            aria-label="Model providers"
-            {...stylex.props(styles.providerOptions)}
-          >
-            <ProviderOption
-              kind="local_models"
-              label="Local"
-              description={
-                localSetup?.isReady
-                  ? "Ready on this Mac. Your model traffic stays here."
-                  : "Private on this Mac. Downloads one recommended model."
-              }
-              icon={<HardDrive size={20} aria-hidden="true" />}
-              onSelect={selectProvider}
-            />
-            <ProviderOption
-              kind="openrouter"
-              label={openRouter?.displayName ?? "OpenRouter"}
-              description={
-                openRouterAccount
-                  ? "Connected. Use models from your OpenRouter account."
-                  : "Use models available through your OpenRouter account."
-              }
-              icon={<Route size={20} aria-hidden="true" />}
-              isDisabled={!openRouter}
-              onSelect={selectProvider}
-            />
-            <ProviderOption
-              kind="codex"
-              label={codex?.displayName ?? "Codex"}
-              description={
-                codexAccount
-                  ? "Connected. Continue with your Codex sign-in."
-                  : "Use your existing Codex sign-in."
-              }
-              icon={<SquareTerminal size={20} aria-hidden="true" />}
-              isDisabled={!codex}
-              onSelect={selectProvider}
-            />
-          </VStack>
+          <ProviderOption
+            kind="openrouter"
+            label={openRouter?.displayName ?? "OpenRouter"}
+            description="Models from many providers. Requires an OpenRouter account."
+            isDisabled={!openRouter}
+            onSelect={selectProvider}
+          />
+          <ProviderOption
+            kind="codex"
+            label={codex?.displayName ?? "Codex"}
+            description="OpenAI models. Requires ChatGPT access to Codex."
+            isDisabled={!codex}
+            onSelect={selectProvider}
+          />
         </VStack>
-      ) : (
-        <VStack gap={4} {...stylex.props(styles.stage, styles.setupStage)}>
-          {activeProviderKind === null &&
-          !(visibleProviderKind === "codex" && !authFailed && !error) ? (
-            <Button
-              {...stylex.props(styles.backButton)}
-              type="button"
-              variant="ghost"
-              size="sm"
-              label="Choose another provider"
-              icon={<ArrowLeft size={16} aria-hidden="true" />}
-              onClick={() => {
-                setSetupProviderKind(null);
-                setApiKeyOpen(false);
-              }}
-            />
+      ) : loadingModels ? (
+        <SetupNote>Loading model choices…</SetupNote>
+      ) : loadFailed && account ? (
+        <SetupActions>
+          <Button variant="secondary" label="Change provider" onClick={back} />
+          <Button
+            variant="primary"
+            label="Try again"
+            onClick={() => onContinue(account.providerAccountId)}
+          />
+        </SetupActions>
+      ) : pending ? (
+        <AuthAttempt
+          attempt={attempt}
+          onCancel={() => {
+            onCancelProviderAuth();
+          }}
+        />
+      ) : failed ? (
+        <SetupActions>
+          <Button variant="secondary" label="Change provider" onClick={back} />
+          <Button
+            variant="primary"
+            label="Start sign-in again"
+            onClick={restart}
+          />
+        </SetupActions>
+      ) : local ? (
+        <>
+          {localSetupLoading ? (
+            <SetupNote>Checking your server…</SetupNote>
           ) : null}
-
-          <VStack gap={1.5}>
-            <h1 {...stylex.props(styles.title)}>{providerSetupTitle(visibleProviderKind)}</h1>
-            <p {...stylex.props(styles.setupDescription)}>
-              {providerDescription(visibleProviderKind)}
-            </p>
-          </VStack>
-
-          <VStack gap={3} {...stylex.props(styles.setupContent)}>
-            {visibleProviderKind === "local_models" ? (
-              <VStack gap={3}>
-                {localSetupLoading ? <p {...stylex.props(styles.muted)}>Checking this machine…</p> : null}
-                {recommendation ? (
-                  <VStack gap={2}>
-                    <p {...stylex.props(styles.sectionLabel)}>Recommended for this machine</p>
-                    <strong {...stylex.props(styles.modelName)}>{recommendation.name}</strong>
-                    <HStack gap={2} wrap="wrap" {...stylex.props(styles.metadata)}>
-                      {recommendation.selectedBuild ? (
-                        <span>{formatGigabytes(recommendation.selectedBuild.downloadGb)} download</span>
-                      ) : null}
-                      <span>{recommendation.license}</span>
-                      {recommendation.compatibleBackend ? <span>{recommendation.compatibleBackend}</span> : null}
-                    </HStack>
-                    {recommendation.hardwareFit ? (
-                      <p {...stylex.props(styles.muted)}>{recommendation.hardwareFit.explanation}</p>
-                    ) : null}
-                  </VStack>
+          {recommendation ? (
+            <VStack gap={1.5}>
+              <strong {...stylex.props(styles.modelName)}>
+                {recommendation.name}
+              </strong>
+              <HStack gap={2} wrap="wrap" {...stylex.props(styles.metadata)}>
+                {recommendation.selectedBuild ? (
+                  <span>
+                    {formatGigabytes(recommendation.selectedBuild.downloadGb)}{" "}
+                    download
+                  </span>
                 ) : null}
-                {!localSetupLoading && localSetup && !recommendation && !localSetup.isReady ? (
-                  <p {...stylex.props(styles.muted)}>No curated model fits this machine yet.</p>
+                <span>{recommendation.license}</span>
+                {recommendation.compatibleBackend ? (
+                  <span>{recommendation.compatibleBackend}</span>
                 ) : null}
-                {progress !== null && installation?.status !== "INSTALLED" ? (
-                  <VStack gap={1.5}>
-                    <progress {...stylex.props(styles.progress)} value={progress} max={1} />
-                    <span {...stylex.props(styles.muted, styles.progressAmount)}>
-                      {formatBytes(installation?.completedBytes ?? 0)} of {formatBytes(installation?.totalBytes ?? 0)}
-                    </span>
-                  </VStack>
-                ) : null}
-                {installation?.status === "VERIFYING" ? (
-                  <p {...stylex.props(styles.muted)}>Verifying model integrity…</p>
-                ) : null}
-                {installation?.errorMessage ? <ErrorMarker message={installation.errorMessage} /> : null}
-
-                {recommendation && !transferActive && !localSetup?.isReady ? (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="lg"
-                    label={`Download ${recommendation.name}`}
-                    icon={<Download size={16} aria-hidden="true" />}
-                    isDisabled={localSaving || !recommendation.selectedBuild}
-                    onClick={() => onInstallLocal(recommendation.modelId, recommendation.selectedBuild?.file)}
+              </HStack>
+              {recommendation.selectedBuild?.file ? (
+                <details>
+                  <summary>Model file</summary>
+                  <p>{recommendation.selectedBuild.file}</p>
+                </details>
+              ) : null}
+            </VStack>
+          ) : null}
+          {!localSetupLoading &&
+          localSetup &&
+          !recommendation &&
+          !localSetup.isReady ? (
+            <SetupNote>
+              Try a provider now. You can set up a local model later.
+            </SetupNote>
+          ) : null}
+          {transferActive && installation ? (
+            <VStack gap={2} role="status">
+              {installation.status === "VERIFYING" ? (
+                <SetupNote>Checking the model before it runs.</SetupNote>
+              ) : (
+                <>
+                  <ProgressBar
+                    label="Model download"
+                    isLabelHidden
+                    value={progress ?? 0}
+                    isIndeterminate={progress === null}
+                    max={1}
                   />
-                ) : null}
-                {transferActive && installation ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    label="Cancel download"
-                    icon={<CircleStop size={16} aria-hidden="true" />}
-                    isDisabled={localSaving}
-                    onClick={() => onCancelLocal(installation.installationId)}
-                  />
-                ) : null}
-                {localSetup?.isReady && localAccount ? (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="lg"
-                    label="Continue with Local"
-                    isLoading={
-                      modelSetupLoading && modelSetupAccountId === localAccount.providerAccountId
-                    }
-                    onClick={() => onContinue(localAccount.providerAccountId)}
-                  />
-                ) : null}
-              </VStack>
+                  <SetupNote>
+                    {formatBytes(installation.completedBytes)}
+                    {installation.totalBytes
+                      ? ` of ${formatBytes(installation.totalBytes)}`
+                      : " downloaded"}
+                  </SetupNote>
+                </>
+              )}
+            </VStack>
+          ) : null}
+          {installation?.errorMessage ? (
+            <>
+              <ErrorMarker message="Noema could not finish the download. Check the details before you try again." />
+              <details>
+                <summary>Download error details</summary>
+                <p>{installation.errorMessage}</p>
+              </details>
+            </>
+          ) : null}
+          <SetupActions>
+            {transferActive && installation ? (
+              <Button
+                variant="secondary"
+                label="Cancel download"
+                isDisabled={localSaving}
+                onClick={() => onCancelLocal(installation.installationId)}
+              />
+            ) : (
+              <Button
+                variant="secondary"
+                label="Change provider"
+                onClick={back}
+              />
+            )}
+            {localSetup?.isReady && localAccount ? (
+              <Button
+                variant="primary"
+                label="Review models"
+                onClick={() => onContinue(localAccount.providerAccountId)}
+              />
+            ) : recommendation && !transferActive ? (
+              <Button
+                variant="primary"
+                label={
+                  installation?.status === "FAILED"
+                    ? "Try download again"
+                    : "Download model"
+                }
+                isLoading={localSaving}
+                isDisabled={localSaving || !recommendation.selectedBuild}
+                onClick={() =>
+                  onInstallLocal(
+                    recommendation.modelId,
+                    recommendation.selectedBuild?.file
+                  )
+                }
+              />
+            ) : localSetupError ? (
+              <Button
+                variant="primary"
+                label="Check again"
+                onClick={onRetryLocal}
+              />
             ) : null}
-
-            {visibleProviderKind === "openrouter" ? (
-              <VStack gap={3}>
-                {openRouterAccount ? (
-                  <VStack gap={2}>
-                    <p {...stylex.props(styles.connected)}>OpenRouter is connected.</p>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="lg"
-                      label="Continue with OpenRouter"
-                      isLoading={
-                        modelSetupLoading &&
-                        modelSetupAccountId === openRouterAccount.providerAccountId
-                      }
-                      onClick={() => onContinue(openRouterAccount.providerAccountId)}
-                    />
-                  </VStack>
-                ) : attempt?.providerKind === "openrouter" && authPending ? (
-                  <AuthAttempt attempt={attempt} onCancel={onCancelProviderAuth} />
-                ) : (
-                  <VStack gap={2}>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="lg"
-                      label="Connect OpenRouter"
-                      isDisabled={!openRouter || providerSaving}
-                      onClick={() => onConnect("openrouter", "OAUTH_PKCE")}
-                    />
-                    <Button
-                      {...stylex.props(styles.apiKeyTrigger)}
-                      type="button"
-                      variant="ghost"
-                      label={apiKeyOpen ? "Hide API key setup" : "Use an API key instead"}
-                      aria-controls="openrouter-api-key-setup"
-                      aria-expanded={apiKeyOpen}
-                      onClick={() => setApiKeyOpen((current) => !current)}
-                    />
-                    {apiKeyOpen ? (
-                      <VStack id="openrouter-api-key-setup" gap={2}>
-                        <TextInput
-                          label="OpenRouter API key"
-                          type="password"
-                          value={apiKey}
-                          onChange={setApiKey}
-                        />
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          label="Connect with API key"
-                          isLoading={providerSaving}
-                          isDisabled={!apiKey.trim() || providerSaving}
-                          onClick={() => onConnectOpenRouterApiKey(apiKey)}
-                        />
-                      </VStack>
-                    ) : null}
-                  </VStack>
-                )}
-                {attempt?.providerKind === "openrouter" && authFailed ? (
-                  <RetryMessage attempt={attempt} onRetry={onRetry} />
-                ) : null}
-              </VStack>
-            ) : null}
-
-            {visibleProviderKind === "codex" ? (
-              <VStack gap={3}>
-                {codexAccount ? (
-                  <VStack gap={2}>
-                    <p {...stylex.props(styles.connected)} aria-live="polite">
-                      Preparing your Codex models…
-                    </p>
-                    {error && !modelSetupLoading ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        label="Try loading models again"
-                        onClick={() => onContinue(codexAccount.providerAccountId)}
-                      />
-                    ) : null}
-                  </VStack>
-                ) : attempt?.providerKind === "codex" && authPending ? (
-                  <AuthAttempt
-                    attempt={attempt}
-                    onCancel={() => {
-                      setSetupProviderKind(null);
-                      onCancelProviderAuth();
-                    }}
-                  />
-                ) : attempt?.providerKind === "codex" && attempt.status === "COMPLETED" ? (
-                  <p {...stylex.props(styles.connected)} aria-live="polite">
-                    Preparing your Codex models…
-                  </p>
-                ) : attempt?.providerKind === "codex" && authFailed ? (
-                  <RetryMessage
-                    attempt={attempt}
-                    onRetry={() => {
-                      onRetry();
-                      void startCodexConnection();
-                    }}
-                  />
-                ) : error ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    label="Try Codex sign-in again"
-                    onClick={() => {
-                      onRetry();
-                      void startCodexConnection();
-                    }}
-                  />
-                ) : (
-                  <p {...stylex.props(styles.muted)} aria-live="polite">
-                    Starting Codex sign-in…
-                  </p>
-                )}
-              </VStack>
-            ) : null}
-          </VStack>
-        </VStack>
+          </SetupActions>
+        </>
+      ) : account ? (
+        <SetupActions>
+          <Button variant="secondary" label="Change provider" onClick={back} />
+          <Button
+            variant="primary"
+            label="Review models"
+            onClick={() => onContinue(account.providerAccountId)}
+          />
+        </SetupActions>
+      ) : visibleProviderKind === "openrouter" ? (
+        <>
+          <SetupNote>Sign in to OpenRouter to connect your account.</SetupNote>
+          <SetupActions>
+            <Button
+              variant="secondary"
+              label="Change provider"
+              isDisabled={providerSaving}
+              onClick={back}
+            />
+            <Button
+              variant="primary"
+              label="Connect OpenRouter"
+              isDisabled={!openRouter || providerSaving}
+              onClick={() => startConnection("openrouter")}
+            />
+          </SetupActions>
+          <details
+            open={apiKeyOpen}
+            onToggle={(event) => setApiKeyOpen(event.currentTarget.open)}
+          >
+            <summary>Use an API key instead</summary>
+            <VStack
+              as="form"
+              gap={2}
+              onSubmit={(event) => {
+                event.preventDefault();
+                onConnectOpenRouterApiKey(apiKey);
+                setApiKey("");
+              }}
+            >
+              <TextInput
+                label="OpenRouter API key"
+                type="password"
+                value={apiKey}
+                onChange={setApiKey}
+                isDisabled={providerSaving}
+              />
+              <Button
+                type="submit"
+                variant="secondary"
+                label="Connect with API key"
+                isLoading={providerSaving}
+                isDisabled={!apiKey.trim() || providerSaving}
+              />
+            </VStack>
+          </details>
+        </>
+      ) : (
+        <SetupActions>
+          <Button variant="secondary" label="Change provider" onClick={back} />
+          <Button
+            variant="primary"
+            label="Sign in to Codex"
+            onClick={() => void startConnection("codex")}
+          />
+        </SetupActions>
       )}
-
-      {localSetupError ? <ErrorMarker message={localSetupError} /> : null}
-      {localSaveError ? <ErrorMarker message={localSaveError} /> : null}
-      {error ? <ErrorMarker message={error} /> : null}
-      {onboarding.isUserOnboarded ? <p {...stylex.props(styles.connected)}>Setup complete. Opening chat.</p> : null}
-    </VStack>
+      {localSetupError && local ? (
+        <ErrorMarker message="Noema could not check local models. Try again." />
+      ) : null}
+      {localSaveError && local ? (
+        <ErrorMarker message={localSaveError} />
+      ) : null}
+      {error || (failed && attempt.errorMessage) ? (
+        <details>
+          <summary>Error details</summary>
+          <p>{error ?? attempt?.errorMessage}</p>
+        </details>
+      ) : null}
+    </SetupCard>
   );
 }
 
@@ -417,222 +465,59 @@ function ProviderOption({
   kind,
   label,
   description,
-  icon,
   isDisabled = false,
   onSelect
 }: {
   kind: ProviderKind;
   label: string;
   description: string;
-  icon: ReactNode;
   isDisabled?: boolean;
   onSelect: (kind: ProviderKind) => void;
 }) {
   return (
-    <button
-      type="button"
-      disabled={isDisabled}
-      onClick={() => onSelect(kind)}
-      {...stylex.props(styles.providerOption, isDisabled && styles.providerOptionDisabled)}
-    >
-      <HStack gap={3} vAlign="center" {...stylex.props(styles.providerOptionContent)}>
-        <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.providerIcon)}>
-          {icon}
-        </HStack>
+    <ListCardButton disabled={isDisabled} onClick={() => onSelect(kind)}>
+      <HStack gap={1.5} vAlign="center">
         <VStack as="span" gap={0.5} {...stylex.props(styles.providerCopy)}>
           <strong {...stylex.props(styles.providerName)}>{label}</strong>
-          <span {...stylex.props(styles.providerDescription)}>{description}</span>
+          <span {...stylex.props(styles.providerDescription)}>
+            {description}
+          </span>
         </VStack>
-        <ChevronRight {...stylex.props(styles.providerChevron)} size={20} aria-hidden="true" />
+        <ChevronRight
+          size={16}
+          aria-hidden="true"
+          {...stylex.props(styles.chevron)}
+        />
       </HStack>
-    </button>
-  );
-}
-
-function providerSetupTitle(providerKind: ProviderKind) {
-  if (providerKind === "openrouter") {
-    return "Connect OpenRouter";
-  }
-  if (providerKind === "codex") {
-    return "Sign in to Codex";
-  }
-  return "Set up Local";
-}
-
-function providerDescription(providerKind: ProviderKind) {
-  if (providerKind === "openrouter") {
-    return "Use models available through your OpenRouter account.";
-  }
-  if (providerKind === "codex") {
-    return "Use your existing Codex sign-in.";
-  }
-  return "Download a recommended model and keep model traffic on this Mac.";
-}
-
-function RetryMessage({
-  attempt,
-  onRetry
-}: {
-  attempt: ProviderAuthAttemptView;
-  onRetry: () => void;
-}) {
-  return (
-    <VStack gap={2}>
-      <p {...stylex.props(styles.muted)}>{attempt.errorMessage ?? statusCopy[attempt.status]}</p>
-      <Button type="button" variant="secondary" label="Try again" onClick={onRetry} />
-    </VStack>
+    </ListCardButton>
   );
 }
 
 const styles = stylex.create({
-  root: {
-    width: "min(640px, 100%)",
-    minHeight: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    marginInline: "auto",
-    padding: "var(--spacing-8) var(--spacing-6)",
-    "@media (max-width: 760px)": {
-      justifyContent: "flex-start",
-      padding: "var(--spacing-6) var(--spacing-4)"
-    }
-  },
-  logo: {
-    display: "block",
-    flexShrink: 0,
-    alignSelf: "center",
-    borderRadius: 15,
-    boxShadow:
-      "0 2px 3px color-mix(in srgb, black 8%, transparent), 0 12px 30px color-mix(in srgb, var(--pine-500) 18%, transparent)"
-  },
-  stage: {
-    width: "100%"
-  },
-  setupStage: {
-    maxWidth: 560,
-    alignSelf: "center"
-  },
-  title: {
-    margin: "var(--spacing-0)",
-    color: "var(--foreground)",
-    fontSize: "var(--font-size-2xl)",
-    lineHeight: 1.15,
-    textWrap: "balance"
-  },
-  description: {
-    margin: "var(--spacing-0)",
-    maxWidth: 520,
-    textAlign: "center",
-    color: "var(--muted-foreground)",
-    textWrap: "pretty"
-  },
-  setupDescription: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    textWrap: "pretty"
-  },
-  providerOptions: {
-    width: "100%",
-    minWidth: 0
-  },
-  providerOption: {
-    appearance: "none",
-    width: "100%",
-    minHeight: 76,
-    boxSizing: "border-box",
-    padding: "var(--spacing-3) var(--spacing-4)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: {
-      default: "var(--border-subtle)",
-      ":hover": "var(--border-default)"
-    },
-    borderRadius: "var(--radius-container)",
-    backgroundColor: {
-      default: "var(--surface-raised)",
-      ":hover": "color-mix(in srgb, var(--foreground) 5%, var(--surface-raised))"
-    },
-    boxShadow: {
-      default: "none",
-      ":hover": "0 3px 10px color-mix(in srgb, black 7%, transparent)"
-    },
-    color: "var(--foreground)",
-    font: "inherit",
-    textAlign: "start",
-    transitionProperty: "background-color, border-color, box-shadow",
-    transitionDuration: "var(--motion-spring-micro-duration)",
-    transitionTimingFunction: "var(--motion-spring-critical-easing)",
-    outline: {
-      default: "none",
-      ":focus-visible": "2px solid var(--pine-500)"
-    },
-    outlineOffset: 2
-  },
-  providerOptionDisabled: {
-    opacity: 0.5
-  },
-  providerOptionContent: {
-    width: "100%"
-  },
-  providerIcon: {
-    width: 40,
-    height: 40,
-    flexShrink: 0,
-    borderRadius: "var(--radius-element)",
-    backgroundColor: "var(--surface-sunken)",
-    color: "var(--pine-700)"
-  },
-  providerCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  providerName: {
-    color: "var(--foreground)",
-    fontFamily: "var(--font-heading)",
-    textWrap: "balance"
-  },
+  providerCopy: { flex: 1, minWidth: 0 },
+  providerName: { fontSize: 13, fontWeight: 650, lineHeight: 1.35 },
   providerDescription: {
     color: "var(--muted-foreground)",
     fontSize: "var(--font-size-sm)",
+    lineHeight: 1.35,
     textWrap: "pretty"
   },
-  providerChevron: {
-    flexShrink: 0,
-    color: "var(--muted-foreground)"
-  },
-  backButton: {
-    width: "fit-content",
-    alignSelf: "flex-start"
-  },
-  setupContent: {
-    width: "100%",
-    minWidth: 0
-  },
-  sectionLabel: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    fontSize: "var(--font-size-sm)",
-    fontWeight: 600
-  },
+  chevron: { flexShrink: 0, color: "var(--muted-foreground)" },
   modelName: {
-    fontFamily: "var(--font-heading)",
+    fontFamily: "var(--font-display)",
     fontSize: "var(--font-size-lg)"
   },
-  metadata: { fontFamily: "var(--font-mono)", color: "var(--muted-foreground)" },
-  muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)" },
-  progressAmount: { fontVariantNumeric: "tabular-nums" },
-  progress: { width: "100%", accentColor: "var(--pine-500)" },
-  apiKeyTrigger: { width: "100%", minHeight: 44 },
-  connected: { margin: "var(--spacing-0)", color: "var(--pine-700)" }
+  metadata: {
+    color: "var(--muted-foreground)",
+    fontSize: "var(--font-size-sm)"
+  }
 });
 
 function isRetryableTerminalStatus(status: ProviderAuthAttemptView["status"]) {
   return status === "FAILED" || status === "EXPIRED" || status === "CANCELLED";
 }
-
 function toProviderKind(value: string | null | undefined): ProviderKind | null {
-  if (value === "local_models" || value === "openrouter" || value === "codex") {
-    return value;
-  }
-  return null;
+  return value === "local_models" || value === "openrouter" || value === "codex"
+    ? value
+    : null;
 }
