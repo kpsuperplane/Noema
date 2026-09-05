@@ -102,6 +102,24 @@ The [public-instance Task check](evidence/2026-09-05-public-task-check.mjs) save
 Its [result](evidence/2026-09-05-public-task-results.json) records the Task URL and server binary hash.
 The Task remains in Inbox with exact Unicode Markdown.
 
+## Live Task execution and Projects
+
+The [Run Now driver](evidence/2026-09-05-public-run-check.mjs) submitted a calculation through the live browser.
+A WebSocket subscription observed Task changes without polling the server.
+The [run results](evidence/2026-09-05-public-run-results.json) show completed Planner, Executor, and Reviewer runs.
+RESULT.md contains 42, 600, and the exact requested Unicode text. REVIEW.md accepts those requirements.
+The [document check](evidence/2026-09-05-public-result-check.mjs) verified that reopening selects the result.
+The request and review also render separately. The Transcript view opens with the latest tool activity.
+The oldest Planner entry was outside the observed transcript viewport. Complete history navigation remains pending.
+
+The [Project checks](evidence/2026-09-05-public-project-check.mjs) use the development socket on this same instance.
+Their [results](evidence/2026-09-05-public-project-results.json) cover folder settings, current-document preservation, archive denial, and editing after reopen.
+These command checks do not prove browser draft retention or shared-folder use by every Task role.
+The audit Project and Task remain visible on the requested instance.
+
+This unit changes no production code. Script syntax, evidence JSON, links, and Git whitespace passed focused checks.
+The unchanged server sources reuse the Go test and vet results recorded above.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -162,17 +180,17 @@ A human variant remains pending even when its controlled counterpart passes.
 | MODEL-07 | Not run | Controlled setup pending. | — |
 | MODEL-08 | Not run | Controlled setup pending. | — |
 | TASK-01 | Not run | Controlled setup pending. | — |
-| TASK-02 | Partial | Browser Add to Inbox preserves the exact Unicode document without starting work. Run Now remains pending. | — |
+| TASK-02 | Pass · live Linux/Chromium | Add to Inbox preserves the exact request without execution. Run Now starts a Task that completes through review. | — |
 | TASK-03 | Partial | Command edits preserve exact content in the allocated directory. Browser edit controls remain pending. | — |
 | TASK-04 | Partial | The server rejects a stale competing save and preserves current content. Browser draft recovery remains pending. | — |
 | TASK-05 | Not run | Controlled setup pending. | — |
 | TASK-06 | Not run | Controlled setup pending. | — |
 | TASK-07 | Not run | Controlled setup pending. | — |
-| TASK-08 | Not run | Controlled setup pending. | — |
+| TASK-08 | Partial | Completed Task opens RESULT.md. Request and review render separately. Transcript opens; full history and support-file checks remain pending. | — |
 | TASK-09 | Not run | Controlled setup pending. | — |
 | TASK-10 | Partial | A repeated capture returns the original Task identity. Lost responses for other commands remain pending. | — |
 | TASK-11 | Pass · Linux | Equal Unicode titles create distinct Task directories. Exact old and new documents remain intact. | — |
-| RUN-01 | Not run | Controlled setup pending. | — |
+| RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
 | RUN-02 | Not run | Controlled setup pending. | — |
 | RUN-03 | Not run | Controlled setup pending. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
@@ -199,10 +217,10 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-10 | Not run | Controlled setup pending. | — |
 | TIME-11 | Not run | Controlled setup pending. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
-| PROJECT-01 | Not run | Controlled setup pending. | — |
+| PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
 | PROJECT-02 | Partial | Competing Project saves reject stale content. The current document survives reload and restore. Browser draft recovery remains pending. | — |
 | PROJECT-03 | Not run | Controlled setup pending. | — |
-| PROJECT-04 | Partial | Archive preserves readable context and refuses writes. Reopen clears archived state. Browser controls remain pending. | — |
+| PROJECT-04 | Partial | Live archive preserves readable context and denies edits. Reopen permits a new saved edit. Browser controls remain pending. | — |
 | PROJECT-05 | Not run | Controlled setup pending. | — |
 | AGENT-01 | Not run | Controlled setup pending. | — |
 | AGENT-02 | Not run | Controlled setup pending. | — |
