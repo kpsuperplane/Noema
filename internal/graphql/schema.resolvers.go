@@ -661,7 +661,7 @@ func (r *queryRootResolver) Tasks(ctx context.Context, input model.TaskListInput
 
 // NeedsYou is the resolver for the needsYou field.
 func (r *queryRootResolver) NeedsYou(ctx context.Context, workspaceID string, projectID *string, first *int, after *string) (*model.TaskAttentionConnection, error) {
-	panic(fmt.Errorf("not implemented: NeedsYou - needsYou"))
+	return r.needsYou(ctx, workspaceID, projectID, first, after)
 }
 
 // PendingGovernedActions is the resolver for the pendingGovernedActions field.
