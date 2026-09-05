@@ -73,6 +73,106 @@ Use one result row per case and configuration. Do not combine different provider
 An assistant success statement alone does not prove an external action occurred.
 For external effects, inspect the destination record and count the actual effects.
 
+## Automation readiness in the current environment
+
+Assessed: 2026-09-05. This assessment does not change any case result.
+The checks below inspected tools, source contracts, and access availability only.
+No suite case ran. No account connection, credential change, or external action occurred.
+
+### Observed limits
+
+| Observation | Effect on execution |
+| --- | --- |
+| The host is Linux x86_64. Xcode and Swift are absent. No native device-control tool is exposed. | Native Windows, macOS, iPhone, and iPad results cannot be established here. Cross-builds cannot substitute for them. |
+| The documented socket probe returned `failed to open socket: Operation not permitted`. | The current shell cannot use that app access path. This does not prove the server is stopped. |
+| This session cannot request elevated execution. | Socket access needs an allowed execution environment. Repeating the blocked request or exposing an unauthenticated proxy is not a solution. |
+| Playwright, Chromium, and WebKit files are cached. No dedicated browser-control tool is exposed. | Browser automation may be possible through shell tools. Successful browser launch and app access remain unverified. |
+| The inspection helper rejects mutations. Its documented browser context blocks service workers and creates no browser session. | That helper cannot exercise saves, approvals, authentication management, or installed-app lifecycle behavior. |
+| Live account metadata could not be queried. Credential stores were not read. | Provider, MCP, ACP, Kernel, OAuth, and APNs readiness is unknown. Historical acceptance does not establish current access. |
+| Go, Bun, Node, and Tesseract are available. | Local data preparation and existing backend validation have plausible execution paths. Available executables alone do not prove a case passes. |
+| The checkout contains concurrent staged and unstaged product changes. | A suite run needs one recorded build. Results from changing source cannot establish acceptance for one release. |
+
+Sources: [inspection access](../frontend/browser-inspection.md),
+[inspection helper](../../scripts/route-browser-inspection.mjs),
+[native requirements](../../apps/ios/README.md), and the command observations above.
+
+**Current live-access blocker:** All cases requiring the running app remain blocked through the inspected socket path.
+An allowed authenticated route or isolated test deployment must be established before live execution.
+Do not weaken the shared inspection helper or change the live server's authentication to run this suite.
+An isolated test setup can exercise mutations without changing that inspection boundary.
+
+The following flags describe additional limits after app access is available.
+Ranges include every existing case between their endpoints. Flags can overlap.
+An unlisted case is not automatically ready; the shared access, data, and provider prerequisites still apply.
+
+### Cannot complete here as written
+
+| Cases or variants | Limit | Available partial evidence |
+| --- | --- | --- |
+| HOME-10; native Windows/macOS variants of HOME-03–HOME-09 | The required OS and filesystem behavior are absent. | Linux behavior and existing unit checks. Native CI or another host must supply the platform result. |
+| DESKTOP-01–DESKTOP-03; packaged-app part of HOME-09 | No packaged desktop session or OS credential-store access has been established. macOS and Windows require other hosts. | Linux packaging preparation may be possible. It does not prove launch, Keychain access, browser return, or shutdown. |
+| NATIVE-01–NATIVE-06; CLIENT-01; JOURNEY-08 | Real native clients and their device lifecycle are unavailable. | Server protocol checks and web-only comparisons. Neither proves native cache, lock, suspension, or client refresh behavior. |
+| NOTE-09–NOTE-11; iPhone/iPad variants of NOTE-01–NOTE-07 | Physical notification delivery, tapping, and ActivityKit require configured devices and signing. | Server registration, payload, retry, and aggregate-state checks. Local activity tests do not prove APNs delivery. |
+| iPhone installation variants of PWA-01–PWA-07; Safari device variants | Linux WebKit is not a physical Safari installation or an iOS lifecycle test. | Browser storage and service-worker checks after a suitable browser setup exists. |
+| Native accessibility part of UX-01; device keyboard part of UX-02 | Native accessibility services and real device keyboards are unavailable. | Web keyboard, focus, narrow viewport, and text-size checks. These establish only their tested web behavior. |
+| Non-Linux and non-amd64 native release variants in the coverage matrix | This host cannot establish their native execution results. | Compilation evidence must retain its separate label. |
+
+### Need human interaction or confirmed external access
+
+| Cases or variants | Difficulty | Required condition |
+| --- | --- | --- |
+| AUTH-01–AUTH-07, AUTH-10; authentication parts of JOURNEY-01 | Real passkey verification, recovery, and OS prompts cannot be assumed unattended. | Human completion for real credentials, or controlled authentication tests explicitly labeled as protocol evidence. |
+| SETUP-03–SETUP-06, SETUP-10; API-03–API-08; MCP-02; ACP-01; JOURNEY-09 | OAuth consent, account selection, MFA, and renewed access can require a person. Existing access does not prove renewal. | Appropriate test accounts and protected credential bindings. Human participation when the provider requires it. |
+| MODEL-01–MODEL-08; SETUP-02, SETUP-07–SETUP-09; model-driven Chat, Task, Memory, and action-review cases | Working Noema provider accounts, models, quota, and supporting model assignments remain unconfirmed. | Safe account-status inspection followed by a configured test environment. This assistant's connected apps do not supply Noema credentials. |
+| API-02–API-15; MCP-01–MCP-07; ACP-01–ACP-04 | Multiple accounts, compatible shared grants, remote services, or configured Executor processes may be missing. | Inventory current connections and available test services. Treat missing prerequisites as Blocked, not as product failures. |
+| WEB-01–WEB-06, WEB-13–WEB-14; MODEL-02; JOURNEY-04–JOURNEY-06 | Search, hosted fetch, browser providers, public worker downloads, and uploads have independent service requirements. | Confirm each selected route separately. A working browser route does not prove Kernel or another configured provider works. |
+| NOTE-01–NOTE-08, NOTE-12 | Real push permission, HTTPS origin, delivery subscriptions, and APNs authority have not been confirmed. | Configured test registrations and provider access. Payload inspection alone cannot establish visible delivery. |
+| JOURNEY-02–JOURNEY-03, JOURNEY-07, JOURNEY-12 | These require populated messages, calendars, Projects, Tasks, preferences, or controlled changing records. | Prepare known source data. Empty accounts cannot prove synthesis or source-reading behavior. |
+| ACTION external writes; API write variants; WEB form/upload variants; JOURNEY-05–JOURNEY-06 | Real effects need authorized destinations and independently observable receipts. | Use controlled destinations and explicit authorization for any external messages or other real effects. Draft-only work cannot prove execution. |
+
+### Difficult but suitable for controlled automation
+
+These cases need preparation beyond clicking through the current app.
+Prefer existing authoritative tests and controlled services before adding new test infrastructure.
+Record backend, browser, and real-service evidence separately when only part of a case is covered.
+
+| Cases or variants | Required preparation or difficulty |
+| --- | --- |
+| HOME-01, HOME-03–HOME-08; JOURNEY-11 | Use a disposable home, known records, and a controlled server process. Upgrade needs a valid prior Go schema. Restore needs a complete stopped copy. |
+| HOME-08; PWA-06; FILE-10 | Simulate storage or executable failure within an isolated environment. Root access can invalidate simple permission tests. Do not fill the shared disk. |
+| CHAT-03–CHAT-04; RUN-05–RUN-08; ACTION-02, ACTION-04–ACTION-06; TASK-10 | Interrupt at the correct execution boundary. Ordinary restarts cannot reliably reproduce a lost response, stale worker, or possible committed effect. |
+| TASK-04; PROJECT-02; TIME-07, TIME-12; CHAT-10, CHAT-12; WEB-08 | Use two independent sessions or exact stale requests. Normal sequential actions do not exercise the race or stale-state boundary. |
+| MODEL-03–MODEL-07; SETUP-10; RUN-09; ACTION-07 | Force expired continuation, malformed output, unavailable review, or exact limits. A live model cannot reliably produce each required failure on demand. |
+| API-08–API-12, API-15; MCP-03, MCP-05; ACP-03–ACP-04 | Use controlled service responses and process lifecycle. Real services may not expose refresh timing, malformed output, or safe failure controls. |
+| WEB-06–WEB-12, WEB-14–WEB-16; ACTION-06; JOURNEY-06 | Use a controlled site with known effects, receipts, redirects, and failures. Public-site timing and access challenges are not reliable fault controls. |
+| TIME-01–TIME-12; JOURNEY-07 | Use known dates, short schedules, and controlled time where supported. Daylight-saving checks cannot depend on waiting for the next real transition. |
+| CHAT-07, CHAT-14; RUN-03, RUN-07, RUN-09–RUN-10; MEM-03, MEM-09, MEM-11 | Prepare long context, known omissions, malformed responses, or a large Memory tree. Triggering these through live models can take repeated paid calls. |
+| MEM-02–MEM-05, MEM-09–MEM-12; ART-03, ART-07 | Prepare exact evidence, update checkpoints, artifact versions, and controlled file changes. Read-only inspection cannot create these states. |
+| INFO-01–INFO-06; ART-05, ART-08; FILE-02, FILE-09; CALC-02 | Use synthetic private data, harmless secret sentinels, and controlled hostile inputs. Visible output alone cannot prove every internal information boundary. |
+| FILE-03–FILE-09; CALC-01; ART-04 | Prepare known source documents and independently calculated results. OCR uses the supported image path; do not assume scanned-PDF OCR exists. |
+| FILE-10 | Current document conversion starts the Noema executable as a worker. Missing LibreOffice is not proof of unavailable conversion. Isolate worker or OCR failure. |
+| NOTE-03–NOTE-07, NOTE-12 | Control presence, saved delivery state, and push-service responses. Real notification retry intervals make fully live failure checks slow. |
+| PWA-01–PWA-07 | Use a persistent standalone browser setup with service workers enabled. Update checks need two complete builds, offline transitions, and preserved browser storage. |
+| CLIENT-03–CLIENT-04; UX-04–UX-05 | Use independent clients and controlled connection or renderer failures. Native variants retain their separate device requirement. |
+| OPS-01–OPS-03; AUTH-08–AUTH-09 | Use the intended public or private boundary in an isolated deployment. The development socket cannot prove normal browser authentication enforcement. |
+
+### Cases that need judgment as well as automation
+
+CHAT-08, CHAT-15, RUN-03, RUN-10, RUN-13, MEM-04–MEM-05, INFO-01–INFO-03,
+and JOURNEY-02–JOURNEY-07, JOURNEY-10, JOURNEY-12 need substantive result review.
+Examples include factual support, adequate correction, meaningful change, and the permitted disclosure audience.
+Known expected facts make these checks more repeatable. Exact response wording is not a useful pass condition.
+The acting model's claim of success is insufficient evidence.
+UX-01–UX-05 also require rendered-state inspection for their applicable client variants.
+
+### Execution recommendation
+
+First establish an allowed app route and record one exact test build.
+Then prepare an isolated home, synthetic records, and protected access to the intended providers.
+Run automatable Linux and web cases with explicit backend or browser evidence labels.
+Keep device, real-consent, and real-delivery cases in a separate assisted run list.
+Do not mark the complete suite passed when only simulated or backend portions have run.
+
 ## Setup and coverage matrix
 
 Use an isolated Go home and controlled external accounts for execution.
