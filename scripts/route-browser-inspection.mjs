@@ -1,6 +1,8 @@
 // Route a Playwright context through the private development socket.
 // This read-only helper creates no TCP listener and never reads browser credentials.
 import http from "node:http";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(new URL("../apps/web/package.json", import.meta.url));
 const { parse, getOperationAST } = require("graphql");
@@ -14,6 +16,33 @@ function readOnlyOperation(payload) {
 }
 
 export async function routeBrowserInspection(context, socketPath = "/tmp/noema-codex/graphql.sock") {
+  const proxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  let agent, relay, credential;
+  if (proxy) {
+    credential = JSON.parse(await readFile(join(dirname(socketPath), "inspection-credential.json"), "utf8"));
+    relay = `http://127.0.0.1:${credential.port}`;
+    agent = new http.Agent();
+    agent.createConnection = (_options, callback) => {
+      const target = `127.0.0.1:${credential.port}`;
+      const tunnel = http.request(proxy, { method: "CONNECT", path: target, headers: { host: target } });
+      tunnel.once("connect", (response, socket, head) => {
+        if (response.statusCode !== 200) {
+          socket.destroy();
+          callback(new Error("Inspection relay connection was denied."));
+          return;
+        }
+        socket.setTimeout(0);
+        if (head.length) socket.unshift(head);
+        callback(null, socket);
+      });
+      tunnel.once("error", callback);
+      tunnel.setTimeout(30_000, () => tunnel.destroy(new Error("Inspection relay connection timed out.")));
+      tunnel.end();
+    };
+    context.on("close", () => agent.destroy());
+  }
+  const headers = { host: "noema.local", "content-type": "application/json" };
+  if (credential) headers["x-noema-inspection"] = credential.token;
   await context.route("http://noema.local/**", async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -28,8 +57,8 @@ export async function routeBrowserInspection(context, socketPath = "/tmp/noema-c
     }
     try {
       const response = await new Promise((resolve, reject) => {
-        const upstream = http.request({ socketPath, path: url.pathname + url.search, method: request.method(),
-          headers: { host: "noema.local", "content-type": "application/json" } }, response => {
+        const upstream = http.request({ ...(relay ? { hostname: "127.0.0.1", port: credential.port, agent } : { socketPath }),
+          path: url.pathname + url.search, method: request.method(), headers }, response => {
           const chunks = [];
           response.on("data", chunk => chunks.push(chunk));
           response.on("error", reject);
@@ -44,8 +73,8 @@ export async function routeBrowserInspection(context, socketPath = "/tmp/noema-c
     } catch { await route.abort("failed"); }
   });
   await context.routeWebSocket("ws://noema.local/graphql/ws", socket => {
-    const upstream = new WebSocket(`ws+unix://${socketPath}:/graphql/ws`, "graphql-transport-ws", {
-      headers: { host: "noema.local", origin: "http://noema.local" }
+    const upstream = new WebSocket(relay ? `${relay.replace("http:", "ws:")}/graphql/ws` : `ws+unix://${socketPath}:/graphql/ws`, "graphql-transport-ws", {
+      agent, headers: { ...headers, origin: "http://noema.local" }
     });
     const pending = [];
     socket.onMessage(message => {

@@ -13,7 +13,34 @@ The development server must be running with `web.local_graphql_socket` enabled.
 The root development supervisor normally provides `/tmp/noema-codex/graphql.sock`.
 The direct socket is `${NOEMA_HOME}/run/graphql.sock`.
 
-Check availability without reading credentials:
+The Linux `noema-build` profile uses the authenticated inspection relay.
+Codex 0.153.2 blocks direct Unix-socket creation in this profile.
+Its Linux network proxy also reports Unix-socket forwarding as unsupported.
+Adding a Unix allow entry alone does not make direct socket calls work.
+The [Codex permission reference](https://learn.chatgpt.com/docs/permissions) describes the supported proxy controls.
+
+The development supervisor starts `scripts/noema-inspection-relay.mjs` beside the existing Unix relay.
+It binds only `127.0.0.1` and forwards to the fixed private socket.
+Every HTTP request and WebSocket upgrade requires its generated credential.
+The protected store is `/tmp/noema-codex/inspection-credential.json`, with mode `0600` inside the root-owned `0700` directory.
+The relay removes its credential during normal shutdown.
+
+When `HTTP_PROXY` or `http_proxy` is set, `routeBrowserInspection` uses this relay through the Codex proxy.
+The helper loads the credential internally. It never passes that credential to the browser or the Noema backend.
+Do not print the credential file or copy its values into commands, screenshots, logs, or conversation context.
+The existing `127.0.0.1` domain permission permits this route without disabling the sandbox or domain checks.
+
+Run an inspection script inside the actual profile:
+
+```sh
+codex sandbox -C /root/noema -P noema-build -- node /path/to/inspection.mjs
+```
+
+The profile check passed HTTP access, a GraphQL query, mutation denial, and WebSocket acknowledgement on 2026-09-05.
+The relay unit checks use `node --test scripts/noema-inspection-relay.test.mjs`.
+They cover denied access, HTTP/WebSocket forwarding, ordinary-data preservation, credential protection, and shutdown.
+
+Outside the Codex sandbox, check direct socket availability:
 
 ```sh
 curl --unix-socket /tmp/noema-codex/graphql.sock http://localhost/auth/status

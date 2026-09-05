@@ -4,7 +4,7 @@ default_permissions = "noema-build"
 enabled = true
 
 [permissions.noema-build]
-description = "Build and commit Noema with the shared sccache service inside the sandbox."
+description = "Build and commit Noema with shared sccache and authenticated local inspection."
 extends = ":workspace"
 
 [permissions.noema-build.filesystem]
@@ -19,6 +19,3 @@ allow_local_binding = true
 
 [permissions.noema-build.network.domains]
 "127.0.0.1" = "allow"
-
-[permissions.noema-build.network.unix_sockets]
-"/tmp/noema-codex/graphql.sock" = "allow"
