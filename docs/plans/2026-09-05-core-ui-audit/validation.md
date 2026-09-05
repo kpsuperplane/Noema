@@ -92,3 +92,13 @@ Production and inclusive migration ratios remain below 80 percent.
 - Reviewed Inbox, task options, and recurring details at 1440px and 390px widths.
 - Both selectors retain accessible names and save feedback. Sample changes worked at both widths.
 - The gallery build passed. No horizontal overflow or browser page errors occurred.
+
+## Task cards in dialogs
+
+- Replaced task-title subtitles with ListCardButton summaries at the start of task dialog bodies.
+- Cards reuse the task list title, preview, and state arrangement, including TaskStatusBadge for ordinary tasks.
+- The shared pattern covers Start, Cancel, End recurring task, scheduling, and instruction edits.
+- Selecting a card opens its task mock. Dialog action buttons retain their existing behavior.
+- Reviewed Start, Cancel, and Schedule at 1440px and 390px widths, including modal and drawer previews.
+- Checked card presence in instruction edits and End recurring task dialogs at both widths.
+- The gallery build passed. No horizontal overflow or browser page errors occurred.

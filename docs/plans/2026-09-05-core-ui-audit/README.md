@@ -76,7 +76,10 @@ The mock illustrates layout only. Production must retain server-calculated dates
 The current task bar starts tasks directly. Keep that behavior.
 Cancelling a task can produce two buttons labeled “Cancel.”
 
-**Suggestion:** Where confirmation is required, name the task and the action.
+**Suggestion:** Where confirmation is required, name the action and show the task in its existing list item card.
+Place the card first in the dialog body. Remove the small task-title subtitle.
+Use the same title, preview, and state arrangement as task lists. Keep the action explanation below the card.
+Use this pattern for task confirmations, scheduling, and instruction edits. Selecting the card opens the task mock.
 The standalone start dialog illustrates copy only. Do not insert it into the current start flow.
 Explain: “Noema will plan this task and add it to the queue.”
 For cancellation, use **Keep task** and **Cancel task**.
