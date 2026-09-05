@@ -32,7 +32,7 @@ func TestLocalModelSchemaLifecycleAssignmentsAndEvents(t *testing.T) {
 	}
 
 	var version int
-	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 31 {
+	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 	hosted := createReadyModelAccount(t, database)

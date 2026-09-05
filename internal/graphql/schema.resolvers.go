@@ -714,7 +714,7 @@ func (r *queryRootResolver) TaskRunItems(ctx context.Context, runID string, firs
 
 // RuntimeDebugProfile is the resolver for the runtimeDebugProfile field.
 func (r *queryRootResolver) RuntimeDebugProfile(ctx context.Context, input model.RuntimeDebugProfileInput) (*model.RuntimeDebugProfile, error) {
-	panic(fmt.Errorf("not implemented: RuntimeDebugProfile - runtimeDebugProfile"))
+	return r.runtimeDebugProfile(ctx, input)
 }
 
 // TaskModelPools is the resolver for the taskModelPools field.

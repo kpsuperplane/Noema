@@ -219,7 +219,19 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	}
 	ctx, cancel := context.WithTimeout(parent, remaining)
 	defer cancel()
+	runtimeStarted := time.Now()
+	runtimeSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
+		store.RuntimeDebugScope{Kind: "task_run", ID: run.ID}, "runtime", "Prepare Task context",
+		store.RuntimeDebugMetadata{Phase: run.Kind}, runtimeStarted)
 	messages, wroteTask, err := r.taskMessages(ctx, task, run)
+	runtimeStatus := "completed"
+	if err != nil {
+		runtimeStatus = "failed"
+	}
+	if runtimeSpan != "" {
+		_ = r.database.FinishRuntimeDebugSpan(context.WithoutCancel(ctx), runtimeSpan, runtimeStatus,
+			store.RuntimeDebugMetadata{Phase: run.Kind}, time.Since(runtimeStarted), time.Now())
+	}
 	if err != nil {
 		r.failRun(ctx, run, "task_context_unavailable", false)
 		return
@@ -355,6 +367,10 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if continuing {
 			requestPreviousID = previousResponseID
 		}
+		providerStarted := time.Now()
+		providerSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
+			store.RuntimeDebugScope{Kind: "task_run", ID: run.ID}, "provider", "Task provider request",
+			store.RuntimeDebugMetadata{Provider: run.ProviderKind, Model: model, Phase: run.Kind, RoundIndex: &round}, providerStarted)
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
 			AccountID: run.ProviderAccountID, Model: model, Messages: requestMessages,
 			ReplayMessages: replayMessages, PreviousResponseID: requestPreviousID,
@@ -365,6 +381,18 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			HostedWebSearch: run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)), FastMode: run.FastMode,
 		}, func(provider.StreamEvent) {})
 		elapsed := time.Since(started).Milliseconds()
+		providerStatus := "completed"
+		if generateErr != nil {
+			providerStatus = "failed"
+		}
+		if providerSpan != "" {
+			inputTokens, cachedTokens := result.Usage.InputTokens, result.Usage.CachedInputTokens
+			outputTokens, totalTokens := result.Usage.OutputTokens, result.Usage.TotalTokens
+			_ = r.database.FinishRuntimeDebugSpan(context.WithoutCancel(ctx), providerSpan, providerStatus,
+				store.RuntimeDebugMetadata{Provider: run.ProviderKind, Model: model, Phase: run.Kind, RoundIndex: &round,
+					InputTokens: &inputTokens, CachedInputTokens: &cachedTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens},
+				time.Since(providerStarted), time.Now())
+		}
 		usage := store.TaskRunUsage{ProviderCalls: 1, InputTokens: int64(result.Usage.InputTokens), CachedInputTokens: int64(result.Usage.CachedInputTokens), OutputTokens: int64(result.Usage.OutputTokens), ActiveMilliseconds: elapsed}
 		if generateErr != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -379,7 +407,20 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 		assistant := store.TaskRunItemInput{Kind: "assistant_output", Status: "completed", Round: int64(round), Content: result.Text,
 			Payload: taskAssistantPayload(result)}
-		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{assistant}, usage, time.Now()); err != nil {
+		persistenceStarted := time.Now()
+		persistenceSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
+			store.RuntimeDebugScope{Kind: "task_run", ID: run.ID}, "persistence", "Save Task response",
+			store.RuntimeDebugMetadata{RoundIndex: &round}, persistenceStarted)
+		err = r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{assistant}, usage, time.Now())
+		persistenceStatus := "completed"
+		if err != nil {
+			persistenceStatus = "failed"
+		}
+		if persistenceSpan != "" {
+			_ = r.database.FinishRuntimeDebugSpan(context.WithoutCancel(ctx), persistenceSpan, persistenceStatus,
+				store.RuntimeDebugMetadata{RoundIndex: &round}, time.Since(persistenceStarted), time.Now())
+		}
+		if err != nil {
 			return
 		}
 		if sessionActive {
@@ -418,8 +459,24 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			return
 		}
 		callItem := stored[len(stored)-1]
+		toolStarted := time.Now()
+		toolSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
+			store.RuntimeDebugScope{Kind: "task_run", ID: run.ID}, "tool", "Task tool call",
+			store.RuntimeDebugMetadata{ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &round}, toolStarted)
+		finishToolSpan := func(success bool) {
+			status := "completed"
+			if !success {
+				status = "failed"
+			}
+			if toolSpan != "" {
+				_ = r.database.FinishRuntimeDebugSpan(context.WithoutCancel(ctx), toolSpan, status,
+					store.RuntimeDebugMetadata{ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &round},
+					time.Since(toolStarted), time.Now())
+			}
+		}
 		if binding, ok := bindings[call.Name]; ok {
 			payload, success, paused, mcpErr := r.prepareTaskMCP(ctx, task, run, callItem, binding, call.Payload)
+			finishToolSpan(mcpErr == nil && success)
 			if mcpErr != nil {
 				r.failRun(ctx, run, "mcp_action_unavailable", false)
 				return
@@ -444,6 +501,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 		if binding, ok := adapterBindings[call.Name]; ok {
 			payload, success, paused, actionErr := r.prepareTaskAdapter(ctx, task, run, callItem, binding, call.Payload)
+			finishToolSpan(actionErr == nil && success)
 			if actionErr != nil {
 				r.failRun(ctx, run, "adapter_action_unavailable", false)
 				return
@@ -474,6 +532,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 		if call.Name == webtool.FetchName {
 			payload, success, paused, actionErr := r.prepareTaskWebFetch(ctx, task, run, callItem, call.Payload)
+			finishToolSpan(actionErr == nil && success)
 			if actionErr != nil {
 				r.failRun(ctx, run, "web_action_unavailable", false)
 				return
@@ -497,6 +556,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			continue
 		}
 		payload, success, terminal, taskWrite := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
+		finishToolSpan(success)
 		wroteTask = wroteTask || taskWrite
 		status := "completed"
 		if !success {

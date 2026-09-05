@@ -548,6 +548,10 @@ func (c *Chat) execute(request queuedTurn) {
 		return
 	}
 	outputTokens := maxOutputTokensFor(assignment.ProviderKind)
+	runtimeStarted := time.Now()
+	runtimeSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "runtime", "Prepare model context",
+		store.RuntimeDebugMetadata{Phase: "initial"}, runtimeStarted)
 	providerMessages, _, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database, generator: contextGenerator,
 		accountID: assignment.ProviderAccountID, providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
 		base: developerMessages(environment, memoryContext, projectContext, hostedWeb), completed: completed, active: active,
@@ -556,11 +560,23 @@ func (c *Chat) execute(request queuedTurn) {
 			return c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
 				assignment.ModelProfile, summary, recent, through, time.Now())
 		}})
+	runtimeStatus := "completed"
+	if err != nil {
+		runtimeStatus = "failed"
+	}
+	if runtimeSpan != "" {
+		_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), runtimeSpan, runtimeStatus,
+			store.RuntimeDebugMetadata{Phase: "initial"}, time.Since(runtimeStarted), time.Now())
+	}
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
 	}
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
+	providerStarted := time.Now()
+	providerSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "provider", "Initial provider request",
+		store.RuntimeDebugMetadata{Provider: assignment.ProviderKind, Model: assignment.ModelProfile, Phase: "initial"}, providerStarted)
 	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
@@ -579,6 +595,18 @@ func (c *Chat) execute(request queuedTurn) {
 			})
 		}
 	})
+	providerStatus := "completed"
+	if err != nil {
+		providerStatus = "failed"
+	}
+	if providerSpan != "" {
+		inputTokens, cachedTokens := result.Usage.InputTokens, result.Usage.CachedInputTokens
+		outputTokens, totalTokens := result.Usage.OutputTokens, result.Usage.TotalTokens
+		_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), providerSpan, providerStatus,
+			store.RuntimeDebugMetadata{Provider: assignment.ProviderKind, Model: assignment.ModelProfile, Phase: "initial",
+				InputTokens: &inputTokens, CachedInputTokens: &cachedTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens},
+			time.Since(providerStarted), time.Now())
+	}
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return

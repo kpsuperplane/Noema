@@ -468,9 +468,22 @@ func (c *Chat) executeChatToolRounds(
 			return
 		}
 		call := result.ToolCalls[0]
+		toolStarted := time.Now()
+		toolSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+			store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "tool", "Tool call",
+			store.RuntimeDebugMetadata{ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &providerRound}, toolStarted)
 		toolPayload, success, pending, err := c.persistChatToolRound(
 			request, turn, assignment, result, call, providerRound, hostedState,
 		)
+		toolStatus := "completed"
+		if err != nil || !success {
+			toolStatus = "failed"
+		}
+		if toolSpan != "" {
+			_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), toolSpan, toolStatus,
+				store.RuntimeDebugMetadata{ToolName: call.Name, CorrelationID: call.ProviderCallID, RoundIndex: &providerRound},
+				time.Since(toolStarted), time.Now())
+		}
 		if err != nil {
 			c.failTurn(request.input, turn, err)
 			return
@@ -947,7 +960,12 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
 	generate := func() (provider.GenerationResult, error) {
-		return generator.Generate(c.ctx, provider.GenerateRequest{
+		started := time.Now()
+		span, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+			store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "provider", "Provider continuation",
+			store.RuntimeDebugMetadata{Provider: assignment.ProviderKind, Model: assignment.ModelProfile,
+				Phase: "continuation", RoundIndex: &providerRound}, started)
+		value, generateErr := generator.Generate(c.ctx, provider.GenerateRequest{
 			AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 			Messages: messages, ReplayMessages: sessionReplay,
 			ReasoningEffort: string(assignment.ReasoningEffort),
@@ -966,6 +984,20 @@ func (c *Chat) generateChatToolContinuation(
 				})
 			}
 		})
+		status := "completed"
+		if generateErr != nil {
+			status = "failed"
+		}
+		if span != "" {
+			inputTokens, cachedTokens := value.Usage.InputTokens, value.Usage.CachedInputTokens
+			outputTokens, totalTokens := value.Usage.OutputTokens, value.Usage.TotalTokens
+			_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), span, status,
+				store.RuntimeDebugMetadata{Provider: assignment.ProviderKind, Model: assignment.ModelProfile,
+					Phase: "continuation", RoundIndex: &providerRound, InputTokens: &inputTokens,
+					CachedInputTokens: &cachedTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens},
+				time.Since(started), time.Now())
+		}
+		return value, generateErr
 	}
 	result, err := generate()
 	if err == nil {
@@ -1113,6 +1145,10 @@ func (c *Chat) finishGeneratedTurn(
 	if model == "" {
 		model = assignment.ModelProfile
 	}
+	persistenceStarted := time.Now()
+	persistenceSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "persistence", "Save assistant response",
+		store.RuntimeDebugMetadata{ResponseIndex: &providerRound}, persistenceStarted)
 	item, err := c.database.CompleteConversationTurnOutput(
 		c.ctx, turn, normalized.Text, result.Text,
 		&store.ProviderUsage{
@@ -1122,6 +1158,14 @@ func (c *Chat) finishGeneratedTurn(
 		}, generationReasoning(result), generationCitations(normalized.Citations),
 		normalized.UnresolvedMarkers, providerRound, time.Now(),
 	)
+	persistenceStatus := "completed"
+	if err != nil {
+		persistenceStatus = "failed"
+	}
+	if persistenceSpan != "" {
+		_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), persistenceSpan, persistenceStatus,
+			store.RuntimeDebugMetadata{ResponseIndex: &providerRound}, time.Since(persistenceStarted), time.Now())
+	}
 	if err != nil {
 		if c.ctx.Err() != nil {
 			c.cancelTurn(input, turn)
