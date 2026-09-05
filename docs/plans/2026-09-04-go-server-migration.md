@@ -804,6 +804,26 @@ The browser Web Push unit uses Go schema version 14. Native Apple notifications 
 
 Task-derived Live Activity start, update, and end delivery uses Go schema version 23.
 
+### Direct adapter credential unit
+
+Direct adapter credentials use Go schema version 25. The unit includes:
+
+- protected field and JSON-document credential generations under the Go home;
+- reviewed Lua 5.4 request authentication for headers and query values;
+- exact credential revision fences for delayed Chat and Task calls;
+- response redaction for injected names and exact injected secret values;
+- durable authentication interruptions after remote rejection;
+- replacement, skip, restart recovery, and existing client intervention controls.
+
+OAuth remains a separate adapter unit. It will reuse this credential and interruption authority.
+
+### Task runtime event unit
+
+The existing web and iOS Task transcript subscription now uses Go.
+One durable work wake checks the current run and its newest visible transcript item.
+The subscription sends a refetch hint only after the requested Task changes.
+It adds no schema, polling loop, event registry, or dependency.
+
 ## 11. Validation Strategy
 
 Do not copy all 1,135 Rust tests mechanically.
