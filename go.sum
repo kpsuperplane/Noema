@@ -2,6 +2,8 @@ github.com/99designs/gqlgen v0.17.95 h1:882h7F5iJImgtyUVttc4MOK2NbzbMYc2oyNeHqkj
 github.com/99designs/gqlgen v0.17.95/go.mod h1:kHYPrpwOXDU1OQyxIg3Z7nVXSnlUoHVWBY7CMJCAM4M=
 github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa h1:sJc0dmH6FgfDg3dWwhQ+XjLoMqEi8wqerekEhRP02K0=
 github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa/go.mod h1:2h0oBmNFG9MP4gumyQ6Y6KyPeiaRLcElsLPyOCO6BqE=
+github.com/abemedia/go-cfb v0.2.0 h1:amLvu7/DX65XtcmMuc0an/t09W36gMOrnYwLxGGmwX8=
+github.com/abemedia/go-cfb v0.2.0/go.mod h1:ytSRuNKf2VMDQDs8TSZ/VmkVfS4giAdc4xl5XOnpKKA=
 github.com/adhocore/gronx v1.20.3 h1:DjvHxCqyz9WDzpodceOU814Z4GNpTvSpZs7oeX4ToKU=
 github.com/adhocore/gronx v1.20.3/go.mod h1:7oUY1WAU8rEJWmAxXR2DN0JaO4gi9khSgKjiRypqteg=
 github.com/agnivade/levenshtein v1.2.1 h1:EHBY3UOn1gwdy/VbFwgo4cxecRznFk7fKWN1KOX7eoM=

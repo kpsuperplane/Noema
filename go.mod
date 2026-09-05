@@ -5,6 +5,7 @@ go 1.26.6
 require (
 	github.com/99designs/gqlgen v0.17.95
 	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
+	github.com/abemedia/go-cfb v0.2.0
 	github.com/adhocore/gronx v1.20.3
 	github.com/coder/websocket v1.8.15
 	github.com/ergochat/webpush-go/v2 v2.0.0
