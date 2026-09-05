@@ -206,19 +206,24 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
-	if !ok || len(tools) != 5 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+	if !ok || len(tools) != 6 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
 	}
 	toolNames := make(map[string]bool)
 	for _, tool := range tools {
-		function := tool.(map[string]any)["function"].(map[string]any)
+		wire := tool.(map[string]any)
+		if wire["type"] == "openrouter:web_search" {
+			toolNames["hosted_web_search"] = true
+			continue
+		}
+		function := wire["function"].(map[string]any)
 		toolNames[function["name"].(string)] = true
 	}
-	if !toolNames["parse"] || !toolNames["inspect"] ||
-		!toolNames["read_memory_page"] || !toolNames["search_memory"] {
+	if !toolNames["parse"] || !toolNames["inspect"] || !toolNames["download"] ||
+		!toolNames["read_memory_page"] || !toolNames["search_memory"] || !toolNames["hosted_web_search"] {
 		t.Fatalf("advertised tools = %#v", toolNames)
 	}
-	if len(firstContinuation["tools"].([]any)) != 5 || len(secondContinuation["tools"].([]any)) != 5 {
+	if len(firstContinuation["tools"].([]any)) != 6 || len(secondContinuation["tools"].([]any)) != 6 {
 		t.Fatal("normal continuations did not retain the Chat tools")
 	}
 	messages := firstContinuation["messages"].([]any)
@@ -279,6 +284,111 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		providerUsage["total_tokens"] != float64(22) {
 		t.Fatalf("final round metadata = %#v", final.Metadata)
 	}
+}
+
+func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
+	chat, database, conversation := chatFixture(t)
+	ctx := context.Background()
+	events, err := chat.Subscribe(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	requests := make(chan map[string]any, 2)
+	requestCount := 0
+	hostedStream := strings.Join([]string{
+		`data: {"id":"chat-web","model":"openai/gpt-5.6-luna","choices":[{"index":0,"delta":{"content":"Current answer.","reasoning_details":[{"type":"reasoning.server_tool_call","id":"ws_ok","name":"web.search","status":"completed","arguments":{"query":"current trains"},"result":{"summary":"Found schedules"}},{"type":"reasoning.server_tool_call","id":"ws_fail","name":"web.search","status":"failed","arguments":{"query":"closed station"},"result":{"error":"provider-hosted web action failed"}}],"annotations":[{"type":"url_citation","url_citation":{"title":"Rail","url":"https://rail.example/times","start_index":0,"end_index":7}}]},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16,"server_tool_use":{"web_search_requests":2}}}` + "\n\n",
+		"data: [DONE]\n\n",
+	}, "")
+	if _, err := provider.ParseChatStream(ctx, io.NopCloser(strings.NewReader(hostedStream)), nil); err != nil {
+		t.Fatalf("hosted stream fixture: %v", err)
+	}
+	replaceDefaultTransport(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		requests <- body
+		requestCount++
+		if requestCount > 1 {
+			return openRouterStreamResponse("Updated."), nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(hostedStream)),
+		}, nil
+	}))
+	for index, input := range []string{"Find current trains", "Check again"} {
+		if _, err := chat.SendTurn(ctx, SendTurnInput{ConversationID: conversation.ID, Input: input}); err != nil {
+			t.Fatal(err)
+		}
+		turnEvents := collectCompletedTurns(t, events, 1)
+		for _, event := range turnEvents {
+			if event.Item != nil && event.Item.Kind == store.ConversationErrorNotice {
+				t.Fatalf("turn %d failed: %#v", index, event.Item)
+			}
+		}
+	}
+	firstRequest, secondRequest := <-requests, <-requests
+	if len(firstRequest["tools"].([]any)) != 6 {
+		t.Fatalf("hosted web tools = %#v", firstRequest["tools"])
+	}
+	var replayedSearches int
+	for _, raw := range secondRequest["messages"].([]any) {
+		message := raw.(map[string]any)
+		for _, rawDetail := range anySlice(message["reasoning_details"]) {
+			detail := rawDetail.(map[string]any)
+			if detail["type"] == "reasoning.server_tool_call" {
+				replayedSearches++
+			}
+		}
+	}
+	if replayedSearches != 0 {
+		t.Fatalf("replayed hosted searches = %d in %#v", replayedSearches, secondRequest["messages"])
+	}
+	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls, results int
+	var failed bool
+	var firstAnswer store.ConversationItem
+	correlations := make(map[string]bool)
+	for _, item := range page.Items {
+		switch item.Kind {
+		case store.ConversationToolCall:
+			calls++
+			display := item.Payload["metadata"].(map[string]any)["display"].(map[string]any)
+			if display["marker"].(map[string]any)["kind"] != "web.search" {
+				t.Fatalf("hosted web marker = %#v", display)
+			}
+			action := item.Payload["metadata"].(map[string]any)["action"].(map[string]any)
+			correlations[action["id"].(string)] = false
+		case store.ConversationToolResult:
+			results++
+			failed = failed || item.Status == "failed"
+			action := item.Payload["metadata"].(map[string]any)["action"].(map[string]any)
+			if _, exists := correlations[action["call_id"].(string)]; exists {
+				correlations[action["call_id"].(string)] = true
+			}
+		case store.ConversationAssistantText:
+			if item.ContentText == "Current answer." {
+				firstAnswer = item
+			}
+		}
+	}
+	usage, _ := firstAnswer.Metadata["provider_usage"].(map[string]any)
+	citations, _ := firstAnswer.Metadata["citations"].([]any)
+	if calls != 2 || results != 2 || !failed || usage["web_search_requests"] != float64(2) ||
+		len(citations) != 1 || citations[0].(map[string]any)["url"] != "https://rail.example/times" ||
+		!correlations["ws_ok"] || !correlations["ws_fail"] {
+		t.Fatalf("stored hosted web facts = calls %d, results %d, failed %v, answer %#v", calls, results, failed, firstAnswer)
+	}
+}
+
+func anySlice(value any) []any {
+	values, _ := value.([]any)
+	return values
 }
 
 func TestMemoryToolsEnforceInputRulesAndSelectPages(t *testing.T) {
@@ -367,7 +477,8 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 	}
 	collectCompletedTurns(t, events, 1)
 	if len(requests) != 3 || len(requests[0].Tools) != 5 ||
-		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" {
+		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" ||
+		requests[0].Tools[4].Name != fileDownloadName {
 		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
 	}
 	initialContext := requests[0].Messages[0].Content
@@ -437,7 +548,9 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		requests = append(requests, request)
 		if len(requests) == 1 {
 			return provider.GenerationResult{
-				Model: "gpt-5.6-terra", Text: "I will inspect it.", Usage: provider.Usage{TotalTokens: 3},
+				ID: "resp_1", Model: "gpt-5.6-terra", Text: "I will inspect it.", Usage: provider.Usage{TotalTokens: 3},
+				Searches: []provider.HostedSearch{{ID: "search_1", Name: "web.search", Status: "completed",
+					Arguments: json.RawMessage(`{"query":"current"}`), Result: json.RawMessage(`{"status":"completed"}`)}},
 				Reasoning: []provider.GenerationReasoning{{ProviderDetails: []json.RawMessage{
 					json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`),
 				}}},
@@ -449,7 +562,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			}, nil
 		}
 		return provider.GenerationResult{
-			Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
+			ID: "resp_2", Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
 		}, nil
 	})
 	chat, err := NewChat(database, openRouter, codex, homeRoot, openChatMemory(t, homeRoot))
@@ -475,16 +588,21 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			t.Fatalf("Codex request %d = %#v", index, request)
 		}
 	}
-	replayedCall, replayedResult := false, false
+	if requests[0].PreviousResponseID != "" || !requests[0].StoreResponse ||
+		requests[1].PreviousResponseID != "resp_1" || !requests[1].StoreResponse {
+		t.Fatalf("Codex response continuation = %#v", requests)
+	}
+	replayedCall, incrementalResult := false, false
 	for _, message := range requests[1].Messages {
 		for _, call := range message.ToolCalls {
 			replayedCall = replayedCall || call.ProviderItemID == "fc_1"
 		}
-		replayedResult = replayedResult ||
+		incrementalResult = incrementalResult ||
 			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
 	}
-	if !replayedCall || !replayedResult {
-		t.Fatalf("Codex continuation replay = call %t, result %t", replayedCall, replayedResult)
+	if replayedCall || !incrementalResult || len(requests[1].Messages) != 1 {
+		t.Fatalf("Codex incremental continuation = call %t, result %t, messages %#v",
+			replayedCall, incrementalResult, requests[1].Messages)
 	}
 	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
 	if err != nil {
@@ -513,6 +631,24 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	}
 	if finalText != "Codex complete." {
 		t.Fatalf("durable final text = %q", finalText)
+	}
+	assignment, err := chat.primaryAssignment(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	_, _, err = chat.generateChatToolContinuation(
+		queuedTurn{conversation: conversation, location: time.UTC},
+		store.ConversationTurn{ID: page.Items[0].TurnID, ConversationID: conversation.ID},
+		assignment,
+		generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+			called = true
+			return provider.GenerationResult{}, nil
+		}),
+		2, "", "", "", true, provider.GenerationMessage{},
+	)
+	if err == nil || called || !strings.Contains(err.Error(), "provider-hosted web state") {
+		t.Fatalf("missing Codex hosted state = called %t, error %v", called, err)
 	}
 }
 

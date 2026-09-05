@@ -36,11 +36,18 @@ func TestCodexGeneratorPreservesResponsesWireAndOutput(t *testing.T) {
 		_, _ = io.WriteString(w, "event: response.output_text.delta\n")
 		_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","output_index":0,"delta":"Checking."}`+"\n\n")
 		_, _ = io.WriteString(w, "event: response.output_item.done\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","content":[{"type":"output_text","text":"stale","annotations":[{"type":"url_citation","title":"Official","url":"https://example.test/current","start_index":0,"end_index":8}]}]}}`+"\n\n")
+		_, _ = io.WriteString(w, "event: response.output_item.done\n")
 		_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":1,"item":{"type":"reasoning","id":"rs_2","encrypted_content":"opaque-new","summary":[{"type":"summary_text","text":"Checked the Task"}]}}`+"\n\n")
 		_, _ = io.WriteString(w, "event: response.output_item.added\n")
-		_, _ = io.WriteString(w, `data: {"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","call_id":"call_2","name":"inspect"}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.added","output_index":2,"item":{"type":"web_search_call","id":"ws_new","status":"in_progress"}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.web_search_call.searching","output_index":2,"item_id":"ws_new"}`+"\n\n")
 		_, _ = io.WriteString(w, "event: response.output_item.done\n")
-		_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"item_2","call_id":"call_2","name":"inspect","arguments":"{\"task_id\":\"task:two\"}"}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":2,"item":{"type":"web_search_call","id":"ws_new","status":"completed","action":{"type":"search","query":"current trains","sources":[{"title":"Rail","url":"https://rail.example/times"},{"title":"Unsafe","url":"file:///private"}]}}}`+"\n\n")
+		_, _ = io.WriteString(w, "event: response.output_item.added\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.added","output_index":3,"item":{"type":"function_call","call_id":"call_2","name":"inspect"}}`+"\n\n")
+		_, _ = io.WriteString(w, "event: response.output_item.done\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":3,"item":{"type":"function_call","id":"item_2","call_id":"call_2","name":"inspect","arguments":"{\"task_id\":\"task:two\"}"}}`+"\n\n")
 		_, _ = io.WriteString(w, "event: response.completed\n")
 		_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"resp_2","model":"gpt-5.6-codex","status":"completed","output":null,"usage":{"input_tokens":20,"output_tokens":4,"total_tokens":24,"input_tokens_details":{"cached_tokens":7}}}}`+"\n\n")
 	}))
@@ -62,6 +69,12 @@ func TestCodexGeneratorPreservesResponsesWireAndOutput(t *testing.T) {
 				ProviderCallID: "call_1", ProviderName: "inspect", Name: "task.inspect", Success: true,
 				Payload: json.RawMessage(`{"title":"One"}`),
 			}},
+			{Role: "hosted_web_search", HostedSearch: &HostedSearch{
+				Index: 2, ID: "ws_old", Name: "web.search", Status: "completed",
+				Arguments:      json.RawMessage(`{"query":"old trains"}`),
+				Result:         json.RawMessage(`{"status":"completed"}`),
+				ProviderAction: json.RawMessage(`{"type":"search","query":"old trains"}`),
+			}},
 			{Role: "user", Content: "Inspect the other Task."},
 		},
 		ReasoningEffort: "high", MaxOutputTokens: &maxTokens,
@@ -70,7 +83,7 @@ func TestCodexGeneratorPreservesResponsesWireAndOutput(t *testing.T) {
 			Name: "task.inspect", Description: "Inspect one Task.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"task_id":{"type":"string"},"detail":{"type":"string"}},"required":["task_id"],"additionalProperties":false}`),
 		}},
-		ToolTransport: ToolTransportNative, ToolChoice: ToolChoiceRequired,
+		ToolTransport: ToolTransportNative, ToolChoice: ToolChoiceRequired, HostedWebSearch: true,
 	}
 	var events []StreamEvent
 	result, err := generator.Generate(context.Background(), request, func(event StreamEvent) {
@@ -81,46 +94,64 @@ func TestCodexGeneratorPreservesResponsesWireAndOutput(t *testing.T) {
 	}
 	if result.ID != "resp_2" || result.Model != "gpt-5.6-codex" || result.Text != "Checking." ||
 		result.FinishReason != "tool_calls" || result.Usage.TotalTokens != 24 ||
-		result.Usage.CachedInputTokens != 7 || len(result.ToolCalls) != 1 || len(result.Reasoning) != 1 {
+		result.Usage.CachedInputTokens != 7 || len(result.ToolCalls) != 1 || len(result.Reasoning) != 1 ||
+		len(result.Searches) != 1 || len(result.Citations) != 1 {
 		t.Fatalf("Codex result = %#v", result)
 	}
-	if call := result.ToolCalls[0]; call.Index != 2 || call.ProviderItemID != "item_2" ||
+	if call := result.ToolCalls[0]; call.Index != 3 || call.ProviderItemID != "item_2" ||
 		call.ProviderCallID != "call_2" || call.ProviderName != "inspect" ||
 		call.Name != "task.inspect" || string(call.Payload) != `{"task_id":"task:two"}` {
 		t.Fatalf("Codex tool call = %#v", call)
+	}
+	if search := result.Searches[0]; search.Index != 2 || search.ID != "ws_new" ||
+		search.Name != "web.search" || string(search.Arguments) != `{"query":"current trains"}` ||
+		len(search.Sources) != 1 || search.Sources[0].URL != "https://rail.example/times" ||
+		string(search.ProviderAction) == "" {
+		t.Fatalf("Codex hosted search = %#v", search)
+	}
+	if citation := result.Citations[0]; citation.Title != "Official" ||
+		citation.URL != "https://example.test/current" || citation.EndIndex == nil || *citation.EndIndex != 8 {
+		t.Fatalf("Codex citation = %#v", citation)
 	}
 	if reasoning := result.Reasoning[0]; reasoning.ID != "rs_2" || reasoning.EncryptedContent != "opaque-new" ||
 		len(reasoning.Summary) != 1 || len(reasoning.ProviderDetails) != 1 {
 		t.Fatalf("Codex reasoning = %#v", reasoning)
 	}
-	if len(events) != 2 || events[0].Kind != TextDelta || events[0].Delta != "Checking." ||
-		events[1].Kind != ToolCallStarted || events[1].ID != "call_2" {
+	if len(events) != 3 || events[0].Kind != TextDelta || events[0].Delta != "Checking." ||
+		events[1].Kind != HostedSearchStarted || events[1].ID != "ws_new" ||
+		events[2].Kind != ToolCallStarted || events[2].ID != "call_2" {
 		t.Fatalf("Codex events = %#v", events)
 	}
 
 	body := <-requestSeen
 	if body["model"] != "gpt-5.6-codex" || body["stream"] != true || body["store"] != false ||
 		body["service_tier"] != "priority" || body["prompt_cache_key"] != "conversation:one" ||
-		body["tool_choice"] != "required" || body["parallel_tool_calls"] != false ||
+		body["tool_choice"] != "auto" || body["parallel_tool_calls"] != false ||
 		body["max_output_tokens"] != nil {
 		t.Fatalf("Codex request controls = %#v", body)
 	}
 	if reasoning := body["reasoning"].(map[string]any); reasoning["effort"] != "high" || reasoning["summary"] != "auto" {
 		t.Fatalf("Codex request reasoning = %#v", reasoning)
 	}
+	if include := body["include"].([]any); len(include) != 1 || include[0] != "web_search_call.action.sources" {
+		t.Fatalf("Codex hosted include = %#v", include)
+	}
 	tools := body["tools"].([]any)
 	tool := tools[0].(map[string]any)
-	if tool["type"] != "function" || tool["name"] != "inspect" || tool["strict"] != true || tool["function"] != nil {
+	if len(tools) != 2 || tool["type"] != "function" || tool["name"] != "inspect" ||
+		tool["strict"] != true || tools[1].(map[string]any)["type"] != "web_search" {
 		t.Fatalf("Codex tool wire = %#v", tool)
 	}
 	input := body["input"].([]any)
-	if len(input) != 7 || input[0].(map[string]any)["role"] != "developer" ||
+	if len(input) != 8 || input[0].(map[string]any)["role"] != "developer" ||
 		input[2].(map[string]any)["type"] != "reasoning" ||
 		len(input[2].(map[string]any)["summary"].([]any)) != 0 ||
 		input[3].(map[string]any)["phase"] != "commentary" ||
 		input[3].(map[string]any)["content"].([]any)[0].(map[string]any)["type"] != "output_text" ||
 		input[4].(map[string]any)["type"] != "function_call" || input[4].(map[string]any)["id"] != "item_1" ||
-		input[5].(map[string]any)["type"] != "function_call_output" {
+		input[5].(map[string]any)["type"] != "function_call_output" ||
+		input[6].(map[string]any)["type"] != "web_search_call" ||
+		input[6].(map[string]any)["action"].(map[string]any)["query"] != "old trains" {
 		t.Fatalf("Codex replay input = %#v", input)
 	}
 	var output map[string]any
@@ -141,6 +172,41 @@ func TestCodexGeneratorUsesTerminalTextWithoutDeltas(t *testing.T) {
 	)
 	if err != nil || result.Text != "Done" || result.FinishReason != "stop" {
 		t.Fatalf("Codex terminal result = %#v, %v", result, err)
+	}
+}
+
+func TestCodexContinuationAndHostedURLCredentialRules(t *testing.T) {
+	request := basicCodexGenerationRequest()
+	request.PreviousResponseID = "resp_previous"
+	request.StoreResponse = true
+	request.Messages = []GenerationMessage{{Role: "tool", ToolResult: &ReplayToolResult{
+		ProviderCallID: "call_1", ProviderName: "inspect", Name: "task.inspect",
+		Success: true, Payload: json.RawMessage(`{"title":"One"}`),
+	}}}
+	body, _, err := prepareCodexGeneration(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if json.Unmarshal(body, &wire) != nil || wire["previous_response_id"] != "resp_previous" ||
+		wire["store"] != true || len(wire["input"].([]any)) != 1 {
+		t.Fatalf("Codex continuation wire = %#v", wire)
+	}
+	for _, test := range []struct {
+		url     string
+		blocked bool
+	}{
+		{"https://person:password@example.test/page", true},
+		{"https://person@example.test/page", false},
+		{"https://example.test/page", false},
+	} {
+		action, _ := json.Marshal(map[string]any{"type": "open_page", "url": test.url})
+		_, err := normalizeCodexHostedSearch(0, map[string]json.RawMessage{
+			"status": json.RawMessage(`"completed"`), "action": action,
+		})
+		if (err != nil) != test.blocked {
+			t.Fatalf("open_page URL %q error = %v", test.url, err)
+		}
 	}
 }
 

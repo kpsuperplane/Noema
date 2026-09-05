@@ -10,6 +10,13 @@ func lowerOpenRouterMessage(
 	message GenerationMessage,
 	toolNames openRouterToolNameMap,
 ) (openRouterMessagePayload, bool, error) {
+	if message.Role == "hosted_web_search" {
+		if message.HostedSearch == nil || message.Content != "" || len(message.ToolCalls) != 0 ||
+			message.ToolResult != nil || len(message.ReasoningDetails) != 0 || message.EncryptedReasoning != "" {
+			return openRouterMessagePayload{}, false, errors.New("OpenRouter hosted web replay is invalid")
+		}
+		return openRouterMessagePayload{}, false, nil
+	}
 	if message.Role == "developer" {
 		if len(message.ToolCalls) != 0 || message.ToolResult != nil ||
 			len(message.ReasoningDetails) != 0 || message.EncryptedReasoning != "" {

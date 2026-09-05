@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	maxSSELine  = 1 << 20
-	maxSSEEvent = 2 << 20
-	maxResult   = 16 << 20
-	maxItems    = 4096
+	maxSSELine        = 1 << 20
+	maxSSEEvent       = 2 << 20
+	maxResult         = 16 << 20
+	maxItems          = 4096
+	maxHostedSearches = 64
 )
 
 var errStreamDone = errors.New("provider stream completed")
@@ -63,12 +64,20 @@ type Citation struct {
 
 // HostedSearch is one provider-hosted web search.
 type HostedSearch struct {
-	Index     int
-	ID        string
-	Name      string
-	Status    string
-	Arguments json.RawMessage
-	Result    json.RawMessage
+	Index          int
+	ID             string
+	Name           string
+	Status         string
+	Arguments      json.RawMessage
+	Result         json.RawMessage
+	Sources        []WebSource
+	ProviderAction json.RawMessage
+}
+
+// WebSource is one exact public source used by hosted search.
+type WebSource struct {
+	Title string
+	URL   string
 }
 
 // Usage contains normalized provider token counts.
@@ -485,7 +494,7 @@ func (a *chatAccumulator) captureHostedSearch(
 		}
 		return nil
 	}
-	if len(a.searches) >= maxItems {
+	if len(a.searches) >= maxHostedSearches {
 		return errors.New("provider stream contains too many items")
 	}
 	if err := a.addSize(len(id) + len(name) + len(status) + len(arguments) + len(result)); err != nil {
@@ -740,8 +749,8 @@ func (a *chatAccumulator) normalizedSearches() []HostedSearch {
 	if expected < 0 {
 		expected = 0
 	}
-	if expected > 64 {
-		expected = 64
+	if expected > maxHostedSearches {
+		expected = maxHostedSearches
 	}
 	if len(a.citations) != 0 && expected < 1 {
 		expected = 1
