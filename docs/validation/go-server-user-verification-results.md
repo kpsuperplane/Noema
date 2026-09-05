@@ -337,6 +337,24 @@ Together with the earlier text-delta check, this completes the tested Chromium r
 The [validation record](evidence/2026-09-05-chat-action-validation.json) records the source revision, driver hashes, Task identities, and reused Go checks.
 No production code changed. Other providers and native clients remain outside this evidence.
 
+## Live Memory updates, corrections, and citations
+
+The [initial inspection](evidence/2026-09-05-memory-inspect.mjs) found an existing cited profile, preserved in the [before record](evidence/2026-09-05-memory-before.json).
+The [update driver](evidence/2026-09-05-memory-update.mjs) adds synthetic stargazing and travel-note preferences through Chat, then uses the Memory update control.
+The [addition result](evidence/2026-09-05-memory-addition-results.json) records two cited child articles while the root profile remains unchanged.
+The [correction result](evidence/2026-09-05-memory-correction-results.json) replaces Spanish with French and cites the newer exact human message.
+The stargazing article retains its original source. The correction changes status from idle to running to idle and advances the processed sequence.
+The first update completed despite a driver wait error. Verification resumed without starting another update.
+
+The [citation driver](evidence/2026-09-05-memory-citations.mjs) follows the related-article link and opens the nearby citation by pointer and keyboard.
+Its [results](evidence/2026-09-05-memory-citations-results.json) verify source identity, type, date, and exact excerpt at desktop and phone widths.
+Both source cards remain readable after their opening transition.
+The [Chat read driver](evidence/2026-09-05-memory-chat-read.mjs) requests search and deeper article reads.
+Its [results](evidence/2026-09-05-memory-chat-read-results.json) show successful Memory tools and the current French preference alongside stargazing.
+The [validation record](evidence/2026-09-05-memory-validation.json) records source revision, driver hashes, reused checks, and remaining limits.
+No production code changed. The synthetic preferences remain in the authorized test instance.
+Empty-state, deep hierarchy, bounded root context, and remaining Memory failure cases are not established by these checks.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -442,14 +460,14 @@ A human variant remains pending even when its controlled counterpart passes.
 | AGENT-01 | Not run | Controlled setup pending. | — |
 | AGENT-02 | Not run | Controlled setup pending. | — |
 | AGENT-03 | Not run | Controlled setup pending. | — |
-| MEM-01 | Not run | Controlled setup pending. | — |
-| MEM-02 | Not run | Controlled setup pending. | — |
+| MEM-01 | Not run | The live tree already contains a cited profile. A controlled empty-state check remains pending. | — |
+| MEM-02 | Pass · live Chromium | Browser update creates cited articles from exact synthetic human facts. The saved sequence advances and status returns to idle. | — |
 | MEM-03 | Not run | Controlled setup pending. | — |
-| MEM-04 | Not run | Controlled setup pending. | — |
+| MEM-04 | Pass · live Chromium/Chat | The newer preference replaces the old fact and cites its correction. Chat reads the current article and reports French. | — |
 | MEM-05 | Not run | Controlled setup pending. | — |
-| MEM-06 | Not run | Controlled setup pending. | — |
-| MEM-07 | Not run | Controlled setup pending. | — |
-| MEM-08 | Not run | Controlled setup pending. | — |
+| MEM-06 | Partial · live Chromium | Root and child articles open through exact related-article routes. Deep hierarchy and ancestor checks remain pending. | — |
+| MEM-07 | Pass · live Chromium | Pointer hover and keyboard focus show the exact source type, date, excerpt, and identity at desktop and phone widths. | — |
+| MEM-08 | Partial · live Chat | Search and deeper page reads return the corrected fact and unchanged leisure interest. Bounded root-context injection remains pending. | — |
 | MEM-09 | Not run | Controlled setup pending. | — |
 | MEM-10 | Not run | Controlled setup pending. | — |
 | MEM-11 | Not run | Controlled setup pending. | — |

@@ -1,0 +1,201 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "phase": "correction",
+  "syntheticFacts": true,
+  "before": {
+    "root": {
+      "id": "memory:human:root.md",
+      "path": "root.md",
+      "title": "Kevin",
+      "body": "Kevin is the local human. He calls his assistant Momo.[^1]\n\n## Identity\nKevin is the name to use when addressing him.[^1]\n\n## Assistant relationship\nMomo is the name Kevin chose for his assistant.[^1]",
+      "citations": [
+        {
+          "sources": [
+            {
+              "source": "item:a016e54ac3affff884096483188a87b6",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "Kevin!",
+              "createdAt": "2026-09-05T17:56:23.077Z"
+            },
+            {
+              "source": "item:f6e032f9d1691e90377ecd5eb0a4c697",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "Momo!",
+              "createdAt": "2026-09-05T17:55:54.889Z"
+            }
+          ]
+        }
+      ]
+    },
+    "pages": [
+      {
+        "id": "memory:human:root.md",
+        "path": "root.md",
+        "title": "Kevin"
+      },
+      {
+        "id": "memory:human:stargazing.md",
+        "path": "stargazing.md",
+        "title": "Stargazing"
+      },
+      {
+        "id": "memory:human:travel-notes.md",
+        "path": "travel-notes.md",
+        "title": "Personal travel notes"
+      }
+    ],
+    "pendingCount": 0,
+    "updateStatus": {
+      "state": "idle",
+      "active": false,
+      "lastConsolidatedSequence": 169,
+      "error": null
+    }
+  },
+  "source": {
+    "itemId": "item:7c3f80acd8a9307fb874242e8a4b3b2c",
+    "item": {
+      "__typename": "UserText",
+      "text": "Correction: I now prefer French for my personal travel notes, replacing my earlier preference for Spanish. My leisure interest in stargazing has not changed. Please acknowledge this in Chat without using tools. End with AUDIT_MEMORY_CORRECTION_42."
+    }
+  },
+  "status": {
+    "state": "idle",
+    "active": false,
+    "lastConsolidatedSequence": 171,
+    "error": null
+  },
+  "transitions": [
+    {
+      "state": "idle",
+      "active": false,
+      "lastConsolidatedSequence": 169,
+      "error": null
+    },
+    {
+      "state": "running",
+      "active": true,
+      "lastConsolidatedSequence": 169,
+      "error": null
+    },
+    {
+      "state": "idle",
+      "active": false,
+      "lastConsolidatedSequence": 171,
+      "error": null
+    }
+  ],
+  "after": {
+    "root": {
+      "id": "memory:human:root.md",
+      "path": "root.md",
+      "title": "Kevin",
+      "body": "Kevin is the local human. He calls his assistant Momo.[^1]\n\n## Identity\nKevin is the name to use when addressing him.[^1]\n\n## Assistant relationship\nMomo is the name Kevin chose for his assistant.[^1]",
+      "citations": [
+        {
+          "sources": [
+            {
+              "source": "item:a016e54ac3affff884096483188a87b6",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "Kevin!",
+              "createdAt": "2026-09-05T17:56:23.077Z"
+            },
+            {
+              "source": "item:f6e032f9d1691e90377ecd5eb0a4c697",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "Momo!",
+              "createdAt": "2026-09-05T17:55:54.889Z"
+            }
+          ]
+        }
+      ]
+    },
+    "pages": [
+      {
+        "id": "memory:human:root.md",
+        "path": "root.md",
+        "title": "Kevin"
+      },
+      {
+        "id": "memory:human:stargazing.md",
+        "path": "stargazing.md",
+        "title": "Stargazing"
+      },
+      {
+        "id": "memory:human:travel-notes.md",
+        "path": "travel-notes.md",
+        "title": "Personal travel notes"
+      }
+    ],
+    "pendingCount": 0,
+    "updateStatus": {
+      "state": "idle",
+      "active": false,
+      "lastConsolidatedSequence": 171,
+      "error": null
+    }
+  },
+  "pages": [
+    {
+      "id": "memory:human:root.md",
+      "path": "root.md",
+      "title": "Kevin",
+      "body": "Kevin is the local human. He calls his assistant Momo.[^1]\n\n## Identity\nKevin is the name to use when addressing him.[^1]\n\n## Assistant relationship\nMomo is the name Kevin chose for his assistant.[^1]",
+      "citations": [
+        {
+          "sources": [
+            {
+              "source": "item:a016e54ac3affff884096483188a87b6",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "Kevin!",
+              "createdAt": "2026-09-05T17:56:23.077Z"
+            },
+            {
+              "source": "item:f6e032f9d1691e90377ecd5eb0a4c697",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "Momo!",
+              "createdAt": "2026-09-05T17:55:54.889Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "memory:human:stargazing.md",
+      "path": "stargazing.md",
+      "title": "Stargazing",
+      "body": "Kevin enjoys stargazing as a lasting leisure interest.[^1]",
+      "citations": [
+        {
+          "sources": [
+            {
+              "source": "item:ccbdaa285a4f6e1a84cce1cb64f55834",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "I enjoy stargazing as a lasting leisure interest. I prefer Spanish for my personal travel notes. Please acknowledge this in Chat without using tools. End with AUDIT_MEMORY_FACT_42.",
+              "createdAt": "2026-09-05T22:21:56.26Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "memory:human:travel-notes.md",
+      "path": "travel-notes.md",
+      "title": "Personal travel notes",
+      "body": "Kevin prefers French for his personal travel notes.[^1]",
+      "citations": [
+        {
+          "sources": [
+            {
+              "source": "item:7c3f80acd8a9307fb874242e8a4b3b2c",
+              "kind": "HUMAN_MESSAGE",
+              "excerpt": "Correction: I now prefer French for my personal travel notes, replacing my earlier preference for Spanish. My leisure interest in stargazing has not changed. Please acknowledge this in Chat without using tools. End with AUDIT_MEMORY_CORRECTION_42.",
+              "createdAt": "2026-09-05T22:23:15.817Z"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "result": "pass"
+}
