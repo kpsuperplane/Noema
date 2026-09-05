@@ -191,8 +191,14 @@ func (s *Service) QueueTaskAttention(
 func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 	defer s.apns.CloseIdleConnections()
 	work := s.database.SubscribeWork(ctx)
+	taskProjectionPending := true
 	for {
-		projectionErr := errors.Join(s.reconcilePrimary(ctx), s.reconcileTasks(ctx))
+		taskProjectionErr := error(nil)
+		if taskProjectionPending {
+			taskProjectionErr = s.reconcileTasks(ctx)
+			taskProjectionPending = taskProjectionErr != nil
+		}
+		projectionErr := errors.Join(s.reconcilePrimary(ctx), taskProjectionErr)
 		var deliveryErr error
 		if s.Available() {
 			deliveryErr = s.drain(ctx)
@@ -228,6 +234,7 @@ func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 			}
 		case <-work:
 			stopTimer(timer)
+			taskProjectionPending = true
 		case <-s.wake:
 			stopTimer(timer)
 		case <-timer.C:
