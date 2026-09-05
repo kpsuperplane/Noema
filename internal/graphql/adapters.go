@@ -54,7 +54,7 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 		AdapterID: value.Manifest.AdapterID, DisplayName: adapter.DisplayName(value), DefinitionRevision: value.Manifest.DefinitionRevision,
 		SourceReference: value.SourceReference, Origin: value.Manifest.Origin, AuthenticationMode: "none", Scopes: []string{},
 		Transition:   transition,
-		ManifestJSON: string(manifest), Reviewed: value.Manifest.Reviewed, Superseded: false,
+		ManifestJSON: string(manifest), Reviewed: value.Manifest.Reviewed, Superseded: value.Superseded,
 		Connections: []*model.AdapterConnection{}, ConnectionActions: []*model.AdapterNextAction{}}
 	for _, operation := range value.Operations {
 		arguments := make([]string, len(operation.Arguments))

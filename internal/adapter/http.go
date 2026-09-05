@@ -304,10 +304,7 @@ func executeHTTPOnce(ctx context.Context, request encodedRequest) (httpResponse,
 	}
 	response, err := client.Do(httpRequest)
 	if err != nil {
-		if request.method != "GET" {
-			return httpResponse{}, errOutcomeUncertain
-		}
-		return httpResponse{}, errors.New("adapter target is unavailable")
+		return httpResponse{}, errOutcomeUncertain
 	}
 	defer response.Body.Close()
 	headerBytes := 0
@@ -327,10 +324,7 @@ func executeHTTPOnce(ctx context.Context, request encodedRequest) (httpResponse,
 	}
 	bodyRaw, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil {
-		if request.method != "GET" {
-			return httpResponse{}, errOutcomeUncertain
-		}
-		return httpResponse{}, errors.New("adapter response could not be read")
+		return httpResponse{}, errOutcomeUncertain
 	}
 	if len(bodyRaw) > 1<<20 {
 		return httpResponse{}, errResponseInvalid

@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +167,7 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	originalReviewed := reviewed
 	snapshot, _ := service.Snapshot()
 	if len(snapshot.Connections) != 1 {
 		t.Fatalf("connections = %d", len(snapshot.Connections))
@@ -253,11 +255,68 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	repeated, err := restarted.Approve(context.Background(), proposed.SemanticDigest)
+	if err != nil || repeated.SemanticDigest != reviewed.SemanticDigest {
+		t.Fatalf("replayed approval = %q, %v", repeated.SemanticDigest, err)
+	}
+	repeated, err = restarted.Approve(context.Background(), reviewed.SemanticDigest)
+	if err != nil || repeated.SemanticDigest != reviewed.SemanticDigest {
+		t.Fatalf("reviewed approval = %q, %v", repeated.SemanticDigest, err)
+	}
 	snapshot, err = restarted.Snapshot()
 	if err != nil || len(snapshot.Connections) != 1 || snapshot.Connections[0].ConnectionID != connection.ConnectionID ||
 		snapshot.Connections[0].SemanticDigest != reviewed.SemanticDigest || snapshot.Connections[0].ConnectionRevision != connection.ConnectionRevision+1 ||
 		snapshot.Connections[0].DataSharingPolicy != "allow_automatically" || snapshot.Connections[0].UnsafeActionPolicy != "always_ask" ||
 		snapshot.Connections[0].Overrides["lookup"].Behavior == nil || *snapshot.Connections[0].Overrides["lookup"].Behavior != overridden {
 		t.Fatalf("adopted connection = %#v, %v", snapshot.Connections, err)
+	}
+	baseRaw, _ := json.Marshal(map[string]any{"semantic_digest": originalReviewed.SemanticDigest})
+	if result, ok = restarted.ExecuteSetup(DefinitionTemplateTool, baseRaw); ok {
+		t.Fatalf("superseded template = %s", result)
+	}
+	staleRevision := map[string]any{
+		"source_reference":     "https://docs.example.com/api/stale",
+		"base_semantic_digest": originalReviewed.SemanticDigest,
+		"revision":             map[string]any{"definition_revision": "stale"},
+	}
+	staleRaw, _ := json.Marshal(staleRevision)
+	if result, ok = restarted.ExecuteSetup(ProposeDefinitionTool, staleRaw); ok {
+		t.Fatalf("superseded proposal = %s", result)
+	}
+
+	oldConnection := snapshot.Connections[0]
+	oldConnection.SemanticDigest = originalReviewed.SemanticDigest
+	if _, err = restarted.files.replaceConnection(oldConnection); err != nil {
+		t.Fatal(err)
+	}
+	thirdRevision := revision
+	thirdRevision["source_reference"] = "https://docs.example.com/api/v3"
+	thirdRevision["base_semantic_digest"] = reviewed.SemanticDigest
+	thirdRevision["revision"] = map[string]any{"definition_revision": "2026-09-07"}
+	raw, _ = json.Marshal(thirdRevision)
+	result, ok = restarted.ExecuteSetup(ProposeDefinitionTool, raw)
+	if !ok || json.Unmarshal(result, &proposed) != nil {
+		t.Fatalf("third revision proposal = %s", result)
+	}
+	pending, err = restarted.files.loadDefinition(proposed.SemanticDigest)
+	if err != nil || len(pending.AffectedConnections) != 1 || pending.AffectedConnections[0] != oldConnection.ConnectionID {
+		t.Fatalf("revision lineage = %#v, %v", pending.AffectedConnections, err)
+	}
+	thirdReviewed, err := restarted.Approve(context.Background(), proposed.SemanticDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = restarted.Snapshot()
+	if err != nil || len(snapshot.Connections) != 1 || snapshot.Connections[0].SemanticDigest != thirdReviewed.SemanticDigest {
+		t.Fatalf("lineage adoption = %#v, %v", snapshot.Connections, err)
+	}
+}
+
+func TestOutcomeUncertaintyUsesReviewedBehavior(t *testing.T) {
+	if !errors.Is(classifyHTTPOutcome(errOutcomeUncertain, store.ActionBehavior{}), ErrOutcomeUncertain) {
+		t.Fatal("write uncertainty was not preserved")
+	}
+	if errors.Is(classifyHTTPOutcome(errOutcomeUncertain, store.ActionBehavior{ReadOnly: true}), ErrOutcomeUncertain) {
+		t.Fatal("read-only uncertainty required recovery")
 	}
 }

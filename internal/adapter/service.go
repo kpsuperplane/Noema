@@ -98,8 +98,18 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		}
 		return map[string]any{"definitions": values, "instructions": []string{"Use new_definition for a new public API.", "Use the exact semantic_digest for a revision.", "Only authentication kind none is available in this migration unit.", "Use provider-visible language lua for response transforms."}}, nil
 	}
-	definition, err := s.files.loadDefinition(input.SemanticDigest)
+	definitions, err := s.files.definitions()
 	if err != nil {
+		return nil, err
+	}
+	var definition Definition
+	for _, candidate := range definitions {
+		if candidate.SemanticDigest == input.SemanticDigest {
+			definition = candidate
+			break
+		}
+	}
+	if definition.SemanticDigest == "" || definition.Superseded {
 		return nil, errors.New("adapter revision base is unavailable")
 	}
 	selected := make([]Operation, 0, len(input.OperationIDs))
@@ -134,8 +144,18 @@ func (s *Service) propose(raw json.RawMessage) (any, error) {
 	}
 	var base *Manifest
 	if input.BaseSemanticDigest != "" {
-		definition, err := s.files.loadDefinition(input.BaseSemanticDigest)
-		if err != nil || definition.Superseded {
+		definitions, err := s.files.definitions()
+		if err != nil {
+			return nil, err
+		}
+		var definition Definition
+		for _, candidate := range definitions {
+			if candidate.SemanticDigest == input.BaseSemanticDigest {
+				definition = candidate
+				break
+			}
+		}
+		if definition.SemanticDigest == "" || definition.Superseded {
 			return nil, errors.New("adapter revision base changed")
 		}
 		copy := definition.Manifest
@@ -153,14 +173,9 @@ func (s *Service) propose(raw json.RawMessage) (any, error) {
 	affected := []string(nil)
 	if input.BaseSemanticDigest != "" {
 		replaces = []string{input.BaseSemanticDigest}
-		connections, listErr := s.files.connections()
-		if listErr != nil {
-			return nil, listErr
-		}
-		for _, connection := range connections {
-			if connection.SemanticDigest == input.BaseSemanticDigest {
-				affected = append(affected, connection.ConnectionID)
-			}
+		affected, err = s.affectedConnectionIDs(replaces)
+		if err != nil {
+			return nil, err
 		}
 	}
 	definition, err = s.files.installDefinition(manifest, input.SourceReference, replaces, affected)
@@ -177,37 +192,54 @@ func (s *Service) propose(raw json.RawMessage) (any, error) {
 func (s *Service) Approve(ctx context.Context, digest string) (Definition, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pending, err := s.files.loadDefinition(digest)
-	if err != nil || pending.Manifest.Reviewed {
-		return Definition{}, errors.New("adapter definition review is unavailable")
-	}
 	all, err := s.files.definitions()
 	if err != nil {
 		return Definition{}, err
 	}
-	for _, value := range all {
-		if value.SemanticDigest == digest && value.Superseded {
-			for _, candidate := range all {
-				if candidate.Manifest.Reviewed && !candidate.Superseded && candidate.Manifest.DefinitionID == pending.Manifest.DefinitionID && candidate.Manifest.DefinitionRevision == pending.Manifest.DefinitionRevision {
-					if err = s.adoptConnections(candidate); err != nil {
-						return Definition{}, err
-					}
-					if err = s.ensureConnection(candidate); err != nil {
-						return Definition{}, err
-					}
-					return candidate, s.reconcile(ctx)
-				}
-			}
-			return Definition{}, errors.New("adapter definition review is stale")
+	var pending Definition
+	for _, candidate := range all {
+		if candidate.SemanticDigest == digest {
+			pending = candidate
+			break
 		}
+	}
+	if pending.SemanticDigest == "" {
+		return Definition{}, errors.New("adapter definition review is unavailable")
+	}
+	if pending.Manifest.Reviewed && !pending.Superseded {
+		if err = s.adoptConnections(pending); err != nil {
+			return Definition{}, err
+		}
+		if err = s.ensureConnection(pending); err != nil {
+			return Definition{}, err
+		}
+		return pending, s.reconcile(ctx)
+	}
+	reviewedManifest := pending.Manifest
+	reviewedManifest.Reviewed = true
+	expected, compileErr := Compile(reviewedManifest)
+	if compileErr != nil {
+		return Definition{}, compileErr
+	}
+	if pending.Superseded {
+		for _, candidate := range all {
+			if candidate.SemanticDigest == expected.SemanticDigest && candidate.Manifest.Reviewed && !candidate.Superseded {
+				if err = s.adoptConnections(candidate); err != nil {
+					return Definition{}, err
+				}
+				if err = s.ensureConnection(candidate); err != nil {
+					return Definition{}, err
+				}
+				return candidate, s.reconcile(ctx)
+			}
+		}
+		return Definition{}, errors.New("adapter definition review is stale")
 	}
 	currentAffected, err := s.affectedConnectionIDs(pending.Replaces)
 	if err != nil || strings.Join(currentAffected, "\x00") != strings.Join(pending.AffectedConnections, "\x00") {
 		return Definition{}, errors.New("adapter definition transition changed")
 	}
-	manifest := pending.Manifest
-	manifest.Reviewed = true
-	reviewed, err := s.files.installDefinition(manifest, pending.SourceReference, pending.Replaces, pending.AffectedConnections)
+	reviewed, err := s.files.installDefinition(reviewedManifest, pending.SourceReference, pending.Replaces, pending.AffectedConnections)
 	if err != nil {
 		return Definition{}, err
 	}
@@ -224,9 +256,9 @@ func (s *Service) Approve(ctx context.Context, digest string) (Definition, error
 }
 
 func (s *Service) affectedConnectionIDs(replaces []string) ([]string, error) {
-	wanted := make(map[string]bool, len(replaces))
-	for _, digest := range replaces {
-		wanted[digest] = true
+	wanted, err := s.replacementLineage(replaces)
+	if err != nil {
+		return nil, err
 	}
 	connections, err := s.files.connections()
 	if err != nil {
@@ -243,9 +275,9 @@ func (s *Service) affectedConnectionIDs(replaces []string) ([]string, error) {
 }
 
 func (s *Service) adoptConnections(replacement Definition) error {
-	wanted := make(map[string]bool, len(replacement.Replaces))
-	for _, digest := range replacement.Replaces {
-		wanted[digest] = true
+	wanted, err := s.replacementLineage(replacement.Replaces)
+	if err != nil {
+		return err
 	}
 	connections, err := s.files.connections()
 	if err != nil {
@@ -295,6 +327,33 @@ func (s *Service) adoptConnections(replacement Definition) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) replacementLineage(replaces []string) (map[string]bool, error) {
+	definitions, err := s.files.definitions()
+	if err != nil {
+		return nil, err
+	}
+	byDigest := make(map[string]Definition, len(definitions))
+	for _, definition := range definitions {
+		byDigest[definition.SemanticDigest] = definition
+	}
+	wanted := make(map[string]bool, len(replaces))
+	pending := append([]string(nil), replaces...)
+	for len(pending) != 0 {
+		digest := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if wanted[digest] {
+			continue
+		}
+		definition, exists := byDigest[digest]
+		if !exists {
+			return nil, errors.New("adapter revision lineage changed")
+		}
+		wanted[digest] = true
+		pending = append(pending, definition.Replaces...)
+	}
+	return wanted, nil
 }
 
 func sameOperationContract(left, right CompiledOperation) bool {
@@ -684,7 +743,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	}
 	response, err := executeHTTP(ctx, request, operation.Retry == "transport_safe_read" && current.Behavior.RepeatSafe)
 	if errors.Is(err, errOutcomeUncertain) {
-		return nil, false, ErrOutcomeUncertain
+		return nil, false, classifyHTTPOutcome(err, current.Behavior)
 	}
 	if err != nil {
 		if errors.Is(err, errResponseInvalid) && !current.Behavior.ReadOnly {
@@ -744,6 +803,16 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	}
 	payload, err := wrapResult(sanitizeOutput(result))
 	return payload, err == nil, err
+}
+
+func classifyHTTPOutcome(err error, behavior store.ActionBehavior) error {
+	if !errors.Is(err, errOutcomeUncertain) {
+		return err
+	}
+	if behavior.ReadOnly {
+		return errors.New("adapter target is unavailable")
+	}
+	return ErrOutcomeUncertain
 }
 
 func (s *Service) snapshot() (ServiceSnapshot, error) {

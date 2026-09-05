@@ -37,6 +37,13 @@ func (r *Resolver) pendingActionRequests(
 func (r *Resolver) pendingHumanInterventions(
 	ctx context.Context, conversationID, taskID, projectID *string, first *int,
 ) ([]model.HumanIntervention, error) {
+	limit := 50
+	if first != nil {
+		limit = *first
+	}
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("pendingHumanInterventions first must be within 1..100")
+	}
 	if projectID != nil {
 		return []model.HumanIntervention{}, nil
 	}
@@ -68,6 +75,9 @@ func (r *Resolver) pendingHumanInterventions(
 				result = append(result, definition)
 			}
 		}
+	}
+	if len(result) > limit {
+		result = result[:limit]
 	}
 	return result, nil
 }

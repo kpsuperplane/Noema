@@ -126,7 +126,14 @@ func (f *fileAuthority) installDefinition(manifest Manifest, sourceReference str
 	}
 	path := "adapters/definitions/" + definition.SemanticDigest
 	if _, err := f.root.Lstat(path); err == nil {
-		return f.loadDefinition(definition.SemanticDigest)
+		existing, loadErr := f.loadDefinition(definition.SemanticDigest)
+		if loadErr != nil {
+			return Definition{}, loadErr
+		}
+		if existing.SourceReference != sourceReference || strings.Join(existing.Replaces, "\x00") != strings.Join(replaces, "\x00") || strings.Join(existing.AffectedConnections, "\x00") != strings.Join(affected, "\x00") {
+			return Definition{}, errors.New("adapter definition publication conflicts")
+		}
+		return existing, nil
 	}
 	if err := f.installDirectory("adapters/definitions", definition.SemanticDigest, map[string][]byte{"manifest.json": manifestRaw, "provenance.json": metadataRaw}); err != nil {
 		return Definition{}, err

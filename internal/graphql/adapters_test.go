@@ -24,11 +24,12 @@ func TestAdapterDefinitionProjectsTransformSourceAndStableTransition(t *testing.
 		t.Fatal(err)
 	}
 	definition.AffectedConnections = []string{"connection-one", "connection-two"}
+	definition.Superseded = true
 	projected := definitionModel(definition, adapter.ServiceSnapshot{Definitions: []adapter.Definition{definition}})
 	digest := sha256.Sum256([]byte(source))
 	if projected.Transition.AffectedConnections != 2 || projected.Operations[0].ResponseTransform == nil ||
 		projected.Operations[0].ResponseTransform.SourceDigest != hex.EncodeToString(digest[:]) ||
-		projected.Operations[0].ResponseTransform.SourceDigest == definition.Operations[0].Digest {
+		projected.Operations[0].ResponseTransform.SourceDigest == definition.Operations[0].Digest || !projected.Superseded {
 		t.Fatalf("projected adapter = %#v", projected)
 	}
 }

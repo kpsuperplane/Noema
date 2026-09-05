@@ -186,7 +186,9 @@ func NewChat(
 			err = callErr
 			break
 		}
-		recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
+		if action.State != store.ActionOutcomeUncertain {
+			recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
+		}
 	}
 	if err == nil {
 		_, err = database.RecoverConversationTurns(recoveryContext, time.Now())

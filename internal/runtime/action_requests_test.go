@@ -369,7 +369,7 @@ func TestCredentialDownloadIsRejectedBeforeDurableToolCall(t *testing.T) {
 	}
 }
 
-func TestRecoveredUncertainDownloadResumesOnce(t *testing.T) {
+func TestRecoveredUncertainDownloadDoesNotResume(t *testing.T) {
 	original, database, conversation := chatFixture(t)
 	if err := original.Close(); err != nil {
 		t.Fatal(err)
@@ -414,50 +414,20 @@ func TestRecoveredUncertainDownloadResumesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	started, release := make(chan bool), make(chan struct{})
+	continuations := 0
 	continuation := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		var uncertain bool
-		for _, message := range request.Messages {
-			if message.ToolResult != nil && message.ToolResult.ProviderCallID == "download-recovery" &&
-				strings.Contains(string(message.ToolResult.Payload), "outcome_uncertain") {
-				uncertain = true
-			}
-		}
-		started <- uncertain
-		<-release
-		return provider.GenerationResult{Text: "The download outcome is uncertain."}, nil
+		continuations++
+		return provider.GenerationResult{Text: "unexpected"}, nil
 	})
 	restarted, err := NewChat(database, continuation, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !<-started {
-		t.Fatal("recovered request lacks the uncertain result")
-	}
-	recoveryEvents, err := restarted.Subscribe(t.Context(), conversation.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	<-recoveryEvents
-	close(release)
-	collectCompletedTurns(t, recoveryEvents, 1)
 	if err := restarted.Close(); err != nil {
 		t.Fatal(err)
 	}
-	continuations := 0
-	quiet := generatorFunc(func(_ context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		continuations++
-		return provider.GenerationResult{Text: "unexpected"}, nil
-	})
-	reopened, err := NewChat(database, quiet, original.codex, original.openAI, original.home, original.memory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := reopened.Close(); err != nil {
-		t.Fatal(err)
-	}
 	if continuations != 0 {
-		t.Fatalf("second recovery continuations = %d", continuations)
+		t.Fatalf("recovery continuations = %d", continuations)
 	}
 
 	page, err := database.ConversationItemPage(t.Context(), conversation.ID, "", 20)
