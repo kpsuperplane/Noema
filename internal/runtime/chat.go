@@ -728,11 +728,15 @@ func (c *Chat) cancelTurn(input SendTurnInput, turn store.ConversationTurn) {
 	})
 }
 
-func (c *Chat) publishTransientFailure(input SendTurnInput, _ error) {
+func (c *Chat) publishTransientFailure(input SendTurnInput, cause error) {
+	message := "The Chat turn could not be saved."
+	if errors.Is(cause, store.ErrConversationTurnActive) {
+		message = "Chat is still busy. Finish the current interaction before sending another message."
+	}
 	c.publish(Event{
 		Kind: EventTransientError, ConversationID: input.ConversationID,
 		ClientMessageID:  input.ClientMessageID,
-		TransientMessage: "The Chat turn could not be saved.",
+		TransientMessage: message,
 	})
 	c.publish(Event{
 		Kind: EventTurnCompleted, ConversationID: input.ConversationID,

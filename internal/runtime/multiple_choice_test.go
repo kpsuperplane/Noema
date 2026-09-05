@@ -82,6 +82,20 @@ data: [DONE]
 	if promptID == "" {
 		t.Fatalf("choice prompt events = %#v", first)
 	}
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "Another answer"}); err != nil {
+		t.Fatal(err)
+	}
+	rejected := collectCompletedTurns(t, events, 1)
+	var explained bool
+	for _, event := range rejected {
+		explained = explained || event.Kind == EventTransientError && event.TransientMessage == "Chat is still busy. Finish the current interaction before sending another message."
+		if event.Item != nil {
+			t.Fatal("rejected text must not create a transcript item")
+		}
+	}
+	if !explained {
+		t.Fatal("pending interaction rejection did not explain how to continue")
+	}
 	selectionClient := "selection-client"
 	if _, err := chat.SendMultipleChoiceSelection(
 		context.Background(), conversation.ID, promptID, []string{"a", "b"}, &selectionClient,

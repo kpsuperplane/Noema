@@ -1,0 +1,156 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "provider": "codex",
+  "conversationId": "conversation:9a8adece587d96886957b3a308c694b1",
+  "prompt": {
+    "itemId": "item:d0afd1b2fbf51f133c58c96786e1dc28",
+    "turnId": "turn:dfc8f6c723babaf8930c07c680674206",
+    "item": {
+      "__typename": "MultipleChoicePrompt",
+      "prompt": "Migration audit choice recovery — café 日本語 🧭",
+      "selectionMode": "PICK_ONE",
+      "options": [
+        {
+          "id": "alpha",
+          "label": "Audit Alpha"
+        },
+        {
+          "id": "beta",
+          "label": "Audit Beta"
+        }
+      ]
+    }
+  },
+  "freeTextSendEnabled": true,
+  "freeTextResult": "Rejected with: Chat is still busy. Finish the current interaction before sending another message.",
+  "browserSelection": {
+    "sendMultipleChoiceSelection": {
+      "conversationId": "conversation:9a8adece587d96886957b3a308c694b1",
+      "clientMessageId": "9c544957-c99c-4a5c-baef-94b137f4abce",
+      "__typename": "TurnAccepted"
+    }
+  },
+  "staleErrors": [
+    "multiple-choice prompt already has a selection"
+  ],
+  "turn": [
+    {
+      "itemId": "item:3f79cac3783c14e3cdae86ea30cf1566",
+      "turnId": "turn:dfc8f6c723babaf8930c07c680674206",
+      "item": {
+        "__typename": "UserText",
+        "text": "Migration audit CHAT-09/10. Use noema.present_multiple_choice to ask exactly \"Migration audit choice recovery — café 日本語 🧭\". Use pick_one with options [{\"id\":\"alpha\",\"label\":\"Audit Alpha\"},{\"id\":\"beta\",\"label\":\"Audit Beta\"}]. Wait for my selection. After selection, reply with AUDIT_CHOICE_SELECTED followed by the selected option label. Do not create Tasks or use external services."
+      }
+    },
+    {
+      "itemId": "item:a911604d0e6e7737b3b0e2e3394faa25",
+      "turnId": "turn:dfc8f6c723babaf8930c07c680674206",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: noema.present_multiple_choice",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:dfc8f6c723babaf8930c07c680674206:0:0",
+            "name": "noema.present_multiple_choice",
+            "payload": {
+              "options": [
+                {
+                  "id": "alpha",
+                  "label": "Audit Alpha"
+                },
+                {
+                  "id": "beta",
+                  "label": "Audit Beta"
+                }
+              ],
+              "prompt": "Migration audit choice recovery — café 日本語 🧭",
+              "selection_mode": "pick_one"
+            },
+            "provider_call_id": "call_PAbbtrnT7efLYvmnXzh074F9",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c90da626887d1a1ee2f575e460679",
+            "provider_name": "present_multiple_choice"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 19
+        }
+      }
+    },
+    {
+      "itemId": "item:d0afd1b2fbf51f133c58c96786e1dc28",
+      "turnId": "turn:dfc8f6c723babaf8930c07c680674206",
+      "item": {
+        "__typename": "MultipleChoicePrompt",
+        "prompt": "Migration audit choice recovery — café 日本語 🧭",
+        "selectionMode": "PICK_ONE",
+        "options": [
+          {
+            "id": "alpha",
+            "label": "Audit Alpha"
+          },
+          {
+            "id": "beta",
+            "label": "Audit Beta"
+          }
+        ]
+      }
+    },
+    {
+      "itemId": "item:a5119a112fac1533a9c5209cb3bb87a3",
+      "turnId": "turn:dfc8f6c723babaf8930c07c680674206",
+      "item": {
+        "__typename": "MultipleChoiceSelection",
+        "promptItemId": "item:d0afd1b2fbf51f133c58c96786e1dc28",
+        "selectedOptions": [
+          {
+            "id": "beta",
+            "label": "Audit Beta"
+          }
+        ]
+      }
+    },
+    {
+      "itemId": "item:8129d82c42852947dc61cdae214470e6",
+      "turnId": "turn:dfc8f6c723babaf8930c07c680674206",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: noema.present_multiple_choice",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:dfc8f6c723babaf8930c07c680674206:0:0",
+            "name": "noema.present_multiple_choice",
+            "payload": {
+              "selected_options": [
+                {
+                  "id": "beta",
+                  "label": "Audit Beta"
+                }
+              ],
+              "status": "resolved"
+            },
+            "provider_call_id": "call_PAbbtrnT7efLYvmnXzh074F9",
+            "provider_name": "present_multiple_choice",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 19
+        }
+      }
+    },
+    {
+      "itemId": "item:01eb9816b0aa0015c7c04f92ef062819",
+      "turnId": "turn:dfc8f6c723babaf8930c07c680674206",
+      "item": {
+        "__typename": "AssistantText",
+        "text": "AUDIT_CHOICE_SELECTED Audit Beta"
+      }
+    }
+  ],
+  "selection": "pass",
+  "staleSubmission": "pass"
+}

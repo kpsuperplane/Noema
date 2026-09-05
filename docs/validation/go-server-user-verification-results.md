@@ -255,7 +255,7 @@ Its [results](evidence/2026-09-05-chat-rich-visual-results.json) confirm no hori
 The [validation record](evidence/2026-09-05-chat-reconnect-validation.json) records the tested revision and driver hashes.
 No production code changed. Existing Go checks remain valid; script syntax, JSON, links, case IDs, and whitespace receive focused validation.
 
-## Live Chat choices and open free-text finding
+## Live Chat choices and initial free-text finding
 
 The [single-choice driver](evidence/2026-09-05-chat-choice-browser.mjs) answers one exact prompt from the browser.
 Its [results](evidence/2026-09-05-chat-choice-browser-results.json) show one stored selection, one resumed turn, and a rejected stale answer from another browser.
@@ -273,7 +273,26 @@ These results establish API recovery. CHAT-09 remains incomplete until the free-
 
 The [validation record](evidence/2026-09-05-chat-choice-validation.json) records the tested revision, driver hashes, source inspection, and remaining limits.
 The Rust and Go selection mutations both accept option IDs. That fact does not prove the intended ordinary-text continuation behavior.
-No production code changed. The next unit must investigate this finding before claiming CHAT-09 passes.
+That evidence unit changed no production code. The following correction resolves its open classification and browser findings.
+
+## Pending-choice rejection correction
+
+The Rust baseline rejects ordinary text when Chat waits for a human interaction.
+Its `RuntimeActor::turn` returns that error before it starts a new text turn.
+Thus, CHAT-09 has no supported free-text continuation in this migration contract. The structured selection path remains required.
+The [fix record](evidence/2026-09-05-choice-rejection-fix.json) identifies the exact baseline source and final Go changes.
+
+The Go server now explains its busy state and asks the human to finish the current interaction.
+It retains the general save error for unrelated failures. It does not expose internal error details.
+The existing continuation test now rejects ordinary text before resolving its original choice.
+That regression failed before the change and passed afterward. Full Go tests and vet passed on the final source.
+The patch adds four net production lines and 14 test lines. Both migration ratios remain below 80 percent.
+
+The [recovery driver](evidence/2026-09-05-chat-choice-recovery.mjs) checks the new message and submits a structured answer through the browser.
+Its [results](evidence/2026-09-05-chat-choice-recovery-results.json) confirm successful submission, one selection, the original resumed turn, stale rejection, and reload persistence.
+The driver now scopes its radio control to the exact prompt and waits for the exact turn’s saved answer.
+These checks resolved the earlier browser finding without a frontend change.
+Other providers and native clients remain outside this evidence.
 
 ## Case results
 
@@ -319,7 +338,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | CHAT-06 | Partial · live Chromium | Unicode, emoji, paragraphs, code, lists, and links survive reload and a second browser read. Native clients remain pending. | — |
 | CHAT-07 | Not run | Controlled setup pending. | — |
 | CHAT-08 | Pass · live Codex | The explicit foreground request returns its exact response in Chat and creates no Task. Other provider variants remain pending. | — |
-| CHAT-09 | Partial · live Codex/Chromium | Single and multiple selections resume once and survive reload. Free text is rejected while a choice waits. Browser follow-up remains under investigation. | — |
+| CHAT-09 | Pass · live Codex/Chromium | Single and multiple selections resume once and survive reload. Ordinary text receives a clear rejection; the Rust baseline also excludes free-text continuation. | — |
 | CHAT-10 | Pass · live Codex/Chromium | Another browser cannot resubmit an answered prompt. The original selection and turn remain unchanged. Live choice checks above. | — |
 | CHAT-11 | Not run | Controlled setup pending. | — |
 | CHAT-12 | Not run | Controlled setup pending. | — |
