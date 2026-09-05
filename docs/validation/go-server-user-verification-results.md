@@ -294,6 +294,22 @@ The driver now scopes its radio control to the exact prompt and waits for the ex
 These checks resolved the earlier browser finding without a frontend change.
 Other providers and native clients remain outside this evidence.
 
+## Live interactive A2UI checks
+
+The [keyboard driver](evidence/2026-09-05-a2ui-browser.mjs) renders a controlled form with all nine components in the current catalog.
+Its [results](evidence/2026-09-05-a2ui-browser-results.json) preserve the submitted Unicode name, boolean, and choice in the resumed turn.
+The [pointer driver](evidence/2026-09-05-a2ui-pointer.mjs) repeats the submission through visible checkbox and radio labels.
+Its [results](evidence/2026-09-05-a2ui-pointer-results.json) confirm one accepted action, a matching answer, and persistence after reload.
+Both checks reject forged context before submission. They reject stale actions afterward without changing the accepted turn.
+Submitted controls become disabled. The original surface and answered surface remain separate transcript records.
+
+The [invalid-input driver](evidence/2026-09-05-a2ui-invalid.mjs) supplies an unsupported Image component and active HTML.
+Its [results](evidence/2026-09-05-a2ui-invalid-results.json) show both validation failures and no created surface.
+The HTML does not execute. Chat remains editable after reload.
+The [validation record](evidence/2026-09-05-a2ui-validation.json) records source revision, driver hashes, reused Go checks, and visual review.
+Desktop and phone views keep the form controls visible and reachable. No production code changed.
+Other providers and native clients remain outside this evidence.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -340,8 +356,8 @@ A human variant remains pending even when its controlled counterpart passes.
 | CHAT-08 | Pass · live Codex | The explicit foreground request returns its exact response in Chat and creates no Task. Other provider variants remain pending. | — |
 | CHAT-09 | Pass · live Codex/Chromium | Single and multiple selections resume once and survive reload. Ordinary text receives a clear rejection; the Rust baseline also excludes free-text continuation. | — |
 | CHAT-10 | Pass · live Codex/Chromium | Another browser cannot resubmit an answered prompt. The original selection and turn remain unchanged. Live choice checks above. | — |
-| CHAT-11 | Not run | Controlled setup pending. | — |
-| CHAT-12 | Not run | Controlled setup pending. | — |
+| CHAT-11 | Pass · live Codex/Chromium | All nine catalog components render. Keyboard and pointer submissions preserve exact bound values. One action resumes the correct turn and survives reload. | — |
+| CHAT-12 | Pass · live Codex/Chromium | Unsupported components and active HTML create no surface. Forged context and stale actions are rejected. Chat remains usable. | — |
 | CHAT-13 | Not run | Controlled setup pending. | — |
 | CHAT-14 | Not run | Controlled setup pending. | — |
 | CHAT-15 | Not run | Controlled setup pending. | — |
