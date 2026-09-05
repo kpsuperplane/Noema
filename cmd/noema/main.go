@@ -96,6 +96,10 @@ func readDesktopOptions(input io.Reader) (*desktopOptions, *bufio.Reader) {
 }
 
 func run(ctx context.Context, address string, output io.Writer, desktop *desktopOptions) error {
+	environmentProvider, err := readOpenAIEnvironment()
+	if err != nil {
+		return err
+	}
 	paths, err := home.Resolve()
 	if err != nil {
 		return err
@@ -197,6 +201,9 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	}
 	if err := providerAccounts.Initialize(ctx, time.Now()); err != nil {
 		return fmt.Errorf("initialize provider accounts: %w", err)
+	}
+	if err := configureEnvironmentProvider(ctx, providerAccounts, taskStore, environmentProvider, time.Now()); err != nil {
+		return fmt.Errorf("configure environment provider: %w", err)
 	}
 	openRouter, err := provider.NewOpenRouterService(
 		providerAccounts,

@@ -180,6 +180,35 @@ func (s *AccountService) SaveSecret(
 	})
 }
 
+// ImportOpenAISecret stores a startup credential only when OpenAI has no credential.
+func (s *AccountService) ImportOpenAISecret(
+	ctx context.Context,
+	secret Secret,
+	organizationID string,
+	projectID string,
+	now time.Time,
+) (Account, error) {
+	account, err := s.persistence.ProviderAccount(ctx, openAIDefaultAccountID)
+	if err != nil {
+		return Account{}, err
+	}
+	if account.Metadata.SecretConfigured() {
+		return account, nil
+	}
+	metadata := cloneMetadata(account.Metadata)
+	for key, value := range map[string]string{
+		"organization_id": strings.TrimSpace(organizationID),
+		"project_id":      strings.TrimSpace(projectID),
+	} {
+		if value != "" {
+			metadata[key], _ = json.Marshal(value)
+		}
+	}
+	return s.mutateSecret(ctx, account.ID, 0, AuthExternalManual, true, metadata, now, func(path string) error {
+		return writeSecret(path, secret)
+	})
+}
+
 // ClearSecret atomically removes one account credential and changes its safe metadata.
 func (s *AccountService) ClearSecret(ctx context.Context, id string, now time.Time) (Account, error) {
 	return s.mutateSecret(ctx, id, 0, "", false, nil, now, home.RemovePrivateFile)
@@ -582,7 +611,10 @@ func (s *AccountService) mutateSecret(
 	if openAIAccount {
 		method = AuthExternalManual
 		if configured {
-			metadata, err = metadataWithProfiles(account.Metadata, openAIModelProfiles(), now)
+			if metadata == nil {
+				metadata = account.Metadata
+			}
+			metadata, err = metadataWithProfiles(metadata, openAIModelProfiles(), now)
 			if err != nil {
 				return Account{}, err
 			}

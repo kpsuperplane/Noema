@@ -39,9 +39,9 @@ runs `swift build` after bridge changes.
   - Local GGUF models for `provider: local_models`
   - Apple Foundation Models for `provider: foundation_local`
 
-OpenAI uses `NOEMA_OPENAI__API_KEY`. OpenRouter and Codex credentials are
-created through provider onboarding. The desktop package locks the Tauri CLI
-through Bun.
+OpenAI uses `NOEMA_OPENAI__API_KEY`. On a fresh home, this key completes the
+OpenAI provider and model setup. OpenRouter and Codex credentials use provider
+onboarding. The desktop package locks the Tauri CLI through Bun.
 
 ## Product Surfaces
 
@@ -59,18 +59,13 @@ lives under `system/indexes/`, and provider credential material lives under
 
 ## Configuration
 
-Non-secret defaults may live in the Noema directory's `config.yaml`. The default
-Noema directory is `~/.noema`; set `NOEMA_HOME` to use another directory.
+Browser, web, and MCP defaults may live in the Noema directory's `config.yaml`.
+The default Noema directory is `~/.noema`. Set `NOEMA_HOME` to use another
+directory.
 
-Example OpenAI-oriented configuration:
+Example server configuration:
 
 ```yaml
-provider: openai
-openai:
-  base_url: https://api.openai.com/v1
-  organization_id: org_...
-  project_id: proj_...
-  timeout_seconds: 120
 browser:
   max_sessions: 2
   max_old_space_mb: 1024
@@ -80,25 +75,18 @@ web:
   rp_id: localhost
 ```
 
-Configuration precedence is:
-
-```text
-environment variables > $NOEMA_HOME/config.yaml or ~/.noema/config.yaml > defaults
-```
+For settings available in both places, environment variables override
+`config.yaml` values.
 
 Supported environment variables include:
 
 - `NOEMA_HOME`
-- `NOEMA_PROVIDER`
-- `NOEMA_MODEL`
-- `NOEMA_REASONING_EFFORT`
+- `NOEMA_PROVIDER` with the `openai` value for environment setup
 - `NOEMA_OPENAI__API_KEY`
-- `NOEMA_OPENAI__BASE_URL`
-- `NOEMA_OPENAI__TIMEOUT_SECONDS`
 - `NOEMA_OPENAI__ORGANIZATION_ID`
 - `NOEMA_OPENAI__PROJECT_ID`
-- `NOEMA_CODEX__MODEL`
-- `NOEMA_CODEX__TIMEOUT_SECONDS`
+- `NOEMA_MODEL`
+- `NOEMA_REASONING_EFFORT`
 - `NOEMA_BROWSER__MAX_SESSIONS`
 - `NOEMA_BROWSER__MAX_OLD_SPACE_MB`
 - `NOEMA_WEB__HOST`
@@ -109,6 +97,15 @@ Supported environment variables include:
 - `NOEMA_WEB__LOCAL_GRAPHQL_SOCKET`
 - `NOEMA_WEB__GRAPHIQL`
 - `NOEMA_MCP__STDIO_ENABLED`
+
+The OpenAI key selects OpenAI when `NOEMA_PROVIDER` is unset. You can also set
+`NOEMA_PROVIDER=openai`. The key enters the protected provider credential
+store. It does not enter `config.yaml` or SQLite.
+
+If you set `NOEMA_MODEL`, select a current OpenAI profile and also set
+`NOEMA_REASONING_EFFORT`. Otherwise, Noema stores its current recommended model
+assignments. Existing provider credentials and model assignments remain
+unchanged.
 
 For a server deployment, keep Noema bound to loopback and terminate TLS in a
 reverse proxy on the same host. Configure the exact browser origin and the
@@ -142,17 +139,8 @@ sets a private home and removes Linux capabilities. The example
 connection, request, body, and header limits. Replace its host and certificate
 paths before use. Keep Noema bound to loopback.
 
-Example Codex-oriented configuration:
-
-```yaml
-provider: codex
-codex:
-  timeout_seconds: 300
-```
-
 Codex authentication is handled as Noema-owned provider account state. The web
 onboarding flow blocks chat until an active provider account is authenticated.
-If you set an explicit OpenAI or Codex model, also set `reasoning_effort`.
 Fast mode is disabled by default. It requests OpenAI's Fast service tier and
 costs more than standard processing.
 
