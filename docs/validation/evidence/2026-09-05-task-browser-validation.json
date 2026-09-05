@@ -1,0 +1,34 @@
+{
+  "testedRevision": "491b1b60",
+  "productionChanges": false,
+  "instance": "https://noema.kevinpei.com",
+  "transport": "Direct HTTPS origin with normal Noema authentication. Cloudflare edge access is not covered.",
+  "visualReview": {
+    "widths": [
+      1280,
+      390
+    ],
+    "height": 900,
+    "route": "https://noema.kevinpei.com/tasks/task%3A9496e6cdadbccf4f2f4b0ebe64002590?terminal=all",
+    "result": "Source field and edit controls remain reachable at desktop and phone widths."
+  },
+  "reusedValidation": [
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "testedRevision": "491b1b60"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "testedRevision": "491b1b60"
+    }
+  ],
+  "drivers": {
+    "task-edit-browser.mjs": "3fb504b95325c8e009a5f0b0856ac04623e5c932145138e6d9b2d56e9684e120",
+    "task-editor-fallback.mjs": "32fc04c6e374a816f8d5bb59c558a30a1b31828c19524195ad17eb922a3bbc8c",
+    "task-state-browser.mjs": "a313b2dec411fa60b2fd199f6f0a6dcc18d1f9d31a43336a4a4108180d224dad",
+    "task-workspace-browser.mjs": "133a8c0ff53dc6cc1ed3f067a7ce08006ae7cbd0e9bf7709cd1d2bbc022cfbfb",
+    "task-edit-visual.mjs": "9758416b0f3254bebe05f0ed99f35d5f37c25367a3534ce128148aa8ec98817e"
+  }
+}

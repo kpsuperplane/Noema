@@ -1,0 +1,22 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "taskId": "task:9496e6cdadbccf4f2f4b0ebe64002590",
+  "route": "https://noema.kevinpei.com/tasks/task%3A9496e6cdadbccf4f2f4b0ebe64002590?terminal=all",
+  "evidence": [
+    {
+      "id": "TASK-03",
+      "result": "pass",
+      "detail": "Browser title and Markdown edits survive reload with exact Unicode content. The allocated Task directory remains the same."
+    },
+    {
+      "id": "TASK-04",
+      "result": "pass",
+      "detail": "A competing save marks the second browser stale. Its local draft remains intact. Reload acknowledges current authority; cancel reveals the accepted server content without overwriting it."
+    },
+    {
+      "id": "TASK-05-partial",
+      "result": "pass",
+      "detail": "Source/rich switching preserves source. Cancel discards only the unsaved draft. Forced rich-editor loading failure remains pending."
+    }
+  ]
+}

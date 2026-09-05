@@ -196,6 +196,26 @@ The [process record](evidence/2026-09-05-artifact-restart-process.json) proves a
 The existing development supervisor restarted its server watcher. No source content changed for this restart check.
 
 
+
+## Live Task editing and workspace checks
+
+The [two-browser driver](evidence/2026-09-05-task-edit-browser.mjs) verifies title edits, exact document saves, competing drafts, cancellation, and source/rich switching.
+Its [results](evidence/2026-09-05-task-edit-browser-results.json) confirm reload persistence and preservation of the allocated Task directory.
+The stale browser keeps its draft. Acknowledging current state does not silently replace that draft or the accepted server content.
+The [fallback driver](evidence/2026-09-05-task-editor-fallback.mjs) blocks the rich-editor module request.
+Its [result](evidence/2026-09-05-task-editor-fallback-results.json) confirms that the original source remains editable and saves exactly.
+A parser-specific failure remains untested.
+
+The [state driver](evidence/2026-09-05-task-state-browser.mjs) starts a Task while another browser holds an edit draft.
+Its [results](evidence/2026-09-05-task-state-browser-results.json) confirm disabled stale saving, completion selection, and readable completed documents.
+Completion opens the result once. Later request selection survives Transcript and Workspace navigation.
+The [workspace driver](evidence/2026-09-05-task-workspace-browser.mjs) adds two controlled support files to the completed calculation Task.
+Its [results](evidence/2026-09-05-task-workspace-browser-results.json) distinguish request, result, review, Markdown support, literal text, and the Planner transcript start.
+
+The [visual driver](evidence/2026-09-05-task-edit-visual.mjs) opens the existing source editor at desktop and phone widths.
+The [validation record](evidence/2026-09-05-task-browser-validation.json) records those widths, driver hashes, tested revision, and reused Go checks.
+This unit changes no production code. Script syntax, JSON, evidence links, case IDs, and Git whitespace passed focused checks.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -257,13 +277,13 @@ A human variant remains pending even when its controlled counterpart passes.
 | MODEL-08 | Not run | Controlled setup pending. | — |
 | TASK-01 | Not run | Controlled setup pending. | — |
 | TASK-02 | Pass · live Linux/Chromium | Add to Inbox preserves the exact request without execution. Run Now starts a Task that completes through review. | — |
-| TASK-03 | Partial | Command edits preserve exact content in the allocated directory. Browser edit controls remain pending. | — |
-| TASK-04 | Partial | The server rejects a stale competing save and preserves current content. Browser draft recovery remains pending. | — |
-| TASK-05 | Not run | Controlled setup pending. | — |
-| TASK-06 | Not run | Controlled setup pending. | — |
+| TASK-03 | Pass · live Chromium | Browser title and exact Unicode Markdown edits survive reload. Renaming preserves the allocated directory. | Live Task editing checks above. |
+| TASK-04 | Pass · two live browser contexts | A competing save preserves the stale local draft and accepted server content. Acknowledgement and cancel do not overwrite either silently. | Live Task editing checks above. |
+| TASK-05 | Partial | Source/rich switching, cancel, stale acknowledgement, and rich-editor load failure preserve source editing. Parser-specific failure remains pending. | Live Task editing checks above. |
+| TASK-06 | Pass · live Chromium | Starting work invalidates the held edit and disables saving. Active and completed documents remain readable; completed editing controls are absent. | Live Task editing checks above. |
 | TASK-07 | Not run | Controlled setup pending. | — |
-| TASK-08 | Partial | Completed Task opens RESULT.md. Request and review render separately. Transcript opens; full history and support-file checks remain pending. | — |
-| TASK-09 | Not run | Controlled setup pending. | — |
+| TASK-08 | Pass · live Chromium | Reopen selects the result. Request, review, support Markdown, and literal text remain distinct. Transcript navigation reaches the Planner start. | Live Task editing checks above. |
+| TASK-09 | Pass · live Chromium | Completion opens the result. A later request selection remains selected across Transcript and Workspace navigation. | Live Task editing checks above. |
 | TASK-10 | Partial | A repeated capture returns the original Task identity. Lost responses for other commands remain pending. | — |
 | TASK-11 | Pass · Linux | Equal Unicode titles create distinct Task directories. Exact old and new documents remain intact. | — |
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |

@@ -1,0 +1,7 @@
+{
+  "result": "pass",
+  "case": "TASK-05-editor-load",
+  "taskId": "task:9496e6cdadbccf4f2f4b0ebe64002590",
+  "blockedModuleRequests": 1,
+  "detail": "A controlled rich-editor module load failure exposes the original editable source. Saving preserves the exact new Unicode source."
+}
