@@ -24,8 +24,7 @@ func attachFileParseProcess(command *exec.Cmd) (fileParseProcessTree, error) {
 	if err != nil {
 		return fileParseProcessTree{}, err
 	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	info := fileParseJobLimits()
 	if _, err = windows.SetInformationJobObject(
 		job,
 		windows.JobObjectExtendedLimitInformation,
@@ -54,6 +53,14 @@ func attachFileParseProcess(command *exec.Cmd) (fileParseProcessTree, error) {
 		return fileParseProcessTree{}, err
 	}
 	return fileParseProcessTree{job: job}, nil
+}
+
+func fileParseJobLimits() windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
+	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
+		windows.JOB_OBJECT_LIMIT_JOB_MEMORY
+	info.JobMemoryLimit = uintptr(fileParseWorkerMemory)
+	return info
 }
 
 func resumeFileParseProcess(pid uint32) error {

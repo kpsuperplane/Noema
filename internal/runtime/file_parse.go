@@ -211,13 +211,18 @@ func parseOpenFile(ctx context.Context, file *os.File, displayPath string, maxCh
 	if metadata.Size() > fileParseMaximumInput {
 		return failedFileParse(displayPath, metadata.Size(), stringAddress(format), "source_too_large")
 	}
-	content, err := io.ReadAll(file)
+	content, grewPastLimit, err := readFileParseInput(file)
 	if err != nil {
 		return failedFileParse(displayPath, metadata.Size(), stringAddress(format), "read_failed")
 	}
-	mediaType, detectedFormat := imageMediaFromExtension(format)
+	if grewPastLimit {
+		return failedFileParse(
+			displayPath, max(metadata.Size(), int64(len(content))), stringAddress(format), "source_too_large",
+		)
+	}
+	mediaType, detectedFormat := documentMedia(content, format)
 	if mediaType == "" {
-		mediaType, detectedFormat = documentMedia(content, format)
+		mediaType, detectedFormat = imageMediaFromExtension(format)
 	}
 	if mediaType == "" {
 		return unsupportedFileParse(displayPath, metadata.Size(), format)
@@ -250,6 +255,11 @@ func parseOpenFile(ctx context.Context, file *os.File, displayPath string, maxCh
 		Parser: &parser, Format: &detectedFormat, ContentFormat: &contentFormat, Content: &bounded,
 		ReturnedChars: returned, Truncated: conversion.Truncated || observed > returned,
 	}
+}
+
+func readFileParseInput(file *os.File) ([]byte, bool, error) {
+	content, err := io.ReadAll(io.LimitReader(file, fileParseMaximumInput+1))
+	return content, len(content) > fileParseMaximumInput, err
 }
 
 func convertDocument(ctx context.Context, content []byte, mediaType string) (documentConversion, bool) {

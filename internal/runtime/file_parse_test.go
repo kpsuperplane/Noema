@@ -251,19 +251,8 @@ func installFakeTesseract(t *testing.T) {
 }
 
 func TestDocumentMediaPrefersContentOverLegacyExtension(t *testing.T) {
-	var pptx bytes.Buffer
-	zipWriter := zip.NewWriter(&pptx)
-	part, err := zipWriter.Create("ppt/presentation.xml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = part.Write([]byte("<presentation/>")); err != nil {
-		t.Fatal(err)
-	}
-	if err = zipWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if media, format := documentMedia(pptx.Bytes(), "ppt"); media != documents.MediaPPTX || format != "pptx" {
+	pptx := minimalPPTXSignature(t)
+	if media, format := documentMedia(pptx, "ppt"); media != documents.MediaPPTX || format != "pptx" {
 		t.Fatalf("PPTX named .ppt = %q, format = %q", media, format)
 	}
 
@@ -309,6 +298,58 @@ func TestDocumentMediaPrefersContentOverLegacyExtension(t *testing.T) {
 			t.Fatalf("%s CFB named .ppt = %q, format = %q", test.stream, media, format)
 		}
 	}
+}
+
+func TestFileParsePrefersPPTXSignatureOverImageExtension(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "deck.png"), minimalPPTXSignature(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := parseConversationFile(context.Background(), cwd, json.RawMessage(`{"path":"deck.png"}`))
+	if err != nil || result.Parser == nil || *result.Parser != "anydoc" ||
+		result.Format == nil || *result.Format != "pptx" {
+		t.Fatalf("PPTX named .png = %#v, %v", result, err)
+	}
+}
+
+func TestFileParseRejectsGrowthAfterStat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "growing.png")
+	if err := os.WriteFile(path, []byte("small"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	before, err := file.Stat()
+	if err != nil || before.Size() != int64(len("small")) {
+		t.Fatalf("initial file metadata = %#v, %v", before, err)
+	}
+	if err = os.Truncate(path, fileParseMaximumInput+1); err != nil {
+		t.Fatal(err)
+	}
+	content, tooLarge, err := readFileParseInput(file)
+	if err != nil || !tooLarge || len(content) != fileParseMaximumInput+1 {
+		t.Fatalf("grown file read = %d bytes, too large = %t, error = %v", len(content), tooLarge, err)
+	}
+}
+
+func minimalPPTXSignature(t *testing.T) []byte {
+	t.Helper()
+	var content bytes.Buffer
+	archive := zip.NewWriter(&content)
+	part, err := archive.Create("ppt/presentation.xml")
+	if err == nil {
+		_, err = part.Write([]byte("<presentation/>"))
+	}
+	if err == nil {
+		err = archive.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content.Bytes()
 }
 
 func TestDocumentParsePermitHonorsDeadline(t *testing.T) {
