@@ -305,6 +305,46 @@ The private artifact must expose one versioned Noema command tool. It must prese
 Run one bounded stdio process per browser owner. Terminate its complete process tree on close, expiry, removal, owner change, protocol failure, or an uncertain dispatched command.
 Treat the artifact as a release prerequisite. Do not implement the production installer until approved artifacts exist for all five targets.
 
+### Managed Obscura artifact
+
+Publish each artifact with these manifest fields:
+
+- operating system and architecture;
+- immutable download URL and archive format;
+- exact archive size and SHA-256 digest;
+- exact executable name, size, and SHA-256 digest;
+- minimum operating-system requirement, including the Linux glibc baseline.
+
+Install the executable under `NOEMA_HOME/system/tools/obscura/<version>`.
+Use `NOEMA_HOME/system/tmp` for bounded staging. Reject one byte beyond the declared archive size.
+Reject path separators, duplicate names, links, unexpected entries, and traversal.
+Limit one extracted file to 128 MiB. Limit total extracted data to 256 MiB.
+Publish the complete staged directory with one atomic rename.
+
+Launch one long-lived stdio process for each browser owner. Use a minimal explicit environment.
+Never set `OBSCURA_ALLOW_PRIVATE_NETWORK`. Never pass `--allow-private-network`.
+Apply a 10-second start deadline and a 30-second command deadline.
+Apply a 30-minute re-armable idle deadline. Do not poll.
+Limit MCP frames to 2 MiB. Keep only a bounded 64 KiB stderr diagnostic ring.
+Release session capacity only after the complete process tree exits.
+
+Map failures by dispatch state:
+
+| Failure | Result |
+| --- | --- |
+| Install, start, initialize, or discovery failure | `unavailable`; retain the prior binding |
+| Lost first open response | `unavailable`; destroy the new process |
+| Lost reused navigation, interaction, or history response | `outcome_uncertain`; destroy the process |
+| Lost snapshot or wait response | `unavailable` or `timeout`; destroy the process |
+| Main-document 5xx after interaction | `outcome_uncertain`; preserve any returned snapshot |
+| Malformed or oversized MCP frame | Destroy the process; select the result from dispatch state |
+| Unexpected process exit | Invalidate the session and snapshot; do not restart or replay |
+
+The private command must return structured snapshots and bounded screenshots.
+It must use trusted events and atomically return the resulting URL and main-document status.
+Noema must check every requested and resulting URL through its public-network policy.
+Stop if the artifact cannot preserve these contracts on all five targets.
+
 Browser fingerprints and document formatting can differ. Preserve the supported
 actions, bounded outputs, security checks, and main content.
 
