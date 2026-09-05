@@ -87,6 +87,10 @@ Keep all checked-in Go code below 80% of all checked-in Rust code.
 This conservative total includes Go tests and generated GraphQL code.
 The hard total limit is 191,860 lines.
 
+These limits are acceptance criteria, not forecasts.
+Treat an overrun as a design failure until a capability requires the extra code.
+Do not justify an overrun with local completeness, defensive depth, or Rust parity alone.
+
 Report authored production, tests, generated code, and the inclusive total separately.
 Do not use generated code to hide authored growth.
 Each protection must address a retained capability, current failure, concrete threat, or client contract.
@@ -109,6 +113,9 @@ Each protection must address a named current failure, threat, or external contra
 Do not preserve Rust safeguards that only served the old home or removed architecture.
 Do not add multi-process or distributed-system behavior without a current production boundary.
 Prefer one authoritative local transaction or rooted operation over coordination infrastructure.
+Record the concrete protected problem in each implementation brief.
+If that problem is absent, omit the protection and its tests.
+Add the protection later only when production behavior or a retained contract demonstrates the need.
 
 ### Required production capabilities
 
