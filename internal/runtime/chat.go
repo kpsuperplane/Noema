@@ -143,6 +143,7 @@ type Chat struct {
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
 	choices    chan choiceResolution
+	a2ui       chan a2uiResolution
 	done       chan struct{}
 	closeOnce  sync.Once
 	closeErr   error
@@ -155,6 +156,7 @@ type Chat struct {
 
 	recoveredActions []actionContinuation
 	recoveredChoices []store.ConversationChoiceContinuation
+	recoveredA2UI    []store.ConversationA2UIContinuation
 
 	subMu       sync.Mutex
 	subscribers map[uint64]subscriber
@@ -202,6 +204,10 @@ func NewChat(
 			recoveredChoices = choices
 		}
 	}
+	var recoveredA2UI []store.ConversationA2UIContinuation
+	if err == nil {
+		recoveredA2UI, err = database.RecoverConversationA2UI(recoveryContext, time.Now())
+	}
 	if err == nil {
 		_, err = database.RecoverConversationTurns(recoveryContext, time.Now())
 	}
@@ -228,9 +234,11 @@ func NewChat(
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
 		choices:          make(chan choiceResolution, turnQueueLimit),
+		a2ui:             make(chan a2uiResolution, turnQueueLimit),
 		done:             make(chan struct{}),
 		recoveredActions: recoveredActions,
 		recoveredChoices: recoveredChoices,
+		recoveredA2UI:    recoveredA2UI,
 		subscribers:      make(map[uint64]subscriber),
 	}
 	requests, err := database.RecoverConversationMCPAuthRequests(chat.ctx)
@@ -408,6 +416,13 @@ func (c *Chat) run() {
 		c.resumeMultipleChoice(recovery)
 	}
 	c.recoveredChoices = nil
+	for _, recovery := range c.recoveredA2UI {
+		if c.ctx.Err() != nil {
+			return
+		}
+		c.resumeA2UI(recovery)
+	}
+	c.recoveredA2UI = nil
 	for {
 		if c.ctx.Err() != nil {
 			return
@@ -425,6 +440,8 @@ func (c *Chat) run() {
 			request.reply <- mcpAuthResult{request: value, err: err}
 		case request := <-c.choices:
 			c.resolveMultipleChoice(request)
+		case request := <-c.a2ui:
+			c.resolveA2UI(request)
 		}
 	}
 }

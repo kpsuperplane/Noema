@@ -555,6 +555,8 @@ func (c *Chat) persistChatToolRound(
 	var mcpBinding *noemamcp.Binding
 	var adapterBinding *adapter.Binding
 	var multipleChoice *multipleChoiceArguments
+	var a2ui *a2uiBatch
+	var a2uiHasActions bool
 	var choiceCredentialRevision uint64
 	var choiceToolCatalogDigest string
 	if call.Name == fileDownloadName {
@@ -568,6 +570,22 @@ func (c *Chat) persistChatToolRound(
 			choiceCredentialRevision, choiceToolCatalogDigest, authorityErr = c.multipleChoiceAuthority(c.ctx, assignment)
 			if authorityErr != nil {
 				return nil, false, false, authorityErr
+			}
+		}
+	} else if call.Name == presentA2UIName {
+		if jsonl, parseErr := parseA2UIArguments(call.Payload); parseErr == nil {
+			a2ui, _ = reduceA2UI(turn.ConversationID, jsonl)
+			if a2ui != nil {
+				for _, surface := range a2ui.Surfaces {
+					a2uiHasActions = a2uiHasActions || len(surface.Actions) != 0
+				}
+				if a2uiHasActions {
+					var authorityErr error
+					choiceCredentialRevision, choiceToolCatalogDigest, authorityErr = c.multipleChoiceAuthority(c.ctx, assignment)
+					if authorityErr != nil {
+						return nil, false, false, authorityErr
+					}
+				}
 			}
 		}
 	} else if call.Name != noemamcp.ConnectServiceToolName && call.Name != adapter.DefinitionTemplateTool && call.Name != adapter.ProposeDefinitionTool && !supportsLocalChatTool(call.Name) {
@@ -607,6 +625,8 @@ func (c *Chat) persistChatToolRound(
 			multipleChoice, assignment, generation.ID, hostedState,
 			choiceCredentialRevision, choiceToolCatalogDigest,
 		),
+		A2UI: storedA2UIInput(a2ui, a2uiHasActions, assignment, generation.ID, hostedState,
+			choiceCredentialRevision, choiceToolCatalogDigest),
 	}, time.Now())
 	if err != nil {
 		return nil, false, false, err
@@ -627,7 +647,7 @@ func (c *Chat) persistChatToolRound(
 	if callItem.ID == "" {
 		return nil, false, false, errors.New("stored tool call is unavailable")
 	}
-	if multipleChoice != nil {
+	if multipleChoice != nil || a2uiHasActions {
 		c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
 		c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})

@@ -423,7 +423,7 @@ func (r *mutationRootResolver) SendMultipleChoiceSelection(ctx context.Context, 
 
 // SendA2UIAction is the resolver for the sendA2UIAction field.
 func (r *mutationRootResolver) SendA2UIAction(ctx context.Context, input model.ProviderInteractionActionInput) (*model.TurnAccepted, error) {
-	panic(fmt.Errorf("not implemented: SendA2UIAction - sendA2UIAction"))
+	return r.sendA2UIAction(ctx, input)
 }
 
 // CreateConversationExternalArtifact is the resolver for the createConversationExternalArtifact field.

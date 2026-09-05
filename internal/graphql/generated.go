@@ -53762,7 +53762,7 @@ func (ec *executionContext) unmarshalInputProviderInteractionActionInput(ctx con
 			it.Context = data
 		case "dataModel":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataModel"))
-			data, err := ec.unmarshalOJSON2map(ctx, v)
+			data, err := ec.unmarshalOJSON2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐJSONValue(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -72647,6 +72647,16 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	_ = ctx
 	res := graphql.MarshalInt(*v)
 	return res
+}
+
+func (ec *executionContext) unmarshalOJSON2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐJSONValue(ctx context.Context, v any) (model.JSONValue, error) {
+	var res model.JSONValue
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOJSON2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐJSONValue(ctx context.Context, sel ast.SelectionSet, v model.JSONValue) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) unmarshalOJSON2map(ctx context.Context, v any) (map[string]any, error) {

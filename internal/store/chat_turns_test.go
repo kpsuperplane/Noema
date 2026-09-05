@@ -510,3 +510,69 @@ func TestConversationMultipleChoiceSelectionIsAtomicOrderedAndRecoverable(t *tes
 		t.Fatalf("durable continuation choice lifecycle = %q, %v", lifecycle, err)
 	}
 }
+
+func TestConversationA2UIActionIsAtomicAndRecoverable(t *testing.T) {
+	database := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 6, 0, 0, 0, time.UTC)
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Show a form", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := map[string]any{"protocol_version": "v0.9.1", "catalog": map[string]any{"catalog_id": "com.noema.a2ui/catalog/v0.9.1"},
+		"messages": []any{}, "deleted_surface_ids": []any{}, "surfaces": map[string]any{
+			"main": map[string]any{"surface_id": "main", "namespaced_surface_id": "main", "version": "v0.9.1",
+				"catalog_id": "com.noema.a2ui/catalog/v0.9.1", "send_data_model": true, "revision": 2,
+				"components": map[string]any{"root": map[string]any{"id": "root", "component": "Text", "text": "Ready"}},
+				"data_model": map[string]any{}, "actions": []any{map[string]any{"source_component_id": "root", "name": "submit"}},
+			}}}
+	items, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{Provider: "openrouter",
+		Call: ConversationToolCallInput{ProviderRound: 0, OutputIndex: 0, ProviderCallID: "call-a2ui",
+			ProviderName: "present_a2ui", Name: "noema.present_a2ui", Arguments: json.RawMessage(`{"jsonl":"test"}`)},
+		A2UI: &ConversationA2UIInput{Projection: projection, HasActions: true,
+			ProviderSelection: map[string]any{"role": "noema", "provider_kind": "openrouter", "provider_account_id": "provider_account:test", "model_profile": "openai/test"},
+			ToolCatalogDigest: "catalog:test"}}, now)
+	if err != nil || len(items) != 2 || items[1].Kind != ConversationA2UICard {
+		t.Fatalf("A2UI publication = %#v, %v", items, err)
+	}
+	surface := items[1]
+	storedProjection := surface.Payload["payload"].(map[string]any)
+	interactionID := textJSON(storedProjection["interaction_id"])
+	settled := cloneJSONMap(storedProjection)
+	settled["interaction_revision"], settled["lifecycle"] = 2, "answered"
+	clientID := "a2ui-answer"
+	continuation, err := database.ResolveConversationA2UI(ctx, conversation.ID, surface.ID, interactionID, 1,
+		settled, map[string]any{"status": "resolved", "interaction_id": interactionID}, &clientID, now.Add(time.Second))
+	if err != nil || continuation.Call.Status != "completed" || continuation.Action.ParentItemID != surface.ID || continuation.Result.ParentItemID != items[0].ID {
+		t.Fatalf("A2UI resolution = %#v, %v", continuation, err)
+	}
+	if _, err := database.ResolveConversationA2UI(ctx, conversation.ID, surface.ID, interactionID, 1, settled, map[string]any{}, nil, now); err == nil {
+		t.Fatal("second A2UI action succeeded")
+	}
+	claimed, err := database.ClaimConversationA2UI(ctx, surface.ID, now.Add(2*time.Second))
+	if err != nil || claimed.Turn.Status != "running" {
+		t.Fatalf("A2UI claim = %#v, %v", claimed, err)
+	}
+	recovered, err := database.RecoverConversationA2UI(ctx, now.Add(3*time.Second))
+	if err != nil || len(recovered) != 1 || recovered[0].Surface.ID != surface.ID || recovered[0].Turn.Status != "waiting_for_tool" {
+		t.Fatalf("A2UI recovery = %#v, %v", recovered, err)
+	}
+	if count, err := database.RecoverConversationTurns(ctx, now.Add(4*time.Second)); err != nil || count != 0 {
+		t.Fatalf("generic recovery changed A2UI turn = %d, %v", count, err)
+	}
+	claimed, err = database.ClaimConversationA2UI(ctx, surface.ID, now.Add(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.FailConversationTurn(ctx, claimed.Turn, "failed", now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var lifecycle string
+	if err := database.db.QueryRow(`SELECT json_extract(payload_json, '$.payload.lifecycle') FROM conversation_items WHERE item_id = ?`, continuation.Action.ID).Scan(&lifecycle); err != nil || lifecycle != "failed" {
+		t.Fatalf("failed A2UI lifecycle = %q, %v", lifecycle, err)
+	}
+}
