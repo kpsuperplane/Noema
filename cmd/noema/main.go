@@ -128,8 +128,12 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	openAIGenerator, err := provider.NewOpenAIGenerator(providerAccounts)
+	if err != nil {
+		return err
+	}
 	chatRuntime, err := noemaruntime.NewChat(
-		taskStore, openRouterGenerator, codexGenerator, root, nativeMemory,
+		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
 	)
 	if err != nil {
 		return err

@@ -18,10 +18,11 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
-The Go evidence gate passed. The replacement now uses Go schema version 17.
+The Go evidence gate passed. The replacement now uses Go schema version 18.
 It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task lifecycle, and notifications.
-OpenRouter and Codex preserve text, tools, replay, reasoning, citations, usage, and current model assignments.
+OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 Primary Chat supports durable recovery and bounded `task.inspect`, `file.parse`, and Memory tool loops.
+It reviews exact `file.download` calls, pauses for decisions, and resumes from known or uncertain outcomes.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
 Native Memory owns bounded reads, search, citations, hierarchy, model updates, crash-safe publication, checkpoints, and root prompt context.
 Until context compaction moves to Go, a replaceable 70-percent pending-source threshold schedules automatic updates.
@@ -29,7 +30,7 @@ Artifact storage owns safe local files, external URLs, versions, metadata, integ
 Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
 `file.parse` uses isolated conversion for DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, EPUB, and spreadsheet formats.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
-Task execution, governance, remaining tools, Task Live Activity delivery, and Chat context compaction remain migration units.
+Task execution, remaining action-request tools, remaining integrations, Task Live Activities, and Chat context compaction remain migration units.
 
 ## Current constraints
 

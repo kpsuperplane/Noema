@@ -25,6 +25,8 @@ var (
 	ErrCompensationFailed = errors.New("provider account compensation failed")
 )
 
+const openAIDefaultAccountID = "provider_account:openai:default"
+
 // AuthMethod identifies one provider authentication method.
 type AuthMethod string
 
@@ -236,10 +238,10 @@ func supportsAuth(entry CatalogEntry, method AuthMethod) bool {
 
 func validateAccount(account Account) error {
 	entry, ok := CatalogEntryFor(account.ProviderKind)
-	if !ok {
+	if !ok && !isExternalOpenAIAccount(account) {
 		return ErrUnsupportedProvider
 	}
-	if !supportsAuth(entry, account.AuthMethod) {
+	if ok && !supportsAuth(entry, account.AuthMethod) {
 		return ErrAuthMethodMismatch
 	}
 	if account.ID == "" || account.AccountKey == "" || strings.TrimSpace(account.DisplayName) == "" {
@@ -252,6 +254,20 @@ func validateAccount(account Account) error {
 		return errors.New("provider account identity is unsafe")
 	}
 	return nil
+}
+
+func isExternalOpenAIAccount(account Account) bool {
+	return account.ID == openAIDefaultAccountID && account.ProviderKind == "openai" &&
+		account.AccountKey == "default" && account.AuthMethod == AuthExternalManual
+}
+
+func openAIModelProfiles() []ModelProfile {
+	efforts := []string{"low", "medium", "high", "xhigh"}
+	return []ModelProfile{
+		{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium"},
+		{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium"},
+		{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium"},
+	}
 }
 
 func safePathPart(value string) bool {

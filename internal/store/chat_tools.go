@@ -25,11 +25,13 @@ type ConversationToolCallInput struct {
 
 // ConversationToolRound is one provider response that requests an immediate tool.
 type ConversationToolRound struct {
-	Provider           string
-	Commentary         string
-	ProviderCommentary string
-	Reasoning          []json.RawMessage
-	Call               ConversationToolCallInput
+	Provider                  string
+	Commentary                string
+	ProviderCommentary        string
+	Citations                 []ProviderCitation
+	UnresolvedCitationMarkers int
+	Reasoning                 []json.RawMessage
+	Call                      ConversationToolCallInput
 }
 
 // ConversationToolResultInput is one terminal result for a stored provider call.
@@ -105,6 +107,9 @@ func (s *Store) StartConversationToolRound(
 	if len(round.Commentary) > maxConversationText || len(round.ProviderCommentary) > maxConversationText {
 		return nil, errors.New("conversation commentary is too large")
 	}
+	if round.UnresolvedCitationMarkers < 0 {
+		return nil, errors.New("conversation citation diagnostic is invalid")
+	}
 	now = now.UTC()
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -165,6 +170,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 			turn.ID, round.Call.ProviderRound,
 		)
 		commentaryMetadata["response_index"] = 0
+		addProviderCitationMetadata(commentaryMetadata, round.Citations, round.UnresolvedCitationMarkers)
 		item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 			ID:             stableConversationOutputID(turn.ID, "assistant_text", round.Call.ProviderRound, 0),
 			ConversationID: turn.ConversationID, TurnID: turn.ID, ParentItemID: parentID,

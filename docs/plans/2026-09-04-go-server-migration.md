@@ -619,6 +619,59 @@ Consolidation checks citations and editable page scope before one atomic publica
 A replaceable 70-percent pending-source threshold schedules one automatic primary Chat update.
 Chat context compaction remains a later unit and will replace that temporary trigger.
 
+### Chat action request and file download unit
+
+The first Chat action-request unit uses Go schema version 18. It includes:
+
+- one exact saved tool call, review, human decision, execution claim, and outcome;
+- source checks before review and execution;
+- deterministic reviewer classifications and one-use human approvals;
+- Chat pause, terminal result persistence, continuation, and restart recovery;
+- public-network checks across redirects and resolved addresses;
+- rooted atomic downloads with bounded time, bytes, and redirects;
+- HTML rejection and optional parsing through the current file worker;
+- existing web and iOS pending-intervention operations.
+
+Task Executors request capability tool calls. They do not decide review or create action requests.
+For each call, the capability router resolves the binding, checks its source input,
+and applies current ownership, policy, authentication, and availability rules.
+
+The selected execution route controls the result:
+
+- `ExecuteImmediately` invokes the tool without an action request;
+- `HumanReview` saves one exact action request for a human decision;
+- `LlmReview` saves one exact action request for reviewer classification.
+
+A Task origin adds the Task generation, run, worker claim, and current-run check.
+The shared capability policy remains the only authority that decides whether to surface an action request.
+Task capability routing and other external tools remain later migration units.
+
+### Provider-hosted search unit
+
+Codex and OpenRouter now expose their native hosted search through primary Chat.
+The unit includes:
+
+- provider-specific request and bounded stream handling;
+- exact search lifecycle, arguments, sources, citations, usage, and failures;
+- durable activity markers and provider-aware replay;
+- Codex stored-response continuation for provider-held search state;
+- closed failure when required provider state is unavailable;
+- private citation-marker removal with adjusted UTF-16 offsets;
+- raw provider text retention and safe unresolved-marker diagnostics.
+
+### OpenAI Responses unit
+
+The OpenAI account now uses its protected API-key authority for production generation.
+It shares the exact Responses behavior that also applies to Codex, while keeping provider-specific authentication and status handling.
+
+The unit includes:
+
+- native tools, hosted search, reasoning, citations, usage, and Fast mode;
+- stored Chat response identifiers with incremental continuation input;
+- non-stored Memory, review, and other background generations;
+- current GPT-5.6 cache options and bounded developer-message breakpoints;
+- bounded streams, cancellation, and safe provider errors.
+
 ### Bounded document conversion units
 
 Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
@@ -731,7 +784,7 @@ Later waves can run these paths in parallel after their listed dependency merges
 
 | Path | Dependency |
 | --- | --- |
-| Task execution and ACP runs | Task lifecycle and action requests |
+| Task execution and ACP runs | Task lifecycle and shared capability policy |
 | MCP setup, OAuth, and dynamic calls | Action requests |
 | Adapter review, OAuth, HTTP, and Luau | Action requests |
 | Hosted web and interactive browser tools | Action requests |

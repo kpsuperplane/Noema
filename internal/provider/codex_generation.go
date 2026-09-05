@@ -7,9 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -290,17 +292,27 @@ func codexGenerationStatusError(status int) error {
 }
 
 type codexGenerationPayload struct {
-	Model             string             `json:"model"`
-	Input             []any              `json:"input"`
-	Temperature       *float32           `json:"temperature,omitempty"`
-	Reasoning         *codexReasoning    `json:"reasoning,omitempty"`
-	ServiceTier       string             `json:"service_tier,omitempty"`
-	Tools             []codexToolPayload `json:"tools,omitempty"`
-	ToolChoice        string             `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool              `json:"parallel_tool_calls,omitempty"`
-	PromptCacheKey    string             `json:"prompt_cache_key,omitempty"`
-	Store             bool               `json:"store"`
-	Stream            bool               `json:"stream"`
+	Model                string                       `json:"model"`
+	Input                []any                        `json:"input"`
+	MaxOutputTokens      *uint32                      `json:"max_output_tokens,omitempty"`
+	PreviousResponseID   string                       `json:"previous_response_id,omitempty"`
+	Temperature          *float32                     `json:"temperature,omitempty"`
+	Reasoning            *codexReasoning              `json:"reasoning,omitempty"`
+	ServiceTier          string                       `json:"service_tier,omitempty"`
+	Tools                []codexToolPayload           `json:"tools,omitempty"`
+	Include              []string                     `json:"include,omitempty"`
+	ToolChoice           string                       `json:"tool_choice,omitempty"`
+	ParallelToolCalls    *bool                        `json:"parallel_tool_calls,omitempty"`
+	PromptCacheKey       string                       `json:"prompt_cache_key,omitempty"`
+	PromptCacheOptions   *responsesPromptCacheOptions `json:"prompt_cache_options,omitempty"`
+	PromptCacheRetention string                       `json:"prompt_cache_retention,omitempty"`
+	Store                bool                         `json:"store"`
+	Stream               bool                         `json:"stream"`
+}
+
+type responsesPromptCacheOptions struct {
+	Mode string `json:"mode"`
+	TTL  string `json:"ttl"`
 }
 
 type codexReasoning struct {
@@ -309,56 +321,116 @@ type codexReasoning struct {
 }
 
 type codexToolPayload struct {
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Parameters  any    `json:"parameters"`
-	Strict      bool   `json:"strict"`
+	Type              string `json:"type"`
+	Name              string `json:"name,omitempty"`
+	Description       string `json:"description,omitempty"`
+	Parameters        any    `json:"parameters,omitempty"`
+	Strict            *bool  `json:"strict,omitempty"`
+	ExternalWebAccess *bool  `json:"external_web_access,omitempty"`
 }
 
 func prepareCodexGeneration(
 	request GenerateRequest,
 ) ([]byte, openRouterToolNameMap, error) {
-	if request.AccountID != codexGenerationAccountID {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation requires the default account")
+	return prepareResponsesGeneration(request, responsesGenerationProfile{
+		accountID: codexGenerationAccountID, providerName: "Codex", stream: true,
+	})
+}
+
+type responsesGenerationProfile struct {
+	accountID, providerName, promptCacheRetention string
+	forwardMaxOutput, includeEncryptedReasoning   bool
+	promptCacheOptions, stream                    bool
+}
+
+func prepareResponsesGeneration(
+	request GenerateRequest,
+	profile responsesGenerationProfile,
+) ([]byte, openRouterToolNameMap, error) {
+	if request.AccountID != profile.accountID {
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation requires the default account", profile.providerName)
 	}
 	model := strings.TrimSpace(request.Model)
 	if model == "" {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation model is required")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation model is required", profile.providerName)
 	}
-	if request.HostedWebSearch {
-		return nil, openRouterToolNameMap{}, errors.New("Codex hosted web search is not implemented")
+	previousResponseID := strings.TrimSpace(request.PreviousResponseID)
+	if previousResponseID != request.PreviousResponseID ||
+		(previousResponseID != "" && (!validCodexHeader(previousResponseID) || !request.StoreResponse)) {
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s previous response id is invalid", profile.providerName)
+	}
+	if request.HostedWebSearch && request.ToolTransport != ToolTransportNative {
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s hosted web search is disabled", profile.providerName)
 	}
 	toolNames, chatTools, err := prepareOpenRouterTools(request.Tools)
 	if err != nil {
-		return nil, openRouterToolNameMap{}, errors.New("Codex tool catalog is invalid")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s tool catalog is invalid", profile.providerName)
 	}
 	if len(chatTools) != 0 && request.ToolTransport != ToolTransportNative {
-		return nil, openRouterToolNameMap{}, errors.New("Codex tool transport is disabled")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s tool transport is disabled", profile.providerName)
 	}
 	tools := make([]codexToolPayload, 0, len(chatTools))
 	for _, tool := range chatTools {
 		function := tool.Function
 		tools = append(tools, codexToolPayload{
 			Type: "function", Name: function.Name, Description: function.Description,
-			Parameters: function.Parameters, Strict: function.Strict,
+			Parameters: function.Parameters, Strict: boolPointer(function.Strict),
 		})
 	}
+	if request.HostedWebSearch {
+		tools = append(tools, codexToolPayload{Type: "web_search", ExternalWebAccess: boolPointer(true)})
+	}
+	explicitPromptCache := profile.promptCacheOptions && openAIGPT56Model(model)
+	cacheBreakpoints := make(map[int]struct{}, 4)
+	if explicitPromptCache {
+		for index := len(request.Messages) - 1; index >= 0 && len(cacheBreakpoints) < 4; index-- {
+			message := request.Messages[index]
+			if message.Role == "developer" && strings.TrimSpace(message.Content) != "" {
+				cacheBreakpoints[index] = struct{}{}
+			}
+		}
+	}
 	input := make([]any, 0, len(request.Messages)*2)
-	for _, message := range request.Messages {
+	for index, message := range request.Messages {
 		lowered, err := lowerCodexMessage(message, toolNames)
 		if err != nil {
-			return nil, openRouterToolNameMap{}, err
+			return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation history is invalid", profile.providerName)
+		}
+		if _, ok := cacheBreakpoints[index]; ok {
+			lowered = []any{map[string]any{
+				"role": "developer",
+				"content": []any{map[string]any{
+					"type": "input_text", "text": message.Content,
+					"prompt_cache_breakpoint": map[string]any{"mode": "explicit"},
+				}},
+			}}
 		}
 		input = append(input, lowered...)
 	}
 	if len(input) == 0 {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation messages are required")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation messages are required", profile.providerName)
 	}
 	payload := codexGenerationPayload{
 		Model: model, Input: input, Temperature: request.Temperature,
-		PromptCacheKey: strings.TrimSpace(request.ConversationID), Store: false, Stream: true,
-		Tools: tools,
+		PreviousResponseID:   previousResponseID,
+		PromptCacheKey:       strings.TrimSpace(request.ConversationID),
+		PromptCacheRetention: profile.promptCacheRetention,
+		Store:                request.StoreResponse,
+		Stream:               profile.stream,
+		Tools:                tools,
+	}
+	if explicitPromptCache {
+		payload.PromptCacheOptions = &responsesPromptCacheOptions{Mode: "explicit", TTL: "30m"}
+		payload.PromptCacheRetention = ""
+	}
+	if profile.forwardMaxOutput {
+		payload.MaxOutputTokens = request.MaxOutputTokens
+	}
+	if profile.includeEncryptedReasoning {
+		payload.Include = append(payload.Include, "reasoning.encrypted_content")
+	}
+	if request.HostedWebSearch {
+		payload.Include = append(payload.Include, "web_search_call.action.sources")
 	}
 	if request.ReasoningEffort != "" {
 		switch request.ReasoningEffort {
@@ -368,20 +440,23 @@ func prepareCodexGeneration(
 				payload.Reasoning.Summary = "auto"
 			}
 		default:
-			return nil, openRouterToolNameMap{}, errors.New("Codex generation reasoning effort is invalid")
+			return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation reasoning effort is invalid", profile.providerName)
 		}
 	}
-	choice, parallel, err := codexToolControls(request, len(tools) != 0)
+	choice, parallel, err := responsesToolControls(request, len(tools) != 0, profile.providerName)
 	if err != nil {
 		return nil, openRouterToolNameMap{}, err
 	}
 	payload.ToolChoice, payload.ParallelToolCalls = choice, parallel
+	if request.HostedWebSearch {
+		payload.ToolChoice = string(ToolChoiceAuto)
+	}
 	if request.FastMode {
 		payload.ServiceTier = "priority"
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, openRouterToolNameMap{}, errors.New("Codex generation request is invalid")
+		return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation request is invalid", profile.providerName)
 	}
 	if len(body) > codexGenerationRequestLimit {
 		return nil, openRouterToolNameMap{}, ErrGenerationRequestTooLarge
@@ -389,13 +464,17 @@ func prepareCodexGeneration(
 	return body, toolNames, nil
 }
 
-func codexToolControls(request GenerateRequest, hasTools bool) (string, *bool, error) {
+func openAIGPT56Model(model string) bool {
+	return model == "gpt-5.6" || strings.HasPrefix(model, "gpt-5.6-")
+}
+
+func responsesToolControls(request GenerateRequest, hasTools bool, providerName string) (string, *bool, error) {
 	choice := request.ToolChoice
 	if choice == "" {
 		choice = ToolChoiceAuto
 	}
 	if choice != ToolChoiceAuto && choice != ToolChoiceNone && choice != ToolChoiceRequired {
-		return "", nil, errors.New("Codex tool choice is invalid")
+		return "", nil, fmt.Errorf("%s tool choice is invalid", providerName)
 	}
 	if !hasTools {
 		return "", nil, nil
@@ -404,6 +483,9 @@ func codexToolControls(request GenerateRequest, hasTools bool) (string, *bool, e
 }
 
 func lowerCodexMessage(message GenerationMessage, names openRouterToolNameMap) ([]any, error) {
+	if message.Role == "hosted_web_search" {
+		return lowerCodexHostedSearch(message)
+	}
 	if message.Role != "system" && message.Role != "developer" && message.Role != "user" &&
 		message.Role != "assistant" && message.Role != "tool" {
 		return nil, errors.New("Codex generation message role is invalid")
@@ -450,6 +532,44 @@ func lowerCodexMessage(message GenerationMessage, names openRouterToolNameMap) (
 		}
 	}
 	return items, nil
+}
+
+func lowerCodexHostedSearch(message GenerationMessage) ([]any, error) {
+	if message.HostedSearch == nil || message.Content != "" || len(message.ToolCalls) != 0 ||
+		message.ToolResult != nil || len(message.ReasoningDetails) != 0 || message.EncryptedReasoning != "" {
+		return nil, errors.New("Codex hosted web replay is invalid")
+	}
+	search := message.HostedSearch
+	action, err := decodeOptionalOpenRouterJSON(search.ProviderAction)
+	if err != nil {
+		return nil, errors.New("Codex hosted web action is invalid")
+	}
+	if action == nil {
+		action, err = decodeOptionalOpenRouterJSON(search.Arguments)
+		if err != nil {
+			return nil, errors.New("Codex hosted web arguments are invalid")
+		}
+		object := jsonObject(action)
+		if object == nil {
+			object = map[string]any{}
+		}
+		kind := "search"
+		if search.Name == "web.fetch" {
+			kind = "open_page"
+		}
+		object["type"] = kind
+		action = object
+	}
+	if jsonObject(action) == nil {
+		return nil, errors.New("Codex hosted web action must be an object")
+	}
+	item := map[string]any{
+		"type": "web_search_call", "status": search.Status, "action": action,
+	}
+	if strings.TrimSpace(search.ID) != "" {
+		item["id"] = search.ID
+	}
+	return []any{item}, nil
 }
 
 func lowerCodexReplayReasoning(message GenerationMessage) ([]any, error) {
@@ -670,6 +790,7 @@ func parseCodexGenerationStream(
 	result := codexStreamResult{}
 	output := make(map[int]json.RawMessage)
 	text := make(map[int]string)
+	hostedStarted := make(map[int]struct{})
 	var eventType string
 	var data strings.Builder
 	dispatch := func() error {
@@ -681,7 +802,9 @@ func parseCodexGenerationStream(
 		if len(payload) > maxSSEEvent {
 			return errors.New("Codex SSE event is too large")
 		}
-		return consumeCodexGenerationEvent(eventType, []byte(payload), &result, output, text, onEvent)
+		return consumeCodexGenerationEvent(
+			eventType, []byte(payload), &result, output, text, hostedStarted, onEvent,
+		)
 	}
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
@@ -782,6 +905,7 @@ func consumeCodexGenerationEvent(
 	result *codexStreamResult,
 	output map[int]json.RawMessage,
 	text map[int]string,
+	hostedStarted map[int]struct{},
 	onEvent func(StreamEvent),
 ) error {
 	var event map[string]json.RawMessage
@@ -812,8 +936,14 @@ func consumeCodexGenerationEvent(
 						Kind: ToolCallStarted, Index: codexOutputIndex(event), ID: callID, Name: name,
 					})
 				}
+			} else if kind == "web_search_call" {
+				id, _ := rawString(item["id"])
+				emitCodexHostedSearchStart(codexOutputIndex(event), id, hostedStarted, onEvent)
 			}
 		}
+	case "response.web_search_call.in_progress", "response.web_search_call.searching":
+		id, _ := rawString(event["item_id"])
+		emitCodexHostedSearchStart(codexOutputIndex(event), id, hostedStarted, onEvent)
 	case "response.output_item.done":
 		if len(output) >= maxItems {
 			return errors.New("Codex response has too many output items")
@@ -838,6 +968,19 @@ func consumeCodexGenerationEvent(
 		return errors.New("Codex generation failed")
 	}
 	return nil
+}
+
+func emitCodexHostedSearchStart(
+	index int,
+	id string,
+	seen map[int]struct{},
+	onEvent func(StreamEvent),
+) {
+	if _, exists := seen[index]; exists {
+		return
+	}
+	seen[index] = struct{}{}
+	onEvent(StreamEvent{Kind: HostedSearchStarted, Index: index, ID: id, Name: "web.search"})
 }
 
 func codexOutputIndex(event map[string]json.RawMessage) int {
@@ -929,11 +1072,12 @@ func normalizeCodexGeneration(
 		kind, _ := rawString(item["type"])
 		switch kind {
 		case "message":
-			value, err := codexOutputText(item)
+			value, citations, err := codexOutputText(item, utf16CodeUnits(result.Text))
 			if err != nil {
 				return GenerationResult{}, err
 			}
 			result.Text += value
+			result.Citations = append(result.Citations, citations...)
 		case "function_call":
 			if len(result.ToolCalls) != 0 {
 				return GenerationResult{}, errors.New("Codex returned more than one native tool call")
@@ -951,6 +1095,15 @@ func normalizeCodexGeneration(
 			if keep {
 				result.Reasoning = append(result.Reasoning, reasoning)
 			}
+		case "web_search_call":
+			if len(result.Searches) >= maxHostedSearches {
+				return GenerationResult{}, errors.New("Codex response has too many hosted web searches")
+			}
+			search, err := normalizeCodexHostedSearch(output.Index, item)
+			if err != nil {
+				return GenerationResult{}, err
+			}
+			result.Searches = append(result.Searches, search)
 		}
 	}
 	if result.Text == "" && len(result.ToolCalls) == 0 {
@@ -962,20 +1115,159 @@ func normalizeCodexGeneration(
 	return result, nil
 }
 
-func codexOutputText(item map[string]json.RawMessage) (string, error) {
+func codexOutputText(item map[string]json.RawMessage, baseOffset int) (string, []Citation, error) {
 	var content []struct {
 		Type, Text, Refusal string
+		Annotations         []struct {
+			Type, Title, URL string
+			StartIndex       *int `json:"start_index"`
+			EndIndex         *int `json:"end_index"`
+		} `json:"annotations"`
 	}
 	if json.Unmarshal(item["content"], &content) != nil {
-		return "", errors.New("Codex message output is invalid")
+		return "", nil, errors.New("Codex message output is invalid")
 	}
 	var result strings.Builder
+	var citations []Citation
+	seen := make(map[string]struct{})
+	offset := baseOffset
 	for _, part := range content {
 		if part.Type == "output_text" {
+			for _, annotation := range part.Annotations {
+				if annotation.Type != "url_citation" {
+					continue
+				}
+				url, err := safeCitationURL(annotation.URL)
+				if err != nil {
+					continue
+				}
+				start, end := addCitationOffset(annotation.StartIndex, offset), addCitationOffset(annotation.EndIndex, offset)
+				key := url + "\x00" + pointerKey(start) + "\x00" + pointerKey(end)
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				title := strings.TrimSpace(annotation.Title)
+				if title == "" {
+					title = url
+				}
+				citations = append(citations, Citation{Title: title, URL: url, StartIndex: start, EndIndex: end})
+			}
 			result.WriteString(part.Text)
+			offset += utf16CodeUnits(part.Text)
 		}
 	}
-	return result.String(), nil
+	return result.String(), citations, nil
+}
+
+func addCitationOffset(value *int, offset int) *int {
+	if value == nil || *value < 0 {
+		return nil
+	}
+	result := *value + offset
+	return &result
+}
+
+func pointerKey(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
+}
+
+func utf16CodeUnits(value string) int {
+	count := 0
+	for _, character := range value {
+		count++
+		if character > 0xffff {
+			count++
+		}
+	}
+	return count
+}
+
+func normalizeCodexHostedSearch(index int, item map[string]json.RawMessage) (HostedSearch, error) {
+	id, _ := rawString(item["id"])
+	status, _ := rawString(item["status"])
+	action, err := decodeOptionalOpenRouterJSON(item["action"])
+	if err != nil {
+		return HostedSearch{}, errors.New("Codex hosted web action is invalid")
+	}
+	object := jsonObject(action)
+	if object == nil {
+		object = map[string]any{}
+		action = object
+	}
+	name := "web.search"
+	arguments := map[string]any{}
+	kind := jsonString(object["type"])
+	if kind == "open_page" {
+		parsed, parseErr := url.Parse(jsonString(object["url"]))
+		if parseErr != nil {
+			return HostedSearch{}, errors.New("Codex hosted web URL is invalid")
+		}
+		if parsed.User != nil {
+			if _, hasPassword := parsed.User.Password(); hasPassword {
+				return HostedSearch{}, errors.New("Codex hosted web URL contains credentials")
+			}
+		}
+	}
+	if kind == "open_page" || kind == "find_in_page" {
+		name = "web.fetch"
+		if value, ok := object["url"].(string); ok {
+			arguments["url"] = value
+		}
+	} else if query, ok := object["query"].(string); ok {
+		arguments["query"] = query
+	} else if queries, ok := object["queries"].([]any); ok {
+		values := make([]string, 0, len(queries))
+		for _, value := range queries {
+			if text, ok := value.(string); ok {
+				values = append(values, text)
+			}
+		}
+		if joined := strings.Join(values, "; "); joined != "" {
+			arguments["query"] = joined
+		}
+	}
+	result := make(map[string]any, len(arguments)+2)
+	for key, value := range arguments {
+		result[key] = value
+	}
+	result["status"] = status
+	if strings.EqualFold(status, "failed") {
+		result["error"] = "provider-hosted web action failed"
+	}
+	sources := codexWebSources(kind, object)
+	encodedArguments, _ := json.Marshal(arguments)
+	encodedResult, _ := json.Marshal(result)
+	encodedAction, _ := json.Marshal(action)
+	return HostedSearch{
+		Index: index, ID: id, Name: name, Status: status,
+		Arguments: encodedArguments, Result: encodedResult,
+		Sources: sources, ProviderAction: encodedAction,
+	}, nil
+}
+
+func codexWebSources(kind string, action map[string]any) []WebSource {
+	if kind == "open_page" || kind == "find_in_page" {
+		url, ok := action["url"].(string)
+		if safe, err := safeCitationURL(url); ok && err == nil {
+			return []WebSource{{URL: safe}}
+		}
+		return nil
+	}
+	values, _ := action["sources"].([]any)
+	sources := make([]WebSource, 0, len(values))
+	for _, value := range values {
+		source := jsonObject(value)
+		url, err := safeCitationURL(jsonString(source["url"]))
+		if err != nil {
+			continue
+		}
+		sources = append(sources, WebSource{Title: strings.TrimSpace(jsonString(source["title"])), URL: url})
+	}
+	return sources
 }
 
 func normalizeCodexToolCall(

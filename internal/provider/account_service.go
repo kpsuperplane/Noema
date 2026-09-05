@@ -562,8 +562,18 @@ func (s *AccountService) mutateSecret(
 		return Account{}, err
 	}
 	entry, ok := CatalogEntryFor(account.ProviderKind)
-	if !ok || !supportsAuth(entry, AuthSecretInput) {
+	openAIAccount := isExternalOpenAIAccount(account)
+	if (!ok || !supportsAuth(entry, AuthSecretInput)) && !openAIAccount {
 		return Account{}, ErrAuthMethodMismatch
+	}
+	if openAIAccount {
+		method = AuthExternalManual
+		if configured {
+			metadata, err = metadataWithProfiles(account.Metadata, openAIModelProfiles(), now)
+			if err != nil {
+				return Account{}, err
+			}
+		}
 	}
 	if method == "" {
 		method = account.AuthMethod

@@ -281,10 +281,13 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	citationEnd := 18
 	items, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
-		Provider:   "openrouter",
-		Commentary: "I will inspect it.",
-		Reasoning:  []json.RawMessage{json.RawMessage(`{"type":"reasoning.encrypted","data":"opaque"}`)},
+		Provider: "openrouter", Commentary: "I will inspect it.",
+		ProviderCommentary:        "I will inspect it.\ue200cite\ue202private-reference\ue201",
+		Citations:                 []ProviderCitation{{Title: "Source", URL: "https://example.test", EndIndex: &citationEnd}},
+		UnresolvedCitationMarkers: 1,
+		Reasoning:                 []json.RawMessage{json.RawMessage(`{"type":"reasoning.encrypted","data":"opaque"}`)},
 		Call: ConversationToolCallInput{
 			ProviderRound: 0, OutputIndex: 2, ProviderItemID: "provider-item-1",
 			ProviderCallID: "provider-call-1",
@@ -302,8 +305,14 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	}
 	if items[1].Metadata["stream_id"] != ConversationAssistantStreamID(turn.ID, 0) ||
 		items[1].Metadata["response_index"] != float64(0) ||
-		items[1].Metadata["phase"] != "commentary" {
+		items[1].Metadata["phase"] != "commentary" ||
+		items[1].ProviderContentText == "" || items[1].Metadata["citations"] == nil ||
+		items[1].Metadata["provider_citation_diagnostic"] == nil {
 		t.Fatalf("commentary stream metadata = %#v", items[1].Metadata)
+	}
+	encodedMetadata, _ := json.Marshal(items[1].Metadata)
+	if strings.Contains(string(encodedMetadata), "private-reference") {
+		t.Fatalf("citation diagnostic stored a provider reference: %s", encodedMetadata)
 	}
 	resultInput := ConversationToolResultInput{
 		CallItemID: items[2].ID, Provider: "openrouter", ProviderRound: 0, OutputIndex: 2,
@@ -364,7 +373,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	}
 	final, err := database.CompleteConversationTurnOutput(
 		ctx, turn, "Done", "Done", nil,
-		[]json.RawMessage{json.RawMessage(`{"type":"reasoning.summary","text":"Done"}`)}, 2,
+		[]json.RawMessage{json.RawMessage(`{"type":"reasoning.summary","text":"Done"}`)}, nil, 0, 2,
 		now.Add(8*time.Second),
 	)
 	if err != nil || final.Metadata["provider_round"] != float64(2) ||

@@ -118,6 +118,7 @@ type Chat struct {
 	database   *store.Store
 	openRouter provider.Generator
 	codex      provider.Generator
+	openAI     provider.Generator
 	home       *os.Root
 	memory     *noemamemory.Store
 	turns      chan queuedTurn
@@ -144,10 +145,11 @@ func NewChat(
 	database *store.Store,
 	openRouter provider.Generator,
 	codex provider.Generator,
+	openAI provider.Generator,
 	homeRoot *os.Root,
 	memoryStore *noemamemory.Store,
 ) (*Chat, error) {
-	if database == nil || openRouter == nil || codex == nil || homeRoot == nil || memoryStore == nil {
+	if database == nil || openRouter == nil || codex == nil || openAI == nil || homeRoot == nil || memoryStore == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
 	}
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
@@ -178,7 +180,7 @@ func NewChat(
 	ctx, cancel := context.WithCancel(context.Background())
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, home: homeRoot, memory: memoryStore,
+		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore,
 		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		done:             make(chan struct{}),
 		recoveredActions: recoveredActions,
@@ -381,14 +383,17 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages, err := providerMessagesFromItems(messages)
+	providerMessages, err := providerMessagesFromItems(messages, turn.ID, assignment.ProviderKind)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
 	}
 	memoryContext := c.memoryRootContext()
+	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative)
 	providerMessages = append(
-		developerMessages(runtimeEnvironment(request.conversation, request.location, time.Now()), memoryContext),
+		developerMessages(
+			runtimeEnvironment(request.conversation, request.location, time.Now()), memoryContext, hostedWeb,
+		),
 		providerMessages...,
 	)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
@@ -396,10 +401,12 @@ func (c *Chat) execute(request queuedTurn) {
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
 		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
-		Tools:         chatTools(),
-		ToolTransport: provider.ToolTransportNative,
-		ToolChoice:    provider.ToolChoiceAuto,
-		FastMode:      assignment.FastMode,
+		Tools:           chatTools(),
+		ToolTransport:   provider.ToolTransportNative,
+		ToolChoice:      provider.ToolChoiceAuto,
+		HostedWebSearch: hostedWeb,
+		StoreResponse:   responseIDContinuationProvider(assignment.ProviderKind),
+		FastMode:        assignment.FastMode,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {
 			c.publish(Event{
@@ -412,15 +419,16 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	if len(result.ToolCalls) == 0 {
-		c.finishGeneratedTurn(request.input, turn, assignment, result, 0, result.Usage)
-		return
-	}
-	if len(result.ToolCalls) != 1 || !supportsChatTool(result.ToolCalls[0].Name) {
-		c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
-		return
-	}
 	c.executeChatToolRounds(request, turn, assignment, generator, result, memoryContext)
+}
+
+func hostedWebSearchEnabled(providerKind string, transport provider.ToolTransport) bool {
+	return transport == provider.ToolTransportNative &&
+		(providerKind == "codex" || providerKind == "openai" || providerKind == "openrouter")
+}
+
+func responseIDContinuationProvider(providerKind string) bool {
+	return providerKind == "codex" || providerKind == "openai"
 }
 
 func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
@@ -429,6 +437,8 @@ func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
 		return c.openRouter, nil
 	case "codex":
 		return c.codex, nil
+	case "openai":
+		return c.openAI, nil
 	default:
 		return nil, errors.New("primary Chat provider is unsupported")
 	}

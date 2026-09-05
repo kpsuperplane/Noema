@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -194,8 +195,14 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 	request := queuedTurn{input: SendTurnInput{ConversationID: action.ConversationID},
 		conversation: conversation, location: time.UTC}
 	c.publish(Event{Kind: EventAgentStatus, ConversationID: action.ConversationID, Status: AgentStatusThinking})
+	hostedState, err := c.actionTurnHasHostedState(action)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
 	result, _, err := c.generateChatToolContinuation(
 		request, turn, assignment, generator, 0, "", c.memoryRootContext(),
+		"", hostedState, provider.GenerationMessage{},
 	)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
@@ -210,6 +217,19 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 		return
 	}
 	c.executeChatToolRounds(request, turn, assignment, generator, result, c.memoryRootContext())
+}
+
+func (c *Chat) actionTurnHasHostedState(action store.ActionRequest) (bool, error) {
+	items, err := c.database.ConversationProviderItems(c.ctx, action.ConversationID)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range items {
+		if item.TurnID == action.TurnID && storedHostedSearch(item) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func currentDownloadAction(action store.ActionRequest, conversation store.Conversation) bool {
