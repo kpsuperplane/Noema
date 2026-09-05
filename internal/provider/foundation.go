@@ -23,13 +23,18 @@ const (
 	foundationMessageLimit    = 8 << 20
 	foundationControlTimeout  = 5 * time.Second
 	foundationGenerateTimeout = 120 * time.Second
+	foundationBuildTimeout    = 120 * time.Second
+	foundationContextWindow   = 4096
+	foundationOutputReserve   = 512
+	foundationContextSafety   = 128
 )
 
 // FoundationGenerator uses the shipped Apple Foundation Models bridge.
 type FoundationGenerator struct {
-	accounts   *AccountService
-	bridgePath string
-	supported  bool
+	accounts           *AccountService
+	bridgePath         string
+	developmentPackage string
+	supported          bool
 }
 
 // NewFoundationGenerator creates the local Apple Foundation Models transport.
@@ -37,9 +42,9 @@ func NewFoundationGenerator(accounts *AccountService) (*FoundationGenerator, err
 	if accounts == nil {
 		return nil, errors.New("Foundation Models account service is required")
 	}
-	return &FoundationGenerator{
-		accounts: accounts, bridgePath: discoverFoundationBridge(), supported: runtime.GOOS == "darwin",
-	}, nil
+	bridgePath, developmentPackage := discoverFoundationBridge()
+	return &FoundationGenerator{accounts: accounts, bridgePath: bridgePath,
+		developmentPackage: developmentPackage, supported: runtime.GOOS == "darwin"}, nil
 }
 
 func newFoundationGenerator(accounts *AccountService, path string, supported bool) *FoundationGenerator {
@@ -67,6 +72,19 @@ func (g *FoundationGenerator) CheckAvailability(ctx context.Context) error {
 		return err
 	}
 	return bridge.stop()
+}
+
+// RefreshAccount runs one live availability check and records its result.
+func (g *FoundationGenerator) RefreshAccount(ctx context.Context, now time.Time) (Account, error) {
+	status := StatusAuthenticated
+	var code, message string
+	if err := g.CheckAvailability(ctx); err != nil {
+		status, code, message = StatusUnavailable, FoundationErrorCode(err), err.Error()
+	}
+	if err := g.accounts.persistence.UpdateFoundationAvailability(ctx, status, code, message, now); err != nil {
+		return Account{}, err
+	}
+	return g.accounts.LoadAccount(ctx, foundationAccountID)
 }
 
 // CountTokens asks Apple Foundation Models to count one prompt.
@@ -99,20 +117,34 @@ func FoundationErrorCode(err error) string {
 	return "bridge_launch_failed"
 }
 
-func discoverFoundationBridge() string {
+func discoverFoundationBridge() (string, string) {
+	var sibling string
 	if executable, err := os.Executable(); err == nil {
-		sibling := filepath.Join(filepath.Dir(executable), "noema-foundation-bridge")
+		sibling = filepath.Join(filepath.Dir(executable), "noema-foundation-bridge")
 		if _, err := os.Stat(sibling); err == nil {
-			return sibling
+			return sibling, ""
 		}
 	}
 	_, source, _, _ := runtime.Caller(0)
-	return filepath.Clean(filepath.Join(filepath.Dir(source), "../../crates/noema-providers/apple-foundation-bridge/.build/debug/noema-foundation-bridge"))
+	packagePath := filepath.Clean(filepath.Join(filepath.Dir(source), "../../crates/noema-providers/apple-foundation-bridge"))
+	development := filepath.Join(packagePath, ".build/debug/noema-foundation-bridge")
+	if _, err := os.Stat(filepath.Join(packagePath, "Package.swift")); err == nil {
+		return development, packagePath
+	}
+	if sibling != "" {
+		return sibling, ""
+	}
+	return development, ""
 }
 
 func (g *FoundationGenerator) startBridge(ctx context.Context) (*foundationBridge, error) {
 	if !g.supported {
 		return nil, &foundationError{code: "unsupported_platform", message: "Apple Foundation Models requires macOS"}
+	}
+	if _, err := os.Stat(g.bridgePath); errors.Is(err, os.ErrNotExist) && g.developmentPackage != "" {
+		if err := g.buildDevelopmentBridge(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := os.Stat(g.bridgePath); err != nil {
 		return nil, &foundationError{code: "bridge_missing", message: "Apple Foundation Models bridge is missing"}
@@ -127,18 +159,11 @@ func (g *FoundationGenerator) startBridge(ctx context.Context) (*foundationBridg
 		return nil, foundationLaunchError(err)
 	}
 	command.Stderr = io.Discard
-	configureFoundationProcess(command)
 	if err := command.Start(); err != nil {
 		return nil, foundationLaunchError(err)
 	}
-	process, err := attachFoundationProcess(command)
-	if err != nil {
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		return nil, foundationLaunchError(err)
-	}
 	bridge := &foundationBridge{
-		stdin: stdin, scanner: bufio.NewScanner(stdout), process: process,
+		stdin: stdin, scanner: bufio.NewScanner(stdout), process: newFoundationProcess(command),
 	}
 	bridge.scanner.Buffer(make([]byte, 4096), foundationMessageLimit)
 	response, err := bridge.request(ctx, "handshake", map[string]any{
@@ -167,6 +192,29 @@ func (g *FoundationGenerator) startBridge(ctx context.Context) (*foundationBridg
 		return nil, &foundationError{code: "foundation_models_unavailable", message: reason}
 	}
 	return bridge, nil
+}
+
+func (g *FoundationGenerator) buildDevelopmentBridge(ctx context.Context) error {
+	buildContext, cancel := context.WithTimeout(ctx, foundationBuildTimeout)
+	defer cancel()
+	command := exec.CommandContext(buildContext, "swift", "build")
+	command.Dir = g.developmentPackage
+	command.Stdin = nil
+	output, err := command.CombinedOutput()
+	if err == nil {
+		if _, statErr := os.Stat(g.bridgePath); statErr == nil {
+			return nil
+		}
+		err = errors.New("swift build did not create the Foundation Models bridge")
+	}
+	detail := strings.TrimSpace(string(output))
+	if len(detail) > 4096 {
+		detail = detail[:4096]
+	}
+	if detail != "" {
+		return &foundationError{code: "bridge_build_failed", message: "Apple Foundation Models bridge build failed: " + detail}
+	}
+	return &foundationError{code: "bridge_build_failed", message: "Apple Foundation Models bridge build failed: " + err.Error()}
 }
 
 type foundationSession struct {
@@ -198,9 +246,6 @@ func (s *foundationSession) Generate(
 		}
 		s.bridge = bridge
 	}
-	if len(s.pending) != 0 {
-		return s.continueGeneration(ctx, request.Messages, request.Model, onEvent)
-	}
 	history := request.Messages
 	if len(request.ReplayMessages) != 0 {
 		history = request.ReplayMessages
@@ -215,6 +260,13 @@ func (s *foundationSession) Generate(
 	model := strings.TrimSpace(request.Model)
 	if model == "" {
 		model = "default"
+	}
+	maxOutputTokens := foundationMaxOutputTokens(request.MaxOutputTokens)
+	if err := s.admitContext(ctx, history, definitions, *maxOutputTokens); err != nil {
+		return GenerationResult{}, err
+	}
+	if len(s.pending) != 0 {
+		return s.continueGeneration(ctx, request.Messages, model, onEvent)
 	}
 	conversationID := strings.TrimSpace(request.ConversationID)
 	if conversationID == "" {
@@ -264,7 +316,42 @@ func (s *foundationSession) Generate(
 		}
 	}
 	s.tools = tools
-	return s.generate(ctx, input, request.MaxOutputTokens, model, onEvent)
+	return s.generate(ctx, input, maxOutputTokens, model, onEvent)
+}
+
+func foundationMaxOutputTokens(requested *uint32) *uint32 {
+	value := uint32(foundationOutputReserve)
+	if requested != nil && *requested > 0 && *requested < value {
+		value = *requested
+	}
+	return &value
+}
+
+func (s *foundationSession) admitContext(
+	ctx context.Context, messages []GenerationMessage, tools []foundationToolDefinition, reserve uint32,
+) error {
+	turns, err := foundationReplay(messages)
+	if err != nil {
+		return err
+	}
+	input, err := json.Marshal(map[string]any{"turns": turns, "tools": tools})
+	if err != nil {
+		return errors.New("Foundation Models context is invalid")
+	}
+	response, err := s.bridge.request(ctx, "count_tokens", map[string]any{
+		"type": "count_tokens", "instructions": nil, "input": string(input),
+	}, foundationGenerateTimeout)
+	if err != nil {
+		return err
+	}
+	if response.Type != "token_count" || response.Tokens == nil {
+		return foundationProtocolError("unexpected token count response")
+	}
+	available := uint32(foundationContextWindow-foundationContextSafety) - reserve
+	if *response.Tokens > available {
+		return ErrGenerationRequestTooLarge
+	}
+	return nil
 }
 
 func (s *foundationSession) validateAccount(ctx context.Context, request GenerateRequest) error {
@@ -274,6 +361,12 @@ func (s *foundationSession) validateAccount(ctx context.Context, request Generat
 	account, err := s.generator.accounts.LoadAccount(ctx, request.AccountID)
 	if err != nil {
 		return err
+	}
+	if account.ProviderKind == "foundation_local" && account.IsActive && account.Status != StatusAuthenticated {
+		account, err = s.generator.RefreshAccount(ctx, time.Now())
+		if err != nil {
+			return err
+		}
 	}
 	if account.ProviderKind != "foundation_local" || !account.IsActive || account.Status != StatusAuthenticated {
 		return ErrProviderUnavailable

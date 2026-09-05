@@ -154,16 +154,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
-	foundationStatus := provider.StatusAuthenticated
-	var foundationCode, foundationMessage string
-	if availabilityErr := foundationGenerator.CheckAvailability(ctx); availabilityErr != nil {
-		foundationStatus = provider.StatusUnavailable
-		foundationCode = provider.FoundationErrorCode(availabilityErr)
-		foundationMessage = availabilityErr.Error()
-	}
-	if err := taskStore.UpdateFoundationAvailability(
-		ctx, foundationStatus, foundationCode, foundationMessage, time.Now(),
-	); err != nil {
+	if _, err := foundationGenerator.RefreshAccount(ctx, time.Now()); err != nil {
 		return err
 	}
 	chatRuntime, err := noemaruntime.NewChat(
@@ -207,6 +198,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		mcpService,
 	)
 	resolver.TaskExecution = taskExecution
+	resolver.SetFoundation(foundationGenerator)
 	resolver.SetAdapters(adapterService)
 	graphqlHandler := noemagraphql.NewHandler(resolver)
 	mux := http.NewServeMux()

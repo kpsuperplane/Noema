@@ -228,7 +228,7 @@ func (r *Resolver) selectableModelAccount(
 	if r.ProviderAccounts == nil {
 		return provider.Account{}, errors.New("provider account service is unavailable")
 	}
-	account, err := r.ProviderAccounts.LoadAccount(ctx, accountID)
+	account, err := r.currentModelAccount(ctx, accountID)
 	if err != nil {
 		return provider.Account{}, err
 	}
@@ -240,6 +240,17 @@ func (r *Resolver) selectableModelAccount(
 	}
 	if len(provider.ModelRecommendations(account.ProviderKind)) == 0 {
 		return provider.Account{}, errors.New("provider cannot serve hosted models")
+	}
+	return account, nil
+}
+
+func (r *Resolver) currentModelAccount(ctx context.Context, accountID string) (provider.Account, error) {
+	account, err := r.ProviderAccounts.LoadAccount(ctx, accountID)
+	if err != nil {
+		return provider.Account{}, err
+	}
+	if account.ProviderKind == "foundation_local" && account.Status != provider.StatusAuthenticated && r.Foundation != nil {
+		return r.Foundation.RefreshAccount(ctx, time.Now())
 	}
 	return account, nil
 }

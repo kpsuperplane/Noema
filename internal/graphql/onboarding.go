@@ -47,7 +47,7 @@ func (r *Resolver) onboardingModelSetup(
 	if r.ProviderAccounts == nil {
 		return nil, errors.New("provider account service is unavailable")
 	}
-	account, err := r.ProviderAccounts.LoadAccount(ctx, providerAccountID)
+	account, err := r.currentModelAccount(ctx, providerAccountID)
 	if err != nil {
 		return nil, err
 	}

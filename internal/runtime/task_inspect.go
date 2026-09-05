@@ -914,6 +914,15 @@ func (c *Chat) generateChatToolContinuation(
 	tools = nil
 	transport = provider.ToolTransportNone
 	hostedWeb = false
+	if continuingSession {
+		sessionReplay = messages
+		messages = []provider.GenerationMessage{incremental}
+		if stopReason != "" {
+			messages = append(messages, provider.GenerationMessage{
+				Role: "developer", Content: toolFinalizationInstruction(stopReason),
+			})
+		}
+	}
 	result, err = generate()
 	return result, true, err
 }

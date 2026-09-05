@@ -358,6 +358,21 @@ func (m *memoryAccountPersistence) UpdateProviderCredential(
 	return account, nil
 }
 
+func (m *memoryAccountPersistence) UpdateFoundationAvailability(
+	_ context.Context, status AccountStatus, code string, message string, now time.Time,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	account, exists := m.accounts[foundationAccountID]
+	if !exists {
+		return ErrAccountNotFound
+	}
+	account.Status, account.LastErrorCode, account.LastErrorMessage = status, code, message
+	account.LastCheckedAt, account.UpdatedAt = &now, now
+	m.accounts[foundationAccountID] = account
+	return nil
+}
+
 func (m *memoryAccountPersistence) DeleteProviderAccount(_ context.Context, id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
