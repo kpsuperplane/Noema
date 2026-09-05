@@ -626,7 +626,9 @@ Spreadsheet conversion is connected to Artifact previews.
 The Chat `file.parse` tool uses rooted reads and one isolated parser process.
 The worker has a 30-second limit and a 512 MiB Unix address-space limit.
 Legacy DOC and legacy PPT use bounded Compound File Binary parsers.
-OCR remains a later conversion unit.
+Raster OCR uses optional Tesseract through the same isolated worker.
+Strong document signatures take priority over misleading image extensions.
+The worker enforces the 512 MiB memory limit on Unix and Windows.
 
 ### Browser Web Push and native Apple notification units
 
