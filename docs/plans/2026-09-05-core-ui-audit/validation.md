@@ -59,3 +59,20 @@ Production and inclusive migration ratios remain below 80 percent.
 - Rebuilt the gallery and reviewed all ten views at 1440px and 390px widths.
 - No horizontal overflow or browser page errors occurred during the gallery review.
 - Product UI source remains unchanged. Updated screenshots and recommendations are saved with the mocks.
+
+## Shared task detail refinement
+
+- Removed visible composer labels. Both fields retain accessible names.
+- Inbox and recurring mocks share title, timing, instruction, advanced-setting, and floating-bar components.
+- Schedule and Reschedule use a calendar icon. Instructions use Edit in both views.
+- The floating bar retains status on the left and compact icon controls on the right.
+- Execution controls appear only in that bar. Starting the Inbox mock adds no confirmation step.
+- Advanced settings stay visible after Instructions and before Run history.
+- Inbox controls cover project, agent, and folder. Recurring controls cover missed runs and overlapping runs.
+- Recurrence agent and folder overrides are not advertised. The current update contract does not support them.
+- Inline controls save within the mock and show local feedback. There is no task-settings dialog or inline Save button.
+- The Inbox schedule dialog starts with a single run. Its form does not show overlap controls until repetition is selected.
+- The gallery build passed. Reviewed affected views at 1440px and 390px widths.
+- Checked inline save feedback, scheduling, instruction-dialog opening, direct starting, pause, and accessible composer fields at both widths.
+- Each task detail has one floating bar. No horizontal overflow or browser page errors occurred.
+- Updated screenshots contain sample data only. Product UI source remains unchanged by this unit.

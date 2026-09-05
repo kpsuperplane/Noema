@@ -17,7 +17,7 @@ Cargo now builds only the Tauri desktop shell.
 Apple Foundation Models and its Swift bridge are removed. Setup fills missing model roles and preserves other selections.
 Supporting flows share the approved card, avatar, and theme; see `docs/plans/2026-09-04-supporting-ui/implementation.md`.
 Core UI mocks remain proposals; see `docs/plans/2026-09-05-core-ui-audit/README.md`.
-Keep compact controls visible, inline task metadata, and reuse task cards for recurring history.
+Unify Inbox and recurring detail composition; retain the floating task bar, visible advanced controls, and existing task cards.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.

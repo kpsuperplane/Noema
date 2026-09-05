@@ -12,7 +12,7 @@ Use the numbered links to inspect ten proposals. Select **Phone width** to narro
 At phone screen widths, the gallery uses the available width automatically.
 
 The gallery includes Inbox details, recurring details, scheduling, provider settings, notifications,
-task settings, start/cancel dialogs, task capture, and agent model settings.
+inline advanced settings, start/cancel dialog copy, task capture, and agent model settings.
 Buttons and fields use Astryx. List choices and settings groups reuse the current Noema components.
 
 If the preview server has stopped, run this command from the repository root:
@@ -72,14 +72,16 @@ The mock illustrates layout only. Production must retain server-calculated dates
 
 ### 2. Make task confirmations describe one decision
 
-**Observed in source:** Starting a task opens “Queue this task?” above a “Start task” button.
-The subtitle describes version authorization. Cancelling a task can produce two buttons labeled “Cancel.”
+**Observed during the initial audit:** Start confirmation copy used “Queue this task?” above a “Start task” button.
+The current task bar starts tasks directly. Keep that behavior.
+Cancelling a task can produce two buttons labeled “Cancel.”
 
-**Suggestion:** Use “Start this task?” and name the task in the subtitle.
+**Suggestion:** Where confirmation is required, name the task and the action.
+The standalone start dialog illustrates copy only. Do not insert it into the current start flow.
 Explain: “Noema will plan this task and add it to the queue.”
 For cancellation, use **Keep task** and **Cancel task**.
 Describe retained history without promising that every external operation stops immediately.
-Keep the current confirmation points. Do not add confirmations to routine actions such as Run now.
+Keep the current confirmation points. Do not add confirmations to Start task or Run now.
 
 **Mocks:** [Start task](http://localhost:8766/#start), [Cancel task](http://localhost:8766/#cancel).
 **Source:** [TaskActionDialog](../../../apps/web/src/components/tasks/TaskActionDialog.tsx), [taskActionModel](../../../apps/web/src/components/tasks/taskActionModel.ts).
@@ -89,8 +91,12 @@ Keep the current confirmation points. Do not add confirmations to routine action
 **Observed in source:** Tasks without runs use “No agent run yet” and “No output yet.”
 These describe missing system activity instead of the person's next action.
 
-**Suggestion:** Keep the instructions prominent. Show “Ready when you are” beside Start task and Schedule.
-Put Inbox status, provenance, and Settings within the document body, below its title.
+**Suggestion:** Keep the instructions prominent. Put Inbox status and provenance within the document body, below its title.
+Use the same timing summary below the title for Inbox and recurring tasks.
+Show Schedule for an unscheduled task and Reschedule with a calendar icon for a scheduled task.
+Keep Start task, Run now, and lifecycle actions in the existing floating task bar.
+Show “Ready when you are” in that bar. Do not duplicate execution controls in the document.
+Expose Advanced settings directly below Instructions, before Run history. Remove the task Settings button and dialog.
 Remove the separate detail header. Show the brief revision information directly below the instructions.
 Retain workspace files and transcript access when they contain useful content.
 The cropped mock shows the unstarted state, not a replacement for completed task details.
@@ -120,7 +126,9 @@ Retain direct saving for inline choices. Use one local saving, saved, or error s
 **Observed in source:** Linked occurrence rows repeat “Open task.” They do not show task outcomes.
 Schedule metadata and description labels use several small type sizes and different left offsets.
 
-**Suggestion:** Emphasize the next date in one compact green summary.
+**Suggestion:** Emphasize the next date in the same compact timing summary used by Inbox tasks.
+Label the calendar action Reschedule. Use Edit beside the Instructions heading in both views.
+Keep execution and pause controls in the shared floating task bar.
 Align instructions and history to one left edge. Use the existing body and heading tokens.
 Use **Run history** instead of **Occurrences**. Reuse the existing task list item cards and TaskStatusBadge.
 Keep the same title, timestamp, preview, and status arrangement. Show the task outcome where available.
@@ -173,10 +181,14 @@ Use 16px body spacing, 12px field groups, 6px label gaps, and 8px action gaps.
 Use standard 32px buttons. Set an explicit primary variant on Save.
 Pair equal-width actions with the primary action on the right.
 Retain mobile drawers. Keep actions reachable when forms or validation messages become long.
-Show the task agent and working folder directly in Task settings. These two fields do not need an Advanced disclosure.
+Move routine task settings into a visible Advanced settings section on the task page.
+Use direct saving for inline controls, with local saving, saved, and error feedback.
+Inbox fields are Project, Task agent, and Working folder. Recurring fields are missed-run and overlap behavior.
+Save selectors on selection. Save a changed folder on blur or Enter; retain invalid drafts and show a field error.
 Focus the first input on open. Keep draft, saving, stale-version, and field-error behavior intact.
 
-**Mock:** [Task settings](http://localhost:8766/#task-settings). The gallery also opens actual modal and mobile drawer previews.
+**Mocks:** [Inline advanced settings](http://localhost:8766/#task-settings), [Schedule dialog](http://localhost:8766/#schedule).
+The gallery also opens modal and mobile drawer previews for bounded edits.
 **Source:** [TaskSettingsDialog](../../../apps/web/src/components/tasks/TaskSettingsDialog.tsx), [SettingsEditDialog](../../../apps/web/src/components/settings/SettingsEditDialog.tsx), [ResponsiveDialog](../../../apps/web/src/components/ResponsiveDialog.tsx).
 
 ### 9. Make “save for later” visible during task capture
@@ -184,7 +196,8 @@ Focus the first input on open. Keep draft, saving, stale-version, and field-erro
 **Observed in the app and source:** Add to Inbox sits inside the Run Now split-button menu.
 The project, schedule, agent, folder, and Markdown controls are all icon-only.
 
-**Suggestion:** Preserve the current document editor. Refine its footer.
+**Suggestion:** Preserve the current document editor. Remove the visible Task title and Instructions labels.
+Keep accessible names on both fields. Refine the footer.
 Show Add to Inbox beside Run now. Give project and scheduling controls visible labels.
 Place the Advanced section above the action row, at full width.
 Keep agent, folder, and source controls within that section. Show selected non-default values when they matter.
@@ -193,6 +206,24 @@ Do not turn capture into a multi-step form.
 
 **Mock:** [New task](http://localhost:8766/#capture).
 **Source:** [CaptureTaskDetail](../../../apps/web/src/components/tasks/CaptureTaskDetail.tsx).
+
+## Shared task detail implementation direction
+
+Reuse TaskBody, TaskContextCard, TaskActions, and TaskScheduleSummary as the existing foundations.
+Inbox and recurrence views should share title, timing, instruction editing, advanced settings, and floating-bar composition.
+Keep the bar's existing docking, status, accessibility, and response behavior when applying these proposals.
+Preserve its compact status on the left and icon controls on the right.
+Place Advanced settings before Run history so a long history cannot push the controls out of reach.
+The sample bar represents that existing surface; it is not a second toolbar.
+Use one Edit label beside Instructions. Reuse the existing task cards for run history.
+Share field rendering and save feedback where semantics match. Keep task and recurrence commands at their existing authorities.
+Preserve available-action checks, revision checks, stale-draft handling, and lifecycle restrictions.
+Do not introduce a generic task settings service or a second command path.
+
+Current recurrence reads do not expose project assignment. Recurrence updates do not support agent or folder overrides.
+The mocks therefore show supported schedule policies for recurrences, rather than imply full field parity.
+Adding these fields would require a separate product and data-contract decision.
+The shared mock components demonstrate composition, not a production infrastructure change.
 
 ## Smaller copy and finish changes
 
