@@ -183,6 +183,21 @@ func TestDSTRepeatedMinuteHasOneLocalSlot(t *testing.T) {
 	}
 }
 
+func TestPreviewOmitsRepeatedLocalMinute(t *testing.T) {
+	t.Parallel()
+	values, err := Preview("30 1 * * *", "America/New_York", mustInstant(t, "2026-11-01T00:00:00Z"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInstants(t, values, []string{
+		"2026-11-01T05:30:00Z",
+		"2026-11-02T06:30:00Z",
+		"2026-11-03T06:30:00Z",
+		"2026-11-04T06:30:00Z",
+		"2026-11-05T06:30:00Z",
+	})
+}
+
 func mustInstant(t *testing.T, value string) time.Time {
 	t.Helper()
 	instant, err := ParseInstant(value)

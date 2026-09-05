@@ -120,6 +120,19 @@ The audit Project and Task remain visible on the requested instance.
 This unit changes no production code. Script syntax, evidence JSON, links, and Git whitespace passed focused checks.
 The unchanged server sources reuse the Go test and vet results recorded above.
 
+## Scheduling findings
+
+The live fall-back preview listed one local minute twice. Preview now uses the existing local-minute key to omit duplicates.
+The focused `CGO_ENABLED=0 go test ./internal/schedule` check passed.
+Broad `CGO_ENABLED=0 go test ./cmd/... ./internal/...` and `CGO_ENABLED=0 go vet ./cmd/... ./internal/...` passed on this patch.
+The live preview now skips the missing spring minute and lists the repeated fall minute once.
+The patch adds five net production lines and 15 regression-test lines. Generated GraphQL is unchanged.
+Authored and inclusive Go totals remain below the migration limits: 78,209 and 182,846 lines.
+
+A separate live check found that Run now leaves its scheduled Task in Inbox.
+The scheduler marks schedules released, but the Task worker only claims queued runs.
+The execution handoff remains under repair. This case is not a pass.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -206,7 +219,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-14 | Not run | Controlled setup pending. | — |
 | RUN-15 | Not run | Controlled setup pending. | — |
 | TIME-01 | Not run | Controlled setup pending. | — |
-| TIME-02 | Not run | Controlled setup pending. | — |
+| TIME-02 | Fail | Reschedule and unschedule work. Run now releases timing but does not queue execution. Fix in progress. | — |
 | TIME-03 | Not run | Controlled setup pending. | — |
 | TIME-04 | Not run | Controlled setup pending. | — |
 | TIME-05 | Not run | Controlled setup pending. | — |
@@ -215,7 +228,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-08 | Not run | Controlled setup pending. | — |
 | TIME-09 | Not run | Controlled setup pending. | — |
 | TIME-10 | Not run | Controlled setup pending. | — |
-| TIME-11 | Not run | Controlled setup pending. | — |
+| TIME-11 | Partial | Fixed duplicate fall-back previews. Spring and fall preview assertions pass. Actual scheduled transition checks remain pending. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
 | PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
 | PROJECT-02 | Partial | Competing Project saves reject stale content. The current document survives reload and restore. Browser draft recovery remains pending. | — |

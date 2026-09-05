@@ -139,7 +139,7 @@ func NextAtOrAfter(expression, zone string, start time.Time) (time.Time, error) 
 	return utcSecond(next), nil
 }
 
-// Preview returns five cron matches, including a matching start instant.
+// Preview returns five distinct local-minute matches, including a matching start.
 func Preview(expression, zone string, start time.Time) ([]time.Time, error) {
 	parsed, err := parseCron(expression, zone)
 	if err != nil {
@@ -147,14 +147,19 @@ func Preview(expression, zone string, start time.Time) ([]time.Time, error) {
 	}
 	start = utcSecond(start)
 	values := make([]time.Time, 0, previewCount)
+	seen := make(map[string]bool, previewCount)
 	cursor := start
-	for range previewCount {
+	for len(values) < previewCount {
 		cursor = parsed.NextAtOrAfter(cursor)
 		if cursor.IsZero() {
 			return nil, invalid("cron expression", "has no future match")
 		}
 		cursor = utcSecond(cursor)
-		values = append(values, cursor)
+		slot, _ := LocalSlot(cursor, zone) // parseCron already validated the zone.
+		if !seen[slot] {
+			values = append(values, cursor)
+			seen[slot] = true
+		}
 		cursor = cursor.Add(time.Second)
 	}
 	return values, nil

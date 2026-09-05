@@ -25,7 +25,7 @@ native SwiftUI iPhone and iPad client. New work should be a small vertical
 slice or a net-negative reduction.
 
 The Go server source replacement is complete. The server links no Rust or CGo.
-The user verification run is active; see `docs/validation/go-server-user-verification-results.md`. Checks now use noema.kevinpei.com. The live calculation Task completed planning, execution, and review. Full transcript history remains pending.
+The user verification run is active; see `docs/validation/go-server-user-verification-results.md`. Checks now use noema.kevinpei.com. The live calculation Task completed planning, execution, and review. Scheduling audit found a missing queue step after schedule release. The fix is in progress.
 API model tools include current account labels. Account renaming preserves tokens. Mutation replies retain OAuth metadata. Real device and consent variants remain pending.
 
 The Go server uses a fresh home. It does not open or convert a Rust home.
