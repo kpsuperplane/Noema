@@ -74,7 +74,16 @@ func (g *OpenAIGenerator) Generate(
 		!account.IsActive || account.Status != StatusAuthenticated {
 		return GenerationResult{}, ErrAuthenticationRejected
 	}
-	secret, err := g.accounts.LoadSecret(ctx, request.AccountID)
+	if request.ExpectedCredentialRevision != nil &&
+		account.Metadata.CredentialRevision() != *request.ExpectedCredentialRevision {
+		return GenerationResult{}, ErrAccountConflict
+	}
+	var secret Secret
+	if request.ExpectedCredentialRevision == nil {
+		secret, err = g.accounts.LoadSecret(ctx, request.AccountID)
+	} else {
+		secret, err = g.accounts.LoadSecretAtRevision(ctx, request.AccountID, *request.ExpectedCredentialRevision)
+	}
 	if err != nil {
 		return GenerationResult{}, err
 	}

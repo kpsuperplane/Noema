@@ -250,9 +250,20 @@ func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, documen
 		if gate, err := r.Store.TaskGate(ctx, task.ActiveGateID); err == nil {
 			result.ActiveGate = taskGateModel(gate)
 			result.ValidActions = validTaskActions(task, &gate)
+			result.Attention = taskAttentionModel(taskCardFromDetail(result), &gate)
 		}
 	}
 	return result
+}
+
+func taskCardFromDetail(value *model.TaskDetail) *model.TaskCard {
+	return &model.TaskCard{TaskID: value.TaskID, Workspace: personalWorkspace(), Project: value.Project,
+		Title: value.Title, TaskDocumentPreview: taskDocumentPreview(value.TaskDocument), Stage: value.Stage,
+		Revision: value.Revision, Generation: value.Generation, ExecutorAgentID: value.ExecutorAgentID,
+		ExecutorBackend: value.ExecutorBackend, CwdOverride: value.CwdOverride, EffectiveCwd: value.EffectiveCwd,
+		EffectiveCwdSource: value.EffectiveCwdSource, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		Schedule: value.Schedule, CompletedAt: value.CompletedAt, CurrentRun: value.CurrentRun,
+		ActiveGate: value.ActiveGate, ValidActions: append([]model.ValidTaskAction(nil), value.ValidActions...)}
 }
 
 func (r *Resolver) taskWorkspaceManifest(taskID string) ([]*model.TaskWorkspaceFile, bool) {

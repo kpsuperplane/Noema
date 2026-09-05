@@ -15,13 +15,6 @@ func (r *Resolver) localStatus(ctx context.Context) (*model.LocalStatus, error) 
 	return &model.LocalStatus{PrimaryAgentDisplayName: agent.DisplayName}, nil
 }
 
-func localModelSetup() *model.LocalModelSetup {
-	return &model.LocalModelSetup{
-		RuntimeStatus: model.LocalModelRuntimeStatusInactive,
-		IsReady:       false,
-	}
-}
-
 func localModelEvents(ctx context.Context) <-chan *model.LocalModelEvent {
 	events := make(chan *model.LocalModelEvent)
 	go func() {

@@ -77,12 +77,19 @@ func (g *CodexGenerator) Generate(
 	if err != nil {
 		return GenerationResult{}, err
 	}
+	if request.ExpectedCredentialRevision != nil &&
+		account.Metadata.CredentialRevision() != *request.ExpectedCredentialRevision {
+		return GenerationResult{}, ErrAccountConflict
+	}
 	clientVersion := codexClientVersion(account.Metadata)
 	tokens, err := g.accounts.RefreshCodexTokens(ctx, nil, time.Now(), g.refreshCodexTokens)
 	if err != nil {
 		if errors.Is(err, ErrAuthenticationRejected) {
 			return GenerationResult{}, ErrAuthenticationRejected
 		}
+		return GenerationResult{}, err
+	}
+	if err := g.validateCredentialRevision(ctx, request.ExpectedCredentialRevision); err != nil {
 		return GenerationResult{}, err
 	}
 	response, accessDigest, err := g.sendCodexGeneration(ctx, body, request, clientVersion, tokens)
@@ -110,6 +117,9 @@ func (g *CodexGenerator) Generate(
 			}
 			return GenerationResult{}, ErrProviderUnavailable
 		}
+		if err := g.validateCredentialRevision(ctx, request.ExpectedCredentialRevision); err != nil {
+			return GenerationResult{}, err
+		}
 		response, _, err = g.sendCodexGeneration(ctx, body, request, clientVersion, tokens)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -136,6 +146,20 @@ func (g *CodexGenerator) Generate(
 		return GenerationResult{}, errors.New("Codex returned an invalid generation stream")
 	}
 	return normalizeCodexGeneration(request, parsed, toolNames)
+}
+
+func (g *CodexGenerator) validateCredentialRevision(ctx context.Context, expected *uint64) error {
+	if expected == nil {
+		return nil
+	}
+	account, err := g.accounts.LoadAccount(ctx, codexGenerationAccountID)
+	if err != nil {
+		return err
+	}
+	if account.Metadata.CredentialRevision() != *expected {
+		return ErrAccountConflict
+	}
+	return nil
 }
 
 func (g *CodexGenerator) sendCodexGeneration(
