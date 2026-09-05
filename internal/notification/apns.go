@@ -210,7 +210,7 @@ func (s *Service) sendAPNS(ctx context.Context, value store.APNSDelivery) (store
 	if value.Notification.TaskID != nil {
 		payload["taskId"] = *value.Notification.TaskID
 	}
-	body, err := json.Marshal(payload)
+	body, err := marshalAPNSPayload(payload)
 	if err != nil {
 		return store.APNSFailed, "invalid_payload", "", credential.Revision
 	}
@@ -248,6 +248,20 @@ func (s *Service) sendAPNS(ctx context.Context, value store.APNSDelivery) (store
 	}
 	outcome, code := apnsResponseOutcome(response.StatusCode, responseBody)
 	return outcome, code, apnsID, credential.Revision
+}
+
+func marshalAPNSPayload(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	body := bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'})
+	if len(body) > 4096 {
+		return nil, errors.New("APNs payload exceeds 4096 bytes")
+	}
+	return body, nil
 }
 
 func apnsResponseOutcome(status int, body []byte) (store.APNSDeliveryOutcome, string) {

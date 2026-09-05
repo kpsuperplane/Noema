@@ -164,22 +164,25 @@ func (s *Service) Presence(ctx context.Context, session [32]byte, id string) (<-
 
 // QueueTaskAttention queues one bounded future Task-attention notification.
 func (s *Service) QueueTaskAttention(
-	ctx context.Context, eventKey, title, body, taskPath string,
+	ctx context.Context, eventKey, title, body, taskID, taskPath string,
 ) error {
 	value := store.WebPushNotification{EventKey: eventKey,
 		Title: notificationText(title), Body: notificationText(body), NavigatePath: taskPath,
 		Urgency: "high", TTLSeconds: 86400}
-	if !s.Available() {
-		return nil
+	now := time.Now()
+	var webErr error
+	if s.Available() {
+		webErr = s.database.QueueWebPushNotification(ctx, value, nil, now)
 	}
-	if err := s.database.QueueWebPushNotification(ctx, value, nil, time.Now()); err != nil {
-		return err
-	}
+	apnsErr := s.database.QueueAPNSNotification(ctx, store.APNSNotification{
+		EventKey: eventKey, Title: value.Title, Body: value.Body, Route: "task",
+		TaskID: &taskID, Urgency: "high", TTLSeconds: 86400,
+	}, nil, now)
 	select {
 	case s.wake <- struct{}{}:
 	default:
 	}
-	return nil
+	return errors.Join(webErr, apnsErr)
 }
 
 // Run projects primary Chat final answers and delivers due notifications.

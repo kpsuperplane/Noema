@@ -114,6 +114,40 @@ func TestNativeNotificationOwnershipDeliveryAndRevocation(t *testing.T) {
 	}
 }
 
+func TestProviderRemovalFencesStaleAPNSCompletion(t *testing.T) {
+	database := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	_, _ = seedNativeFamily(t, database, testNativeClient, "9", now.Unix())
+	if err := database.RegisterClientNotifications(ctx, testNativeClient, []byte("provider-race-token"), APNSProduction, now); err != nil {
+		t.Fatal(err)
+	}
+	value := APNSNotification{EventKey: "chat-turn:provider-race", Title: "Noema", Body: "Done", Route: "chat", Urgency: "normal", TTLSeconds: 3600}
+	if err := database.QueueAPNSNotification(ctx, value, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := database.ClaimDueAPNSDelivery(ctx, now.Add(time.Minute))
+	if err != nil || claimed == nil {
+		t.Fatalf("claimed delivery = %#v, %v", claimed, err)
+	}
+	if err := database.FailPendingAPNS(ctx, "provider_unconfigured", now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishAPNSDelivery(ctx, *claimed, APNSDelivered, "", "apns-stale", now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishAPNSDelivery(ctx, *claimed, APNSInvalid, "", "", now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var status, code string
+	if err := database.db.QueryRow("SELECT status, last_error_code FROM apns_deliveries WHERE client_id=? AND event_key=?", testNativeClient, value.EventKey).Scan(&status, &code); err != nil || status != "failed" || code != "provider_unconfigured" {
+		t.Fatalf("terminal delivery = %q %q, %v", status, code, err)
+	}
+	if registration, err := database.ClientNotificationRegistration(ctx, testNativeClient); err != nil || registration == nil {
+		t.Fatalf("stale invalidation removed registration = %#v, %v", registration, err)
+	}
+}
+
 func TestLiveActivityTokensStayClientOwnedAndDisableCleanly(t *testing.T) {
 	database := openTestStore(t)
 	ctx := context.Background()

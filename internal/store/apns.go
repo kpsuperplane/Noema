@@ -205,8 +205,10 @@ func (s *Store) FinishAPNSDelivery(ctx context.Context, value APNSDelivery, outc
 	}
 	if outcome == APNSInvalid {
 		_, err := s.db.ExecContext(ctx, `DELETE FROM client_notification_registrations
-WHERE client_id = ? AND revision = ? AND device_token = ?`, value.Registration.ClientID,
-			value.Registration.Revision, value.Registration.DeviceToken)
+WHERE client_id = ? AND revision = ? AND device_token = ? AND EXISTS (
+SELECT 1 FROM apns_deliveries WHERE client_id = ? AND event_key = ? AND status = 'pending')`,
+			value.Registration.ClientID, value.Registration.Revision, value.Registration.DeviceToken,
+			value.Registration.ClientID, value.Notification.EventKey)
 		return err
 	}
 	status, available := string(outcome), now
@@ -228,6 +230,7 @@ WHERE client_id = ? AND revision = ? AND device_token = ?`, value.Registration.C
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE apns_deliveries SET status = ?, available_at_ms = ?,
 last_error_code = NULLIF(?, ''), apns_id = COALESCE(NULLIF(?, ''), apns_id), updated_at_ms = ? WHERE client_id = ? AND event_key = ?
+AND status = 'pending'
 AND EXISTS (SELECT 1 FROM client_notification_registrations WHERE client_id = ? AND revision = ? AND device_token = ?)`,
 		status, millis(available), code, apnsID, millis(now), value.Registration.ClientID,
 		value.Notification.EventKey, value.Registration.ClientID, value.Registration.Revision, value.Registration.DeviceToken)
@@ -418,6 +421,8 @@ func validateAPNSNotification(value APNSNotification) error {
 	if strings.TrimSpace(value.EventKey) == "" || len(value.EventKey) > 256 ||
 		strings.TrimSpace(value.Title) == "" || len(value.Title) > 600 || len(value.Body) > 2048 ||
 		(value.Route != "chat" && value.Route != "task") ||
+		(value.Route == "chat" && value.TaskID != nil) ||
+		(value.Route == "task" && (value.TaskID == nil || !validTaskID(*value.TaskID))) ||
 		(value.Urgency != "normal" && value.Urgency != "high") || value.TTLSeconds < 0 || value.TTLSeconds > 604800 {
 		return errors.New("invalid APNs notification")
 	}
