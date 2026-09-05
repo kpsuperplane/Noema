@@ -1,6 +1,4 @@
 use ring::digest::{SHA256, digest};
-#[cfg(feature = "transport")]
-use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::Value;
 
 use crate::McpDiscoveredTool;
@@ -47,13 +45,6 @@ pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
-}
-
-#[cfg(feature = "transport")]
-pub(crate) fn random_hex_id() -> Result<String, ring::error::Unspecified> {
-    let mut bytes = [0_u8; 16];
-    SystemRandom::new().fill(&mut bytes)?;
-    Ok(hex_bytes(&bytes))
 }
 
 #[cfg(test)]

@@ -1,8 +1,6 @@
-#[cfg(any(feature = "transport", test))]
 use std::sync::Arc;
 
 use noema_capabilities::OperationToken;
-#[cfg(any(feature = "transport", test))]
 use noema_capabilities::{
     CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
     CapabilityBindingSourceError, CapabilityCatalogBuilder, CapabilityCatalogResult,
@@ -13,9 +11,6 @@ use noema_capabilities::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "transport")]
-use crate::McpRepositoryErrorKind;
-#[cfg(any(feature = "transport", test))]
 use crate::{
     McpControlPlaneServer, McpControlPlaneTool, McpServerAuthStatus, McpServerHealthStatus,
     McpToolPolicyRecord,
@@ -32,7 +27,6 @@ pub(crate) const CONNECT_SERVICE_TOOL: &str = "mcp.connect_service";
 const CONNECT_SERVICE_TOKEN: &str = "mcp-setup-v1:connect-service";
 const MAX_SERVICE_URL_BYTES: usize = 4_096;
 
-#[cfg(any(feature = "transport", test))]
 fn connect_service_binding() -> Result<CapabilityBinding, CapabilityBindingSourceError> {
     let spec = ToolSpec::new(
         CONNECT_SERVICE_TOOL,
@@ -74,11 +68,6 @@ fn connect_service_binding() -> Result<CapabilityBinding, CapabilityBindingSourc
     ))
 }
 
-#[cfg(feature = "transport")]
-pub(crate) fn is_connect_service_invocation(operation: &ToolName, token: &OperationToken) -> bool {
-    operation.as_str() == CONNECT_SERVICE_TOOL && token.as_str() == CONNECT_SERVICE_TOKEN
-}
-
 /// Immutable lookup authority captured when an MCP binding is advertised.
 ///
 /// The token contains identifiers and reviewed revisions only. Connection
@@ -95,7 +84,6 @@ pub(crate) struct McpOperationAuthority {
 }
 
 impl McpOperationAuthority {
-    #[cfg(any(feature = "transport", test))]
     fn capture(
         canonical_name: String,
         server: &McpControlPlaneServer,
@@ -126,21 +114,6 @@ impl McpOperationAuthority {
             .map_err(|_| noema_capabilities::CapabilityError::UnknownOperation)
     }
 
-    #[cfg(feature = "transport")]
-    pub(crate) fn canonical_name(&self) -> &str {
-        &self.canonical_name
-    }
-
-    #[cfg(feature = "transport")]
-    pub(crate) fn server_id(&self) -> &str {
-        &self.server_id
-    }
-
-    #[cfg(feature = "transport")]
-    pub(crate) fn tool_id(&self) -> &str {
-        &self.tool_id
-    }
-
     pub(crate) fn matches(
         &self,
         server: &crate::McpServerRecord,
@@ -158,7 +131,6 @@ impl McpOperationAuthority {
     }
 }
 
-#[cfg(any(feature = "transport", test))]
 pub(crate) fn catalog_from_servers(
     servers: &[McpControlPlaneServer],
 ) -> Result<CapabilityCatalogResult, CapabilityBindingSourceError> {
@@ -265,7 +237,6 @@ pub(crate) fn catalog_from_servers(
     })
 }
 
-#[cfg(any(feature = "transport", test))]
 fn enablement_binding(
     disabled_name: &ToolName,
     disabled_description: &str,
@@ -311,7 +282,6 @@ fn enablement_binding(
     .with_service_context(service_context))
 }
 
-#[cfg(any(feature = "transport", test))]
 fn compile_mcp_input_check(
     schema: &serde_json::Value,
 ) -> Result<Arc<dyn ToolInputCheck>, CapabilityBindingSourceError> {
@@ -326,7 +296,6 @@ fn compile_mcp_input_check(
     }))
 }
 
-#[cfg(any(feature = "transport", test))]
 fn mcp_schema_draft(
     schema: &serde_json::Value,
 ) -> Result<jsonschema::Draft, CapabilityBindingSourceError> {
@@ -375,7 +344,6 @@ fn mcp_schema_draft(
     }
 }
 
-#[cfg(any(feature = "transport", test))]
 fn collect_schema_keywords<'a>(
     schema: &'a serde_json::Value,
     found: &mut std::collections::BTreeSet<&'a str>,
@@ -499,14 +467,12 @@ fn collect_schema_keywords<'a>(
     Ok(())
 }
 
-#[cfg(any(feature = "transport", test))]
 pub(crate) fn tool_behavior(policy: &McpToolPolicyRecord) -> CapabilityToolBehavior {
     policy
         .behavior()
         .expect("catalog eligibility requires complete behavior")
 }
 
-#[cfg(any(feature = "transport", test))]
 pub(crate) fn execution_decision(
     server: &crate::McpServerRecord,
     policy: &McpToolPolicyRecord,
@@ -523,18 +489,6 @@ pub(crate) fn execution_decision(
         },
         tool_behavior(policy),
     )
-}
-
-#[cfg(feature = "transport")]
-pub(crate) fn map_repository_error(
-    error: crate::McpRepositoryError,
-) -> CapabilityBindingSourceError {
-    match error.kind() {
-        McpRepositoryErrorKind::Unavailable => CapabilityBindingSourceError::Unavailable,
-        McpRepositoryErrorKind::NotFound
-        | McpRepositoryErrorKind::Conflict
-        | McpRepositoryErrorKind::Invariant => CapabilityBindingSourceError::Invalid,
-    }
 }
 
 #[cfg(test)]

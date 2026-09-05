@@ -2,24 +2,7 @@
 
 use serde_json::{Map, Value};
 
-#[cfg(feature = "transport")]
-pub(crate) const MAX_DISCOVERED_TOOLS: usize = 128;
-#[cfg(feature = "transport")]
-pub(crate) const MAX_TOOL_NAME_BYTES: usize = 256;
-#[cfg(feature = "transport")]
-pub(crate) const MAX_TOOL_DESCRIPTION_BYTES: usize = 8 * 1024;
-#[cfg(feature = "transport")]
-pub(crate) const MAX_PAGINATION_CURSOR_BYTES: usize = 8 * 1024;
-#[cfg(any(feature = "transport", test))]
 pub(crate) const MAX_SCHEMA_BYTES: usize = 256 * 1024;
-#[cfg(feature = "transport")]
-pub(crate) const MAX_ANNOTATIONS_BYTES: usize = 16 * 1024;
-#[cfg(feature = "transport")]
-pub(crate) const MAX_TOOL_RESULT_BYTES: usize = 1024 * 1024;
-#[cfg(feature = "transport")]
-pub(crate) const MAX_WIRE_FRAME_BYTES: usize = 32 * 1024 * 1024;
-pub(crate) const MAX_DIAGNOSTIC_TEXT_BYTES: usize = 2 * 1024;
-pub(crate) const MAX_DIAGNOSTIC_RAW_BYTES: usize = 16 * 1024;
 
 const MAX_JSON_DEPTH: usize = 64;
 const MAX_JSON_NODES: usize = 16_384;
@@ -35,19 +18,6 @@ pub(crate) enum JsonLimitViolation {
     StringBytes,
 }
 
-#[cfg(feature = "transport")]
-impl JsonLimitViolation {
-    pub(crate) const fn description(self) -> &'static str {
-        match self {
-            Self::EncodedBytes => "encoded byte limit",
-            Self::Depth => "nesting depth limit",
-            Self::Nodes => "JSON node limit",
-            Self::CollectionItems => "collection item limit",
-            Self::StringBytes => "string byte limit",
-        }
-    }
-}
-
 pub(crate) fn json_within_limits(value: &Value, max_bytes: usize) -> bool {
     json_limit_violation(value, max_bytes).is_none()
 }
@@ -60,33 +30,6 @@ pub(crate) fn json_limit_violation(value: &Value, max_bytes: usize) -> Option<Js
     visit_json(value, 0, &mut budget).err()
 }
 
-#[cfg(feature = "transport")]
-pub(crate) fn json_object_limit_violation(
-    value: &Map<String, Value>,
-    max_bytes: usize,
-) -> Option<JsonLimitViolation> {
-    let mut budget = JsonBudget {
-        bytes_left: max_bytes,
-        nodes_left: MAX_JSON_NODES,
-    };
-    visit_object(value, 0, &mut budget).err()
-}
-
-pub(crate) fn bounded_diagnostic_text(value: impl AsRef<str>) -> String {
-    let value = value.as_ref();
-    if value.len() <= MAX_DIAGNOSTIC_TEXT_BYTES {
-        return value.to_string();
-    }
-    let mut end = MAX_DIAGNOSTIC_TEXT_BYTES.saturating_sub(3);
-    while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    let mut bounded = value[..end].to_string();
-    bounded.push_str("...");
-    bounded
-}
-
-#[cfg(any(feature = "transport", test))]
 pub(crate) fn bounded_provider_schema(schema: &Value) -> Option<Value> {
     json_within_limits(schema, MAX_SCHEMA_BYTES).then(|| schema.clone())
 }

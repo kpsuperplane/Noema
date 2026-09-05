@@ -1,6 +1,3 @@
-#[cfg(feature = "transport")]
-use std::collections::BTreeMap;
-
 use serde_json::json;
 
 use crate::{
@@ -8,17 +5,6 @@ use crate::{
     McpServerHealthStatus, McpServerRecord, McpToolHint, McpToolHintSource, McpToolPolicyRecord,
     McpToolPolicyStatus, McpToolRecord, McpTransportKind, McpUnsafeActionPolicy,
 };
-#[cfg(feature = "transport")]
-use crate::{McpDiscoveredTool, McpSecretMaterial};
-
-#[cfg(feature = "transport")]
-pub(crate) fn secret_material(value: &str) -> McpSecretMaterial {
-    McpSecretMaterial {
-        env: BTreeMap::from([("TOKEN".to_string(), value.to_string())]),
-        ..McpSecretMaterial::default()
-    }
-}
-
 pub(crate) fn server_record(
     id: &str,
     transport_kind: McpTransportKind,
@@ -45,23 +31,6 @@ pub(crate) fn server_record(
         defaulted_tool_count: 0,
         disabled_tool_count: 0,
         authority_generation: "generation:v1".to_string(),
-    }
-}
-
-#[cfg(feature = "transport")]
-pub(crate) fn discovered_tool() -> McpDiscoveredTool {
-    McpDiscoveredTool {
-        name: "read".to_string(),
-        description: Some("Read documents".to_string()),
-        input_schema: json!({"type": "object"}),
-        output_schema: Some(json!({"type": "object"})),
-        annotations: json!({
-            "readOnlyHint": true,
-            "idempotentHint": true,
-            "destructiveHint": false,
-            "openWorldHint": false
-        }),
-        metadata_fingerprint: "ignored".to_string(),
     }
 }
 
