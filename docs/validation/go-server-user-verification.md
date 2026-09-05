@@ -191,20 +191,7 @@ Hosted search applies only where the selected provider and model support it.
 | MODEL-07 | P1 | Trigger a rate limit, timeout, malformed stream, or abrupt stream end. | Noema reports a bounded failure or supported recovery. Partial output does not become false completion. |
 | MODEL-08 | P2 | Inspect provider reasoning, usage, and run diagnostics where exposed. | Reported data belongs to the correct turn or run. Unsupported data is not fabricated. |
 
-## 6. Local models and retired provider selections
-
-| ID | Priority | Action or setup | Expected user result |
-| --- | --- | --- | --- |
-| LOCAL-01 | P1 | Discover compatible local models during setup and in Settings. | Compatibility and required download are clear. Unsupported models are not presented as ready. |
-| LOCAL-02 | P1 | Install a recommended GGUF model and activate it. | Progress reaches a verified installation. Chat uses the selected local model. |
-| LOCAL-03 | P1 | Interrupt, resume, and cancel a model download. | Supported resume preserves progress. Cancellation leaves no model falsely marked ready. |
-| LOCAL-04 | P0 | Import an invalid or damaged GGUF file. | Validation fails before activation. Existing installed models remain usable. |
-| LOCAL-05 | P1 | Trigger low disk space or runtime startup failure. | The failure is actionable. Retry works after the cause is removed. |
-| LOCAL-06 | P1 | Remove an installed model and restart. | Storage and availability reflect removal. Assignments do not silently use missing weights. |
-| LOCAL-07 | P0 | Upgrade a copied Go home containing retired Apple model accounts and selections. | Retired choices disappear. Historical conversations and Tasks remain readable. A supported model can be selected for later work. |
-| LOCAL-08 | P1 | Terminate a local model runtime during generation. | The user sees recovery or failure. The next supported attempt does not inherit a broken process. |
-
-## 7. Task capture, organization, and documents
+## 6. Task capture, organization, and documents
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -220,7 +207,7 @@ Hosted search applies only where the selected provider and model support it.
 | TASK-10 | P0 | Retry a capture or command after its response is lost. | The original accepted result returns without duplicate Tasks or state changes. |
 | TASK-11 | P1 | Create Tasks with colliding titles and Unicode names. | Each receives a distinct usable directory. Existing files remain intact. |
 
-## 8. Task execution, review, and recovery
+## 7. Task execution, review, and recovery
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -240,7 +227,7 @@ Hosted search applies only where the selected provider and model support it.
 | RUN-14 | P1 | Read another authorized Task from an Executor or Reviewer. | Exact current documents and identity are preserved. Unrelated access remains blocked by its scope. |
 | RUN-15 | P0 | Attempt file access beyond a Task or Project boundary, including symlinks. | Access fails without exposing or modifying outside files. Permitted shared Project reads still work. |
 
-## 9. Scheduling and recurrence
+## 8. Scheduling and recurrence
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -257,7 +244,7 @@ Hosted search applies only where the selected provider and model support it.
 | TIME-11 | P0 | Cross spring-forward and fall-back transitions in the authoring zone. | Missing local minutes do not run. A repeated local minute runs at most once. |
 | TIME-12 | P1 | Edit a schedule while its due transition is being processed. | One current schedule wins. No obsolete occurrence executes afterward. |
 
-## 10. Projects and Agent configuration
+## 9. Projects and Agent configuration
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -270,7 +257,7 @@ Hosted search applies only where the selected provider and model support it.
 | AGENT-02 | P1 | Disable a Task model-pool entry and start an eligible Task. | Selection respects the enabled pool and complexity tier. Missing eligible models produce a clear failure. |
 | AGENT-03 | P1 | Change execution policy during an existing run. | The active run keeps its recorded limits. Later runs use the applicable saved policy. |
 
-## 11. Memory capture, reading, and evidence
+## 10. Memory capture, reading, and evidence
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -287,7 +274,7 @@ Hosted search applies only where the selected provider and model support it.
 | MEM-11 | P1 | Update a tree too large to load every article body. | Relevant articles remain usable. Unread article bodies are not silently rewritten. |
 | MEM-12 | P0 | Mix stable preferences with temporary tool errors and secret-bearing setup data. | Stable eligible facts remain available. Operational noise and secrets do not become personal Memory. |
 
-## 12. Action requests, approvals, and information handling
+## 11. Action requests, approvals, and information handling
 
 Use both Chat and Tasks for ACTION-01 through ACTION-06.
 
@@ -309,7 +296,7 @@ Use both Chat and Tasks for ACTION-01 through ACTION-06.
 | INFO-05 | P0 | Use ordinary IDs, paths, hosts, ports, model names, and fields containing `secret` or `authorization`. | Non-secret values remain intact. Field spelling alone does not conceal information. |
 | INFO-06 | P0 | Attempt an unauthorized Task, artifact, or external-account read. | The boundary denies access without deleting or modifying the original private data. |
 
-## 13. HTTP APIs, credentials, and OAuth accounts
+## 12. HTTP APIs, credentials, and OAuth accounts
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -329,7 +316,7 @@ Use both Chat and Tasks for ACTION-01 through ACTION-06.
 | API-14 | P0 | Disconnect a shared account, then try each dependent API. | All dependent access stops. Application deletion requires its grants to be disconnected first. |
 | API-15 | P1 | Restart after a supported managed definition or application change. | Compatible connections retain identity. Changed access requirements remain visible and cannot reuse stale approvals. |
 
-## 14. MCP and ACP
+## 13. MCP and ACP
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -345,7 +332,7 @@ Use both Chat and Tasks for ACTION-01 through ACTION-06.
 | ACP-03 | P0 | Cancel an ACP Task or terminate its process mid-run. | Work stops or enters explicit recovery. Late output cannot complete a cancelled generation. |
 | ACP-04 | P1 | Trigger an ACP protocol or process-start failure. | The Task preserves progress and a useful diagnostic. Retry starts a valid current run. |
 
-## 15. Search, fetch, and interactive browsing
+## 14. Search, fetch, and interactive browsing
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -366,7 +353,7 @@ Use both Chat and Tasks for ACTION-01 through ACTION-06.
 | WEB-15 | P0 | Navigate or redirect toward private network addresses or local files. | Network policy blocks prohibited destinations at every navigation. Normal public pages remain accessible. |
 | WEB-16 | P1 | Hang the browser process past its command deadline. | The call terminates with a useful diagnostic. Later work can start a healthy session. |
 
-## 16. Files, document parsing, OCR, and calculation
+## 15. Files, document parsing, OCR, and calculation
 
 Prepare one known document for each format named below.
 Record extracted values against the known source, including any stated parser limits.
@@ -386,7 +373,7 @@ Record extracted values against the known source, including any stated parser li
 | CALC-01 | P1 | Use Lua for a known budget, percentage, date-independent calculation, and structured transformation. | Results match independently calculated expected values. JSON arrays, objects, nulls, and Unicode retain their meaning. |
 | CALC-02 | P0 | Run unbounded Lua or attempt file, process, environment, or network access. | The sandbox rejects prohibited access or terminates within limits. No partial success is fabricated. |
 
-## 17. Artifacts, previews, and downloads
+## 16. Artifacts, previews, and downloads
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -400,7 +387,7 @@ Record extracted values against the known source, including any stated parser li
 | ART-08 | P0 | Copy a private artifact URL into a signed-out browser. | Access requires authorization. Private downloads do not become publicly cached content. |
 | ART-09 | P1 | Download a large permitted file, then restart and download again. | Filename, content type, length, and bytes remain correct. Authorized delivery survives restart. |
 
-## 18. Notifications, presence, and Live Activities
+## 17. Notifications, presence, and Live Activities
 
 Production APNs checks require signed device builds, matching entitlements, and a configured APNs provider.
 Installed web push requires the configured HTTPS public origin.
@@ -420,7 +407,7 @@ Installed web push requires the configured HTTPS public origin.
 | NOTE-11 | P1 | Dismiss, disable, restart, and re-register Live Activities separately. | Activity state reconciles without duplicate or permanently stale activities. |
 | NOTE-12 | P0 | Inspect delivered notification content for reviewed external actions. | Payloads contain the permitted preview, not secret credentials, raw arguments, results, or hidden form values. |
 
-## 19. Client recovery, offline behavior, and navigation
+## 18. Client recovery, offline behavior, and navigation
 
 | ID | Priority | Action or setup | Expected user result |
 | --- | --- | --- | --- |
@@ -445,7 +432,7 @@ Installed web push requires the configured HTTPS public origin.
 | DESKTOP-02 | P1 | Connect remote HTTPS, restart desktop, then return to local mode. | Remote access persists securely. Return to local mode revokes the remote family and removes local credentials. |
 | DESKTOP-03 | P1 | Make remote revocation or startup unavailable. | Retry, local mode, and confirmed forget follow the documented recovery flow. Failure does not falsely report server revocation. |
 
-## 20. User controls, accessibility, and diagnostics
+## 19. User controls, accessibility, and diagnostics
 
 These checks verify existing interactions. They do not request a UI redesign.
 
@@ -462,7 +449,7 @@ These checks verify existing interactions. They do not request a UI redesign.
 | OPS-02 | P0 | Start with GraphiQL, local GraphQL socket, and stdio MCP disabled. | Those optional access paths remain closed. Public access cannot select local development authority. |
 | OPS-03 | P1 | Explicitly enable each supported development access path in an isolated setup. | The selected path works within its documented boundary. Other flags remain independent. |
 
-## 21. Complete user journeys
+## 20. Complete user journeys
 
 Each journey combines capabilities that can pass separately but fail together.
 Use current Go evidence and bounded, populated sources.
