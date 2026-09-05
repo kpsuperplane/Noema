@@ -108,7 +108,7 @@ function Scene({id}){
     <ShellSectionHeader title={id==='agents'?'Agents':'Notifications'}/><ShellPageTrack>{id==='agents'?<Agents notice={setNotice}/>:<Notifications notice={setNotice}/>}</ShellPageTrack>
    </section>:<MasterDetailLayout detailOpen={detail} detailLabel={id==='capture'?'New task':'Task and artifact details'} onDetailOpenChange={setDetail} list={<section className="task-list-page">
     <TasksToolbar onNewTask={()=>id==='capture'?setDetail(true):location.hash='capture'}/>
-    <section className="task-list"><HStack justify="between" align="center"><h3>{recurring?'Scheduled':phase==='inbox'?'Inbox':'In progress'}</h3><span className="small muted">{recurring?'2':phase==='inbox'?'3':'1'}</span></HStack><p className="small muted list-intro">{recurring?'Tasks that run on a schedule.':phase==='inbox'?'Saved here until you start or schedule them.':'Queued and running tasks.'}</p>
+    <section className="task-list"><HStack className="task-list-heading" justify="between" align="center"><h3>{recurring?'Scheduled':phase==='inbox'?'Inbox':'In progress'}</h3><span className="small muted">{recurring?'2':phase==='inbox'?'3':'1'}</span></HStack>
      {isDialog?<B className="reopen-dialog" variant="secondary" onClick={()=>open(id)}>Open {id==='schedule'?'schedule':id==='start'?'start task':'cancel task'} dialog</B>:null}
      <VStack gap={2}>{(recurring?[['Morning reading','Weekdays · 8:00 AM'],['Weekly meal ideas','Sundays · 10:00 AM']]:phase==='inbox'?samples:[samples[selected],...samples.filter((_,i)=>i!==selected)]).map((t,index)=>{
       const i=recurring?index:samples.indexOf(t),active=!recurring&&phase!=='inbox'&&i===selected;

@@ -27,6 +27,7 @@ This gallery control changes the same mounted task. Start task also moves the sa
 The sticky header contains only the title, close control, and Workspace/Transcript tabs across all three states.
 Task options and scheduling belong to the scrolling Workspace body. Execution status appears in the floating bar.
 There is no separate Progress box. Switching state preserves the selected tab.
+Task list groups show only their name and count above the cards. Omit explanatory description rows.
 Task and provider title rows use the same 28-pixel close control as the production detail rail.
 Their close controls align with New task and Add provider. Task headers retain a 4-pixel title-to-tabs gap.
 Provider account details and connection status sit below the sticky title row.

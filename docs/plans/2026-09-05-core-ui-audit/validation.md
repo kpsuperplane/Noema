@@ -171,3 +171,10 @@ The gallery keeps edits within the selected mock; it does not implement a task s
 - The shell uses an in-memory project response. Unsupported project changes fail locally; no server transport is configured.
 - Rebuilt the static gallery with its Vite build script. The bundle-size warning remains advisory for this static gallery.
 - No production UI files or UI tests were added or changed. Live task data was not modified.
+
+## Task list descriptions
+
+- Removed explanatory rows from Inbox, Scheduled, and In progress groups.
+- Kept one 8-pixel gap between each group heading and its cards.
+- Checked Inbox and Scheduled lists at desktop and phone widths. Saved the updated list screenshots.
+- Rebuilt the gallery. Production UI remains unchanged.
