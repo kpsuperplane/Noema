@@ -128,10 +128,19 @@ func TestKernelScriptsKeepModelInputsAsDataAndBlockPrivateTargets(t *testing.T) 
 			t.Fatalf("request or review guard %q is absent", fragment)
 		}
 	}
+	response, err := kernelBrowserResponse(&kernelRawSnapshot{URL: "https://8.8.8.8/page", Screenshot: "invalid", Width: 800, Height: 600}, 12000)
+	if err != nil || response.Snapshot == nil || response.Screenshot != nil {
+		t.Fatalf("optional screenshot invalidated snapshot: %#v, %v", response, err)
+	}
 }
 
 func TestKernelRouteSwitchReusesRemoteSessionAndPublicRevisions(t *testing.T) {
-	stub := &kernelTestServer{}
+	stub := &kernelTestServer{interaction: func(code string) (int, map[string]any) {
+		if strings.Contains(code, "waitForFunction") {
+			return http.StatusGatewayTimeout, nil
+		}
+		return http.StatusOK, kernelTestExecution(200)
+	}}
 	remote := httptest.NewServer(http.HandlerFunc(stub.handler))
 	defer remote.Close()
 	fixture := newKernelTestFixture(t, remote.URL, true)
@@ -160,39 +169,85 @@ func TestKernelRouteSwitchReusesRemoteSessionAndPublicRevisions(t *testing.T) {
 	if !snapshot.Success || !strings.Contains(string(snapshot.Model), `"snapshot_revision":3`) {
 		t.Fatalf("snapshot = %s", snapshot.Model)
 	}
+	waited := fixture.service.ExecuteBrowser(t.Context(), "conversation:one", BrowseWaitName,
+		json.RawMessage(`{"condition":{"text":"ready"},"timeout_ms":100}`), "test:wait")
+	recovered := fixture.service.ExecuteBrowser(t.Context(), "conversation:one", BrowseSnapshotName, json.RawMessage(`{}`), "test:recover")
+	if waited.Success || !strings.Contains(string(waited.Model), `"error":"timeout"`) || !recovered.Success {
+		t.Fatalf("wait recovery = %s, %s", waited.Model, recovered.Model)
+	}
 	closed := fixture.service.ExecuteBrowser(t.Context(), "conversation:one", BrowseCloseName, json.RawMessage(`{}`), "test:close")
 	if !closed.Success || !strings.Contains(string(closed.Model), `"provider":"kernel"`) {
 		t.Fatalf("close = %s", closed.Model)
 	}
 	stub.mu.Lock()
-	defer stub.mu.Unlock()
-	if len(stub.calls) != 4 || stub.calls[0].body["headless"] != true || stub.calls[0].body["timeout_seconds"] != float64(1800) ||
-		stub.calls[1].body["timeout_sec"] != float64(30) || stub.calls[1].path != "/browsers/kernel-session_1/playwright/execute" ||
-		stub.calls[2].path != stub.calls[1].path || stub.calls[3].method != http.MethodDelete {
-		t.Fatalf("Kernel calls = %#v", stub.calls)
+	calls := append([]kernelTestCall(nil), stub.calls...)
+	stub.mu.Unlock()
+	if len(calls) != 6 || calls[0].body["headless"] != true || calls[0].body["timeout_seconds"] != float64(1800) ||
+		calls[1].body["timeout_sec"] != float64(30) || calls[1].path != "/browsers/kernel-session_1/playwright/execute" ||
+		calls[2].path != calls[1].path || calls[5].method != http.MethodDelete {
+		t.Fatalf("Kernel calls = %#v", calls)
 	}
-	for _, call := range stub.calls {
+	for _, call := range calls {
 		if call.authorization != "Bearer kernel-key" {
 			t.Fatalf("authorization = %q", call.authorization)
 		}
+	}
+	failureStub := &kernelTestServer{interaction: func(string) (int, map[string]any) {
+		return http.StatusOK, map[string]any{"success": false, "error": "navigation failed"}
+	}}
+	failureRemote := httptest.NewServer(http.HandlerFunc(failureStub.handler))
+	defer failureRemote.Close()
+	failureFixture := newKernelTestFixture(t, failureRemote.URL, false)
+	if err := failureFixture.database.SaveBrowserProviderRoute(t.Context(), []string{failureFixture.kernelID, obscuraAccount}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	failed := failureFixture.service.ExecuteBrowser(t.Context(), "conversation:failed-open", BrowseOpenName,
+		json.RawMessage(`{"url":"https://8.8.8.8/start"}`), "test:failed-open")
+	authority, err = failureFixture.service.BrowserAuthority(t.Context(), "conversation:failed-open", BrowseSwitchName,
+		json.RawMessage(`{"url":"https://1.1.1.1/recover"}`))
+	switched = failureFixture.service.ExecuteBrowser(t.Context(), "conversation:failed-open", BrowseSwitchName,
+		json.RawMessage(`{"url":"https://1.1.1.1/recover"}`), "test:recover")
+	if failed.Success || strings.Contains(string(failed.Model), "snapshot_revision") || err != nil || authority.RoutePosition != 1 || !switched.Success {
+		t.Fatalf("failed open switch = %s, %#v, %v", failed.Model, authority, err)
 	}
 }
 
 func TestKernelInteractionMarksMainDocumentAndLostResponsesUncertain(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		interact   func(string) (int, map[string]any)
-		wantDetail string
+		name                       string
+		interact                   func(string) (int, map[string]any)
+		wantDetail                 string
+		wantRevision               string
+		wantUncertain, wantRecover bool
+		wantDelete                 bool
 	}{
-		{name: "main document 5xx", interact: func(code string) (int, map[string]any) {
+		{name: "main document 5xx", wantUncertain: true, wantRecover: true, wantRevision: `"snapshot_revision":2`, interact: func(code string) (int, map[string]any) {
 			if strings.Contains(code, "recordMainDocument") {
 				return http.StatusOK, kernelTestExecution(503)
 			}
 			return http.StatusOK, kernelTestExecution(200)
 		}},
-		{name: "provider 5xx", wantDetail: "HTTP 500", interact: func(code string) (int, map[string]any) {
+		{name: "provider 5xx", wantDetail: "HTTP 500", wantUncertain: true, wantRecover: true, wantRevision: `"snapshot_revision":1`, interact: func(code string) (int, map[string]any) {
 			if strings.Contains(code, "recordMainDocument") {
 				return http.StatusInternalServerError, nil
+			}
+			return http.StatusOK, kernelTestExecution(200)
+		}},
+		{name: "invalid result", wantDetail: "invalid result", wantUncertain: true, wantRecover: true, wantRevision: `"snapshot_revision":1`, interact: func(code string) (int, map[string]any) {
+			if strings.Contains(code, "recordMainDocument") {
+				return http.StatusOK, map[string]any{"success": true, "result": "invalid"}
+			}
+			return http.StatusOK, kernelTestExecution(200)
+		}},
+		{name: "safe diagnostic category", wantDetail: "execution error with stderr", wantUncertain: true, wantRecover: true, wantRevision: `"snapshot_revision":1`, interact: func(code string) (int, map[string]any) {
+			if strings.Contains(code, "recordMainDocument") {
+				return http.StatusOK, map[string]any{"success": false, "error": map[string]any{"api_key": "remove-me"}, "stderr": "private page text"}
+			}
+			return http.StatusOK, kernelTestExecution(200)
+		}},
+		{name: "missing backend", wantDetail: "HTTP 404", wantRevision: `"snapshot_revision":1`, wantDelete: true, interact: func(code string) (int, map[string]any) {
+			if strings.Contains(code, "recordMainDocument") {
+				return http.StatusNotFound, nil
 			}
 			return http.StatusOK, kernelTestExecution(200)
 		}},
@@ -202,19 +257,36 @@ func TestKernelInteractionMarksMainDocumentAndLostResponsesUncertain(t *testing.
 			remote := httptest.NewServer(http.HandlerFunc(stub.handler))
 			defer remote.Close()
 			fixture := newKernelTestFixture(t, remote.URL, false)
+			if err := fixture.database.SaveBrowserProviderRoute(t.Context(), []string{fixture.kernelID, obscuraAccount}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
 			if result := fixture.service.ExecuteBrowser(t.Context(), "task:task:0123456789abcdef0123456789abcdef:1", BrowseOpenName,
 				json.RawMessage(`{"url":"https://8.8.8.8/start"}`), "test:open"); !result.Success {
 				t.Fatalf("open = %s", result.Model)
 			}
 			result := fixture.service.ExecuteBrowser(t.Context(), "task:task:0123456789abcdef0123456789abcdef:1", BrowseInteractName,
 				json.RawMessage(`{"snapshot_revision":1,"ref":"e1","action":"click"}`), "test:interact")
-			if result.Success || !result.OutcomeUncertain || !strings.Contains(string(result.Model), "outcome_uncertain") ||
-				test.wantDetail != "" && !strings.Contains(string(result.Model), test.wantDetail) {
+			if result.Success || result.OutcomeUncertain != test.wantUncertain || !strings.Contains(string(result.Model), test.wantRevision) ||
+				test.wantDetail != "" && !strings.Contains(string(result.Model), test.wantDetail) || strings.Contains(string(result.Model), "remove-me") ||
+				strings.Contains(string(result.Model), "private page text") {
 				t.Fatalf("interaction = %#v", result)
 			}
-			missing := fixture.service.ExecuteBrowser(t.Context(), "task:task:0123456789abcdef0123456789abcdef:1", BrowseSnapshotName, json.RawMessage(`{}`), "test:missing")
-			if missing.Success || !strings.Contains(string(missing.Model), "session_not_found") {
-				t.Fatalf("missing session = %s", missing.Model)
+			if test.wantRecover {
+				recovered := fixture.service.ExecuteBrowser(t.Context(), "task:task:0123456789abcdef0123456789abcdef:1", BrowseSnapshotName, json.RawMessage(`{}`), "test:recover")
+				if !recovered.Success {
+					t.Fatalf("session did not recover: %s", recovered.Model)
+				}
+			} else if _, err := fixture.service.BrowserAuthority(t.Context(), "task:task:0123456789abcdef0123456789abcdef:1", BrowseSwitchName,
+				json.RawMessage(`{"snapshot_revision":1,"url":"https://1.1.1.1/recover"}`)); err != nil {
+				t.Fatalf("lost switch route: %v", err)
+			}
+			if test.wantDelete {
+				stub.mu.Lock()
+				deleted := stub.calls[len(stub.calls)-1].method == http.MethodDelete
+				stub.mu.Unlock()
+				if !deleted {
+					t.Fatal("unusable Kernel backend was not deleted")
+				}
 			}
 		})
 	}
@@ -273,7 +345,10 @@ func TestKernelUploadBindsOneExactTaskArtifactBeforeTransmission(t *testing.T) {
 		t.Fatalf("upload authority = %#v, %v, calls %d -> %d", authority, err, before, afterReview)
 	}
 	result := fixture.service.ExecuteBrowser(t.Context(), owner, BrowseInteractName, arguments, "action:approved")
-	if !result.Success {
+	if !result.Success || !strings.Contains(string(result.Model), `"upload":{"artifact_id":"`+created.Artifact.ID+`"`) ||
+		!strings.Contains(string(result.Model), `"artifact_version_id":"`+created.CurrentVersion.ID+`"`) ||
+		!strings.Contains(string(result.Model), `"filename":"receipt.txt"`) || !strings.Contains(string(result.Model), `"media_type":"text/plain"`) ||
+		!strings.Contains(string(result.Model), `"byte_size":19`) {
 		t.Fatalf("upload = %s", result.Model)
 	}
 	stub.mu.Lock()

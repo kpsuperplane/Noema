@@ -25,8 +25,8 @@ const (
 )
 
 type browserUploadFile struct {
-	Filename, MediaType string
-	Bytes               []byte
+	ArtifactID, ArtifactVersionID, Filename, MediaType string
+	Bytes                                              []byte
 }
 
 type kernelCreateResponse struct {
@@ -36,6 +36,8 @@ type kernelCreateResponse struct {
 type kernelExecuteResponse struct {
 	Success bool            `json:"success"`
 	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
+	Stderr  json.RawMessage `json:"stderr"`
 }
 
 type kernelCommandResult struct {
@@ -72,10 +74,10 @@ func (s *Service) executeKernelBrowser(ctx context.Context, session *browserSess
 		failure := s.kernelJSON(ctx, account.ID, session.credentialRevision, http.MethodPost, "/browsers",
 			map[string]any{"headless": true, "stealth": true, "timeout_seconds": 1800}, &created, false, "create")
 		if failure != nil {
-			return nil, kernelBrowserFailure(failure, false)
+			return nil, kernelBrowserFailure(failure)
 		}
 		if !safeKernelSessionID(created.SessionID) {
-			return nil, &browserProviderFailure{code: "unavailable", message: "Kernel returned an invalid browser session", drop: true}
+			return nil, &browserProviderFailure{code: "unavailable", message: "Kernel returned an invalid browser session"}
 		}
 		session.kernelID = created.SessionID
 	}
@@ -87,21 +89,27 @@ func (s *Service) executeKernelBrowser(ctx context.Context, session *browserSess
 	if err != nil {
 		return nil, &browserProviderFailure{code: "invalid_input", message: err.Error()}
 	}
-	mutation := name == BrowseInteractName || name == BrowseHistoryName
+	uncertainIfLost := name == BrowseInteractName || name == BrowseHistoryName || name == BrowseOpenName && session.publicRevision != 0
 	var execution kernelExecuteResponse
 	failure := s.kernelJSON(ctx, account.ID, session.credentialRevision, http.MethodPost,
 		"/browsers/"+session.kernelID+"/playwright/execute", map[string]any{"code": script, "timeout_sec": 30},
-		&execution, mutation, "playwright_execute")
+		&execution, uncertainIfLost, "playwright_execute")
 	if failure != nil {
-		return nil, kernelBrowserFailure(failure, failure.uncertain || failure.auth)
+		return nil, kernelBrowserFailure(failure)
 	}
 	if !execution.Success || len(execution.Result) == 0 || string(execution.Result) == "null" {
-		return nil, &browserProviderFailure{code: browserFailureCode(name), message: "Kernel browser operation failed",
-			uncertain: mutation, drop: mutation, diagnostic: &browserDiagnostic{Provider: kernelProvider, Stage: "playwright_execute", Detail: "execution failed"}}
+		detail := "execution failed"
+		if presentJSON(execution.Error) {
+			detail = "execution error"
+		}
+		if presentJSON(execution.Stderr) {
+			detail += " with stderr"
+		}
+		return nil, kernelDispatchedFailure(name, "Kernel browser operation failed", uncertainIfLost, detail)
 	}
 	var result kernelCommandResult
 	if json.Unmarshal(execution.Result, &result) != nil {
-		return nil, &browserProviderFailure{code: browserFailureCode(name), message: "Kernel returned an invalid browser result", uncertain: mutation, drop: true}
+		return nil, kernelDispatchedFailure(name, "Kernel returned an invalid browser result", uncertainIfLost, "invalid result")
 	}
 	if !result.OK {
 		if result.ElementFound != nil && !*result.ElementFound {
@@ -110,24 +118,42 @@ func (s *Service) executeKernelBrowser(ctx context.Context, session *browserSess
 		if result.HistoryAvailable != nil && !*result.HistoryAvailable {
 			return nil, &browserProviderFailure{code: "history_unavailable", message: "browser history is unavailable"}
 		}
-		return nil, &browserProviderFailure{code: browserFailureCode(name), message: "Kernel browser operation failed", uncertain: mutation, drop: mutation}
+		return nil, kernelDispatchedFailure(name, "Kernel browser operation failed", uncertainIfLost, "operation failed")
 	}
 	if result.Snapshot == nil {
-		return nil, &browserProviderFailure{code: browserFailureCode(name), message: "Kernel browser snapshot is unavailable", uncertain: mutation, drop: mutation}
+		return nil, kernelDispatchedFailure(name, "Kernel browser snapshot is unavailable", uncertainIfLost, "snapshot unavailable")
 	}
 	response, err := kernelBrowserResponse(result.Snapshot, maxChars)
 	if err != nil {
-		return nil, &browserProviderFailure{code: "unavailable", message: err.Error(), drop: true}
+		return nil, kernelDispatchedFailure(name, err.Error(), uncertainIfLost, "invalid snapshot")
 	}
 	if name == BrowseInteractName && result.MainDocumentStatus != nil && *result.MainDocumentStatus >= 500 {
 		response.State = "outcome_uncertain"
 	}
+	if upload != nil {
+		response.Upload = &browserUploadReceipt{ArtifactID: upload.ArtifactID, ArtifactVersionID: upload.ArtifactVersionID,
+			Filename: upload.Filename, MediaType: upload.MediaType, ByteSize: len(upload.Bytes)}
+	}
 	return response, nil
 }
 
-func kernelBrowserFailure(failure *kernelCallFailure, drop bool) *browserProviderFailure {
+func presentJSON(value json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(value)
+	return len(trimmed) != 0 && string(trimmed) != "null"
+}
+
+func kernelDispatchedFailure(name, message string, uncertain bool, detail string) *browserProviderFailure {
+	code := browserFailureCode(name)
+	if uncertain {
+		code = "outcome_uncertain"
+	}
+	return &browserProviderFailure{code: code, message: message, uncertain: uncertain,
+		diagnostic: &browserDiagnostic{Provider: kernelProvider, Stage: "playwright_execute", Detail: detail}}
+}
+
+func kernelBrowserFailure(failure *kernelCallFailure) *browserProviderFailure {
 	return &browserProviderFailure{code: failure.code, message: "Kernel browser request failed", uncertain: failure.uncertain,
-		drop: drop || failure.uncertain, diagnostic: &browserDiagnostic{Provider: kernelProvider, Stage: failure.stage, Detail: failure.detail}}
+		drop: failure.auth || failure.code == "session_not_found", diagnostic: &browserDiagnostic{Provider: kernelProvider, Stage: failure.stage, Detail: failure.detail}}
 }
 
 func browserFailureCode(name string) string {
@@ -251,10 +277,9 @@ func kernelBrowserResponse(raw *kernelRawSnapshot, maxChars int) (*browseProvide
 	response := &browseProviderResponse{Provider: kernelProvider, State: "open", Snapshot: snapshot}
 	if raw.Screenshot != "" {
 		decoded, err := base64.StdEncoding.DecodeString(raw.Screenshot)
-		if err != nil || len(decoded) > kernelScreenshotLimit || raw.Width < 1 || raw.Height < 1 {
-			return nil, errors.New("Kernel browser screenshot is invalid")
+		if err == nil && len(decoded) <= kernelScreenshotLimit && raw.Width > 0 && raw.Height > 0 {
+			response.Screenshot = &browseScreenshot{MediaType: "image/png", Data: raw.Screenshot, Width: raw.Width, Height: raw.Height}
 		}
-		response.Screenshot = &browseScreenshot{MediaType: "image/png", Data: raw.Screenshot, Width: raw.Width, Height: raw.Height}
 	}
 	return response, nil
 }
