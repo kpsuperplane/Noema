@@ -30,6 +30,7 @@ const (
 	ConversationAssistantText   ConversationItemKind = "assistant_text"
 	ConversationToolCall        ConversationItemKind = "tool_call"
 	ConversationToolResult      ConversationItemKind = "tool_result"
+	ConversationActivity        ConversationItemKind = "activity"
 	ConversationReasoning       ConversationItemKind = "reasoning"
 	ConversationApprovalRequest ConversationItemKind = "approval_request"
 	ConversationErrorNotice     ConversationItemKind = "error_notice"

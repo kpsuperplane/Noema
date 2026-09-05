@@ -220,9 +220,19 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	}
 	model, effort := r.taskModel(run, task)
 	toolCount := int(run.ToolCallCount)
+	progress := newToolProgress(messages[0].Content)
+	terminalOnly := false
+	nextInstruction := ""
 	for round := int(run.ProviderCallCount); round < taskProviderLimit && ctx.Err() == nil; round++ {
 		started := time.Now()
 		tools, bindings := r.taskExecutionTools(ctx, run.Kind)
+		if terminalOnly {
+			tools = taskTerminalTools(run.Kind, tools)
+		}
+		if nextInstruction != "" {
+			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: nextInstruction})
+			nextInstruction = ""
+		}
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
 			AccountID: run.ProviderAccountID, Model: model, Messages: messages,
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
@@ -293,6 +303,14 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			}
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
 			messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+			instruction, restrict, auditErr := r.afterTaskTool(
+				ctx, run, &progress, call, payload, success, !binding.Behavior.ReadOnly, toolCount,
+			)
+			if auditErr != nil {
+				return
+			}
+			nextInstruction = instruction
+			terminalOnly = terminalOnly || restrict
 			continue
 		}
 		payload, success, terminal, taskWrite := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
@@ -319,6 +337,15 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if terminal {
 			return
 		}
+		sideEffect := call.Name == taskFilesWrite || call.Name == taskFilesDelete
+		instruction, restrict, auditErr := r.afterTaskTool(
+			ctx, run, &progress, call, payload, success, sideEffect, toolCount,
+		)
+		if auditErr != nil {
+			return
+		}
+		nextInstruction = instruction
+		terminalOnly = terminalOnly || restrict
 	}
 	if ctx.Err() != nil {
 		current, _ := r.database.TaskExecutionIsCurrent(context.Background(), run.ID, run.Generation)

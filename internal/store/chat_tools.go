@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ConversationToolCallInput is one validated provider call for durable storage.
@@ -79,6 +80,75 @@ ORDER BY sequence_index`, conversationID)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// AppendConversationActivity saves one readable runtime activity under an active turn.
+func (s *Store) AppendConversationActivity(
+	ctx context.Context,
+	turn ConversationTurn,
+	providerRound int,
+	activityKind, title, summary, status string,
+	details map[string]any,
+	now time.Time,
+) (ConversationItem, error) {
+	if providerRound < 0 || activityKind == "" || len(activityKind) > 64 ||
+		strings.TrimSpace(title) == "" || utf8.RuneCountInString(title) > 1000 || !utf8.ValidString(title) ||
+		utf8.RuneCountInString(summary) > 4000 || !utf8.ValidString(summary) ||
+		(status != "running" && status != "completed" && status != "failed") {
+		return ConversationItem{}, errors.New("conversation activity is invalid")
+	}
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var active int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_turns
+WHERE turn_id = ? AND conversation_id = ? AND status IN ('input_received','running')`,
+		turn.ID, turn.ConversationID).Scan(&active); err != nil {
+		return ConversationItem{}, err
+	}
+	if active != 1 {
+		return ConversationItem{}, errors.New("conversation turn is already final")
+	}
+	parentID, err := conversationTurnParentTx(ctx, tx, turn)
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	itemID, err := newID("item")
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	if details == nil {
+		details = map[string]any{}
+	}
+	item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
+		ID: itemID, ConversationID: turn.ConversationID, TurnID: turn.ID,
+		ParentItemID: parentID, Sequence: sequence, Kind: ConversationActivity,
+		Status: status, AuthorActorID: "agent:primary",
+		Payload: map[string]any{
+			"id":            "activity:" + strings.TrimPrefix(itemID, "item:"),
+			"activity_kind": activityKind, "title": title,
+			"summary": summary, "metadata": details,
+		},
+		Metadata: map[string]any{
+			"turn_index": turn.TurnIndex, "provider_round": providerRound,
+			"source": activityKind,
+		},
+		CreatedAt: now,
+	})
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ConversationItem{}, err
+	}
+	return item, nil
 }
 
 // StartConversationToolRound stores provider output before one immediate read.

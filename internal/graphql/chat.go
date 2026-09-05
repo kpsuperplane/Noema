@@ -196,7 +196,7 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		return model.UserText{Text: item.ContentText}, nil
 	case store.ConversationAssistantText:
 		return model.AssistantText{Text: item.ContentText}, nil
-	case store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
+	case store.ConversationActivity, store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
 		id, _ := item.Payload["id"].(string)
 		kind, _ := item.Payload["activity_kind"].(string)
 		title, _ := item.Payload["title"].(string)

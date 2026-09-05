@@ -373,7 +373,7 @@ func (r *mutationRootResolver) SaveBrowserProviderRoute(ctx context.Context, inp
 
 // SaveToolProgressAuditPreference is the resolver for the saveToolProgressAuditPreference field.
 func (r *mutationRootResolver) SaveToolProgressAuditPreference(ctx context.Context, input model.SaveToolProgressAuditPreferenceInput) (*model.AgentModelPreference, error) {
-	panic(fmt.Errorf("not implemented: SaveToolProgressAuditPreference - saveToolProgressAuditPreference"))
+	return r.saveToolProgressAuditPreference(ctx, input)
 }
 
 // SaveActionReviewerPreference is the resolver for the saveActionReviewerPreference field.
@@ -711,7 +711,7 @@ func (r *queryRootResolver) WebToolSettings(ctx context.Context) (*model.WebTool
 
 // UsageSettings is the resolver for the usageSettings field.
 func (r *queryRootResolver) UsageSettings(ctx context.Context) (*model.UsageSettings, error) {
-	panic(fmt.Errorf("not implemented: UsageSettings - usageSettings"))
+	return r.usageSettings(ctx)
 }
 
 // PrivacySettings is the resolver for the privacySettings field.

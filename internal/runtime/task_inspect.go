@@ -21,8 +21,6 @@ const (
 	taskInspectName       = "task.inspect"
 	modelToolResultLimit  = 64 << 10
 	modelToolPayloadLimit = 32 << 10
-	repeatedToolLimit     = 4
-	failedToolLimit       = 6
 	providerRoundLimit    = 80
 )
 
@@ -414,9 +412,7 @@ func (c *Chat) executeChatToolRounds(
 ) {
 	result := initial
 	usage := provider.Usage{}
-	progress := toolProgress{
-		argumentCounts: make(map[string]int), results: make(map[string]struct{}),
-	}
+	progress := newToolProgress(request.input.Input)
 	hostedState := false
 	for providerRound := 0; ; providerRound++ {
 		if err := addProviderUsage(&usage, result.Usage); err != nil {
@@ -449,7 +445,13 @@ func (c *Chat) executeChatToolRounds(
 		if pending {
 			return
 		}
-		stopReason := progress.observe(call, toolPayload, success)
+		sideEffect := call.Name == updateOwnNameToolName || call.Name == fileDownloadName
+		if strings.HasPrefix(call.Name, "mcp.") && c.mcp != nil {
+			if binding, err := c.mcp.Binding(c.ctx, call.Name); err == nil {
+				sideEffect = !binding.Behavior.ReadOnly
+			}
+		}
+		stopReason := progress.observe(call, toolPayload, success, sideEffect)
 		if providerRound >= providerRoundLimit {
 			stopReason = "maximum provider tool continuations reached"
 		}
@@ -458,6 +460,52 @@ func (c *Chat) executeChatToolRounds(
 			ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
 			Name: call.Name, Arguments: call.Payload, Success: success, Payload: toolPayload,
 		}}
+		if stopReason == "" && nextRound%progressAuditInterval == 0 {
+			if err := c.saveProgressAuditActivity(
+				request, turn, nextRound, "Checking progress", "Checking progress", "running",
+				map[string]any{"status": "running"},
+			); err != nil {
+				c.failTurn(request.input, turn, err)
+				return
+			}
+			outcome, auditErr := runProgressAudit(c.ctx, c.database, c.generatorFor, progress.digest(nextRound))
+			if auditErr == nil {
+				title := map[string]string{
+					"continue": "Still making progress", "finalize": "Ready to wrap up",
+					"ask_human": "Needs your input", "pause": "Paused",
+				}[outcome.Decision]
+				if err := c.saveProgressAuditActivity(
+					request, turn, nextRound, title, outcome.UserSummary, "completed",
+					map[string]any{"status": "completed", "decision": outcome.Decision},
+				); err != nil {
+					c.failTurn(request.input, turn, err)
+					return
+				}
+				progress.apply(outcome)
+				switch outcome.Decision {
+				case "finalize":
+					stopReason = "progress audit requested finalization"
+				case "ask_human", "pause":
+					c.finishGeneratedTurn(request.input, turn, assignment, provider.GenerationResult{
+						Text: outcome.UserSummary, Model: assignment.ModelProfile,
+					}, nextRound, usage)
+					return
+				}
+			} else {
+				if err := c.saveProgressAuditActivity(
+					request, turn, nextRound, "Progress check unavailable",
+					"The progress check is unavailable.", "completed",
+					map[string]any{"status": "completed"},
+				); err != nil {
+					c.failTurn(request.input, turn, err)
+					return
+				}
+				progress.window = progressAuditStats{ToolCounts: make(map[string]int)}
+				if !errors.Is(auditErr, errProgressAuditUnavailable) {
+					stopReason = "progress audit failed"
+				}
+			}
+		}
 		var forcedFinalization bool
 		result, forcedFinalization, err = c.generateChatToolContinuation(
 			request, turn, assignment, generator, nextRound, stopReason, memoryContext,
@@ -821,42 +869,6 @@ func boundedUTF8(value string, limit int) string {
 		value = value[:len(value)-1]
 	}
 	return value
-}
-
-type toolProgress struct {
-	argumentCounts map[string]int
-	results        map[string]struct{}
-	repeated       int
-	failures       int
-}
-
-func (p *toolProgress) observe(
-	call provider.GenerationToolCall,
-	payload json.RawMessage,
-	success bool,
-) string {
-	argumentKey := call.Name + "\x00" + string(call.Payload)
-	p.argumentCounts[argumentKey]++
-	resultKey := argumentKey + "\x00" + string(payload)
-	if success {
-		resultKey += "\x00success"
-		p.failures = 0
-	} else {
-		resultKey += "\x00failure"
-		p.failures++
-	}
-	_, seenResult := p.results[resultKey]
-	p.results[resultKey] = struct{}{}
-	if p.argumentCounts[argumentKey] > 1 && seenResult {
-		p.repeated++
-	}
-	if p.failures >= failedToolLimit {
-		return "consecutive tool failures"
-	}
-	if p.repeated >= repeatedToolLimit {
-		return "repeated tool arguments and results"
-	}
-	return ""
 }
 
 func toolFinalizationInstruction(reason string) string {
