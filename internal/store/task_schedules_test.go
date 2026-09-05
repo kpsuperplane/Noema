@@ -185,6 +185,77 @@ func TestDueSchedulesApplyMissedAndOverlapPolicies(t *testing.T) {
 	})
 }
 
+func TestDueSchedulesRespectDaylightSavingTransitions(t *testing.T) {
+	for _, test := range []struct {
+		name, cron, first, transition, next string
+	}{
+		{"spring missing minute", "30 2 * * *", "2026-03-07T07:30:00Z", "2026-03-08T07:30:00Z", "2026-03-09T06:30:00Z"},
+		{"fall repeated minute", "30 1 * * *", "2026-11-01T05:30:00Z", "2026-11-01T06:30:00Z", "2026-11-02T06:30:00Z"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database := openTestStore(t)
+			ctx := t.Context()
+			account := createReadyModelAccount(t, database)
+			if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+				t.Fatal(err)
+			}
+			instants := make([]time.Time, 0, 3)
+			for _, value := range []string{test.first, test.transition, test.next} {
+				instant, err := time.Parse(time.RFC3339, value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				instants = append(instants, instant)
+			}
+			first, transition, next := instants[0], instants[1], instants[2]
+			value, err := schedule.Normalize(schedule.Schedule{ScheduledFor: first, TimeZone: "America/New_York",
+				MissedRunPolicy: schedule.MissedRunOnce, Recurrence: &schedule.Recurrence{StartsAt: first,
+					CronExpression: test.cron, OverlapPolicy: schedule.OverlapAllow}}, first.Add(-time.Hour))
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := NewTaskID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := database.CreateTaskWithOptions(ctx, id, test.name, testTaskCommand("dst-create"),
+				TaskCreateOptions{Schedule: &value}, first.Add(-time.Hour))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for index, instant := range instants {
+				materialized, _, err := database.ProcessDueTaskSchedules(ctx, instant, false, nil)
+				wantNew := 0
+				if index == 2 {
+					wantNew = 1
+				}
+				if err != nil || len(materialized) != wantNew {
+					t.Fatalf("due at %s = %#v, %v; want %d new Tasks", instant, materialized, err, wantNew)
+				}
+				if err := database.QueueReleasedTaskSchedules(ctx, instant); err != nil {
+					t.Fatal(err)
+				}
+				occurrences, err := database.TaskRecurrenceOccurrences(ctx, created.RecurrenceID, 10)
+				if err != nil || len(occurrences) != 1+wantNew {
+					t.Fatalf("occurrences at %s = %#v, %v", instant, occurrences, err)
+				}
+				for _, occurrence := range occurrences {
+					runs, err := database.TaskRuns(ctx, occurrence.TaskID, 10)
+					if err != nil || len(runs) != 1 || runs[0].Kind != "planner" || runs[0].Status != "queued" {
+						t.Fatalf("runs at %s = %#v, %v", instant, runs, err)
+					}
+				}
+				if instant.Equal(transition) {
+					recurrence, err := database.TaskRecurrence(ctx, created.RecurrenceID)
+					if err != nil || recurrence.NextRunAt == nil || !recurrence.NextRunAt.Equal(next) {
+						t.Fatalf("next run after transition = %#v, %v", recurrence, err)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestTaskPlacementSnapshotsAcpRevisionAndGuardsDeletion(t *testing.T) {
 	database := openTestStore(t)
 	ctx := context.Background()

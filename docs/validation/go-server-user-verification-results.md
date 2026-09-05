@@ -446,6 +446,17 @@ The [results](evidence/2026-09-05-recurrence-deadline-controls-results.json) ret
 The [validation record](evidence/2026-09-05-recurrence-deadline-validation.json) records scope and reused checks.
 TIME-08 passes. Restart recovery under both missed-run policies remains pending in TIME-04.
 
+## Stored daylight-saving transitions
+
+The [scheduler test](../../internal/store/task_schedules_test.go) now exercises spring and fall transitions through production scheduling and queue functions.
+It uses real SQLite with fixed instants in `America/New_York`.
+The missing spring minute creates no Task or queued run. The next valid day queues one new Planner.
+The repeated fall minute creates no duplicate occurrence or run. The next day again queues one new Planner.
+Overlap is allowed so an active Task cannot hide a duplicate through overlap suppression.
+The [validation record](evidence/2026-09-05-dst-store-validation.json) records instants, assertions, source hash, and passing focused and broad Go checks.
+The test adds 71 lines. No production change was required.
+TIME-11 passes for controlled scheduler time. The live server clock was unchanged.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -541,7 +552,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-08 | Pass · live scheduler/Codex/Chromium | Pause and skip prevent work at the deadline. Resume permits one next-slot occurrence. End prevents later occurrences and preserves readable, immutable templates. | — |
 | TIME-09 | Pass · live Codex/Chromium | Browser Run now creates one manual occurrence and preserves the next normal slot through completion. Its history link opens the correct result. | — |
 | TIME-10 | Not run | Controlled setup pending. | — |
-| TIME-11 | Partial | Fixed duplicate fall-back previews. Spring and fall preview assertions pass. Actual scheduled transition checks remain pending. | — |
+| TIME-11 | Pass · controlled scheduler time | Production scheduling skips the missing spring minute and creates no duplicate run for the repeated fall minute. The next valid day queues one occurrence. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
 | PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
 | PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. Live Project checks above. | — |
