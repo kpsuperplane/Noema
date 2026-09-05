@@ -140,6 +140,22 @@ INSERT INTO action_requests (
 		return ActionRequest{}, err
 	}
 	action, err := actionRequestTx(ctx, tx, actionID, 1)
+	if err == nil && input.ReviewRoute == ActionHumanReview {
+		approval, approvalErr := insertActionApprovalItem(ctx, tx, action, now)
+		if approvalErr != nil {
+			return ActionRequest{}, approvalErr
+		}
+		if _, approvalErr = tx.ExecContext(ctx, `INSERT INTO action_request_decisions
+ (action_id, action_revision, state, created_at_ms) VALUES (?,1,'pending',?)`, actionID, millis(now)); approvalErr != nil {
+			return ActionRequest{}, approvalErr
+		}
+		if _, approvalErr = tx.ExecContext(ctx, `UPDATE action_requests SET state='awaiting_approval',
+ approval_item_id=?, updated_at_ms=? WHERE action_id=? AND revision=1 AND state='proposed'`,
+			approval.ID, millis(now), actionID); approvalErr != nil {
+			return ActionRequest{}, approvalErr
+		}
+		action, err = actionRequestTx(ctx, tx, actionID, 1)
+	}
 	if err == nil {
 		err = tx.Commit()
 	}
@@ -455,6 +471,8 @@ func (s *Store) RecoverActionRequests(ctx context.Context, now time.Time) ([]Act
 FROM action_requests a JOIN conversation_items i
  ON i.conversation_id = a.conversation_id AND i.item_id = a.call_item_id
 WHERE i.status = 'running' AND a.state <> 'awaiting_approval'
+ AND NOT EXISTS (SELECT 1 FROM mcp_auth_requests m WHERE m.action_request_id=a.action_id
+  AND m.state IN ('awaiting_user','authorizing','resuming'))
 ORDER BY a.created_at_ms, a.action_id`)
 	if err != nil {
 		return nil, err

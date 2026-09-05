@@ -7,6 +7,7 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
+	"github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/notification"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -31,6 +32,7 @@ type Resolver struct {
 	Chat             *runtime.Chat
 	Artifacts        *artifact.Service
 	Memory           *memory.Store
+	MCP              *mcp.Service
 	Notifications    *notification.Service
 	providerAuth     map[string]providerAuthService
 	projectMu        sync.Mutex
@@ -49,7 +51,12 @@ func NewResolver(
 	artifacts *artifact.Service,
 	nativeMemory *memory.Store,
 	notifications *notification.Service,
+	mcpServices ...*mcp.Service,
 ) *Resolver {
+	var mcpService *mcp.Service
+	if len(mcpServices) != 0 {
+		mcpService = mcpServices[0]
+	}
 	resolver := &Resolver{
 		Store:            taskStore,
 		Auth:             authentication,
@@ -59,6 +66,7 @@ func NewResolver(
 		Chat:             chat,
 		Artifacts:        artifacts,
 		Memory:           nativeMemory,
+		MCP:              mcpService,
 		Notifications:    notifications,
 		providerAuth:     make(map[string]providerAuthService),
 	}

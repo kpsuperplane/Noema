@@ -5,11 +5,135 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"time"
 
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
+
+func (c *Chat) prepareMCPAction(
+	conversation store.Conversation, turn store.ConversationTurn, callItem store.ConversationItem,
+	assignment store.ModelAssignment, providerRound int, responseID string, hostedState bool,
+	binding noemamcp.Binding, arguments json.RawMessage,
+) (json.RawMessage, bool, *store.ConversationItem, error) {
+	if binding.ReviewRoute == "" {
+		payload, success, err := c.mcp.Call(c.ctx, binding, arguments)
+		if errors.Is(err, noemamcp.ErrAuthenticationRequired) {
+			token, _ := json.Marshal(map[string]any{"binding": binding, "assignment": modelAssignmentValue(assignment),
+				"response_id": responseID, "hosted_state": hostedState})
+			_, notice, saveErr := c.database.CreateMCPAuthRequest(c.ctx, store.MCPAuthRequest{
+				OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID,
+				CallItemID: callItem.ID, ServerID: binding.ServerID, CapabilityName: binding.Name,
+				BindingJSON: string(token), ArgumentsJSON: string(arguments), ProviderRound: providerRound,
+			}, time.Now())
+			if saveErr != nil {
+				return nil, false, nil, saveErr
+			}
+			return nil, false, &notice, nil
+		}
+		if err != nil {
+			return toolFailure("mcp_call_failed", "MCP tool call failed"), false, nil, nil
+		}
+		return payload, success, nil, nil
+	}
+	authority, err := c.database.ConversationAuthorizationContext(c.ctx, conversation.ID, turn.ID)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	server, err := c.mcp.Server(c.ctx, binding.ServerID)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	contextValue := map[string]any{
+		"origin": "primary_conversation", "context": authority, "conversation_id": conversation.ID,
+		"execution_decision": string(binding.ReviewRoute), "provider_selection": modelAssignmentValue(assignment),
+		"provider_round": providerRound,
+		"destination": map[string]any{"service_id": server.DefinitionID, "connection_id": server.ID,
+			"revision": server.ConnectionRevision},
+		"service":              map[string]any{"display_name": server.DisplayName, "connection_label": server.ConnectionLabel},
+		"mcp_binding":          binding,
+		"provider_response_id": responseID, "hosted_state": hostedState,
+	}
+	action, err := c.database.CreateActionRequest(c.ctx, store.NewActionRequest{
+		ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: callItem.ID,
+		OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: binding.Name,
+		OperationToken: binding.Name, ReviewRoute: binding.ReviewRoute, Behavior: binding.Behavior,
+		Arguments: arguments, InputSchema: binding.InputSchema, AuthorizationContext: contextValue,
+		SafeSummary: "Use " + strings.TrimPrefix(binding.Name, "mcp."+server.ID+".") + " on " + server.DisplayName,
+	}, time.Now())
+	if err != nil {
+		return nil, false, nil, err
+	}
+	if action.ReviewRoute == store.ActionLLMReview {
+		action, approval, err := c.database.RecordActionAssessment(c.ctx, action.ID, action.Revision,
+			c.reviewActionRequest(action), time.Now())
+		if err != nil {
+			return nil, false, nil, err
+		}
+		if approval != nil {
+			return nil, false, approval, nil
+		}
+		return c.executeReviewedMCP(action)
+	}
+	approval, err := c.database.VisibleConversationItem(c.ctx, action.ApprovalItemID)
+	if err != nil || approval == nil {
+		return nil, false, nil, errors.New("MCP approval request is unavailable")
+	}
+	return nil, false, approval, nil
+}
+
+func (c *Chat) executeReviewedMCP(action store.ActionRequest) (json.RawMessage, bool, *store.ConversationItem, error) {
+	if c.mcp == nil {
+		return nil, false, nil, errors.New("MCP service is unavailable")
+	}
+	var binding noemamcp.Binding
+	if json.Unmarshal(mustJSON(action.AuthorizationContext["mcp_binding"]), &binding) != nil ||
+		action.OperationToken != binding.Name || action.CapabilityName != binding.Name ||
+		action.Behavior != binding.Behavior || string(mustJSON(action.InputSchema)) != string(binding.InputSchema) {
+		action, err := c.database.SupersedeActionRequest(c.ctx, action.ID, action.Revision, "action_authority_changed", time.Now())
+		if err != nil {
+			return nil, false, nil, err
+		}
+		payload, _ := json.Marshal(actionResultPayload(action))
+		return payload, false, nil, nil
+	}
+	claimed, err := c.database.ClaimActionRequest(c.ctx, action.ID, action.Revision, time.Now())
+	if err != nil {
+		return nil, false, nil, err
+	}
+	payload, success, callErr := c.mcp.Call(c.ctx, binding, mustJSON(claimed.Arguments))
+	if errors.Is(callErr, noemamcp.ErrAuthenticationRequired) {
+		assignment, assignmentErr := storedModelAssignment(claimed.AuthorizationContext)
+		if assignmentErr != nil {
+			return nil, false, nil, assignmentErr
+		}
+		token, _ := json.Marshal(map[string]any{"binding": binding, "assignment": modelAssignmentValue(assignment),
+			"response_id":  textValue(claimed.AuthorizationContext["provider_response_id"]),
+			"hosted_state": claimed.AuthorizationContext["hosted_state"] == true})
+		_, notice, saveErr := c.database.CreateMCPAuthRequest(c.ctx, store.MCPAuthRequest{
+			OwnerHumanID: "human:local", ConversationID: claimed.ConversationID, TurnID: claimed.TurnID,
+			CallItemID: claimed.CallItemID, ServerID: binding.ServerID, CapabilityName: binding.Name,
+			ActionID: claimed.ID, BindingJSON: string(token), ArgumentsJSON: string(mustJSON(claimed.Arguments)),
+			ProviderRound: int(numberField(claimed.AuthorizationContext, "provider_round")),
+		}, time.Now())
+		return nil, false, &notice, saveErr
+	}
+	state, failure := store.ActionSucceeded, ""
+	if callErr != nil {
+		state, failure = store.ActionFailed, "mcp_call_failed"
+		payload = toolFailure("mcp_call_failed", "MCP tool call failed")
+	}
+	if !success && callErr == nil {
+		state, failure = store.ActionFailed, "remote_tool_failed"
+	}
+	_, err = c.database.FinishActionRequest(c.ctx, claimed.ID, claimed.Revision, state, payload, failure, time.Now())
+	if err != nil {
+		return nil, false, nil, err
+	}
+	return payload, state == store.ActionSucceeded, nil, nil
+}
 
 // ResolveActionRequest applies one human decision and resumes its Chat.
 func (c *Chat) ResolveActionRequest(
@@ -136,11 +260,23 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	}
 	c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: action.ConversationID})
 	if action.State == store.ActionExecutable {
-		conversation, conversationErr := c.database.Conversation(c.ctx, action.ConversationID)
-		if conversationErr != nil {
-			return store.ActionRequest{}, conversationErr
+		if strings.HasPrefix(action.CapabilityName, "mcp.") {
+			var notice *store.ConversationItem
+			_, _, notice, err = c.executeReviewedMCP(action)
+			if err == nil && notice != nil {
+				c.publish(Event{Kind: EventConversationItem, ConversationID: action.ConversationID, TurnID: action.TurnID, Item: notice})
+				c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: action.ConversationID})
+				c.publish(Event{Kind: EventAgentStatus, ConversationID: action.ConversationID, Status: AgentStatusIdle})
+				c.publish(Event{Kind: EventTurnCompleted, ConversationID: action.ConversationID, TurnID: action.TurnID})
+				return c.database.ActionRequest(c.ctx, action.ID, action.Revision)
+			}
+		} else {
+			conversation, conversationErr := c.database.Conversation(c.ctx, action.ConversationID)
+			if conversationErr != nil {
+				return store.ActionRequest{}, conversationErr
+			}
+			_, _, _, err = c.executeReviewedDownload(action, conversation)
 		}
-		_, _, _, err = c.executeReviewedDownload(action, conversation)
 		if err != nil {
 			return store.ActionRequest{}, err
 		}
@@ -155,6 +291,11 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	}
 	c.continueAfterAction(action, resultItem)
 	return action, nil
+}
+
+func numberField(value map[string]any, key string) float64 {
+	number, _ := value[key].(float64)
+	return number
 }
 
 func (c *Chat) appendActionResult(action store.ActionRequest) (store.ConversationItem, error) {
@@ -195,14 +336,21 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 	request := queuedTurn{input: SendTurnInput{ConversationID: action.ConversationID},
 		conversation: conversation, location: time.UTC}
 	c.publish(Event{Kind: EventAgentStatus, ConversationID: action.ConversationID, Status: AgentStatusThinking})
-	hostedState, err := c.actionTurnHasHostedState(action)
-	if err != nil {
-		c.failTurn(request.input, turn, err)
-		return
+	hostedState := action.AuthorizationContext["hosted_state"] == true
+	responseID := textValue(action.AuthorizationContext["provider_response_id"])
+	incremental := provider.GenerationMessage{}
+	if responseID != "" {
+		replay, replayErr := storedToolResult(trigger)
+		if replayErr != nil {
+			c.failTurn(request.input, turn, replayErr)
+			return
+		}
+		replay.Arguments = mustJSON(action.Arguments)
+		incremental = provider.GenerationMessage{Role: "tool", ToolResult: &replay}
 	}
 	result, _, err := c.generateChatToolContinuation(
 		request, turn, assignment, generator, 0, "", c.memoryRootContext(),
-		"", hostedState, provider.GenerationMessage{},
+		responseID, hostedState, incremental,
 	)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
@@ -212,7 +360,7 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 		c.finishGeneratedTurn(request.input, turn, assignment, result, 0, result.Usage)
 		return
 	}
-	if len(result.ToolCalls) != 1 || !supportsChatTool(result.ToolCalls[0].Name) {
+	if len(result.ToolCalls) != 1 || !c.supportsChatTool(c.ctx, result.ToolCalls[0].Name) {
 		c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
 		return
 	}

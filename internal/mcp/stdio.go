@@ -26,6 +26,7 @@ type Command struct {
 	Path            string
 	Args            []string
 	Env             []string
+	Cwd             string
 	MaxMessageBytes int
 }
 
@@ -94,6 +95,7 @@ func newCommandTransport(command Command) (*commandTransport, error) {
 func (t *commandTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
 	cmd := exec.Command(t.command.Path, t.command.Args...)
 	cmd.Env = slices.Clone(t.command.Env)
+	cmd.Dir = t.command.Cwd
 	if cmd.Env == nil {
 		cmd.Env = []string{}
 	}

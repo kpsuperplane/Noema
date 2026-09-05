@@ -47,6 +47,16 @@ func (r *Resolver) pendingHumanInterventions(
 	for _, action := range actions {
 		result = append(result, action)
 	}
+	mcpRequests, err := r.pendingMCPAuthentications(ctx, conversationID, first)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, mcpRequests...)
+	setups, err := r.pendingMCPSetups(ctx, conversationID, first)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, setups...)
 	return result, nil
 }
 
@@ -79,9 +89,19 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 		reviewRoute = model.ExecutionReviewRouteHumanReview
 	}
 	conversationID := action.ConversationID
-	target := &model.ActionRequestTarget{ServiceName: actionString("Public web"),
-		ServiceID: actionString("public_web"), ConnectionID: actionString("file_download")}
 	destination, _ := action.AuthorizationContext["destination"].(map[string]any)
+	service, _ := action.AuthorizationContext["service"].(map[string]any)
+	serviceName := textField(service, "display_name", "External service")
+	target := &model.ActionRequestTarget{ServiceName: actionString(serviceName)}
+	if value := textField(destination, "service_id", ""); value != "" {
+		target.ServiceID = actionString(value)
+	}
+	if value := textField(destination, "connection_id", ""); value != "" {
+		target.ConnectionID = actionString(value)
+	}
+	if value := textField(service, "connection_label", ""); value != "" {
+		target.ConnectionLabel = actionString(value)
+	}
 	result := &model.GovernedAction{
 		ActionID: action.ID, Revision: action.Revision, ConversationID: &conversationID,
 		CapabilityName: action.CapabilityName, ReviewRoute: reviewRoute,
@@ -91,9 +111,9 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 		},
 		SafeSummary: action.SafeSummary, Target: target,
 		Disclosure: &model.ActionRequestDisclosure{
-			Recipient: "Public web", ContentSummary: "Public web receives the request data shown in Review details.",
+			Recipient: serviceName, ContentSummary: serviceName + " receives the request data shown in Review details.",
 		},
-		Consequence: "This changes data outside Noema in Public web.", Destination: destination,
+		Consequence: "This can change data outside Noema in " + serviceName + ".", Destination: destination,
 		Arguments: action.Arguments, State: state,
 	}
 	if action.Assessment != nil {
@@ -110,6 +130,14 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 		result.FailureCode = actionString(action.FailureCode)
 	}
 	return result, nil
+}
+
+func textField(value map[string]any, key, fallback string) string {
+	text, _ := value[key].(string)
+	if text == "" {
+		return fallback
+	}
+	return text
 }
 
 func actionAssessmentModel(value store.ActionAssessment) (*model.GovernedActionAssessment, error) {

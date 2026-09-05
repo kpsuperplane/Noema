@@ -17,6 +17,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/notification"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -105,6 +106,14 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	stdioEnabled, err := noemamcp.StdioEnabled(paths)
+	if err != nil {
+		return err
+	}
+	mcpService, err := noemamcp.NewService(paths, taskStore, stdioEnabled)
+	if err != nil {
+		return fmt.Errorf("open MCP service: %w", err)
+	}
 	if err := providerAccounts.Initialize(ctx, time.Now()); err != nil {
 		return fmt.Errorf("initialize provider accounts: %w", err)
 	}
@@ -133,11 +142,12 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	chatRuntime, err := noemaruntime.NewChat(
-		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
+		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory, mcpService,
 	)
 	if err != nil {
 		return err
 	}
+	mcpService.SetOAuthCompletionHandler(func(attemptID string) { _ = chatRuntime.ResumeMCPAuthentication(context.Background(), attemptID) })
 	defer chatRuntime.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
 		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
@@ -160,11 +170,13 @@ func run(ctx context.Context, address string, output *os.File) error {
 	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
 		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
 		artifacts, nativeMemory, notifications,
+		mcpService,
 	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)
 	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
+	mux.Handle("/mcp/oauth/callback", mcpService.CallbackHandler())
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{
