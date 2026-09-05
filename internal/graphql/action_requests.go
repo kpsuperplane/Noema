@@ -125,6 +125,10 @@ func (r *Resolver) resolveActionRequest(
 
 func (r *Resolver) actionRequestModel(ctx context.Context, action store.ActionRequest) (*model.GovernedAction, error) {
 	result, err := actionRequestModel(action)
+	if err == nil && result != nil && (action.CapabilityName == "web.browse.interact" || action.CapabilityName == "web.browse.history") {
+		available := r.Chat != nil && r.Chat.BrowserActionSessionAvailable(ctx, action)
+		result.BrowserSessionAvailable = &available
+	}
 	if err != nil || action.TaskID == "" || r.home == nil {
 		return result, err
 	}
@@ -166,6 +170,17 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 	destination, _ := action.AuthorizationContext["destination"].(map[string]any)
 	service, _ := action.AuthorizationContext["service"].(map[string]any)
 	serviceName := textField(service, "display_name", "External service")
+	arguments := action.Arguments
+	if review, ok := action.AuthorizationContext["browser_review_context"].(map[string]any); ok {
+		displayed := make(map[string]any, len(action.Arguments)+len(review))
+		for key, value := range action.Arguments {
+			displayed[key] = value
+		}
+		for key, value := range review {
+			displayed[key] = value
+		}
+		arguments = displayed
+	}
 	target := &model.ActionRequestTarget{ServiceName: actionString(serviceName)}
 	if value := textField(destination, "service_id", ""); value != "" {
 		target.ServiceID = actionString(value)
@@ -188,7 +203,7 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 			Recipient: serviceName, ContentSummary: serviceName + " receives the request data shown in Review details.",
 		},
 		Consequence: "This can change data outside Noema in " + serviceName + ".", Destination: destination,
-		Arguments: action.Arguments, State: state,
+		Arguments: arguments, State: state,
 	}
 	if action.Assessment != nil {
 		assessment, err := actionAssessmentModel(*action.Assessment)

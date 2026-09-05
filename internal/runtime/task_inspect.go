@@ -403,13 +403,14 @@ func storedToolResult(item store.ConversationItem) (provider.ReplayToolResult, e
 	if err != nil {
 		return provider.ReplayToolResult{}, errors.New("stored tool result is invalid")
 	}
+	name := textValue(action["name"])
+	if webtool.IsBrowserTool(name) {
+		payload = webtool.BrowserModelPayload(payload)
+	}
 	result := provider.ReplayToolResult{
 		ProviderCallID: textValue(action["provider_call_id"]),
-		ProviderName:   textValue(action["provider_name"]), Name: textValue(action["name"]),
+		ProviderName:   textValue(action["provider_name"]), Name: name,
 		Success: action["success"] == true, Payload: modelToolPayload(payload),
-	}
-	if webtool.IsBrowserTool(result.Name) {
-		result.Payload = webtool.BrowserModelPayload(result.Payload)
 	}
 	if strings.TrimSpace(result.ProviderCallID) == "" || strings.TrimSpace(result.Name) == "" {
 		return provider.ReplayToolResult{}, errors.New("stored tool result is invalid")

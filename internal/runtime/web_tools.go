@@ -17,7 +17,7 @@ func taskBrowserOwner(taskID string, generation int64) string {
 }
 
 func browserBehavior(name string) store.ActionBehavior {
-	if name == webtool.BrowseOpenName || name == webtool.BrowseSwitchName {
+	if name == webtool.BrowseOpenName {
 		return store.ActionBehavior{ReadOnly: true, RepeatSafe: true, OpenWorld: true}
 	}
 	return store.ActionBehavior{OpenWorld: true}
@@ -44,8 +44,8 @@ func (c *Chat) prepareChatBrowser(conversation store.Conversation, turn store.Co
 	}
 	contextValue := map[string]any{"origin": "primary_conversation", "conversation_id": conversation.ID,
 		"execution_decision": "llm_review", "browser_authority": authority,
-		"browser_action":     c.web.BrowserActionContext(owner, name, arguments),
-		"provider_selection": modelAssignmentValue(assignment), "provider_round": providerRound,
+		"browser_review_context": c.web.BrowserActionContext(owner, name, arguments),
+		"provider_selection":     modelAssignmentValue(assignment), "provider_round": providerRound,
 		"destination": map[string]any{"service_id": "public_web", "connection_id": authority.ProviderAccountID, "revision": authority.CredentialRevision}}
 	action, err := c.database.CreateActionRequest(c.ctx, store.NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID,
 		CallItemID: call.ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: name,
@@ -106,7 +106,7 @@ func (r *TaskExecution) prepareTaskBrowser(ctx context.Context, task store.Task,
 	}
 	contextValue := map[string]any{"origin": "task_execution", "task_id": task.ID, "run_id": run.ID,
 		"task_generation": run.Generation, "task_title": task.Title, "task_document": document.Content,
-		"browser_authority": authority, "browser_action": r.web.BrowserActionContext(owner, name, arguments),
+		"browser_authority": authority, "browser_review_context": r.web.BrowserActionContext(owner, name, arguments),
 		"destination": map[string]any{"service_id": "public_web", "connection_id": authority.ProviderAccountID, "revision": authority.CredentialRevision}}
 	action, err := r.database.CreateActionRequest(ctx, store.NewActionRequest{TaskID: task.ID, RunID: run.ID, RunItemID: call.ID,
 		TaskGeneration: run.Generation, OwnerHumanID: "human:local", RequestingAgentID: run.AgentID, CapabilityName: name,
@@ -123,6 +123,13 @@ func (r *TaskExecution) prepareTaskBrowser(ctx context.Context, task store.Task,
 		return webtool.BrowserResult{}, true, r.database.SuspendTaskExecution(ctx, run.ID, run.Generation, time.Now())
 	}
 	return r.executeTaskBrowser(ctx, action)
+}
+
+// BrowserActionSessionAvailable reports whether one reviewed browser action still has its exact session authority.
+func (c *Chat) BrowserActionSessionAvailable(ctx context.Context, action store.ActionRequest) bool {
+	var saved webtool.BrowserAuthority
+	return c.web != nil && json.Unmarshal(mustJSON(action.AuthorizationContext["browser_authority"]), &saved) == nil &&
+		c.web.CurrentBrowserAuthority(ctx, saved, mustJSON(action.Arguments))
 }
 
 func (r *TaskExecution) executeTaskBrowser(ctx context.Context, action store.ActionRequest) (webtool.BrowserResult, bool, error) {

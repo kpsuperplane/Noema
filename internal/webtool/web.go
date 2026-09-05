@@ -41,6 +41,7 @@ type Service struct {
 	browserMu          sync.Mutex
 	browsers           map[string]*browserSession
 	browserGeneration  uint64
+	browserRevision    uint64
 }
 
 // BindingSnapshot identifies the exact provider authority used by a reviewed fetch.

@@ -98,10 +98,7 @@ func (p *browserProcess) readJSON(ctx context.Context, target any) error {
 	}
 	done := make(chan readResult, 1)
 	go func() {
-		line, err := p.output.ReadBytes('\n')
-		if len(line) > browserFrameLimit {
-			err = errors.New("browser worker frame is too large")
-		}
+		line, err := readBrowserFrame(p.output)
 		done <- readResult{line, err}
 	}()
 	select {
@@ -123,6 +120,23 @@ func (p *browserProcess) readJSON(ctx context.Context, target any) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+func readBrowserFrame(reader *bufio.Reader) ([]byte, error) {
+	line := make([]byte, 0, reader.Size())
+	for {
+		part, err := reader.ReadSlice('\n')
+		if len(line)+len(part) > browserFrameLimit {
+			return nil, errors.New("browser worker frame is too large")
+		}
+		line = append(line, part...)
+		if err == nil {
+			return line, nil
+		}
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return nil, err
+		}
 	}
 }
 

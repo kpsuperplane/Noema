@@ -22,23 +22,36 @@ type CheckedURL struct {
 
 // CheckURL validates and resolves one public HTTP or HTTPS URL.
 func CheckURL(ctx context.Context, raw string) (CheckedURL, error) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Hostname() == "" ||
-		(parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return CheckedURL{}, errors.New("public URL is invalid")
-	}
-	if parsed.User != nil {
-		return CheckedURL{}, errors.New("public URL credentials are unavailable")
+	parsed, err := CheckURLTarget(raw)
+	if err != nil {
+		return CheckedURL{}, err
 	}
 	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
-	if blockedHostname(host) {
-		return CheckedURL{}, errors.New("public URL target is blocked")
-	}
 	addresses, err := ResolvePublic(ctx, host)
 	if err != nil {
 		return CheckedURL{}, ErrURLUnavailable
 	}
 	return CheckedURL{URL: parsed, Addresses: addresses}, nil
+}
+
+// CheckURLTarget validates one public HTTP or HTTPS target without resolving its hostname.
+func CheckURLTarget(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Hostname() == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, errors.New("public URL is invalid")
+	}
+	if parsed.User != nil {
+		return nil, errors.New("public URL credentials are unavailable")
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if blockedHostname(host) {
+		return nil, errors.New("public URL target is blocked")
+	}
+	if address, parseErr := netip.ParseAddr(host); parseErr == nil && !IsPublic(address) {
+		return nil, errors.New("public URL target is blocked")
+	}
+	return parsed, nil
 }
 
 // ResolvePublic returns all resolved addresses only when each one is public.

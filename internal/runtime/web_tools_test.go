@@ -61,6 +61,9 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	if !hasGenerationTool(browserExecutor, webtool.BrowseCloseName) || hasGenerationTool(browserPlanner, webtool.BrowseOpenName) {
 		t.Fatal("browser tools do not match Task role policy")
 	}
+	if !browserBehavior(webtool.BrowseOpenName).RepeatSafe || browserBehavior(webtool.BrowseSwitchName).RepeatSafe {
+		t.Fatal("browser navigation repeat policy is invalid")
+	}
 	chat.openRouter = generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: actionReviewToolName,
 			Payload: json.RawMessage(`{"authorization":"weak","risk":"medium","reason_codes":["authorization_ambiguous"],"explanation":"Review is required."}`)}}}, nil

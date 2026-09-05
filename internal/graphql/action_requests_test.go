@@ -88,4 +88,14 @@ query Pending($conversationId: String!) {
 		projected["capabilityName"] != "file.download" || projected["state"] != "AWAITING_APPROVAL" {
 		t.Fatalf("pending intervention = %#v", projected)
 	}
+	browser := action
+	browser.CapabilityName = "web.browse.interact"
+	browser.Arguments = map[string]any{"snapshot_revision": float64(1), "ref": "e2", "action": "click"}
+	browser.AuthorizationContext = map[string]any{"browser_review_context": map[string]any{
+		"kind": "browser_interaction", "target": map[string]any{"name": "Submit"}}}
+	browserModel, err := resolver.actionRequestModel(ctx, browser)
+	if err != nil || browserModel.BrowserSessionAvailable == nil || *browserModel.BrowserSessionAvailable ||
+		browserModel.Arguments["kind"] != "browser_interaction" {
+		t.Fatalf("browser action projection = %#v, %v", browserModel, err)
+	}
 }
