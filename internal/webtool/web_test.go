@@ -52,7 +52,7 @@ func TestWebToolContractsProvidersAndExtraction(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"results":[{"title":"Page","url":"https://1.1.1.1/final","text":"# Page\nUseful text"}]}`))
 	}))
 	defer server.Close()
-	service, err := New(database, accounts, nil, "", 2, 1024)
+	service, err := New(database, accounts, nil, nil, "", 2, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

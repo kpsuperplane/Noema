@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/netpolicy"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -33,6 +34,7 @@ var Tools = []provider.GenerationTool{
 type Service struct {
 	database           *store.Store
 	accounts           *provider.AccountService
+	artifacts          *artifact.Service
 	generators         map[string]provider.Generator
 	endpoints          map[string]string
 	browserPath        string
@@ -60,7 +62,7 @@ func (s *Service) CurrentBinding(ctx context.Context, name string) (BindingSnaps
 }
 
 // New creates one web tool service.
-func New(database *store.Store, accounts *provider.AccountService, generators map[string]provider.Generator, browserPath string, maxSessions, oldSpaceMB int) (*Service, error) {
+func New(database *store.Store, accounts *provider.AccountService, generators map[string]provider.Generator, artifacts *artifact.Service, browserPath string, maxSessions, oldSpaceMB int) (*Service, error) {
 	if database == nil || accounts == nil {
 		return nil, errors.New("web tool dependencies are unavailable")
 	}
@@ -68,11 +70,12 @@ func New(database *store.Store, accounts *provider.AccountService, generators ma
 	if maxSessions < 1 || maxSessions > 8 || oldSpaceMB < 256 || oldSpaceMB > 4096 {
 		return nil, errors.New("browser limits are invalid")
 	}
-	return &Service{database: database, accounts: accounts, generators: generators, browserPath: path,
+	return &Service{database: database, accounts: accounts, artifacts: artifacts, generators: generators, browserPath: path,
 		browserMaxSessions: maxSessions, browserOldSpaceMB: oldSpaceMB, browsers: make(map[string]*browserSession), endpoints: map[string]string{
 			"duckduckgo_public": "https://html.duckduckgo.com/html/", "exa": "https://api.exa.ai",
 			"tinyfish_search": "https://api.search.tinyfish.ai", "tinyfish_fetch": "https://api.fetch.tinyfish.ai",
 			"firecrawl": "https://api.firecrawl.dev/v2",
+			"kernel":    "https://api.onkernel.com",
 		}}, nil
 }
 
@@ -86,7 +89,7 @@ func (s *Service) Close() {
 	}
 	s.browserMu.Unlock()
 	for _, session := range sessions {
-		session.close()
+		s.closeBrowserSession(session)
 	}
 }
 

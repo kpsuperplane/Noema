@@ -174,7 +174,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	webTools, err := webtool.New(taskStore, providerAccounts, map[string]provider.Generator{
 		"openrouter": openRouterGenerator, "codex": codexGenerator, "openai": openAIGenerator,
 		"foundation_local": foundationGenerator, "local_models": localModels,
-	}, os.Getenv("NOEMA_OBSCURA_WORKER_PATH"), authConfig.BrowserMaxSessions, authConfig.BrowserMaxOldSpaceMB)
+	}, artifacts, os.Getenv("NOEMA_OBSCURA_WORKER_PATH"), authConfig.BrowserMaxSessions, authConfig.BrowserMaxOldSpaceMB)
 	if err != nil {
 		return err
 	}
