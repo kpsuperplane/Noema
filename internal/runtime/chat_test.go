@@ -206,7 +206,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
-	if !ok || len(tools) != 8 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+	if !ok || len(tools) != 9 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
 	}
 	toolNames := make(map[string]bool)
@@ -223,7 +223,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		!toolNames["read_memory_page"] || !toolNames["search_memory"] || !toolNames["hosted_web_search"] {
 		t.Fatalf("advertised tools = %#v", toolNames)
 	}
-	if len(firstContinuation["tools"].([]any)) != 8 || len(secondContinuation["tools"].([]any)) != 8 {
+	if len(firstContinuation["tools"].([]any)) != 9 || len(secondContinuation["tools"].([]any)) != 9 {
 		t.Fatal("normal continuations did not retain the Chat tools")
 	}
 	messages := firstContinuation["messages"].([]any)
@@ -330,7 +330,7 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 		}
 	}
 	firstRequest, secondRequest := <-requests, <-requests
-	if len(firstRequest["tools"].([]any)) != 8 {
+	if len(firstRequest["tools"].([]any)) != 9 {
 		t.Fatalf("hosted web tools = %#v", firstRequest["tools"])
 	}
 	var replayedSearches int
@@ -476,7 +476,7 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if len(requests) != 3 || len(requests[0].Tools) != 7 ||
+	if len(requests) != 3 || len(requests[0].Tools) != 8 ||
 		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" ||
 		requests[0].Tools[4].Name != fileDownloadName {
 		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
@@ -651,7 +651,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			openAIRequest = request
 			return provider.GenerationResult{}, nil
 		}),
-		2, "", "", "resp_openai", true, incremental,
+		2, "", "", "resp_openai", true, incremental, nil,
 	)
 	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
 		len(openAIRequest.Messages) != 1 || openAIRequest.Messages[0].ToolResult == nil ||
@@ -669,7 +669,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 				called = true
 				return provider.GenerationResult{}, nil
 			}),
-			2, "", "", "", true, provider.GenerationMessage{},
+			2, "", "", "", true, provider.GenerationMessage{}, nil,
 		)
 		if err == nil || called || !strings.Contains(err.Error(), "provider-hosted web state") {
 			t.Fatalf("missing %s hosted state = called %t, error %v", providerKind, called, err)

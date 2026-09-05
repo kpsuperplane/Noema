@@ -271,6 +271,36 @@ func TestConversationToolActivitiesPreserveStoredIdentityAndStatus(t *testing.T)
 	}
 }
 
+func TestConversationMultipleChoiceItemsPreserveOrderedContract(t *testing.T) {
+	options := []map[string]any{{"id": "b", "label": "Beta"}, {"id": "a", "label": "Alpha"}}
+	promptValue, err := transcriptItemModel(store.ConversationItem{
+		Kind:    store.ConversationMultipleChoicePrompt,
+		Payload: map[string]any{"prompt": "Which?", "selection_mode": "pick_many", "options": options},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, ok := promptValue.(model.MultipleChoicePrompt)
+	if !ok || prompt.SelectionMode != model.MultipleChoiceSelectionModePickMany ||
+		len(prompt.Options) != 2 || prompt.Options[0].ID != "b" {
+		t.Fatalf("multiple-choice prompt = %#v", promptValue)
+	}
+	selectionValue, err := transcriptItemModel(store.ConversationItem{
+		Kind: store.ConversationMultipleChoiceSelection,
+		Payload: map[string]any{
+			"prompt_item_id": "item:prompt", "selection_mode": "pick_many", "selected_options": options,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, ok := selectionValue.(model.MultipleChoiceSelection)
+	if !ok || selection.PromptItemID != "item:prompt" || len(selection.SelectedOptions) != 2 ||
+		selection.SelectedOptions[1].ID != "a" {
+		t.Fatalf("multiple-choice selection = %#v", selectionValue)
+	}
+}
+
 func openChatTestResolver(t *testing.T) *Resolver {
 	t.Helper()
 	resolver := openProviderTestResolver(t)

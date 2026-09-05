@@ -33,6 +33,25 @@ type ConversationToolRound struct {
 	UnresolvedCitationMarkers int
 	Reasoning                 []json.RawMessage
 	Call                      ConversationToolCallInput
+	MultipleChoice            *ConversationMultipleChoiceInput
+}
+
+// ConversationMultipleChoiceOption is one ordered choice exposed to the human.
+type ConversationMultipleChoiceOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// ConversationMultipleChoiceInput contains validated state for one paused tool call.
+type ConversationMultipleChoiceInput struct {
+	Prompt             string
+	SelectionMode      string
+	Options            []ConversationMultipleChoiceOption
+	ProviderSelection  map[string]any
+	ResponseID         string
+	HostedState        bool
+	CredentialRevision uint64
+	ToolCatalogDigest  string
 }
 
 // ConversationToolResultInput is one terminal result for a stored provider call.
@@ -210,7 +229,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 	if err != nil {
 		return nil, err
 	}
-	items := make([]ConversationItem, 0, 3)
+	items := make([]ConversationItem, 0, 4)
 	metadata := func(kind string, output int) map[string]any {
 		return map[string]any{
 			"turn_index": turn.TurnIndex, "output_index": output,
@@ -283,10 +302,50 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 		return nil, err
 	}
 	items = append(items, item)
+	turnStatus := "running"
+	if choice := round.MultipleChoice; choice != nil {
+		if strings.TrimSpace(choice.Prompt) == "" ||
+			(choice.SelectionMode != "pick_one" && choice.SelectionMode != "pick_many") ||
+			len(choice.Options) == 0 || choice.ProviderSelection == nil || choice.ToolCatalogDigest == "" {
+			return nil, errors.New("conversation multiple-choice prompt is invalid")
+		}
+		promptID := stableConversationOutputID(
+			turn.ID, "multiple_choice_prompt", round.Call.ProviderRound, round.Call.OutputIndex,
+		)
+		prompt, err := insertConversationOutputTx(ctx, tx, ConversationItem{
+			ID: promptID, ConversationID: turn.ConversationID, TurnID: turn.ID,
+			ParentItemID: callID, Sequence: sequence + 1, Kind: ConversationMultipleChoicePrompt,
+			Status: "completed", AuthorActorID: "agent:primary",
+			Payload: map[string]any{
+				"prompt": choice.Prompt, "selection_mode": choice.SelectionMode,
+				"options": choiceOptionsPayload(choice.Options), "lifecycle": "pending", "interaction_revision": 1,
+				"provider_selection": choice.ProviderSelection, "provider_round": round.Call.ProviderRound,
+				"response_id": choice.ResponseID, "hosted_state": choice.HostedState,
+				"credential_revision": choice.CredentialRevision, "tool_catalog_digest": choice.ToolCatalogDigest,
+				"call_item_id": callID,
+			},
+			Metadata: metadata("multiple_choice_prompt", round.Call.OutputIndex), CreatedAt: now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, prompt)
+		turnStatus = "waiting_for_tool"
+	}
 	if _, err := tx.ExecContext(ctx, `
-UPDATE conversation_turns SET status = 'running', updated_at_ms = ?
-WHERE turn_id = ? AND conversation_id = ?`, millis(now), turn.ID, turn.ConversationID); err != nil {
+UPDATE conversation_turns SET status = ?, updated_at_ms = ?
+WHERE turn_id = ? AND conversation_id = ?`, turnStatus, millis(now), turn.ID, turn.ConversationID); err != nil {
 		return nil, fmt.Errorf("start conversation tool turn: %w", err)
+	}
+	if round.MultipleChoice != nil {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE conversations SET agent_status = 'idle', updated_at_ms = ? WHERE conversation_id = ?`,
+			millis(now), turn.ConversationID); err != nil {
+			return nil, fmt.Errorf("pause conversation for multiple choice: %w", err)
+		}
+	}
+	if err := completeResumingConversationChoicesTx(ctx, tx, turn.ID, now); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit conversation tool round: %w", err)

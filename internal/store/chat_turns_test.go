@@ -421,3 +421,92 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatalf("recovered call status = %q, %v", recoveredStatus, err)
 	}
 }
+
+func TestConversationMultipleChoiceSelectionIsAtomicOrderedAndRecoverable(t *testing.T) {
+	database := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 5, 0, 0, 0, time.UTC)
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Ask", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Provider: "openrouter",
+		Call: ConversationToolCallInput{
+			ProviderRound: 0, OutputIndex: 0, ProviderCallID: "call-choice",
+			ProviderName: "present_multiple_choice", Name: "noema.present_multiple_choice",
+			Arguments: json.RawMessage(`{"prompt":"Which?","selection_mode":"pick_many","options":[{"id":"b","label":"Beta"},{"id":"a","label":"Alpha"}]}`),
+		},
+		MultipleChoice: &ConversationMultipleChoiceInput{
+			Prompt: "Which?", SelectionMode: "pick_many",
+			Options: []ConversationMultipleChoiceOption{{ID: "b", Label: "Beta"}, {ID: "a", Label: "Alpha"}},
+			ProviderSelection: map[string]any{
+				"role": "noema", "provider_kind": "openrouter", "provider_account_id": "provider_account:test",
+				"selection_mode": "noema_recommended", "model_profile": "openai/test", "reasoning_effort": "high",
+			},
+			ToolCatalogDigest: "catalog:test",
+		},
+	}, now)
+	if err != nil || len(items) != 2 || items[1].Kind != ConversationMultipleChoicePrompt {
+		t.Fatalf("choice publication = %#v, %v", items, err)
+	}
+	prompt := items[1]
+	for _, selected := range [][]string{nil, {"b", "b"}, {"missing"}} {
+		if _, err := database.ResolveConversationChoice(ctx, conversation.ID, prompt.ID, selected, nil, now); err == nil {
+			t.Fatalf("invalid selection succeeded: %#v", selected)
+		}
+	}
+	clientID := "choice-answer"
+	choice, err := database.ResolveConversationChoice(
+		ctx, conversation.ID, prompt.ID, []string{"a", "b"}, &clientID, now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := choice.Selection.Payload["selected_options"].([]any)
+	if selected[0].(map[string]any)["id"] != "b" || selected[1].(map[string]any)["id"] != "a" || choice.Result.ParentItemID != items[0].ID {
+		t.Fatalf("choice resolution = %#v", choice)
+	}
+	if choice.Call.ID != items[0].ID || choice.Call.Status != "completed" {
+		t.Fatalf("completed choice call = %#v", choice.Call)
+	}
+	if _, err := database.ResolveConversationChoice(ctx, conversation.ID, prompt.ID, []string{"b"}, nil, now); err == nil {
+		t.Fatal("second selection succeeded")
+	}
+	authority, err := database.ConversationAuthorizationContext(ctx, conversation.ID, turn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := authority["messages"].([]map[string]any)
+	if messages[len(messages)-1]["role"] != "human" || messages[len(messages)-1]["text"] != "Beta, Alpha" {
+		t.Fatalf("choice authority = %#v", authority)
+	}
+	claimed, err := database.ClaimConversationChoice(ctx, prompt.ID, now)
+	if err != nil || claimed.Turn.Status != "running" {
+		t.Fatalf("choice claim = %#v, %v", claimed, err)
+	}
+	recovered, err := database.RecoverConversationChoices(ctx, now.Add(time.Second))
+	if err != nil || len(recovered) != 1 || recovered[0].Prompt.ID != prompt.ID || recovered[0].Turn.Status != "waiting_for_tool" {
+		t.Fatalf("recovered choices = %#v, %v", recovered, err)
+	}
+	if count, err := database.RecoverConversationTurns(ctx, now.Add(time.Second)); err != nil || count != 0 {
+		t.Fatalf("generic recovery changed choice turn = %d, %v", count, err)
+	}
+	claimed, err = database.ClaimConversationChoice(ctx, prompt.ID, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CompleteConversationTurn(
+		ctx, claimed.Turn, "Continued", "", nil, now.Add(3*time.Second),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var lifecycle string
+	if err := database.db.QueryRow(`SELECT json_extract(payload_json, '$.lifecycle') FROM conversation_items WHERE item_id = ?`, prompt.ID).Scan(&lifecycle); err != nil || lifecycle != "completed" {
+		t.Fatalf("durable continuation choice lifecycle = %q, %v", lifecycle, err)
+	}
+}

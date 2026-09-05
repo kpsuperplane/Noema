@@ -137,6 +137,7 @@ type Chat struct {
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
+	choices    chan choiceResolution
 	done       chan struct{}
 	closeOnce  sync.Once
 	closeErr   error
@@ -148,6 +149,7 @@ type Chat struct {
 	memoryWG   sync.WaitGroup
 
 	recoveredActions []actionContinuation
+	recoveredChoices []store.ConversationChoiceContinuation
 
 	subMu       sync.Mutex
 	subscribers map[uint64]subscriber
@@ -170,6 +172,7 @@ func NewChat(
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
 	actions, err := database.RecoverActionRequests(recoveryContext, time.Now())
 	recoveredActions := make([]actionContinuation, 0, len(actions))
+	var recoveredChoices []store.ConversationChoiceContinuation
 	for _, action := range actions {
 		turn, input, callErr := database.ActionConversationCall(recoveryContext, action)
 		if callErr != nil {
@@ -184,6 +187,13 @@ func NewChat(
 			break
 		}
 		recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
+	}
+	if err == nil {
+		var choices []store.ConversationChoiceContinuation
+		choices, err = database.RecoverConversationChoices(recoveryContext, time.Now())
+		if err == nil {
+			recoveredChoices = choices
+		}
 	}
 	if err == nil {
 		_, err = database.RecoverConversationTurns(recoveryContext, time.Now())
@@ -202,8 +212,10 @@ func NewChat(
 		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService,
 		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
+		choices:          make(chan choiceResolution, turnQueueLimit),
 		done:             make(chan struct{}),
 		recoveredActions: recoveredActions,
+		recoveredChoices: recoveredChoices,
 		subscribers:      make(map[uint64]subscriber),
 	}
 	requests, err := database.RecoverConversationMCPAuthRequests(chat.ctx)
@@ -358,6 +370,13 @@ func (c *Chat) run() {
 		c.continueAfterAction(recovery.action, recovery.trigger)
 	}
 	c.recoveredActions = nil
+	for _, recovery := range c.recoveredChoices {
+		if c.ctx.Err() != nil {
+			return
+		}
+		c.resumeMultipleChoice(recovery)
+	}
+	c.recoveredChoices = nil
 	for {
 		if c.ctx.Err() != nil {
 			return
@@ -373,6 +392,8 @@ func (c *Chat) run() {
 		case request := <-c.mcpAuth:
 			value, err := c.resolveMCPAuthentication(request)
 			request.reply <- mcpAuthResult{request: value, err: err}
+		case request := <-c.choices:
+			c.resolveMultipleChoice(request)
 		}
 	}
 }
@@ -466,7 +487,7 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	c.executeChatToolRounds(request, turn, assignment, generator, result, memoryContext)
+	c.executeChatToolRounds(request, turn, assignment, generator, result, memoryContext, 0, false)
 }
 
 func hostedWebSearchEnabled(providerKind string, transport provider.ToolTransport) bool {

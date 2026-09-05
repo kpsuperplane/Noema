@@ -168,7 +168,7 @@ func (c *Chat) finishMCPAuthCallWithAssignment(request store.MCPAuthRequest, pay
 	incremental := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: request.ProviderCallID,
 		ProviderName: request.ProviderName, Name: request.CapabilityName, Arguments: json.RawMessage(request.ArgumentsJSON), Success: success, Payload: payload}}
 	result, _, err := c.generateChatToolContinuation(queued, continuation, assignment, generator, request.ProviderRound+1,
-		"", c.memoryRootContext(), responseID, hostedState, incremental)
+		"", c.memoryRootContext(), responseID, hostedState, incremental, nil)
 	if err != nil {
 		c.failTurn(queued.input, continuation, err)
 		return nil
@@ -180,6 +180,6 @@ func (c *Chat) finishMCPAuthCallWithAssignment(request store.MCPAuthRequest, pay
 	if len(result.ToolCalls) != 1 || !c.supportsChatTool(c.ctx, result.ToolCalls[0].Name) {
 		return errors.New("provider returned an unsupported tool sequence")
 	}
-	c.executeChatToolRounds(queued, continuation, assignment, generator, result, c.memoryRootContext())
+	c.executeChatToolRounds(queued, continuation, assignment, generator, result, c.memoryRootContext(), request.ProviderRound+1, hostedState)
 	return nil
 }

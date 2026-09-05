@@ -43,12 +43,13 @@ func localChatTools() []provider.GenerationTool {
 		},
 		fileDownloadTool(),
 		luaRunTool(),
+		presentMultipleChoiceTool(),
 		updateOwnNameTool(),
 	}
 }
 
 func supportsLocalChatTool(name string) bool {
-	return name == updateOwnNameToolName || name == luaRunName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
+	return name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
