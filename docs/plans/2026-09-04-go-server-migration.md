@@ -619,6 +619,21 @@ Consolidation checks citations and editable page scope before one atomic publica
 A replaceable 70-percent pending-source threshold schedules one automatic primary Chat update.
 Chat context compaction remains a later unit and will replace that temporary trigger.
 
+### Chat action request and file download unit
+
+The first Chat action-request unit uses Go schema version 18. It includes:
+
+- one exact saved tool call, review, human decision, execution claim, and outcome;
+- source checks before review and execution;
+- deterministic reviewer classifications and one-use human approvals;
+- Chat pause, terminal result persistence, continuation, and restart recovery;
+- public-network checks across redirects and resolved addresses;
+- rooted atomic downloads with bounded time, bytes, and redirects;
+- HTML rejection and optional parsing through the current file worker;
+- existing web and iOS pending-intervention operations.
+
+Task-origin actions and other external tools remain later migration units.
+
 ### Bounded document conversion units
 
 Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
