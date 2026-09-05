@@ -20,6 +20,15 @@ func TestWebToolSettingsPersistExactBindingsAndRoutes(t *testing.T) {
 		settings.Browse.ActiveProviderAccountID != "provider_account:obscura:system" {
 		t.Fatalf("unexpected defaults: %#v", settings)
 	}
+	native := &provider.Account{ID: "provider_account:openai:default", ProviderKind: "openai", AccountKey: "default", DisplayName: "OpenAI"}
+	nativeSearch, _ := resolver.webBindingSettings(context.Background(), "web.search", nil, native, true)
+	nativeFetch, _ := resolver.webBindingSettings(context.Background(), "web.fetch", nil, native, true)
+	if option := nativeSearch.ProviderOptions[0]; option.DataFlowClass != "trusted_external_search_query" || !option.Citations {
+		t.Fatalf("native search metadata = %#v", option)
+	}
+	if option := nativeFetch.ProviderOptions[0]; option.DataFlowClass != "external_web_fetch" || option.Citations || !option.DirectURLFetch {
+		t.Fatalf("native fetch metadata = %#v", option)
+	}
 	secret, _ := provider.NewSecret("exa-secret")
 	exa, err := resolver.ProviderAccounts.CreateSecretAccount(context.Background(), "exa", "Exa", secret, time.Now())
 	if err != nil {

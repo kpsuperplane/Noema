@@ -44,7 +44,7 @@ type BindingSnapshot struct {
 
 // CurrentBinding returns the exact current provider account and credential revision.
 func (s *Service) CurrentBinding(ctx context.Context, name string) (BindingSnapshot, error) {
-	account, err := s.account(ctx, name)
+	account, _, _, err := s.account(ctx, name)
 	if err != nil {
 		return BindingSnapshot{}, err
 	}
@@ -90,7 +90,14 @@ func (s *Service) Execute(ctx context.Context, name string, raw json.RawMessage,
 	if name == FetchName {
 		kind = "fetched_link"
 	}
-	if err := s.database.ObserveURLs(ctx, kind, source, urls, time.Now()); err != nil {
+	observed := make([]string, len(urls))
+	for index := range urls {
+		observed[index], err = observationKey(urls[index])
+		if err != nil {
+			return json.RawMessage(`{"error":"web result contains an invalid URL"}`), false
+		}
+	}
+	if err := s.database.ObserveURLs(ctx, kind, source, observed, time.Now()); err != nil {
 		payload, _ := json.Marshal(map[string]any{"error": "web result could not be saved"})
 		return payload, false
 	}
@@ -104,17 +111,17 @@ func (s *Service) FetchObserved(ctx context.Context, raw json.RawMessage) (bool,
 	if err != nil {
 		return false, err
 	}
-	normalized, err := normalizePublicURL(ctx, request.URL)
+	normalized, err := observationURL(ctx, request.URL)
 	if err != nil {
 		return false, err
 	}
 	return s.database.URLWasObserved(ctx, normalized)
 }
 
-func (s *Service) account(ctx context.Context, toolName string) (provider.Account, error) {
+func (s *Service) account(ctx context.Context, toolName string) (provider.Account, string, string, error) {
 	route, err := s.database.WebProviderRoute(ctx, toolName)
 	if err != nil {
-		return provider.Account{}, err
+		return provider.Account{}, "", "", err
 	}
 	id := "provider_account:duckduckgo_public:system"
 	if toolName == FetchName {
@@ -126,16 +133,27 @@ func (s *Service) account(ctx context.Context, toolName string) (provider.Accoun
 	account, err := s.accounts.LoadAccount(ctx, id)
 	if err != nil || !account.IsActive || !hasCapability(account, toolName) {
 		if len(route) == 0 {
-			return provider.Account{}, errors.New("web provider is unavailable")
+			return provider.Account{}, "", "", errors.New("web provider is unavailable")
 		}
+		reason := "bound provider account is no longer available"
+		if err == nil && account.IsActive {
+			reason = "bound provider account does not declare " + toolName
+			for _, capability := range provider.Capabilities(account) {
+				if capability.ID == toolName {
+					reason = "bound provider capability " + toolName + " is " + capability.Status
+				}
+			}
+		}
+		fallbackFrom := id
 		if toolName == FetchName {
 			id = "provider_account:direct_http:system"
 		} else {
 			id = "provider_account:duckduckgo_public:system"
 		}
-		return s.accounts.LoadAccount(ctx, id)
+		fallback, fallbackErr := s.accounts.LoadAccount(ctx, id)
+		return fallback, fallbackFrom, reason, fallbackErr
 	}
-	return account, nil
+	return account, "", "", nil
 }
 
 func hasCapability(account provider.Account, name string) bool {
@@ -186,12 +204,28 @@ func normalizePublicURL(ctx context.Context, raw string) (string, error) {
 	if err != nil || parsed.User != nil {
 		return "", errors.New("public URL is invalid")
 	}
-	parsed.Fragment = ""
 	checked, err := netpolicy.CheckURL(ctx, parsed.String())
 	if err != nil {
 		return "", err
 	}
 	return checked.URL.String(), nil
+}
+
+func observationURL(ctx context.Context, raw string) (string, error) {
+	normalized, err := normalizePublicURL(ctx, raw)
+	if err != nil {
+		return "", err
+	}
+	return observationKey(normalized)
+}
+
+func observationKey(normalized string) (string, error) {
+	parsed, _ := url.Parse(normalized)
+	if parsed == nil || parsed.Hostname() == "" {
+		return "", errors.New("observed URL is invalid")
+	}
+	parsed.Fragment = ""
+	return parsed.String(), nil
 }
 
 func boundedBody(response *http.Response, max int64) ([]byte, error) {

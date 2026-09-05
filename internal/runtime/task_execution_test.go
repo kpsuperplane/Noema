@@ -24,6 +24,7 @@ import (
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -491,6 +492,10 @@ func TestTaskExecutionValidatesTaskDocumentsBeforePublication(t *testing.T) {
 	}
 	executorRun := run
 	executorRun.Kind = "executor"
+	payload, success, _, _ := runtime.executeTaskTool(context.Background(), task, executorRun, webtool.FetchName, json.RawMessage(`{"url":"https://1.1.1.1/"}`), true)
+	if success || !strings.Contains(string(payload), "unsupported_tool") {
+		t.Fatalf("unreviewed Task fetch = %s, %t", payload, success)
+	}
 	_, success, terminal, _ = runtime.executeTaskTool(context.Background(), task, executorRun, taskContinueExecution, json.RawMessage(`{}`), true)
 	if !success || !terminal {
 		t.Fatal("continuation required RESULT.md")

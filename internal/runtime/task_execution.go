@@ -770,7 +770,7 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		return payload, success, false, false
 	}
 	switch name {
-	case webtool.SearchName, webtool.FetchName:
+	case webtool.SearchName:
 		if r.web == nil || run.Kind != "executor" {
 			return toolFailure("unavailable", "web tool is unavailable"), false, false, false
 		}

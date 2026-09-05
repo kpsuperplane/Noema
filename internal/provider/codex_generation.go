@@ -1369,9 +1369,7 @@ func normalizeCodexHostedSearch(index int, item map[string]json.RawMessage) (Hos
 			return HostedSearch{}, errors.New("Codex hosted web URL is invalid")
 		}
 		if parsed.User != nil {
-			if _, hasPassword := parsed.User.Password(); hasPassword {
-				return HostedSearch{}, errors.New("Codex hosted web URL contains credentials")
-			}
+			return HostedSearch{}, errors.New("Codex hosted web URL contains credentials")
 		}
 	}
 	if kind == "open_page" || kind == "find_in_page" {

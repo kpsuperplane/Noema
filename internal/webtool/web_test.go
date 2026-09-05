@@ -37,7 +37,7 @@ func TestWebToolContractsProvidersAndExtraction(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		calls++
-		if request.Header.Get("x-api-key") != "exa-secret" {
+		if calls <= 3 && request.Header.Get("x-api-key") != "exa-secret" {
 			t.Errorf("missing API key")
 		}
 		writer.Header().Set("Content-Type", "application/json")
@@ -71,14 +71,24 @@ func TestWebToolContractsProvidersAndExtraction(t *testing.T) {
 	if !ok || !strings.Contains(string(fetch), `"final_url":"https://1.1.1.1/final"`) || !strings.Contains(string(fetch), `"content_kind":"raw_markdown"`) {
 		t.Fatalf("fetch = %s, %v", fetch, ok)
 	}
-	if _, ok := service.Execute(ctx, SearchName, json.RawMessage(`{"query":"auth check"}`), "test:auth"); ok {
+	if _, ok := service.Execute(ctx, FetchName, json.RawMessage(`{"url":"https://1.1.1.1/auth"}`), "test:auth"); ok {
 		t.Fatal("authentication rejection succeeded")
 	}
 	rejected, err := accounts.LoadAccount(ctx, account.ID)
 	if err != nil || rejected.Status != provider.StatusUnauthenticated {
 		t.Fatalf("rejected account = %#v, %v", rejected, err)
 	}
-	if calls != 3 {
+	_, fallbackFrom, fallbackReason, err := service.account(ctx, FetchName)
+	if err != nil || fallbackFrom != account.ID || fallbackReason != "bound provider capability web.fetch is unavailable" {
+		t.Fatalf("fallback = %q, %q, %v", fallbackFrom, fallbackReason, err)
+	}
+	service.endpoints["duckduckgo_public"] = server.URL
+	fallbackPayload, ok := service.Execute(ctx, SearchName, json.RawMessage(`{"query":"fallback"}`), "test:fallback")
+	if !ok || !strings.Contains(string(fallbackPayload), `"fallback_from":"`+account.ID+`"`) ||
+		!strings.Contains(string(fallbackPayload), `"fallback_reason":"bound provider capability web.search is unavailable"`) {
+		t.Fatalf("fallback payload = %s, %t", fallbackPayload, ok)
+	}
+	if calls != 4 {
 		t.Fatalf("calls = %d", calls)
 	}
 	if _, err := parseFetch(json.RawMessage(`{"url":"https://user:pass@1.1.1.1/"}`)); err == nil {
@@ -94,10 +104,51 @@ func TestWebToolContractsProvidersAndExtraction(t *testing.T) {
 	if _, err := parseFetch(json.RawMessage(`{"max_chars":-1,"url":"https://1.1.1.1/"}`)); err == nil {
 		t.Fatal("negative fetch bound accepted")
 	}
-	article := `<html><head><title>Example</title></head><body><article><h1>Example</h1><p>` + strings.Repeat("Readable article text. ", 40) + `</p><a href="/next">Next</a></article></body></html>`
+	article := `<html><head><title>Example</title></head><body><article><h1>Example</h1><p>` + strings.Repeat("Readable article text. ", 40) + `</p><a href="/next#section">Next</a></article></body></html>`
 	extracted, err := service.extractedHTML(ctx, fetchRequest{MaxChars: 20_000}, "https://1.1.1.1/", "https://1.1.1.1/", []byte(article))
-	if err != nil || extracted.Extraction != "readability_markdown" || !strings.Contains(extracted.Content, "Readable article") || len(extracted.Links) != 1 {
+	if err != nil || extracted.Extraction != "readability_markdown" || !strings.Contains(extracted.Content, "Readable article") ||
+		len(extracted.Links) != 1 || extracted.Links[0] != "https://1.1.1.1/next#section" {
 		t.Fatalf("extracted = %#v, %v", extracted, err)
+	}
+	visible, err := normalizePublicURL(ctx, "https://1.1.1.1/page#section")
+	observed, observedErr := observationURL(ctx, visible)
+	if err != nil || observedErr != nil || visible != "https://1.1.1.1/page#section" || observed != "https://1.1.1.1/page" {
+		t.Fatalf("visible and observed URLs = %q, %q, %v, %v", visible, observed, err, observedErr)
+	}
+	if media, html := directMediaType("application/markdown"); media != "application/markdown" || html {
+		t.Fatalf("Markdown media = %q, %t", media, html)
+	}
+	if _, html := directMediaType(""); !html {
+		t.Fatal("HTML without Content-Type was not detected")
+	}
+	if _, err := nonemptySummary(" \n "); err == nil {
+		t.Fatal("empty summarizer content was accepted")
+	}
+	firecrawl, err := accounts.LoadAccount(ctx, "provider_account:firecrawl:public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var firecrawlCalls int
+	firecrawlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		firecrawlCalls++
+		if firecrawlCalls == 1 {
+			_, _ = writer.Write([]byte(`{"success":false}`))
+		} else if firecrawlCalls == 2 {
+			_, _ = writer.Write([]byte(`{"success":true}`))
+		} else {
+			_, _ = writer.Write([]byte(`{"success":true,"data":{"markdown":" ","metadata":{}}}`))
+		}
+	}))
+	defer firecrawlServer.Close()
+	service.endpoints["firecrawl"] = firecrawlServer.URL
+	if _, err := service.searchHosted(ctx, firecrawl, searchRequest{Query: "go", MaxResults: 1}); err == nil {
+		t.Fatal("unsuccessful Firecrawl search was accepted")
+	}
+	if _, err := service.searchHosted(ctx, firecrawl, searchRequest{Query: "go", MaxResults: 1}); err == nil {
+		t.Fatal("Firecrawl search without data was accepted")
+	}
+	if _, err := service.fetchHosted(ctx, firecrawl, fetchRequest{URL: "https://1.1.1.1/", MaxChars: 1000}); err == nil {
+		t.Fatal("empty Firecrawl fetch was accepted")
 	}
 	if _, err := normalizePublicURL(ctx, "http://127.0.0.1/"); err == nil {
 		t.Fatal("private URL accepted")

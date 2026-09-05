@@ -26,9 +26,7 @@ func CheckURL(ctx context.Context, raw string) (CheckedURL, error) {
 		return CheckedURL{}, errors.New("public URL is invalid")
 	}
 	if parsed.User != nil {
-		if _, hasPassword := parsed.User.Password(); hasPassword {
-			return CheckedURL{}, errors.New("public URL credentials are unavailable")
-		}
+		return CheckedURL{}, errors.New("public URL credentials are unavailable")
 	}
 	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
 	if blockedHostname(host) {

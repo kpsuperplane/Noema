@@ -44,6 +44,8 @@ type fetchResponse struct {
 	SummaryModel    *string  `json:"summary_model"`
 	SummaryStrategy string   `json:"summary_strategy"`
 	Truncated       bool     `json:"truncated"`
+	FallbackFrom    string   `json:"fallback_from,omitempty"`
+	FallbackReason  string   `json:"fallback_reason,omitempty"`
 }
 
 func parseFetch(raw json.RawMessage) (fetchRequest, error) {
@@ -89,7 +91,7 @@ func (s *Service) fetch(ctx context.Context, raw json.RawMessage) (fetchResponse
 	if err != nil {
 		return fetchResponse{}, nil, err
 	}
-	account, err := s.account(ctx, FetchName)
+	account, fallbackFrom, fallbackReason, err := s.account(ctx, FetchName)
 	if err != nil {
 		if errors.Is(err, errProviderAuthentication) && account.AuthMethod != provider.AuthNone {
 			_ = s.database.MarkProviderAuthenticationFailed(ctx, account.ID, account.Metadata.CredentialRevision(), time.Now())
@@ -103,8 +105,12 @@ func (s *Service) fetch(ctx context.Context, raw json.RawMessage) (fetchResponse
 		response, err = s.fetchHosted(ctx, account, request)
 	}
 	if err != nil {
+		if errors.Is(err, errProviderAuthentication) && account.AuthMethod != provider.AuthNone {
+			_ = s.database.MarkProviderAuthenticationFailed(ctx, account.ID, account.Metadata.CredentialRevision(), time.Now())
+		}
 		return fetchResponse{}, nil, err
 	}
+	response.FallbackFrom, response.FallbackReason = fallbackFrom, fallbackReason
 	return response, response.Links, nil
 }
 
@@ -148,24 +154,27 @@ func (s *Service) fetchDirect(ctx context.Context, request fetchRequest) (fetchR
 	if err != nil {
 		return fetchResponse{}, err
 	}
-	contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if contentType == "" {
-		contentType = http.DetectContentType(body)
-	}
+	contentType, looksHTML := directMediaType(response.Header.Get("Content-Type"))
 	if !utf8.Valid(body) {
 		return fetchResponse{}, errors.New("web fetch resource is not UTF-8")
 	}
-	if contentType == "text/html" || contentType == "application/xhtml+xml" {
+	if contentType == "text/html" || contentType == "application/xhtml+xml" || looksHTML {
 		return s.extractedHTML(ctx, request, requested, current, body)
 	}
 	if !strings.HasPrefix(contentType, "text/") && contentType != "application/json" &&
-		contentType != "application/xml" && !strings.HasSuffix(contentType, "+json") && !strings.HasSuffix(contentType, "+xml") {
+		contentType != "application/markdown" && contentType != "application/xml" &&
+		!strings.HasSuffix(contentType, "+json") && !strings.HasSuffix(contentType, "+xml") {
 		return fetchResponse{}, errors.New("web fetch resource type is unsupported")
 	}
 	content, truncated := boundRunes(string(body), request.MaxChars)
 	return fetchResponse{Provider: "direct_http", URL: requested, FinalURL: current, Links: []string{},
 		Format: contentType, Extraction: "raw_utf8", ContentKind: "raw_text", Content: content,
 		RawChars: utf8.RuneCount(body), ReturnedChars: utf8.RuneCountInString(content), SummaryStrategy: "not_summarized", Truncated: truncated}, nil
+}
+
+func directMediaType(header string) (string, bool) {
+	contentType, _, _ := mime.ParseMediaType(header)
+	return contentType, contentType == ""
 }
 
 func (s *Service) extractedHTML(ctx context.Context, request fetchRequest, requested, final string, body []byte) (fetchResponse, error) {
@@ -257,6 +266,9 @@ func (s *Service) fetchHosted(ctx context.Context, account provider.Account, req
 	}
 	var item map[string]any
 	if account.ProviderKind == "firecrawl" {
+		if value["success"] != true {
+			return fetchResponse{}, errors.New("fetch provider response is invalid")
+		}
 		item, _ = value["data"].(map[string]any)
 	} else if values, ok := value["results"].([]any); ok && len(values) != 0 {
 		item, _ = values[0].(map[string]any)
@@ -267,6 +279,9 @@ func (s *Service) fetchHosted(ctx context.Context, account provider.Account, req
 	content := stringValue(item, "text")
 	if content == "" {
 		content = stringValue(item, "markdown")
+	}
+	if strings.TrimSpace(content) == "" {
+		return fetchResponse{}, errors.New("fetch provider response has no content")
 	}
 	final := stringValue(item, "final_url")
 	title := stringValue(item, "title")
@@ -344,7 +359,11 @@ func (s *Service) summarize(ctx context.Context, sourceURL, title, content strin
 		if generateErr != nil {
 			return "", "", errors.New("web fetch summarization failed")
 		}
-		summaries = append(summaries, strings.TrimSpace(result.Text))
+		summary, summaryErr := nonemptySummary(result.Text)
+		if summaryErr != nil {
+			return "", "", summaryErr
+		}
+		summaries = append(summaries, summary)
 	}
 	combined := strings.Join(summaries, "\n\n")
 	if strategy == "chunked" && utf8.RuneCountInString(combined) > maxChars {
@@ -355,10 +374,21 @@ func (s *Service) summarize(ctx context.Context, sourceURL, title, content strin
 		if generateErr != nil {
 			return "", "", errors.New("web fetch summarization failed")
 		}
-		combined = strings.TrimSpace(result.Text)
+		combined, generateErr = nonemptySummary(result.Text)
+		if generateErr != nil {
+			return "", "", generateErr
+		}
 	}
 	result, _ := boundRunes(combined, maxChars)
 	return result, assignment.ProviderKind + "/" + model, nil
+}
+
+func nonemptySummary(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", errors.New("web fetch summarization returned no content")
+	}
+	return value, nil
 }
 
 func publicLinks(node *html.Node, base *url.URL) []string {
@@ -373,7 +403,6 @@ func publicLinks(node *html.Node, base *url.URL) []string {
 			raw := attribute(current, "href")
 			if parsed, err := url.Parse(raw); err == nil {
 				parsed = base.ResolveReference(parsed)
-				parsed.Fragment = ""
 				if publicLinkURL(parsed) && !seen[parsed.String()] {
 					seen[parsed.String()] = true
 					result = append(result, parsed.String())

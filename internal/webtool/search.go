@@ -36,6 +36,8 @@ type searchResponse struct {
 	Query            string         `json:"query"`
 	Results          []searchResult `json:"results"`
 	Summary          string         `json:"summary"`
+	FallbackFrom     string         `json:"fallback_from,omitempty"`
+	FallbackReason   string         `json:"fallback_reason,omitempty"`
 }
 
 var errProviderAuthentication = errors.New("web provider authentication failed")
@@ -81,7 +83,7 @@ func (s *Service) search(ctx context.Context, raw json.RawMessage) (searchRespon
 	if err != nil {
 		return searchResponse{}, nil, err
 	}
-	account, err := s.account(ctx, SearchName)
+	account, fallbackFrom, fallbackReason, err := s.account(ctx, SearchName)
 	if err != nil {
 		return searchResponse{}, nil, err
 	}
@@ -111,7 +113,8 @@ func (s *Service) search(ctx context.Context, raw json.RawMessage) (searchRespon
 		candidate.Title = normalizeText(candidate.Title)
 		candidate.Snippet = normalizeText(candidate.Snippet)
 		candidate.URL = normalized
-		results, urls = append(results, candidate), append(urls, normalized)
+		observed, _ := observationURL(ctx, normalized)
+		results, urls = append(results, candidate), append(urls, observed)
 		if len(results) == request.MaxResults {
 			break
 		}
@@ -124,7 +127,8 @@ func (s *Service) search(ctx context.Context, raw json.RawMessage) (searchRespon
 	if account.ProviderKind == "duckduckgo_public" {
 		contract = "best_effort_public"
 	}
-	return searchResponse{Provider: account.ProviderKind, ProviderContract: contract, Query: request.Query, Results: results, Summary: summary}, urls, nil
+	return searchResponse{Provider: account.ProviderKind, ProviderContract: contract, Query: request.Query, Results: results,
+		Summary: summary, FallbackFrom: fallbackFrom, FallbackReason: fallbackReason}, urls, nil
 }
 
 func (s *Service) searchDuckDuckGo(ctx context.Context, request searchRequest) ([]searchResult, error) {
@@ -212,7 +216,10 @@ func (s *Service) searchHosted(ctx context.Context, account provider.Account, re
 		return nil, err
 	}
 	if account.ProviderKind == "firecrawl" {
-		data, _ := value["data"].(map[string]any)
+		data, ok := value["data"].(map[string]any)
+		if value["success"] != true || !ok {
+			return nil, errors.New("search provider response is invalid")
+		}
 		value = data
 		value["results"] = data["web"]
 	}

@@ -197,7 +197,7 @@ func TestCodexContinuationAndHostedURLCredentialRules(t *testing.T) {
 		blocked bool
 	}{
 		{"https://person:password@example.test/page", true},
-		{"https://person@example.test/page", false},
+		{"https://person@example.test/page", true},
 		{"https://example.test/page", false},
 	} {
 		action, _ := json.Marshal(map[string]any{"type": "open_page", "url": test.url})

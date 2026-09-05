@@ -129,9 +129,14 @@ func (r *Resolver) nativeWebAccount(ctx context.Context, accounts []provider.Acc
 func (r *Resolver) webBindingSettings(ctx context.Context, name string, accounts []provider.Account, native *provider.Account, useNative bool) (*model.WebToolBindingSettings, error) {
 	options := make([]*model.WebToolProviderOption, 0)
 	if native != nil && name != "web.browse" {
+		dataFlow := "external_web_fetch"
+		if name == "web.search" {
+			dataFlow = "trusted_external_search_query"
+		}
 		options = append(options, &model.WebToolProviderOption{ProviderAccountID: native.ID, ProviderKind: native.ProviderKind,
 			AccountKey: native.AccountKey, DisplayName: native.DisplayName, CapabilityID: name,
-			ReliabilityContract: "hosted_provider", DataFlowClass: "model_provider_prompt", Citations: true, DirectURLFetch: name == "web.fetch"})
+			ReliabilityContract: "hosted_provider", DataFlowClass: dataFlow,
+			Citations: name == "web.search", DirectURLFetch: name == "web.fetch"})
 	}
 	for _, account := range accounts {
 		if !account.IsActive {

@@ -85,9 +85,7 @@ func parseFileDownloadArguments(raw json.RawMessage) (fileDownloadRequest, error
 		return fileDownloadRequest{}, errors.New("url is invalid")
 	}
 	if parsedURL.User != nil {
-		if _, hasPassword := parsedURL.User.Password(); hasPassword {
-			return fileDownloadRequest{}, errors.New("credential-bearing URLs are unavailable")
-		}
+		return fileDownloadRequest{}, errors.New("credential-bearing URLs are unavailable")
 	}
 	if value, ok := fields["parse"]; ok && json.Unmarshal(value, &request.Parse) != nil {
 		return fileDownloadRequest{}, errors.New("arguments do not match the file.download schema")

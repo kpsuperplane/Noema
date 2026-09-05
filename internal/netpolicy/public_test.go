@@ -1,6 +1,7 @@
 package netpolicy
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 )
@@ -24,5 +25,8 @@ func TestPublicAddressPolicyRejectsInternalAndSpecialRanges(t *testing.T) {
 		if !blockedHostname(host) {
 			t.Fatalf("host %s is not blocked", host)
 		}
+	}
+	if _, err := CheckURL(context.Background(), "https://user@1.1.1.1/"); err == nil {
+		t.Fatal("username-only URL credentials were accepted")
 	}
 }

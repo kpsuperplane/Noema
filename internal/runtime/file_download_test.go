@@ -15,16 +15,13 @@ func TestFileDownloadArgumentsAndRootedDestination(t *testing.T) {
 	if err != nil || request.Path != "reports/a.pdf" || !request.Parse || request.MaxChars != 1000 {
 		t.Fatalf("valid request = %#v, %v", request, err)
 	}
-	request, err = parseFileDownloadArguments(json.RawMessage(`{"url":"https://alice@example.net/report.pdf","path":"report.pdf"}`))
-	if err != nil || request.URL != "https://alice@example.net/report.pdf" {
-		t.Fatalf("username URL = %#v, %v", request, err)
-	}
 	for _, raw := range []string{
 		`{"url":"https://example.net/a","path":"../a"}`,
 		`{"url":"https://example.net/a","path":"/absolute"}`,
 		`{"url":"https://example.net/a","path":"a","unknown":true}`,
 		`{"url":"https://example.net/a","path":"a","reason":" "}`,
 		`{"url":"https://alice:secret@example.net/a","path":"a"}`,
+		`{"url":"https://alice@example.net/a","path":"a"}`,
 		`{"url":"https://example.net/a","url":"https://alice:secret@example.net/a","path":"a"}`,
 	} {
 		parsed, parseErr := parseFileDownloadArguments(json.RawMessage(raw))
