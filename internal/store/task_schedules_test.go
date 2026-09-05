@@ -83,7 +83,7 @@ func TestDueSchedulesApplyMissedAndOverlapPolicies(t *testing.T) {
 			t.Fatal(err)
 		}
 		task, _ := database.Task(ctx, id)
-		if task.State != TaskCancelled || task.ScheduleProcessedAt == nil {
+		if task.State != TaskCancelled || task.StageKey != "cancelled" || task.CancelledAt == nil || task.CompletedAt != nil || task.CurrentRunID != "" || task.ScheduleProcessedAt == nil {
 			t.Fatalf("missed Task = %#v", task)
 		}
 	})

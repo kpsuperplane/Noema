@@ -72,6 +72,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}); err != nil {
 		return fmt.Errorf("recover Task documents: %w", err)
 	}
+	if err := home.ReconcileTaskDocumentStages(root, 4096, func(taskID, digest string) (string, bool, error) {
+		return taskStore.TaskDocumentReceipt(ctx, taskID, digest)
+	}); err != nil {
+		return fmt.Errorf("recover Task document updates: %w", err)
+	}
 	if err := recoverProjectDocuments(ctx, root, taskStore); err != nil {
 		return err
 	}

@@ -91,11 +91,19 @@ func (r *Resolver) answerTask(ctx context.Context, input model.AnswerTaskInput) 
 	if gate.Kind == "approval" && input.ApprovalDecision == nil {
 		return nil, taskInputError("the approval decision is required")
 	}
+	if gate.Kind != "approval" && input.ApprovalDecision != nil || !gate.AllowsResolution("answer") {
+		return nil, taskLifecycleError(store.ErrInvalidTransition)
+	}
 	command, err := newTaskCommand("answer_task", input.ClientMutationID, input)
 	if err != nil {
 		return nil, err
 	}
-	result, err := r.Store.ResolveTaskGate(ctx, input.TaskID, input.GateID, int64(input.ExpectedRevision), int64(input.ExpectedGeneration), answer, "answer", command, time.Now())
+	var approval *string
+	if input.ApprovalDecision != nil {
+		value := strings.ToLower(string(*input.ApprovalDecision))
+		approval = &value
+	}
+	result, err := r.Store.ResolveTaskGate(ctx, input.TaskID, input.GateID, int64(input.ExpectedRevision), int64(input.ExpectedGeneration), answer, "answer", approval, command, time.Now())
 	if err != nil {
 		return nil, taskLifecycleError(err)
 	}
@@ -112,11 +120,18 @@ func (r *Resolver) retryTask(ctx context.Context, input model.RetryTaskInput) (*
 			return nil, taskInputError("the retry note is invalid")
 		}
 	}
+	gate, err := r.Store.TaskGate(ctx, input.GateID)
+	if err != nil {
+		return nil, taskLifecycleError(err)
+	}
+	if !gate.AllowsResolution("retry") {
+		return nil, taskLifecycleError(store.ErrInvalidTransition)
+	}
 	command, err := newTaskCommand("retry_task", input.ClientMutationID, input)
 	if err != nil {
 		return nil, err
 	}
-	result, err := r.Store.ResolveTaskGate(ctx, input.TaskID, input.GateID, int64(input.ExpectedRevision), int64(input.ExpectedGeneration), note, "retry", command, time.Now())
+	result, err := r.Store.ResolveTaskGate(ctx, input.TaskID, input.GateID, int64(input.ExpectedRevision), int64(input.ExpectedGeneration), note, "retry", nil, command, time.Now())
 	if err != nil {
 		return nil, taskLifecycleError(err)
 	}
@@ -126,14 +141,20 @@ func (r *Resolver) retryTask(ctx context.Context, input model.RetryTaskInput) (*
 func (r *Resolver) cancelTask(ctx context.Context, input model.CancelTaskInput) (*model.TaskCommandPayload, error) {
 	r.taskMu.Lock()
 	defer r.taskMu.Unlock()
-	if input.Reason != nil && len(*input.Reason) > 4096 {
-		return nil, taskInputError("the cancellation reason is invalid")
+	reason := ""
+	if input.Reason != nil {
+		reason = strings.TrimSpace(*input.Reason)
+		if reason == "" {
+			input.Reason = nil
+		} else {
+			input.Reason = &reason
+		}
 	}
 	command, err := newTaskCommand("cancel_task", input.ClientMutationID, input)
 	if err != nil {
 		return nil, err
 	}
-	result, err := r.Store.CancelTask(ctx, input.TaskID, int64(input.ExpectedRevision), int64(input.ExpectedGeneration), command, time.Now())
+	result, err := r.Store.CancelTask(ctx, input.TaskID, int64(input.ExpectedRevision), int64(input.ExpectedGeneration), reason, command, time.Now())
 	if err != nil {
 		return nil, taskLifecycleError(err)
 	}
@@ -223,7 +244,9 @@ func (r *Resolver) replayTaskLifecycle(ctx context.Context, result store.TaskCom
 		return nil, taskLifecycleError(errors.New("Task receipt is unavailable"))
 	}
 	if result.DocumentDigest != "" {
-		if _, err = home.RecoverTaskDocumentStage(r.home, result.Task.ID, requestDigest, result.DocumentDigest); err != nil {
+		if _, err = home.RecoverTaskDocumentStage(r.home, result.Task.ID, requestDigest, result.DocumentDigest); errors.Is(err, home.ErrTaskDocumentStageStale) {
+			_ = home.DiscardTaskDocumentStage(r.home, result.Task.ID, requestDigest)
+		} else if err != nil {
 			return nil, taskLifecycleError(err)
 		}
 	}
@@ -262,7 +285,7 @@ func (r *Resolver) tasksOverview(ctx context.Context, workspace string, project 
 	if project != nil {
 		filter.ProjectID = *project
 	}
-	page, err := r.Store.ListTasks(ctx, filter, 50, nil)
+	page, counts, needs, err := r.Store.TaskOverview(ctx, filter.ProjectID, 50)
 	if err != nil {
 		return nil, taskLifecycleError(err)
 	}
@@ -271,18 +294,6 @@ func (r *Resolver) tasksOverview(ctx context.Context, workspace string, project 
 		return nil, err
 	}
 	stages := personalWorkflowStages()
-	counts := map[string]int{}
-	all, err := r.Store.ListTasks(ctx, store.TaskListFilter{ProjectID: filter.ProjectID, Scope: "active"}, 100, nil)
-	if err != nil {
-		return nil, err
-	}
-	needs := 0
-	for _, task := range all.Tasks {
-		counts[task.StageKey]++
-		if task.ActiveGateID != "" {
-			needs++
-		}
-	}
 	columns := []*model.TaskStageColumn{}
 	for _, stage := range stages {
 		if stage.Behavior == model.WorkflowStageBehaviorTerminalSuccess || stage.Behavior == model.WorkflowStageBehaviorTerminalCancelled {
@@ -418,6 +429,7 @@ func (r *Resolver) hydrateTaskSummary(ctx context.Context, task store.Task, resu
 	if task.ActiveGateID != "" {
 		if gate, err := r.Store.TaskGate(ctx, task.ActiveGateID); err == nil {
 			result.ActiveGate = taskGateModel(gate)
+			result.ValidActions = validTaskActions(task, &gate)
 		}
 	}
 }

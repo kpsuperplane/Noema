@@ -758,12 +758,15 @@ func processDueTaskTx(ctx context.Context, tx *sql.Tx, id string, now time.Time,
 	task.ScheduleProcessedAt = &processed
 	kind := "task.schedule_released"
 	if recovering && task.ScheduledFor.Before(now) && task.MissedRunPolicy == string(schedule.MissedRunSkip) {
-		task.State = TaskCancelled
+		task.State, task.StageKey, task.CurrentRunID, task.ActiveGateID = TaskCancelled, "cancelled", "", ""
+		task.CancelledAt, task.CompletedAt = timeAddress(now.UTC()), nil
 		kind = "task.cancelled"
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE tasks SET state = ?, schedule_processed_at_ms = ?,
-revision = ?, updated_at_ms = ? WHERE task_id = ? AND revision = ?`, task.State, millis(now),
-		task.Revision, millis(now), id, task.Revision-1)
+	_, err = tx.ExecContext(ctx, `UPDATE tasks SET state = ?, stage_key=?, current_run_id=NULLIF(?,''),
+active_gate_id=NULLIF(?,''), completed_at_ms=?, cancelled_at_ms=?, schedule_processed_at_ms = ?,
+revision = ?, updated_at_ms = ? WHERE task_id = ? AND revision = ?`, task.State, task.StageKey,
+		task.CurrentRunID, task.ActiveGateID, nullableTime(task.CompletedAt), nullableTime(task.CancelledAt),
+		millis(now), task.Revision, millis(now), id, task.Revision-1)
 	if err != nil {
 		return err
 	}

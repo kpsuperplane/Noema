@@ -126,7 +126,7 @@ func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDet
 		Messages:                 []*model.TaskMessage{},
 		Runs:                     []*model.TaskRun{},
 		ContributorInstanceNames: []string{},
-		ValidActions:             validTaskActions(task),
+		ValidActions:             validTaskActions(task, nil),
 	}
 	detail.Schedule = taskScheduleModel(task)
 	if task.CompletedAt != nil {
@@ -168,7 +168,7 @@ func taskSummaryModel(task store.Task, workspaceID string, document string) *mod
 		EffectiveCwdSource:  "default",
 		CreatedAt:           task.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:           task.UpdatedAt.Format(time.RFC3339Nano),
-		ValidActions:        validTaskActions(task),
+		ValidActions:        validTaskActions(task, nil),
 	}
 	result.Schedule = taskScheduleModel(task)
 	if task.CompletedAt != nil {
@@ -231,6 +231,7 @@ func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, documen
 	if task.ActiveGateID != "" {
 		if gate, err := r.Store.TaskGate(ctx, task.ActiveGateID); err == nil {
 			result.ActiveGate = taskGateModel(gate)
+			result.ValidActions = validTaskActions(task, &gate)
 		}
 	}
 	return result
@@ -328,9 +329,12 @@ func taskStageModel(task store.Task) *model.WorkflowStage {
 	return stage
 }
 
-func validTaskActions(task store.Task) []model.ValidTaskAction {
+func validTaskActions(task store.Task, gate *store.TaskGate) []model.ValidTaskAction {
 	switch task.StageKey {
 	case "", "inbox":
+		if task.RecurrenceID != "" {
+			return []model.ValidTaskAction{model.ValidTaskActionRunNow, model.ValidTaskActionCancel}
+		}
 		if task.ScheduledFor != nil && task.ScheduleProcessedAt == nil {
 			return []model.ValidTaskAction{model.ValidTaskActionEdit, model.ValidTaskActionReschedule,
 				model.ValidTaskActionUnschedule, model.ValidTaskActionRunNow, model.ValidTaskActionCancel}
@@ -346,10 +350,17 @@ func validTaskActions(task store.Task) []model.ValidTaskAction {
 	case "done", "cancelled":
 		return []model.ValidTaskAction{model.ValidTaskActionReopen}
 	case "waiting":
-		if task.ActiveGateID != "" {
-			return []model.ValidTaskAction{model.ValidTaskActionAnswer, model.ValidTaskActionRetry, model.ValidTaskActionCancel}
+		if gate != nil {
+			actions := []model.ValidTaskAction{}
+			if gate.AllowsResolution("answer") {
+				actions = append(actions, model.ValidTaskActionAnswer)
+			}
+			if gate.AllowsResolution("retry") {
+				actions = append(actions, model.ValidTaskActionRetry)
+			}
+			return append(actions, model.ValidTaskActionCancel)
 		}
-		return []model.ValidTaskAction{model.ValidTaskActionCancel}
+		return []model.ValidTaskAction{}
 	default:
 		return []model.ValidTaskAction{}
 	}

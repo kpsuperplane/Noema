@@ -50,11 +50,38 @@ type TaskGate struct {
 	ResolvedAt                                         *time.Time
 }
 
+// AllowsResolution applies the durable gate continuation policy.
+func (g TaskGate) AllowsResolution(resolution string) bool {
+	reason, retry := "", ""
+	if g.RecoveryReason != nil {
+		reason = *g.RecoveryReason
+	}
+	if g.RetryRunKind != nil {
+		retry = *g.RetryRunKind
+	}
+	switch g.Kind {
+	case "clarification", "approval":
+		return reason == "" && retry == "" && resolution == "answer"
+	case "recovery":
+		switch reason {
+		case "infrastructure_retries_exhausted":
+			return retry != "" && (resolution == "answer" || resolution == "retry")
+		case "review_rounds_exhausted":
+			return retry == "executor" && resolution == "retry"
+		case "unsafe_effect_uncertain":
+			return retry != "" && resolution == "answer"
+		case "configuration_unavailable":
+			return retry != "" && resolution == "retry"
+		}
+	}
+	return false
+}
+
 // TaskMessage is one human Task message.
 type TaskMessage struct {
 	ID, TaskID, Kind, Body, Author string
 	Generation                     int64
-	GateID                         *string
+	GateID, ApprovalDecision       *string
 	CreatedAt                      time.Time
 }
 
@@ -89,6 +116,24 @@ type TaskRunItemPage struct {
 	Cursors     []string
 	EndCursor   *string
 	HasNextPage bool
+}
+
+// TaskDocumentReceipt returns one committed staged document result.
+func (s *Store) TaskDocumentReceipt(ctx context.Context, taskID, requestDigest string) (string, bool, error) {
+	var response string
+	err := s.db.QueryRowContext(ctx, `SELECT response_json FROM command_receipts
+WHERE result_task_id=? AND request_digest=? ORDER BY result_event_id DESC LIMIT 1`, taskID, requestDigest).Scan(&response)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	var result TaskCommandResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil || result.Task.ID != taskID || result.DocumentDigest == "" {
+		return "", false, errors.New("invalid Task document receipt")
+	}
+	return result.DocumentDigest, true, nil
 }
 
 // UpdateInboxTask replaces selected capture fields in one transaction.
@@ -192,7 +237,7 @@ active_gate_id=NULL, revision=?, updated_at_ms=? WHERE task_id=? AND revision=? 
 
 // CancelTask stops all current work and advances the Task generation.
 func (s *Store) CancelTask(ctx context.Context, id string, revision, generation int64,
-	command TaskCommand, now time.Time) (TaskCommandResult, error) {
+	reason string, command TaskCommand, now time.Time) (TaskCommandResult, error) {
 	return s.taskLifecycleCommand(ctx, command, func(tx *sql.Tx) (TaskCommandResult, error) {
 		task, err := fencedTaskTx(ctx, tx, id, revision, generation)
 		if err != nil {
@@ -221,7 +266,8 @@ WHERE task_id=? AND revision=? AND generation=?`, task.Generation, task.Revision
 		if err != nil {
 			return TaskCommandResult{}, err
 		}
-		return finishTaskLifecycleTx(ctx, tx, task, command, "task.cancelled", "", "", now)
+		return finishTaskLifecycleTx(ctx, tx, task, command, "task.cancelled", "", "", now,
+			map[string]any{"reason_present": reason != ""})
 	})
 }
 
@@ -240,7 +286,7 @@ func (s *Store) ReopenTask(ctx context.Context, id string, revision, generation 
 		if complexity != nil {
 			task.ExecutionComplexity = *complexity
 		}
-		messageID, err := insertTaskMessage(ctx, tx, task, "", "human_change_request", direction, now)
+		messageID, err := insertTaskMessage(ctx, tx, task, "", "human_change_request", direction, nil, now)
 		if err != nil {
 			return TaskCommandResult{}, err
 		}
@@ -265,7 +311,7 @@ WHERE task_id=? AND revision=? AND generation=?`, run.ID, task.Generation, task.
 
 // ResolveTaskGate saves an Answer or Retry and queues its continuation.
 func (s *Store) ResolveTaskGate(ctx context.Context, id, gateID string, revision, generation int64,
-	body, resolution string, command TaskCommand, now time.Time) (TaskCommandResult, error) {
+	body, resolution string, approvalDecision *string, command TaskCommand, now time.Time) (TaskCommandResult, error) {
 	return s.taskLifecycleCommand(ctx, command, func(tx *sql.Tx) (TaskCommandResult, error) {
 		task, err := fencedTaskTx(ctx, tx, id, revision, generation)
 		if err != nil {
@@ -278,10 +324,13 @@ func (s *Store) ResolveTaskGate(ctx context.Context, id, gateID string, revision
 		if err != nil || gate.State != "open" || gate.Generation != generation {
 			return TaskCommandResult{}, ErrInvalidTransition
 		}
-		if resolution == "retry" && gate.Kind != "recovery" {
+		if !gate.AllowsResolution(resolution) || gate.Kind == "approval" != (approvalDecision != nil) {
 			return TaskCommandResult{}, ErrInvalidTransition
 		}
-		messageID, err := insertTaskMessage(ctx, tx, task, gateID, map[bool]string{true: "retry_note", false: "human_answer"}[resolution == "retry"], body, now)
+		if approvalDecision != nil && *approvalDecision != "approved" && *approvalDecision != "declined" {
+			return TaskCommandResult{}, errors.New("invalid approval decision")
+		}
+		messageID, err := insertTaskMessage(ctx, tx, task, gateID, map[bool]string{true: "retry_note", false: "human_answer"}[resolution == "retry"], body, approvalDecision, now)
 		if err != nil {
 			return TaskCommandResult{}, err
 		}
@@ -301,6 +350,15 @@ resolved_at_ms=?, resolution_message_id=? WHERE gate_id=? AND gate_state='open'`
 				return TaskCommandResult{}, loadErr
 			}
 			parent = &value
+			if parent.Status == "waiting_for_approval" {
+				if _, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='completed',ended_at_ms=?,updated_at_ms=? WHERE run_id=? AND status='waiting_for_approval'`, millis(now), millis(now), parent.ID); err != nil {
+					return TaskCommandResult{}, err
+				}
+				parent.Status, parent.EndedAt, parent.UpdatedAt = "completed", timeAddress(now.UTC()), now.UTC()
+			}
+		}
+		if parent != nil {
+			kind = parent.Kind
 		}
 		run, err := insertQueuedTaskRun(ctx, tx, task, kind, parent, now)
 		if err != nil {
@@ -360,13 +418,19 @@ func fencedTaskTx(ctx context.Context, tx *sql.Tx, id string, revision, generati
 }
 
 func finishTaskLifecycleTx(ctx context.Context, tx *sql.Tx, task Task, command TaskCommand,
-	kind, runID, documentDigest string, now time.Time) (TaskCommandResult, error) {
+	kind, runID, documentDigest string, now time.Time, details ...map[string]any) (TaskCommandResult, error) {
 	if err := insertTaskEvent(ctx, tx, task, strings.ReplaceAll(kind, ".", "_")); err != nil {
 		return TaskCommandResult{}, err
 	}
+	payload := map[string]any{"v": 1, "revision": task.Revision, "generation": task.Generation}
+	if len(details) != 0 {
+		for key, value := range details[0] {
+			payload[key] = value
+		}
+	}
 	event, err := insertWorkEvent(ctx, tx, personalWorkspaceIDStore, task.ProjectID, task.ID, runID,
 		task.Revision, kind, "actor:human:local", nil, command.CorrelationID,
-		map[string]any{"v": 1, "revision": task.Revision, "generation": task.Generation}, now.UTC())
+		payload, now.UTC())
 	return TaskCommandResult{Task: task, Event: event, DocumentDigest: documentDigest}, err
 }
 
@@ -418,18 +482,24 @@ VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?)`, run.I
 	return run, err
 }
 
-func insertTaskMessage(ctx context.Context, tx *sql.Tx, task Task, gateID, kind, body string, now time.Time) (string, error) {
+func insertTaskMessage(ctx context.Context, tx *sql.Tx, task Task, gateID, kind, body string, approval *string, now time.Time) (string, error) {
 	id, err := newID("task_message")
 	if err != nil {
 		return "", err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO task_messages
-(message_id,task_id,task_generation,gate_id,message_kind,body_markdown,author_actor_id,created_at_ms)
-VALUES (?,?,?,NULLIF(?,''),?,?, 'actor:human:local',?)`, id, task.ID, task.Generation, gateID, kind, body, millis(now))
+(message_id,task_id,task_generation,gate_id,message_kind,body_markdown,approval_decision,author_actor_id,created_at_ms)
+VALUES (?,?,?,NULLIF(?,''),?,?,?, 'actor:human:local',?)`, id, task.ID, task.Generation, gateID, kind, body, nullableString(approval), millis(now))
 	return id, err
 }
 
 func (s *Store) ListTasks(ctx context.Context, filter TaskListFilter, first int, after *string) (TaskPage, error) {
+	return listTasks(ctx, s.db, filter, first, after)
+}
+
+func listTasks(ctx context.Context, query interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, filter TaskListFilter, first int, after *string) (TaskPage, error) {
 	if first < 1 || first > 100 || filter.Scope != "active" && filter.Scope != "terminal" && filter.Scope != "all" {
 		return TaskPage{}, errors.New("invalid Task list")
 	}
@@ -465,7 +535,7 @@ func (s *Store) ListTasks(ctx context.Context, filter TaskListFilter, first int,
 		clauses = append(clauses, "stage_key IN ("+strings.Join(marks, ",")+")")
 	}
 	arguments = append(arguments, first+1)
-	rows, err := s.db.QueryContext(ctx, taskSelect+" WHERE "+strings.Join(clauses, " AND ")+" ORDER BY updated_at_ms DESC, task_id DESC LIMIT ?", arguments...)
+	rows, err := query.QueryContext(ctx, taskSelect+" WHERE "+strings.Join(clauses, " AND ")+" ORDER BY updated_at_ms DESC, task_id DESC LIMIT ?", arguments...)
 	if err != nil {
 		return TaskPage{}, err
 	}
@@ -491,6 +561,42 @@ func (s *Store) ListTasks(ctx context.Context, filter TaskListFilter, first int,
 		page.EndCursor = &value
 	}
 	return page, rows.Err()
+}
+
+// TaskOverview returns recent active Tasks and exact stage counts from one snapshot.
+func (s *Store) TaskOverview(ctx context.Context, projectID string, first int) (TaskPage, map[string]int, int, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return TaskPage{}, nil, 0, err
+	}
+	defer tx.Rollback()
+	page, err := listTasks(ctx, tx, TaskListFilter{ProjectID: projectID, Scope: "active"}, first, nil)
+	if err != nil {
+		return TaskPage{}, nil, 0, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT stage_key,COUNT(*),SUM(active_gate_id IS NOT NULL)
+FROM tasks WHERE stage_key NOT IN ('done','cancelled') AND (?='' OR COALESCE(project_id,'')=?) GROUP BY stage_key`, projectID, projectID)
+	if err != nil {
+		return TaskPage{}, nil, 0, err
+	}
+	defer rows.Close()
+	counts, needs := map[string]int{}, 0
+	for rows.Next() {
+		var stage string
+		var count, attention int
+		if err := rows.Scan(&stage, &count, &attention); err != nil {
+			return TaskPage{}, nil, 0, err
+		}
+		counts[stage], needs = count, needs+attention
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return TaskPage{}, nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return TaskPage{}, nil, 0, err
+	}
+	return page, counts, needs, tx.Commit()
 }
 
 func encodeTaskCursor(hash string, updated int64, id string) string {
@@ -526,7 +632,7 @@ func (s *Store) TaskRuns(ctx context.Context, taskID string, limit int) ([]TaskR
 	return values, rows.Err()
 }
 func (s *Store) TaskMessages(ctx context.Context, taskID string, limit int) ([]TaskMessage, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT message_id,task_id,task_generation,gate_id,message_kind,body_markdown,author_actor_id,created_at_ms FROM task_messages WHERE task_id=? ORDER BY created_at_ms DESC,message_id DESC LIMIT ?`, taskID, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT message_id,task_id,task_generation,gate_id,message_kind,body_markdown,approval_decision,author_actor_id,created_at_ms FROM task_messages WHERE task_id=? ORDER BY created_at_ms DESC,message_id DESC LIMIT ?`, taskID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -534,12 +640,13 @@ func (s *Store) TaskMessages(ctx context.Context, taskID string, limit int) ([]T
 	values := []TaskMessage{}
 	for rows.Next() {
 		var v TaskMessage
-		var gate sql.NullString
+		var gate, approval sql.NullString
 		var created int64
-		if err := rows.Scan(&v.ID, &v.TaskID, &v.Generation, &gate, &v.Kind, &v.Body, &v.Author, &created); err != nil {
+		if err := rows.Scan(&v.ID, &v.TaskID, &v.Generation, &gate, &v.Kind, &v.Body, &approval, &v.Author, &created); err != nil {
 			return nil, err
 		}
 		v.GateID = nullStringPointer(gate)
+		v.ApprovalDecision = nullStringPointer(approval)
 		v.CreatedAt = fromMillis(created)
 		values = append(values, v)
 	}

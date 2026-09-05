@@ -32,7 +32,7 @@ func TestNativeNotificationSchemaConvergesFromFreshV14AndV15(t *testing.T) {
 			}
 			defer database.Close()
 			var current int
-			if err := database.db.QueryRow("PRAGMA user_version").Scan(&current); err != nil || current != 16 {
+			if err := database.db.QueryRow("PRAGMA user_version").Scan(&current); err != nil || current != schemaVersion {
 				t.Fatalf("schema version = %d, %v", current, err)
 			}
 			for _, table := range []string{"task_runs", "client_notification_registrations", "apns_deliveries", "client_live_activity_registrations"} {

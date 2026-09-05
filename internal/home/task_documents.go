@@ -19,6 +19,9 @@ const (
 	pendingRootName   = ".pending"
 )
 
+// ErrTaskDocumentStageStale means a newer committed document replaced this stage base.
+var ErrTaskDocumentStageStale = errors.New("Task document stage is stale")
+
 // TaskDocument is one exact Task document and its SHA-256 digest.
 type TaskDocument struct {
 	Content string
@@ -57,25 +60,47 @@ func PrepareTaskDocumentReplace(root *os.Root, taskID, expectedDigest, content, 
 		if readErr != nil || taskDocument(string(existing)) != stage.Document {
 			return TaskDocumentStage{}, errors.New("Task document stage has different content")
 		}
-		return stage, nil
-	}
-	if err != nil {
+	} else if err != nil {
 		return TaskDocumentStage{}, err
-	}
-	if written, writeErr := io.WriteString(file, content); writeErr != nil || written != len(content) {
-		_ = file.Close()
-		_ = task.Remove(name)
-		if writeErr == nil {
-			writeErr = io.ErrShortWrite
+	} else {
+		if written, writeErr := io.WriteString(file, content); writeErr != nil || written != len(content) {
+			_ = file.Close()
+			_ = task.Remove(name)
+			if writeErr == nil {
+				writeErr = io.ErrShortWrite
+			}
+			return TaskDocumentStage{}, writeErr
 		}
-		return TaskDocumentStage{}, writeErr
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return TaskDocumentStage{}, err
+		}
+		if err := file.Close(); err != nil {
+			return TaskDocumentStage{}, err
+		}
 	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
+	if err := syncDirectory(task, "."); err != nil {
 		return TaskDocumentStage{}, err
 	}
-	if err := file.Close(); err != nil {
+	baseName := taskDocumentStageBaseName(requestDigest)
+	base, err := task.OpenFile(baseName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		stored, readErr := readBoundedRegularFile(task, baseName, 64)
+		if readErr != nil || string(stored) != expectedDigest {
+			return TaskDocumentStage{}, errors.New("Task document stage has a different base")
+		}
+	} else if err != nil {
 		return TaskDocumentStage{}, err
+	} else {
+		if _, err = io.WriteString(base, expectedDigest); err == nil {
+			err = base.Sync()
+		}
+		if closeErr := base.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return TaskDocumentStage{}, err
+		}
 	}
 	if err := syncDirectory(task, "."); err != nil {
 		return TaskDocumentStage{}, err
@@ -100,6 +125,7 @@ func CommitTaskDocumentStage(root *os.Root, stage TaskDocumentStage) (TaskDocume
 	name := taskDocumentStageName(stage.RequestDigest)
 	if current.Digest == stage.Document.Digest {
 		_ = task.Remove(name)
+		_ = task.Remove(taskDocumentStageBaseName(stage.RequestDigest))
 		return current, nil
 	}
 	if current.Digest != stage.ExpectedDigest {
@@ -112,6 +138,7 @@ func CommitTaskDocumentStage(root *os.Root, stage TaskDocumentStage) (TaskDocume
 	if err := task.Rename(name, taskDocumentName); err != nil {
 		return TaskDocument{}, err
 	}
+	_ = task.Remove(taskDocumentStageBaseName(stage.RequestDigest))
 	if err := syncDirectory(task, "."); err != nil {
 		return TaskDocument{}, err
 	}
@@ -122,7 +149,11 @@ func CommitTaskDocumentStage(root *os.Root, stage TaskDocumentStage) (TaskDocume
 func RecoverTaskDocumentStage(root *os.Root, taskID, requestDigest, documentDigest string) (TaskDocument, error) {
 	current, err := ReadTaskDocument(root, taskID)
 	if err == nil && current.Digest == documentDigest {
+		_ = DiscardTaskDocumentStage(root, taskID, requestDigest)
 		return current, nil
+	}
+	if err != nil {
+		return TaskDocument{}, err
 	}
 	task, openErr := openTaskDocumentRoot(root, taskID)
 	if openErr != nil {
@@ -130,6 +161,10 @@ func RecoverTaskDocumentStage(root *os.Root, taskID, requestDigest, documentDige
 	}
 	defer task.Close()
 	name := taskDocumentStageName(requestDigest)
+	base, baseErr := readBoundedRegularFile(task, taskDocumentStageBaseName(requestDigest), 64)
+	if baseErr != nil || current.Digest != string(base) {
+		return TaskDocument{}, ErrTaskDocumentStageStale
+	}
 	staged, readErr := readBoundedRegularFile(task, name, taskDocumentLimit)
 	if readErr != nil || taskDocument(string(staged)).Digest != documentDigest {
 		return TaskDocument{}, errors.New("committed Task document stage is unavailable")
@@ -137,6 +172,7 @@ func RecoverTaskDocumentStage(root *os.Root, taskID, requestDigest, documentDige
 	if renameErr := task.Rename(name, taskDocumentName); renameErr != nil {
 		return TaskDocument{}, renameErr
 	}
+	_ = task.Remove(taskDocumentStageBaseName(requestDigest))
 	if syncErr := syncDirectory(task, "."); syncErr != nil {
 		return TaskDocument{}, syncErr
 	}
@@ -153,7 +189,97 @@ func DiscardTaskDocumentStage(root *os.Root, taskID, requestDigest string) error
 	if err := task.Remove(taskDocumentStageName(requestDigest)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := task.Remove(taskDocumentStageBaseName(requestDigest)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return syncDirectory(task, ".")
+}
+
+// ReconcileTaskDocumentStages publishes committed replacements after an interrupted command.
+func ReconcileTaskDocumentStages(root *os.Root, limit int, receipt func(string, string) (string, bool, error)) error {
+	if root == nil || limit < 1 || receipt == nil {
+		return errors.New("Task document stage recovery is unavailable")
+	}
+	tasks, err := openRealRoot(root, taskRootName)
+	if err != nil {
+		return err
+	}
+	defer tasks.Close()
+	directory, err := tasks.Open(".")
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	candidates := 0
+	for {
+		entries, readErr := directory.ReadDir(128)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return readErr
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() || entry.Name() == pendingRootName {
+				continue
+			}
+			taskID := "task:" + entry.Name()
+			if _, err := taskName(taskID); err != nil {
+				return err
+			}
+			task, err := openRealRoot(tasks, entry.Name())
+			if err != nil {
+				return err
+			}
+			taskDirectory, err := task.Open(".")
+			if err != nil {
+				_ = task.Close()
+				return err
+			}
+			for {
+				files, fileErr := taskDirectory.ReadDir(128)
+				if fileErr != nil && !errors.Is(fileErr, io.EOF) {
+					_ = taskDirectory.Close()
+					_ = task.Close()
+					return fileErr
+				}
+				for _, file := range files {
+					digest, found := strings.CutPrefix(file.Name(), ".TASK.md.publish-")
+					if !found || strings.HasSuffix(digest, ".base") || !validTaskDocumentDigest(digest) {
+						continue
+					}
+					candidates++
+					if candidates > limit {
+						_ = taskDirectory.Close()
+						_ = task.Close()
+						return errors.New("Task document stage recovery limit exceeded")
+					}
+					documentDigest, committed, err := receipt(taskID, digest)
+					if err != nil {
+						_ = taskDirectory.Close()
+						_ = task.Close()
+						return err
+					}
+					if !committed {
+						err = DiscardTaskDocumentStage(root, taskID, digest)
+					} else if _, err = RecoverTaskDocumentStage(root, taskID, digest, documentDigest); errors.Is(err, ErrTaskDocumentStageStale) {
+						err = DiscardTaskDocumentStage(root, taskID, digest)
+					}
+					if err != nil {
+						_ = taskDirectory.Close()
+						_ = task.Close()
+						return err
+					}
+				}
+				if errors.Is(fileErr, io.EOF) {
+					break
+				}
+			}
+			_ = taskDirectory.Close()
+			_ = task.Close()
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+	}
+	return nil
 }
 
 func openTaskDocumentRoot(root *os.Root, taskID string) (*os.Root, error) {
@@ -168,7 +294,8 @@ func openTaskDocumentRoot(root *os.Root, taskID string) (*os.Root, error) {
 	defer tasks.Close()
 	return openRealRoot(tasks, name)
 }
-func taskDocumentStageName(digest string) string { return ".TASK.md.publish-" + digest }
+func taskDocumentStageName(digest string) string     { return ".TASK.md.publish-" + digest }
+func taskDocumentStageBaseName(digest string) string { return taskDocumentStageName(digest) + ".base" }
 func validTaskDocumentDigest(value string) bool {
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == 32 && hex.EncodeToString(decoded) == value

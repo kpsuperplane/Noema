@@ -3,9 +3,11 @@ package graphql
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
 func TestTaskLifecyclePublishesDocumentsAndReadModels(t *testing.T) {
@@ -40,9 +42,13 @@ func TestTaskLifecyclePublishesDocumentsAndReadModels(t *testing.T) {
 	if queued.Task.Stage.Key != "queue" || queued.Task.CurrentRun == nil || len(queued.Task.Runs) != 1 {
 		t.Fatalf("queued Task = %#v", queued.Task)
 	}
-	_, err = r.cancelTask(ctx, model.CancelTaskInput{TaskID: id, ExpectedRevision: 3, ExpectedGeneration: 1, ClientMutationID: "cancel-lifecycle"})
+	cancelled, err := r.cancelTask(ctx, model.CancelTaskInput{TaskID: id, ExpectedRevision: 3, ExpectedGeneration: 1, Reason: stringAddress("   "), ClientMutationID: "cancel-lifecycle"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	cancelReplay, err := r.cancelTask(ctx, model.CancelTaskInput{TaskID: id, ExpectedRevision: 3, ExpectedGeneration: 1, ClientMutationID: "cancel-lifecycle"})
+	if err != nil || cancelReplay.EventCursor != cancelled.EventCursor {
+		t.Fatalf("cancel replay = %#v, %v", cancelReplay, err)
 	}
 	history, err := r.taskHistory(ctx, personalWorkspaceID, nil, nil, nil, nil)
 	if err != nil || len(history.Edges) != 1 || history.Edges[0].Node.Stage.Key != "cancelled" {
@@ -62,6 +68,53 @@ func TestTaskLifecyclePublishesDocumentsAndReadModels(t *testing.T) {
 	overview, err := r.tasksOverview(ctx, personalWorkspaceID, nil)
 	if err != nil || len(overview.RecentTasks.Edges) != 1 || overview.RecentTasks.Edges[0].Node.CurrentRun == nil {
 		t.Fatalf("Tasks overview = %#v, %v", overview, err)
+	}
+	actions := validTaskActions(store.Task{StageKey: "waiting"}, &store.TaskGate{Kind: "approval"})
+	if len(actions) != 2 || actions[0] != model.ValidTaskActionAnswer || actions[1] != model.ValidTaskActionCancel {
+		t.Fatalf("approval actions = %#v", actions)
+	}
+}
+
+func TestTaskDocumentReplayDoesNotOverwriteNewerEdit(t *testing.T) {
+	r := readyAgentTestResolver(t)
+	ctx := context.Background()
+	captured, err := r.captureTask(ctx, model.CaptureTaskInput{
+		WorkspaceID: personalWorkspaceID, Title: "Draft", TaskDocument: "First",
+		ExecutorAgentID: stringAddress("agent:task-executor"), ClientMutationID: "capture-stale-stage",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := model.UpdateInboxTaskInput{
+		TaskID: captured.Task.TaskID, ExpectedRevision: 1, ExpectedGeneration: 1,
+		TaskDocument: stringAddress("Second"), ExpectedTaskDocumentDigest: &captured.Task.TaskDocumentDigest,
+		ClientMutationID: "first-staged-edit",
+	}
+	command, err := newTaskCommand("update_inbox_task", first.ClientMutationID, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := home.PrepareTaskDocumentReplace(r.home, first.TaskID, *first.ExpectedTaskDocumentDigest, *first.TaskDocument, command.RequestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, err := r.Store.UpdateInboxTask(ctx, first.TaskID, 1, 1, store.TaskUpdate{DocumentDigest: stage.Document.Digest}, command, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := r.updateInboxTask(ctx, model.UpdateInboxTaskInput{
+		TaskID: first.TaskID, ExpectedRevision: 2, ExpectedGeneration: 1,
+		TaskDocument: stringAddress("Third"), ExpectedTaskDocumentDigest: first.ExpectedTaskDocumentDigest,
+		ClientMutationID: "newer-edit",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := r.updateInboxTask(ctx, first)
+	current, readErr := home.ReadTaskDocument(r.home, first.TaskID)
+	wantCursor, _ := store.EncodeWorkEventCursor(committed.Event.ID)
+	if err != nil || readErr != nil || replay.EventCursor != wantCursor || current.Content != "Third" || newer.Task.Revision != 3 {
+		t.Fatalf("stale replay = %#v, current = %#v, %v, %v", replay, current, err, readErr)
 	}
 }
 
