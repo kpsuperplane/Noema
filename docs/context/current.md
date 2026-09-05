@@ -1,7 +1,6 @@
 # Current Noema Context
 
-This brief contains active direction, current constraints, and open loops.
-Durable contracts belong in subsystem documents. Git owns completed history.
+This brief contains active direction, current constraints, and open loops. Durable contracts belong in subsystem documents. Git owns completed history.
 
 ## Active direction
 
@@ -16,8 +15,7 @@ Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
 Cargo now builds only the Tauri desktop shell.
 Apple Foundation Models and its Swift bridge are removed. Setup fills missing model roles and preserves other selections.
 Supporting flows share the approved card, avatar, and theme; see `docs/plans/2026-09-04-supporting-ui/implementation.md`.
-Core UI mocks remain proposals; see `docs/plans/2026-09-05-core-ui-audit/README.md`.
-Unify Inbox and recurring detail composition; retain the floating task bar, visible advanced controls, and existing task cards.
+Core UI mocks remain proposals; see `docs/plans/2026-09-05-core-ui-audit/README.md`. Task mocks reuse capture editor fields; retain the floating bar, inline options, visible schedule settings, and existing task cards.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.

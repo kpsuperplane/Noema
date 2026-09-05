@@ -102,3 +102,19 @@ Production and inclusive migration ratios remain below 80 percent.
 - Reviewed Start, Cancel, and Schedule at 1440px and 390px widths, including modal and drawer previews.
 - Checked card presence in instruction edits and End recurring task dialogs at both widths.
 - The gallery build passed. No horizontal overflow or browser page errors occurred.
+
+## Shared inline task editor
+
+- Capture, Inbox, and recurring details share the title field and production MarkdownInlineEditor.
+- Removed the instruction Edit buttons and instruction-edit dialogs. Both fields are directly editable.
+- Existing task edits save locally on blur. Blank titles show an inline error.
+- Delayed Markdown updates still save after focus leaves the editor.
+- Capture retains drafts until submission. Switching to Markdown source waits for pending editor updates.
+- The gallery now includes the existing editor bundle and app styles. Product source remains unchanged.
+- Reviewed all ten gallery views at 1440px and 390px widths. No horizontal overflow or browser page errors occurred.
+- Checked title edits, instruction edits, save feedback, blank-title errors, and Markdown source switching at both widths.
+- An immediate source switch preserved the latest typed instructions at both widths.
+- The gallery build and diff checks passed. Screenshots contain sample data only.
+
+Production application must preserve revision checks, available-action restrictions, and stale-draft recovery through the existing task commands.
+The gallery keeps edits within the selected mock; it does not implement a task store or server persistence.

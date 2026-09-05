@@ -5,8 +5,8 @@
 @media(max-width:650px){.gallery{padding:var(--spacing-3)}.gallery-brand span{font-size:13px}.study-heading h1{font-size:20px}.study-nav{flex-wrap:nowrap;overflow:auto}.gallery-header>button{display:none}.dialog-actions{grid-template-columns:1fr 1fr}.preview{min-height:0}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 
-.capture-title{border:0;padding:0;font-family:var(--noema-font-display);font-size:24px;font-weight:650;background:transparent;color:var(--foreground);width:100%}.capture-instructions{border:0;resize:vertical;min-height:240px;line-height:1.5;font:inherit;color:var(--foreground);background:transparent;width:100%}.capture-title:focus-visible,.capture-instructions:focus-visible{outline:2px solid var(--ring);outline-offset:4px}.capture-actions{flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap}.capture-options{flex:1}.capture-options>.astryx-selector{max-width:160px}
-@container(max-width:620px){.capture-buttons{width:100%}.capture-buttons>button{flex:1}.capture-instructions{min-height:200px}.capture-options{flex-basis:100%}}
+.capture-title{border:0;padding:0;font-family:var(--noema-font-display);font-size:24px;font-weight:650;background:transparent;color:var(--foreground);width:100%}.capture-title:focus-visible{outline:2px solid var(--ring);outline-offset:4px}.capture-actions{flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap}.capture-options{flex:1}.capture-options>.astryx-selector{max-width:160px}
+@container(max-width:620px){.capture-buttons{width:100%}.capture-buttons>button{flex:1}.capture .task-instructions-editor{min-height:200px}.capture-options{flex-basis:100%}}
 
 /* Keep task metadata within the document. Model controls use a compact two-line group. */
 .history-task-card{gap:var(--spacing-1);width:100%}.history-task-card strong{font-size:13px;font-weight:650;line-height:1.35;color:var(--noema-text-primary)}
@@ -22,3 +22,9 @@
 .task-dock>strong{min-width:0;font-weight:700;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-dock>div{flex-shrink:0}.task-dock .task-dock-control{min-width:28px;width:28px;height:28px;border-width:0;background:transparent;box-shadow:none}
 
 .task-info .astryx-selector{width:auto;max-width:100%}
+
+.capture .task-instructions-editor{min-height:240px}.task-instructions-editor{min-width:0}.task-instructions-editor:focus-within{outline:var(--border-width) solid var(--noema-border-default);outline-offset:var(--spacing-2);border-radius:var(--radius-element)}
+@container(max-width:620px){.capture-title{font-size:22px}.capture .task-instructions-editor{min-height:200px}}
+
+/* The standalone gallery scrolls as one document, outside the app viewport shell. */
+html,body,#root{height:auto;min-height:100%}

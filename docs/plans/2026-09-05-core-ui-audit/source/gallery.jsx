@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Button} from '@astryxdesign/core/Button';
 import {IconButton} from '@astryxdesign/core/IconButton';
@@ -13,14 +13,12 @@ import {Dialog as ResponsiveDialog} from '@/components/ResponsiveDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
-import {Inbox, Repeat2, CalendarClock, Play, Pause, ArrowLeft, Plus, Check, Pencil, Ellipsis, KeyRound} from 'lucide-react';
+import {Inbox, Repeat2, CalendarClock, Play, Pause, ArrowLeft, Plus, Check, Ellipsis, KeyRound} from 'lucide-react';
 import {TaskStatusBadge} from '@/components/chatDetail/task/TaskStatusBadge';
 import {ListCardButton} from '@/components/ListCardLink';
+import {MarkdownInlineEditor} from '@/components/MarkdownEditor';
 import {SettingsSection, SettingsList, SettingsListItem, SettingsSectionInset} from '@/components/settings/SettingsPrimitives';
-import '@astryxdesign/core/reset.css';
-import '@astryxdesign/core/astryx.css';
-import '@astryxdesign/theme-neutral/theme.css';
-import '@/theme/noema-neutral.css';
+import '@/styles.css';
 import './gallery.css';
 
 const studies = [
@@ -71,19 +69,32 @@ function Scene({id}){
   {isDialog?<VStack className="dialog-stage" align="center" justify="center" gap={3}><MockDialog type={id} inline onClose={()=>setNotice('Use “Open as modal” to preview dismissal.')} onDone={message=>setNotice(message)}/><p role="status" className="small muted">{notice||'Dialog preview · Changes stay in this gallery'}</p><B variant="ghost" onClick={()=>open(id)}>Open as modal</B></VStack>:id==='agents'?<Agents notice={setNotice}/>:id==='providers'?<Provider open={open}/>:id==='notifications'?<Notifications notice={setNotice}/>:<section className={'task-split '+(detail?'show-detail':'')}>
    <aside className="task-list"><HStack justify="between" align="center"><h3>{id==='recurring'?'Recurring': 'Inbox'}</h3><B variant="ghost" icon={smallIcon(Plus)} onClick={()=>location.hash='capture'}>New task</B></HStack><p className="small muted list-intro">{id==='recurring'?'Tasks that run on a schedule.':'Saved here until you start or schedule them.'}</p><VStack gap={2}>{(id==='recurring'?[['Morning reading','Weekdays · 8:00 AM'],['Weekly meal ideas','Sundays · 10:00 AM']]:samples).map((t,i)=><ListCardButton key={t[0]} selected={selected===i} onClick={()=>{setSelected(i);setDetail(true)}}><HStack gap={2} align="start">{smallIcon(id==='recurring'?Repeat2:Inbox)}<VStack as="span" gap={1}><strong>{t[0]}</strong><span className="small muted">{t[1]}</span></VStack></HStack></ListCardButton>)}</VStack></aside>
    <section className="task-detail">
-    {id==='recurring'?<Recurrence notice={setNotice} title={selected?'Weekly meal ideas':'Morning reading'} paused={paused} toggle={()=>{setPaused(!paused);setNotice(paused?'Schedule resumed in this mock.':'Schedule paused in this mock.')}} open={open}/>:id==='capture'?<Capture onDone={m=>{setSavedTitle(m);done('Task saved in this mock.')}}/>:<InboxDetail key={selected} selected={selected} started={started} cancelled={cancelled} open={open} onStart={()=>{setStarted(true);setNotice('Task queued in this mock.')}}/>}
+    {id==='recurring'?<Recurrence key={selected} notice={setNotice} title={selected?'Weekly meal ideas':'Morning reading'} paused={paused} toggle={()=>{setPaused(!paused);setNotice(paused?'Schedule resumed in this mock.':'Schedule paused in this mock.')}} open={open}/>:id==='capture'?<Capture onDone={m=>{setSavedTitle(m);done('Task saved in this mock.')}}/>:<InboxDetail key={selected} selected={selected} started={started} cancelled={cancelled} open={open} onStart={()=>{setStarted(true);setNotice('Task queued in this mock.')}}/>}
    </section>
   </section>}
   {notice&&!isDialog?<p className="mock-notice" role="status"><Check size={14}/>{notice}{savedTitle?' '+savedTitle:''}</p>:null}
   {modal?<MockDialog type={modal} taskTitle={['recurring','schedule'].includes(id)?(selected?'Weekly meal ideas':'Morning reading'):samples[selected][0]} onClose={()=>setModal(null)} onDone={message=>{if(modal==='start')setStarted(true);if(modal==='cancel')setCancelled(true);done(message)}}/>:null}
  </>
 }
-// Shared mock sections follow the existing TaskBody and TaskContextCard composition.
-function TaskDocument({title,metadata,timing,instructions,note,openInstructions,advanced,children}){
+// Capture and existing tasks use the same title field and production Markdown editor.
+function TaskTitleField({value,onChange,onCommit,error}){
+ return <input aria-label="Task title" aria-invalid={error?true:undefined} className="capture-title" placeholder="What needs to be done?" value={value} onChange={e=>onChange(e.target.value)} onBlur={()=>onCommit?.(value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();e.currentTarget.blur()}}}/>;
+}
+function TaskInstructionsField({value,onChange,onCommit,sourceMode,onSourceModeChange,onPendingChange}){
+ const editor=useRef(null);
+ const change=value=>{onPendingChange?.(false);onChange(value);if(!editor.current?.contains(document.activeElement))onCommit?.(value)};
+ return <section ref={editor} onInput={()=>{if(!sourceMode)onPendingChange?.(true)}} aria-label="Task instructions" className="task-instructions-editor" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget))onCommit?.(value)}}>
+  <MarkdownInlineEditor value={value} onChange={change} label="Instructions" placeholder="Add details or instructions…" sourceMode={sourceMode} onSourceModeChange={onSourceModeChange}/>
+ </section>
+}
+function TaskDocument({title,metadata,timing,instructions,note,advanced,children}){
+ const [draft,setDraft]=useState({title,instructions}),[saved,setSaved]=useState({title,instructions}),[feedback,setFeedback]=useState(''),[error,setError]=useState('');
+ const change=(field,value)=>{setDraft(current=>({...current,[field]:value}));setFeedback('');if(field==='title')setError('')};
+ const commit=(field,value)=>{if(field==='title'&&!value.trim()){setError('Add a task title.');return}if(value!==saved[field]){setSaved(current=>({...current,[field]:value}));setFeedback('Saved in this mock')}};
  return <VStack className="task-document" gap={4}>
-  <VStack gap={2}><h2 className="document-title">{title}</h2>{typeof metadata==='string'?<p className="small muted">{metadata}</p>:metadata}</VStack>
+  <VStack gap={2}><TaskTitleField value={draft.title} onChange={value=>change('title',value)} onCommit={value=>commit('title',value)} error={error}/>{error?<p role="alert" className="small">{error}</p>:null}{typeof metadata==='string'?<p className="small muted">{metadata}</p>:metadata}</VStack>
   {timing}
-  <VStack as="section" gap={2}><HStack justify="between" align="center" gap={2}><h3>Instructions</h3><B variant="ghost" icon={smallIcon(Pencil)} onClick={openInstructions}>Edit</B></HStack>{instructions}{note?<p className="small muted">{note}</p>:null}</VStack>
+  <VStack as="section" gap={2}><TaskInstructionsField value={draft.instructions} onChange={value=>change('instructions',value)} onCommit={value=>commit('instructions',value)}/>{note?<p className="small muted">{note}</p>:null}{feedback?<p className="small muted" role="status">{feedback}</p>:null}</VStack>
   {advanced}
   {children}
  </VStack>
@@ -123,8 +134,7 @@ function InboxDetail({selected,started,cancelled,open,onStart}){
  return <>
   <TaskDocument title={samples[selected][0]} metadata={<TaskInfo selected={selected}/>}
    timing={<TaskTiming label="Timing" value="No scheduled start" onSchedule={()=>open('task-schedule')}/>}
-   instructions={<><p>{selected===0?'Find a relaxed weekend plan for two people. Include places to eat, a walk, and one indoor option.':selected===1?'Compare monthly costs, speeds, and contract terms. Keep the recommendations short.':'Find beginner classes with evening or weekend sessions. Include prices and what materials are provided.'}</p>{selected===0?<p>Keep the total budget under $400. Include links so I can review the options.</p>:null}</>}
-   openInstructions={()=>open('instructions')}/>
+   instructions={selected===0?'Find a relaxed weekend plan for two people. Include places to eat, a walk, and one indoor option.\n\nKeep the total budget under $400. Include links so I can review the options.':selected===1?'Compare monthly costs, speeds, and contract terms. Keep the recommendations short.':'Find beginner classes with evening or weekend sessions. Include prices and what materials are provided.'}/>
   <TaskDock status={cancelled?'Task cancelled':started?'Queued':'Ready when you are'}><IconButton className="task-dock-control" size="sm" variant="ghost" icon={<Play size={15} aria-hidden="true" color="var(--noema-pine-700)" fill="var(--noema-pine-700)"/>} label={started?'Queued':'Start task'} tooltip={started?'Queued':'Start task'} isDisabled={started||cancelled} onClick={onStart}/></TaskDock>
  </>
 }
@@ -133,8 +143,8 @@ function Recurrence({title,paused,toggle,open,notice}){
  return <>
  <TaskDocument title={title} metadata={(title==='Morning reading'?'Weekdays at 8:00 AM':'Sundays at 10:00 AM')+' · Pacific time'}
   timing={<TaskTiming label={paused?'Schedule paused':'Next run'} value={paused?'No new scheduled runs':title==='Morning reading'?'Monday, Sep 7 · 8:00 AM':'Sunday, Sep 6 · 10:00 AM'} paused={paused} scheduled onSchedule={()=>open('recurrence-schedule')}/>}
-  instructions={<p>{title==='Morning reading'?'Find three thoughtful articles about design and technology. Give me a short summary and a link for each.':'Suggest five easy dinners for next week. Include a shopping list and keep preparation under 30 minutes.'}</p>}
-  note="Edits apply to future runs." openInstructions={()=>open('recurrence-instructions')} advanced={<ScheduleSettings/>}>
+  instructions={title==='Morning reading'?'Find three thoughtful articles about design and technology. Give me a short summary and a link for each.':'Suggest five easy dinners for next week. Include a shopping list and keep preparation under 30 minutes.'}
+  note="Edits apply to future runs." advanced={<ScheduleSettings/>}>
   <VStack gap={2}><HStack justify="between" align="center"><h3>Run history</h3><span className="small muted">3 recent runs</span></HStack><VStack gap={1.5} className="history">{[
  ['Fri, Sep 4','done','Done','3 articles ready'],
  ['Thu, Sep 3','waiting_for_human','Needs you','Sign-in needed'],
@@ -181,8 +191,8 @@ function Agents({notice}){
  </VStack>
 }
 function Capture({onDone}){
- const [title,setTitle]=useState(''),[instructions,setInstructions]=useState(''),[project,setProject]=useState('none'),[folder,setFolder]=useState(''),[source,setSource]=useState(false);
- return <VStack className="task-document capture" gap={3}><input aria-label="Task title" id="capture-title" className="capture-title" placeholder="What needs to be done?" value={title} onChange={e=>setTitle(e.target.value)}/><textarea aria-label="Instructions" id="capture-instructions" className="capture-instructions" placeholder="Add details or instructions…" value={instructions} onChange={e=>setInstructions(e.target.value)}/><details className="quiet-details capture-advanced"><summary>Advanced</summary><VStack gap={3} className="capture-advanced-body"><HStack gap={3} className="schedule-pair"><Selector label="Task agent" size="sm" value="built-in" options={[{value:'built-in',label:'Noema (built-in)'}]} onChange={()=>{}}/><TextInput label="Working folder" isOptional size="sm" placeholder="Use the default folder" value={folder} onChange={setFolder}/></HStack><Switch label="Markdown source" value={source} onChange={setSource}/></VStack></details><section className="capture-actions"><HStack gap={2} wrap="wrap" className="capture-options"><Selector label="Project" isLabelHidden size="sm" options={[{value:'none',label:'No project'},{value:'personal',label:'Personal'}]} value={project} onChange={setProject}/><B variant="ghost" icon={smallIcon(CalendarClock)} onClick={()=>location.hash='schedule'}>Schedule</B></HStack><HStack gap={2} className="capture-buttons"><B variant="secondary" isDisabled={!title.trim()} onClick={()=>onDone(title)}>Add to Inbox</B><B isDisabled={!title.trim()} onClick={()=>onDone('Queued: '+title)}>Run now</B></HStack></section></VStack>
+ const [title,setTitle]=useState(''),[instructions,setInstructions]=useState(''),[project,setProject]=useState('none'),[folder,setFolder]=useState(''),[source,setSource]=useState(false),[pending,setPending]=useState(false);
+ return <VStack className="task-document capture" gap={3}><TaskTitleField value={title} onChange={setTitle}/><TaskInstructionsField value={instructions} onChange={setInstructions} sourceMode={source} onSourceModeChange={setSource} onPendingChange={setPending}/><details className="quiet-details capture-advanced"><summary>Advanced</summary><VStack gap={3} className="capture-advanced-body"><HStack gap={3} className="schedule-pair"><Selector label="Task agent" size="sm" value="built-in" options={[{value:'built-in',label:'Noema (built-in)'}]} onChange={()=>{}}/><TextInput label="Working folder" isOptional size="sm" placeholder="Use the default folder" value={folder} onChange={setFolder}/></HStack><Switch label="Markdown source" isDisabled={pending} value={source} onChange={setSource}/></VStack></details><section className="capture-actions"><HStack gap={2} wrap="wrap" className="capture-options"><Selector label="Project" isLabelHidden size="sm" options={[{value:'none',label:'No project'},{value:'personal',label:'Personal'}]} value={project} onChange={setProject}/><B variant="ghost" icon={smallIcon(CalendarClock)} onClick={()=>location.hash='schedule'}>Schedule</B></HStack><HStack gap={2} className="capture-buttons"><B variant="secondary" isDisabled={!title.trim()} onClick={()=>onDone(title)}>Add to Inbox</B><B isDisabled={!title.trim()} onClick={()=>onDone('Queued: '+title)}>Run now</B></HStack></section></VStack>
 }
 function DialogTaskCard({title,recurring,active,onOpen}){
  return <ListCardButton className="history-task-card" aria-label={'Open task: '+title} onClick={onOpen}>
@@ -193,17 +203,17 @@ function DialogTaskCard({title,recurring,active,onOpen}){
 }
 function MockDialog({type,inline=false,onClose,onDone,taskTitle}){
  const [repeat,setRepeat]=useState(type==='task-schedule'?'once':'weekdays'),[zone,setZone]=useState('pacific'),[time,setTime]=useState('08:00'),[date,setDate]=useState('2026-09-07'),[message,setMessage]=useState('');
- const schedule=['schedule','task-schedule','recurrence-schedule'].includes(type),instructions=['instructions','recurrence-instructions'].includes(type);
- const config={schedule:['Edit schedule','Changes apply to future runs.','Save schedule'], 'task-schedule':['Schedule task','Plan a weekend in Portland','Schedule task'],'recurrence-schedule':['Reschedule task','Changes apply to future runs.','Save schedule'],start:['Start this task?','Plan a weekend in Portland','Start task'],cancel:['Cancel this task?','Plan a weekend in Portland','Cancel task'],end:['End this recurring task?','Morning reading','End recurring task'],'run-now':['Run this task now?','Morning reading','Run now'],'recurrence-instructions':['Edit instructions','Changes apply to future runs.','Save instructions'],instructions:['Edit instructions','Changes apply to this task.','Save instructions'],connection:['Manage sign-in','Sample account controls','Done'],remove:['Delete this account?','Anthropic','Delete account'],'add-provider':['Add provider','Connect another account.','Done']}[type]||['Task details','','Done'];
+ const schedule=['schedule','task-schedule','recurrence-schedule'].includes(type);
+ const config={schedule:['Edit schedule','Changes apply to future runs.','Save schedule'], 'task-schedule':['Schedule task','Plan a weekend in Portland','Schedule task'],'recurrence-schedule':['Reschedule task','Changes apply to future runs.','Save schedule'],start:['Start this task?','Plan a weekend in Portland','Start task'],cancel:['Cancel this task?','Plan a weekend in Portland','Cancel task'],end:['End this recurring task?','Morning reading','End recurring task'],'run-now':['Run this task now?','Morning reading','Run now'],connection:['Manage sign-in','Sample account controls','Done'],remove:['Delete this account?','Anthropic','Delete account'],'add-provider':['Add provider','Connect another account.','Done']}[type]||['Task details','','Done'];
  const destructive=['cancel','end','remove'].includes(type);
- const taskDialog=schedule||instructions||['start','cancel','end','run-now'].includes(type);
- const recurring=['schedule','recurrence-schedule','recurrence-instructions','end','run-now'].includes(type);
+ const taskDialog=schedule||['start','cancel','end','run-now'].includes(type);
+ const recurring=['schedule','recurrence-schedule','end','run-now'].includes(type);
  const title=taskTitle||(recurring?'Morning reading':'Plan a weekend in Portland');
  const titleSubtitle=['start','cancel','end','run-now','task-schedule'].includes(type);
  const close=()=>onClose();
  const form=<Layout height="auto" header={<DialogHeader title={config[0]} subtitle={titleSubtitle?undefined:config[1]} onOpenChange={close}/>} content={<LayoutContent><VStack gap={3}>
   {taskDialog?<DialogTaskCard title={title} recurring={recurring} active={type==='cancel'} onOpen={()=>{onClose();location.hash=recurring?'recurring':'inbox'}}/>:null}
-  {schedule?<><Selector label="Repeat" size="sm" options={[...(type==='task-schedule'?[{value:'once',label:'Does not repeat'}]:[]),{value:'weekdays',label:'Every weekday'},{value:'daily',label:'Every day'},{value:'weekly',label:'Every Monday'},{value:'custom',label:'Custom schedule (cron)'}]} value={repeat} onChange={setRepeat}/><HStack gap={3} align="start" className="schedule-pair"><TextInput label="Time" type="time" size="sm" value={time} onChange={setTime}/><Selector label="Time zone" size="sm" options={[{value:'pacific',label:'Pacific time'},{value:'eastern',label:'Eastern time'}]} value={zone} onChange={setZone}/></HStack><TextInput label={repeat==='once'?'Date':'Starts on'} type="date" size="sm" value={date} onChange={setDate}/>{repeat==='custom'?<TextInput label="Cron expression" value={message} onChange={setMessage} description="Five fields: minute hour day month weekday."/>:null}<section className="schedule-preview"><strong>{repeat==='once'?'Once':repeat==='daily'?'Every day':repeat==='weekly'?'Every Monday':repeat==='custom'?'Custom schedule':'Monday to Friday'} · {time}</strong><p className="small muted">{repeat==='custom'?'Preview requires a valid cron expression.':`Preview starts ${date} · ${zone==='pacific'?'Pacific':'Eastern'} time`}</p></section>{type!=='recurrence-schedule'?<ScheduleBehavior once={repeat==='once'}/>:null}</>:instructions?<TextArea label="Instructions" hasAutoFocus value={message} onChange={setMessage} placeholder="Add details or instructions…"/>:<><p>{type==='start'?'Noema will plan this task and add it to the queue.':type==='cancel'?'Noema will stop this task. Saved history will remain available.':type==='end'?'No new scheduled tasks will be created. Existing tasks will remain unchanged.':type==='run-now'?'Noema will create a task now. The regular schedule will stay in place.':type==='remove'?'Stored credentials and web tool selections for this account will be removed.':'These account controls are outside this visual study.'}</p>{type==='cancel'?<TextArea label="Reason" isOptional value={message} onChange={setMessage}/>:null}</>}
+  {schedule?<><Selector label="Repeat" size="sm" options={[...(type==='task-schedule'?[{value:'once',label:'Does not repeat'}]:[]),{value:'weekdays',label:'Every weekday'},{value:'daily',label:'Every day'},{value:'weekly',label:'Every Monday'},{value:'custom',label:'Custom schedule (cron)'}]} value={repeat} onChange={setRepeat}/><HStack gap={3} align="start" className="schedule-pair"><TextInput label="Time" type="time" size="sm" value={time} onChange={setTime}/><Selector label="Time zone" size="sm" options={[{value:'pacific',label:'Pacific time'},{value:'eastern',label:'Eastern time'}]} value={zone} onChange={setZone}/></HStack><TextInput label={repeat==='once'?'Date':'Starts on'} type="date" size="sm" value={date} onChange={setDate}/>{repeat==='custom'?<TextInput label="Cron expression" value={message} onChange={setMessage} description="Five fields: minute hour day month weekday."/>:null}<section className="schedule-preview"><strong>{repeat==='once'?'Once':repeat==='daily'?'Every day':repeat==='weekly'?'Every Monday':repeat==='custom'?'Custom schedule':'Monday to Friday'} · {time}</strong><p className="small muted">{repeat==='custom'?'Preview requires a valid cron expression.':`Preview starts ${date} · ${zone==='pacific'?'Pacific':'Eastern'} time`}</p></section>{type!=='recurrence-schedule'?<ScheduleBehavior once={repeat==='once'}/>:null}</>:<><p>{type==='start'?'Noema will plan this task and add it to the queue.':type==='cancel'?'Noema will stop this task. Saved history will remain available.':type==='end'?'No new scheduled tasks will be created. Existing tasks will remain unchanged.':type==='run-now'?'Noema will create a task now. The regular schedule will stay in place.':type==='remove'?'Stored credentials and web tool selections for this account will be removed.':'These account controls are outside this visual study.'}</p>{type==='cancel'?<TextArea label="Reason" isOptional value={message} onChange={setMessage}/>:null}</>}
  </VStack></LayoutContent>} footer={<LayoutFooter><HStack gap={2} className="dialog-actions"><B variant="secondary" onClick={close}>{type==='cancel'?'Keep task':destructive?'Keep '+(type==='end'?'schedule':'account'):'Cancel'}</B><B variant={destructive?'destructive':'primary'} isDisabled={schedule&&repeat==='custom'&&!message.trim()} onClick={()=>onDone(config[2]+' · preview only')}>{config[2]}</B></HStack></LayoutFooter>}/>;
  const Frame=inline?Dialog:ResponsiveDialog;
  return <Frame isOpen isInline={inline} width={schedule?480:440} maxHeight="85dvh" purpose="form" aria-label={config[0]} onOpenChange={close}>{form}</Frame>

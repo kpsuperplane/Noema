@@ -79,7 +79,7 @@ Cancelling a task can produce two buttons labeled “Cancel.”
 **Suggestion:** Where confirmation is required, name the action and show the task in its existing list item card.
 Place the card first in the dialog body. Remove the small task-title subtitle.
 Use the same title, preview, and state arrangement as task lists. Keep the action explanation below the card.
-Use this pattern for task confirmations, scheduling, and instruction edits. Selecting the card opens the task mock.
+Use this pattern for task confirmations and scheduling. Selecting the card opens the task mock.
 The standalone start dialog illustrates copy only. Do not insert it into the current start flow.
 Explain: “Noema will plan this task and add it to the queue.”
 For cancellation, use **Keep task** and **Cancel task**.
@@ -132,7 +132,7 @@ Retain direct saving for inline choices. Use one local saving, saved, or error s
 Schedule metadata and description labels use several small type sizes and different left offsets.
 
 **Suggestion:** Emphasize the next date in the same compact timing summary used by Inbox tasks.
-Label the calendar action Reschedule. Use Edit beside the Instructions heading in both views.
+Label the calendar action Reschedule. Edit titles and instructions directly in place in both views.
 Keep execution and pause controls in the shared floating task bar.
 Align instructions and history to one left edge. Use the existing body and heading tokens.
 Use **Run history** instead of **Occurrences**. Reuse the existing task list item cards and TaskStatusBadge.
@@ -221,7 +221,11 @@ Keep the bar's existing docking, status, accessibility, and response behavior wh
 Preserve its compact status on the left and icon controls on the right.
 Place Advanced settings before Run history so a long history cannot push the controls out of reach.
 The sample bar represents that existing surface; it is not a second toolbar.
-Use one Edit label beside Instructions. Reuse the existing task cards for run history.
+Use the same title field and MarkdownInlineEditor as New task. Remove instruction-edit dialogs and separate Edit controls.
+Save existing tasks on blur, with local feedback. New task retains its draft until Add to Inbox or Run now.
+Keep blank-title errors inline. Recurring instruction changes apply to future runs.
+Flush pending editor updates before saving, leaving a task, or switching to Markdown source.
+Reuse the existing task cards for run history.
 Share field rendering and save feedback where semantics match. Keep task and recurrence commands at their existing authorities.
 Preserve available-action checks, revision checks, stale-draft handling, and lifecycle restrictions.
 Do not introduce a generic task settings service or a second command path.
@@ -229,7 +233,8 @@ Do not introduce a generic task settings service or a second command path.
 Current recurrence reads do not expose project assignment. Recurrence updates do not support agent or folder overrides.
 The mocks therefore show supported schedule policies for recurrences, rather than imply full field parity.
 Adding these fields would require a separate product and data-contract decision.
-The shared mock components demonstrate composition, not a production infrastructure change.
+The mocks share title and instruction fields across Capture, Inbox, and recurring task details.
+Instruction fields import the production MarkdownInlineEditor and its existing styles. Production source remains unchanged.
 
 ## Smaller copy and finish changes
 
