@@ -202,6 +202,18 @@ func providerMessagesFromItems(
 			})
 			rounds = append(rounds, round)
 			reasoning = nil
+		case store.ConversationTaskReference:
+			kind, notification, task := textValue(item.Metadata["notification_kind"]), textValue(item.Metadata["notification_id"]), textValue(item.Payload["task_id"])
+			if kind != "" && notification != "" && task != "" {
+				content := fmt.Sprintf("Noema Work notification %s (%s) references task %s.", kind, notification, task)
+				if detail, ok := item.Metadata["work_notification"].(map[string]any); ok {
+					if gate := textValue(detail["gate_id"]); gate != "" {
+						content += " Gate: " + gate + "."
+					}
+				}
+				messages = append(messages, provider.GenerationMessage{Role: "developer", Content: content})
+				rounds = append(rounds, 0)
+			}
 		case store.ConversationToolCall:
 			if stored, exists := results[item.ID]; exists && storedHostedSearch(item) {
 				if item.TurnID != activeTurnID || textValue(item.Metadata["provider"]) != activeProvider {

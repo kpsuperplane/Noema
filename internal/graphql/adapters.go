@@ -1014,10 +1014,8 @@ func (r *Resolver) saveAdapterConnectionPolicy(ctx context.Context, input model.
 		return nil, err
 	}
 	if c.Status == "active" {
-		if err = r.Store.RecordCapabilityReady(ctx, "api", adapter.DisplayName(def), c.ConnectionID,
-			fmt.Sprint(c.ConnectionRevision), len(c.AllowedOperations), time.Now()); err != nil {
-			return nil, err
-		}
+		_ = r.Store.RecordCapabilityReady(ctx, "api", adapter.DisplayName(def), c.ConnectionID,
+			fmt.Sprint(c.ConnectionRevision), len(c.AllowedOperations), time.Now())
 	}
 	return adapterCapabilityConnection(def, c), nil
 }

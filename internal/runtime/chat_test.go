@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -907,20 +908,45 @@ func TestProviderUsageAggregationRejectsOverflow(t *testing.T) {
 }
 
 func TestPrimaryNotificationNarrationDisablesToolsAndHostedSearch(t *testing.T) {
-	chat, _, conversation := chatFixture(t)
-	var request provider.GenerateRequest
+	chat, database, conversation := chatFixture(t)
+	requests := make(chan provider.GenerateRequest, 2)
+	var attempts atomic.Int32
 	chat.openRouter = generatorFunc(func(_ context.Context, value provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		request = value
+		requests <- value
+		if attempts.Add(1) == 1 {
+			return provider.GenerationResult{}, errors.New("temporary notification failure")
+		}
 		return provider.GenerationResult{Text: "Connected.", Model: "test-model"}, nil
 	})
-	text, _, err := chat.narratePrimaryNotification(conversation, "Narrate readiness.")
-	if err != nil || text != "Connected." {
-		t.Fatalf("narration = %q, %v", text, err)
+	if err := database.RecordCapabilityReady(context.Background(), "mcp", "Files", "connection:files", "revision:one", 1, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	<-requests
+	var request provider.GenerateRequest
+	select {
+	case request = <-requests:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("notification attempts = %d", attempts.Load())
 	}
 	if len(request.Tools) != 0 || request.ToolTransport != provider.ToolTransportNone ||
 		request.ToolChoice != provider.ToolChoiceNone || request.HostedWebSearch ||
 		request.Messages[len(request.Messages)-1].Role != "developer" {
 		t.Fatalf("notification provider controls = %#v", request)
+	}
+	taskID, _ := store.NewTaskID()
+	if _, err := database.CreateTask(context.Background(), taskID, "Public capture", "correlation:public", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	events, _ := database.WorkEventsForTask(context.Background(), taskID, 0, 1)
+	write, _, mapped, err := chat.primaryNotification(conversation, events[0])
+	if err != nil || !mapped || write.Task == nil || write.Task.Source.ConversationID != "" {
+		t.Fatalf("public capture notification = %#v, %t, %v", write, mapped, err)
+	}
+	messages, err := providerMessagesFromItems([]store.ConversationItem{{Kind: store.ConversationTaskReference,
+		Payload: map[string]any{"task_id": taskID}, Metadata: map[string]any{"notification_kind": "task_waiting",
+			"notification_id": "notification:one", "work_notification": map[string]any{"gate_id": "gate:one"}}}}, "", "")
+	if err != nil || len(messages) != 1 || messages[0].Role != "developer" || !strings.Contains(messages[0].Content, "Gate: gate:one.") {
+		t.Fatalf("Task reference context = %#v, %v", messages, err)
 	}
 }
 

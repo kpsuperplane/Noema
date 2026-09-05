@@ -38,9 +38,14 @@ func TestPrimaryNotificationsPersistCardsArtifactsAndCursorOnce(t *testing.T) {
 	task.Source = ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID}
 	items, err := database.CommitPrimaryNotification(ctx, PrimaryNotificationWrite{
 		Event: events[0], Conversation: conversation, Source: "work_notification", Task: &task,
+		Metadata: map[string]any{"notification_kind": "task_created"},
 	}, now)
 	if err != nil || len(items) != 1 || items[0].Kind != ConversationTaskReference || items[0].TurnID != turn.ID {
 		t.Fatalf("capture notification = %#v, %v", items, err)
+	}
+	providerItems, err := database.ConversationProviderItems(ctx, conversation.ID)
+	if err != nil || len(providerItems) != 2 || providerItems[1].Kind != ConversationTaskReference {
+		t.Fatalf("capture provider items = %#v, %v", providerItems, err)
 	}
 	url, media := "https://example.test/result", "text/plain"
 	artifact, err := database.CreateArtifact(ctx, Artifact{
@@ -54,11 +59,18 @@ func TestPrimaryNotificationsPersistCardsArtifactsAndCursorOnce(t *testing.T) {
 	if _, err = database.StartTask(ctx, task.ID, "run:one", now); err != nil {
 		t.Fatal(err)
 	}
+	events, _ = database.WorkEvents(ctx, "workspace:personal", events[0].ID, 10)
+	waiting := PrimaryNotificationWrite{Event: events[len(events)-1], Conversation: conversation,
+		Source: "work_notification", Text: "The Task is waiting.", Task: &task}
+	items, err = database.CommitPrimaryNotification(ctx, waiting, now)
+	if err != nil || len(items) != 1 || items[0].Kind != ConversationAssistantText {
+		t.Fatalf("suppressed waiting card = %#v, %v", items, err)
+	}
 	completed, err := database.FinishTask(ctx, task.ID, "run:one", TaskCompleted, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, _ = database.WorkEvents(ctx, "workspace:personal", events[0].ID, 10)
+	events, _ = database.WorkEvents(ctx, "workspace:personal", waiting.Event.ID, 10)
 	completion := PrimaryNotificationWrite{Event: events[len(events)-1], Conversation: conversation,
 		Source: "work_notification", Text: "The Task is complete.", Task: &completed,
 		Artifacts: []ArtifactWithVersions{artifact}}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -42,7 +43,7 @@ func (r *Resolver) conversationTranscriptPage(
 	if err != nil {
 		return nil, err
 	}
-	return conversationTranscriptPageModel(page)
+	return r.conversationTranscriptPageModel(ctx, page)
 }
 
 func (r *Resolver) sendConversationTurn(
@@ -116,7 +117,7 @@ func (r *Resolver) conversationEvents(
 				if !ok {
 					return
 				}
-				mapped, mapErr := conversationEventModel(event)
+				mapped, mapErr := r.conversationEventModel(ctx, event)
 				if mapErr != nil {
 					return
 				}
@@ -131,7 +132,7 @@ func (r *Resolver) conversationEvents(
 	return events, nil
 }
 
-func conversationEventModel(event runtime.Event) (model.ConversationEvent, error) {
+func (r *Resolver) conversationEventModel(ctx context.Context, event runtime.Event) (model.ConversationEvent, error) {
 	switch event.Kind {
 	case runtime.EventSubscriptionReady:
 		return model.SubscriptionReadyEvent{ConversationID: event.ConversationID}, nil
@@ -152,7 +153,7 @@ func conversationEventModel(event runtime.Event) (model.ConversationEvent, error
 		if event.Item == nil {
 			return nil, errors.New("Chat item event is missing its item")
 		}
-		item, err := transcriptItemModel(*event.Item)
+		item, err := r.transcriptItemModel(ctx, *event.Item)
 		if err != nil {
 			return nil, err
 		}
@@ -198,12 +199,12 @@ func agentStatusModel(status runtime.AgentStatus) (model.AgentStatus, error) {
 	}
 }
 
-func conversationTranscriptPageModel(
-	page store.ConversationItemPage,
+func (r *Resolver) conversationTranscriptPageModel(
+	ctx context.Context, page store.ConversationItemPage,
 ) (*model.ConversationTranscriptPage, error) {
 	items := make([]*model.ConversationItem, 0, len(page.Items))
 	for _, stored := range page.Items {
-		item, err := transcriptItemModel(stored)
+		item, err := r.transcriptItemModel(ctx, stored)
 		if err != nil {
 			return nil, err
 		}
@@ -218,6 +219,21 @@ func conversationTranscriptPageModel(
 			BeforeCursor: chatOptionalString(page.BeforeCursor), HasMoreBefore: page.HasMoreBefore,
 		},
 	}, nil
+}
+
+func (r *Resolver) transcriptItemModel(ctx context.Context, item store.ConversationItem) (model.TranscriptItem, error) {
+	value, err := transcriptItemModel(item)
+	reference, ok := value.(model.TaskReference)
+	if err != nil || !ok {
+		return value, err
+	}
+	task, taskErr := r.Store.Task(ctx, reference.TaskID)
+	document, documentErr := home.ReadTaskDocument(r.home, reference.TaskID)
+	if taskErr == nil && documentErr == nil {
+		reference.Task = r.taskSummaryModel(ctx, task, personalWorkspaceID, document.Content)
+		value = reference
+	}
+	return value, nil
 }
 
 func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, error) {
@@ -417,7 +433,7 @@ func (r *Resolver) primaryConversationModel(
 	if err != nil {
 		return nil, err
 	}
-	transcript, err := conversationTranscriptPageModel(page)
+	transcript, err := r.conversationTranscriptPageModel(ctx, page)
 	if err != nil {
 		return nil, err
 	}

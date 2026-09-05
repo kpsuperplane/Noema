@@ -93,17 +93,18 @@ func (c *Chat) primaryNotification(conversation store.Conversation, event store.
 		return write, "", false, err
 	}
 	if event.Kind == "task.captured" {
-		if task.Source.ConversationID != conversation.ID {
-			return write, "", false, nil
-		}
 		write.Source, write.Task = "work_notification", &task
-		write.Metadata = map[string]any{"notification_kind": "task_created"}
+		write.Metadata = map[string]any{"notification_kind": "task_created", "work_notification": map[string]any{"task_id": task.ID}}
 		return write, "", true, nil
 	}
 	write.Source, write.Task = "work_notification", &task
+	detail := map[string]any{"task_id": task.ID}
+	if gateID := textField(event.Payload, "gate_id"); gateID != "" {
+		detail["gate_id"] = gateID
+	}
 	write.Metadata = map[string]any{"notification_kind": map[string]string{
 		"gate.opened": "task_waiting", "task.completed": "task_completed",
-	}[event.Kind]}
+	}[event.Kind], "work_notification": detail}
 	if textField(event.Payload, "gate_kind") == "recovery" {
 		write.Metadata["notification_kind"] = "task_recovery"
 	}

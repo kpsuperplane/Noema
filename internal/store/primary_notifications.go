@@ -115,10 +115,31 @@ VALUES (?,?,'completed',?,?,?,?,?) ON CONFLICT(turn_id) DO NOTHING`, turnID, cur
 		}
 	}
 	if write.Task != nil {
-		if turnID == "" {
+		suppress := false
+		if write.Text != "" {
+			var previous sql.NullInt64
+			err = tx.QueryRowContext(ctx, `SELECT MAX(sequence_index) FROM conversation_items
+WHERE conversation_id=? AND kind='task_reference' AND json_extract(payload_json,'$.task_id')=?`, current.ID, write.Task.ID).Scan(&previous)
+			if err != nil {
+				return nil, err
+			}
+			if previous.Valid {
+				var messages int
+				err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_items WHERE conversation_id=?
+				AND sequence_index>? AND sequence_index<? AND kind IN ('user_text','assistant_text','multiple_choice_prompt','multiple_choice_selection')`, current.ID, previous.Int64, sequence).Scan(&messages)
+				if err != nil {
+					return nil, err
+				}
+				suppress = messages <= 1
+			}
+		}
+		if turnID == "" && write.Task.Source.ConversationID == current.ID {
 			turnID = write.Task.Source.TurnID
 		}
-		if err = appendItem(ConversationTaskReference, "", map[string]any{"task_id": write.Task.ID}, "task"); err != nil {
+		if !suppress {
+			err = appendItem(ConversationTaskReference, "", map[string]any{"task_id": write.Task.ID}, "task")
+		}
+		if err != nil {
 			return nil, err
 		}
 	}

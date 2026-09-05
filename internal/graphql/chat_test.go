@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/home"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
@@ -302,13 +303,24 @@ func TestConversationMultipleChoiceItemsPreserveOrderedContract(t *testing.T) {
 }
 
 func TestConversationNotificationReferencesPreserveClientContract(t *testing.T) {
-	taskValue, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationTaskReference,
-		Payload: map[string]any{"task_id": "task:0123456789abcdef0123456789abcdef"}})
+	resolver := openChatTestResolver(t)
+	taskID := "task:0123456789abcdef0123456789abcdef"
+	if _, err := home.CreatePendingTaskDocument(resolver.home, taskID, "Task notes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.CreateTask(context.Background(), taskID, "Notify Chat", "correlation:test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(resolver.home, taskID); err != nil {
+		t.Fatal(err)
+	}
+	taskValue, err := resolver.transcriptItemModel(context.Background(), store.ConversationItem{Kind: store.ConversationTaskReference,
+		Payload: map[string]any{"task_id": taskID}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	task, ok := taskValue.(model.TaskReference)
-	if !ok || task.TaskID != "task:0123456789abcdef0123456789abcdef" {
+	if !ok || task.TaskID != taskID || task.Task == nil || task.Task.Title != "Notify Chat" {
 		t.Fatalf("Task reference = %#v", taskValue)
 	}
 	artifactValue, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationArtifactReference,
