@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,29 @@ func TestProgressAuditUsesIndependentRequiredToolRequest(t *testing.T) {
 	}
 }
 
+func TestProgressAuditUnavailableAccountDoesNotCallProvider(t *testing.T) {
+	_, database, _ := chatFixture(t)
+	account, err := database.ProviderAccount(context.Background(), "provider_account:openrouter:default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.UpdateProviderCredential(
+		context.Background(), account.ID, account.Metadata.CredentialRevision(),
+		account.AuthMethod, false, nil, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	progress := newToolProgress("answer safely")
+	_, err = runProgressAudit(context.Background(), database, func(string) (provider.Generator, error) {
+		called = true
+		return nil, nil
+	}, progress.digest(progressAuditInterval))
+	if !errors.Is(err, errProgressAuditUnavailable) || called {
+		t.Fatalf("unavailable audit = called %t, error %v", called, err)
+	}
+}
+
 func TestProgressAuditActivityIsReadableButExcludedFromProviderReplay(t *testing.T) {
 	_, database, conversation := chatFixture(t)
 	turn, _, err := database.BeginConversationTurn(context.Background(), conversation.ID, "Inspect it.", nil, time.Now())
@@ -100,36 +124,24 @@ func TestProgressAuditActivityIsReadableButExcludedFromProviderReplay(t *testing
 	}
 }
 
-func TestTaskProgressAuditStoresNoticeUnderCurrentRunFence(t *testing.T) {
-	chat, database, _ := chatFixture(t)
-	createQueuedRuntimeTask(t, database, chat.home, "Inspect the current work.")
-	_, run, found, err := database.ClaimTaskExecution(context.Background(), time.Now())
-	if err != nil || !found {
-		t.Fatalf("claim run = %#v, %t, %v", run, found, err)
-	}
-	if err := database.StartTaskExecution(context.Background(), run.ID, run.Generation, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	generator := generatorFunc(func(_ context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{
-			Name:    progressAuditToolName,
-			Payload: json.RawMessage(`{"decision":"continue","user_summary":"Evidence is growing.","next_goal":"Verify it."}`),
-		}}}, nil
-	})
-	runtime := &TaskExecution{database: database, openRouter: generator, codex: generator, openAI: generator}
-	progress := newToolProgress("Inspect the current work.")
-	instruction, terminalOnly, err := runtime.afterTaskTool(context.Background(), run, &progress,
-		provider.GenerationToolCall{Name: taskFilesRead, Payload: json.RawMessage(`{"path":"TASK.md"}`)},
-		json.RawMessage(`{"content":"bounded"}`), true, false, taskProgressAuditInterval)
-	if err != nil || instruction != "" || terminalOnly {
-		t.Fatalf("Task audit result = %q, %t, %v", instruction, terminalOnly, err)
-	}
-	items, err := database.TaskRunReplayItems(context.Background(), run.ID)
+func TestProgressAuditPauseUsesAuditProvenanceWithoutProviderUsage(t *testing.T) {
+	_, database, conversation := chatFixture(t)
+	turn, _, err := database.BeginConversationTurn(
+		context.Background(), conversation.ID, "Inspect it.", nil, time.Now(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].Kind != "progress_notice" ||
-		items[0].Content == nil || *items[0].Content != "Evidence is growing." {
-		t.Fatalf("Task audit items = %#v", items)
+	item, err := database.CompleteConversationProgressAuditPause(
+		context.Background(), turn, "I need your input.", progressAuditInterval, time.Now(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Metadata["source"] != "progress_audit_pause" || item.Metadata["provider"] != "progress_audit" {
+		t.Fatalf("pause provenance = %#v", item.Metadata)
+	}
+	if _, exists := item.Metadata["provider_usage"]; exists {
+		t.Fatalf("pause has provider usage = %#v", item.Metadata)
 	}
 }

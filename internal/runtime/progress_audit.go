@@ -16,13 +16,12 @@ import (
 )
 
 const (
-	progressAuditToolName     = "noema.submit_progress_audit"
-	progressAuditInterval     = 20
-	taskProgressAuditInterval = 8
-	repeatedToolLimit         = 4
-	failedToolLimit           = 6
-	progressRecentLimit       = 5
-	progressTextLimit         = 240
+	progressAuditToolName = "noema.submit_progress_audit"
+	progressAuditInterval = 20
+	repeatedToolLimit     = 4
+	failedToolLimit       = 6
+	progressRecentLimit   = 5
+	progressTextLimit     = 240
 )
 
 var errProgressAuditUnavailable = errors.New("progress audit is unavailable")
@@ -253,6 +252,11 @@ func progressAuditAssignment(ctx context.Context, database *store.Store) (store.
 		if assignment.Role != store.HostedModelToolProgressAudit {
 			continue
 		}
+		account, err := database.ProviderAccount(ctx, assignment.ProviderAccountID)
+		if err != nil || !account.IsActive || account.Status != provider.StatusAuthenticated ||
+			account.ProviderKind != assignment.ProviderKind {
+			return store.ModelAssignment{}, errProgressAuditUnavailable
+		}
 		if assignment.SelectionMode == store.ModelSelectionNoemaRecommended {
 			for _, choice := range provider.ModelRecommendations(assignment.ProviderKind) {
 				if choice.UseCase == provider.ModelUseToolProgressAudit {
@@ -321,83 +325,6 @@ func (c *Chat) saveProgressAuditActivity(
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &item,
 	})
 	return nil
-}
-
-func taskTerminalTools(kind string, tools []provider.GenerationTool) []provider.GenerationTool {
-	allowed := map[string]bool{taskReportBlocked: true}
-	switch kind {
-	case "planner":
-		allowed[taskFinishPlanning] = true
-	case "executor":
-		allowed[taskFinishExecution] = true
-		allowed[taskContinueExecution] = true
-	case "reviewer":
-		allowed = map[string]bool{taskFinishReview: true}
-	}
-	result := make([]provider.GenerationTool, 0, len(allowed))
-	for _, tool := range tools {
-		if allowed[tool.Name] {
-			result = append(result, tool)
-		}
-	}
-	return result
-}
-
-func (r *TaskExecution) afterTaskTool(
-	ctx context.Context,
-	run store.TaskRun,
-	progress *toolProgress,
-	call provider.GenerationToolCall,
-	payload json.RawMessage,
-	success, sideEffect bool,
-	step int,
-) (string, bool, error) {
-	instruction := ""
-	if stop := progress.observe(call, payload, success, sideEffect); stop != "" {
-		notice := store.TaskRunItemInput{
-			Kind: "progress_notice", Status: "completed", Round: int64(step),
-			Content: "Task run paused after " + stop + ".",
-			Payload: map[string]any{"kind": "deterministic_progress_stop"},
-		}
-		if err := r.database.AppendTaskRunItems(
-			ctx, run.ID, run.Generation, []store.TaskRunItemInput{notice}, store.TaskRunUsage{}, time.Now(),
-		); err != nil {
-			return "", false, err
-		}
-		progress.window = progressAuditStats{ToolCounts: make(map[string]int)}
-		instruction = "Reassess the next useful step before another tool call."
-	}
-	if step%taskProgressAuditInterval != 0 {
-		return instruction, false, nil
-	}
-	outcome, err := runProgressAudit(ctx, r.database, r.generator, progress.digest(step))
-	if err != nil {
-		return instruction, false, nil
-	}
-	notice := store.TaskRunItemInput{
-		Kind: "progress_notice", Status: "completed", Round: int64(step),
-		Content: boundedRunes(outcome.UserSummary, 4000),
-		Payload: map[string]any{"kind": "tool_progress_audit", "decision": outcome.Decision},
-	}
-	if err := r.database.AppendTaskRunItems(
-		ctx, run.ID, run.Generation, []store.TaskRunItemInput{notice}, store.TaskRunUsage{}, time.Now(),
-	); err != nil {
-		return "", false, err
-	}
-	progress.apply(outcome)
-	switch outcome.Decision {
-	case "finalize":
-		return "The progress audit requested completion. Use one available terminal tool now.", true, nil
-	case "ask_human":
-		if run.Kind == "reviewer" {
-			return "The progress audit needs human input. Finish the review with needs_human now.", true, nil
-		}
-		return "The progress audit needs human input. Use the blocked terminal tool now.", true, nil
-	case "pause":
-		return "The progress audit requested a safe pause. Reassess the next useful step.", false, nil
-	default:
-		return instruction, false, nil
-	}
 }
 
 const progressAuditPrompt = `You are auditing whether a Noema tool-continuation loop is making progress.

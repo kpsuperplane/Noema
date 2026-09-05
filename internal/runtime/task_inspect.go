@@ -486,9 +486,7 @@ func (c *Chat) executeChatToolRounds(
 				case "finalize":
 					stopReason = "progress audit requested finalization"
 				case "ask_human", "pause":
-					c.finishGeneratedTurn(request.input, turn, assignment, provider.GenerationResult{
-						Text: outcome.UserSummary, Model: assignment.ModelProfile,
-					}, nextRound, usage)
+					c.finishProgressAuditPause(request.input, turn, outcome.UserSummary, nextRound)
 					return
 				}
 			} else {
@@ -934,6 +932,36 @@ func (c *Chat) finishGeneratedTurn(
 	c.publish(Event{
 		Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle,
 	})
+	c.publish(Event{
+		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
+	})
+	c.maybeScheduleMemoryUpdate(turn.ConversationID)
+}
+
+func (c *Chat) finishProgressAuditPause(
+	input SendTurnInput,
+	turn store.ConversationTurn,
+	text string,
+	providerRound int,
+) {
+	item, err := c.database.CompleteConversationProgressAuditPause(
+		c.ctx, turn, text, providerRound, time.Now(),
+	)
+	if err != nil {
+		if c.ctx.Err() != nil {
+			c.cancelTurn(input, turn)
+		} else {
+			c.failTurn(input, turn, err)
+		}
+		return
+	}
+	c.publish(Event{
+		Kind: EventConversationItem, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item,
+	})
+	c.publishMemoryChanged()
+	c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
 	c.publish(Event{
 		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
