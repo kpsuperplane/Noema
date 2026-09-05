@@ -1,0 +1,42 @@
+[
+  {
+    "id": "CHAT-01-controlled",
+    "result": "pass",
+    "detail": "A real release sends a provider request and preserves the controlled answer after browser reload."
+  },
+  {
+    "id": "CHAT-06-controlled",
+    "result": "pass",
+    "detail": "Unicode, emoji, paragraphs, and an exact URL survive provider transport and browser reload."
+  },
+  {
+    "id": "API-01-proposal",
+    "result": "pass",
+    "detail": "Chat tool calls create two pending definitions. Explicit review accepts each definition."
+  },
+  {
+    "id": "API-03-controlled",
+    "result": "pass",
+    "detail": "One browser OAuth sign-in exchanges a PKCE code and attaches two APIs to the resulting grant."
+  },
+  {
+    "id": "API-05-denied",
+    "result": "pass",
+    "detail": "Denied consent records a denied attempt without a token exchange or false connection."
+  },
+  {
+    "id": "API-04-grants",
+    "result": "pass",
+    "detail": "Selecting a second synthetic account creates a distinct grant. Invocation identity remains to be checked."
+  },
+  {
+    "id": "API-04-labels",
+    "result": "pass",
+    "detail": "Current shared account and per-connection labels reach distinct provider tool descriptions after renaming."
+  },
+  {
+    "id": "API-08-sequential",
+    "result": "pass",
+    "detail": "An expired shared token refreshes once. Both dependent APIs then return the intended account records. Concurrent refresh remains pending."
+  }
+]

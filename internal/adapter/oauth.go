@@ -838,7 +838,7 @@ func (s *Service) DisconnectOAuthGrant(ctx context.Context, id string, revision 
 func (s *Service) LabelOAuthGrant(id string, revision int, label *string) (OAuthGrant, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	grant, token, err := s.files.loadOAuthGrant(id)
+	grant, _, err := s.files.loadOAuthGrant(id)
 	if err != nil || grant.AuthorityRevision != revision {
 		return OAuthGrant{}, errors.New("adapter OAuth grant changed")
 	}
@@ -852,12 +852,7 @@ func (s *Service) LabelOAuthGrant(id string, revision int, label *string) (OAuth
 		grant.AccountLabel = nil
 	}
 	grant.AuthorityRevision++
-	secretDir, secretID := "", ""
-	var secret any
-	if grant.TokenGeneration != nil {
-		secretDir, secretID, secret = "tokens", *grant.TokenGeneration, token
-	}
-	err = s.files.replaceOAuthObject("adapters/oauth-grants", id, "grant.json", grant, secretDir, secretID, secret)
+	err = s.files.replaceOAuthObject("adapters/oauth-grants", id, "grant.json", grant, "", "", nil)
 	return grant, err
 }
 

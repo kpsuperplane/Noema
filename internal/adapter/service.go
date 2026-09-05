@@ -710,6 +710,11 @@ func (s *Service) bindings() ([]Binding, error) {
 			continue
 		}
 		grantID, authorityRevision := "", connection.Authentication.Revision
+		connectionName := connection.ConnectionLabel
+		if connectionName == "" {
+			connectionName = connection.ConnectionSlug
+		}
+		connectionDescription := "\nAPI: " + strconv.Quote(DisplayName(definition)) + "\nConnection: " + strconv.Quote(connectionName)
 		var granted []string
 		if definition.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
 			grant, _, loadErr := s.files.loadOAuthGrant(connection.Authentication.GrantID)
@@ -717,6 +722,11 @@ func (s *Service) bindings() ([]Binding, error) {
 				continue
 			}
 			grantID, authorityRevision, granted = grant.GrantID, grant.AuthorityRevision, grant.GrantedScopes
+			accountName := grant.GrantID
+			if grant.AccountLabel != nil {
+				accountName = *grant.AccountLabel
+			}
+			connectionDescription += "\nAccount: " + strconv.Quote(accountName)
 		}
 		allowed := map[string]bool{}
 		for _, id := range connection.AllowedOperations {
@@ -755,7 +765,7 @@ func (s *Service) bindings() ([]Binding, error) {
 			}
 			route := reviewRoute(connection, behavior)
 			name := definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID
-			result = append(result, Binding{Name: name, Description: operation.Description, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
+			result = append(result, Binding{Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })

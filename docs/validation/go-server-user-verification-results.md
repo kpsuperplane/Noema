@@ -33,6 +33,28 @@ The script contains no credentials. Its paths identify this run's local setup.
 The protected inspection preflight passed HTTP, a GraphQL query, mutation denial, and WebSocket acknowledgement.
 That preflight used the existing development server. It does not count as isolated release evidence.
 
+The [core browser and command run](evidence/2026-09-05-core-check.mjs) completed nine controlled assertions.
+Its [results](evidence/2026-09-05-core-results.json) cover Task capture, stale saves, Project archive rules, and complete-home restore.
+Command-level checks retain pending browser variants in the table.
+
+The controlled HTTPS run uses a Linux network namespace with no route to real providers.
+Private namespace DNS maps the fake service names to an address assigned only inside that namespace.
+Noema keeps its public-address checks, pinned dialing, HTTPS verification, OAuth state checks, and PKCE checks.
+Chromium trusts only the fixture certificate's public-key fingerprint for fake consent.
+The [wire results](evidence/2026-09-05-wire-results.json) and [service receipts](evidence/2026-09-05-wire-receipts.json) record the tested paths.
+The [runner](evidence/2026-09-05-wire-check.mjs) and [fake services](evidence/2026-09-05-fake-services.mjs) retain the exact setup.
+Use the [replay notes](evidence/2026-09-05-replay.md) for certificate and namespace preparation.
+
+Two defects were fixed during this run:
+
+- API model tools omitted configured connection and account labels. Their descriptions now include current API, connection, and account identity.
+- OAuth account renaming attempted to recreate the current token file. It now changes only account metadata and preserves the token.
+
+The [fix evidence](evidence/2026-09-05-account-label-fix.json) records the patched artifact, source hashes, regression, and code sizes.
+All 605 Go tests and Go vet pass after these changes.
+The production patch adds five net lines. The regression adds 84 test lines. Generated GraphQL is unchanged.
+The authored and inclusive Go ratios remain below 80 percent, at 44.95 and 76.24 percent.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -42,9 +64,9 @@ A human variant remains pending even when its controlled counterpart passes.
 | Case | Automatic result | Evidence or remaining work | Human variant |
 | --- | --- | --- | --- |
 | HOME-01 | Pass · Linux/Chromium | Packaged release opens fresh passkey setup. Other native platforms remain pending. | — |
-| HOME-03 | Not run | Controlled setup pending. | — |
+| HOME-03 | Partial | Core restart restores passkeys, Tasks, Project documents, and model selections. Chat, Memory, integrations, and Artifacts remain pending. | — |
 | HOME-04 | Not run | Controlled setup pending. | — |
-| HOME-05 | Not run | Controlled setup pending. | — |
+| HOME-05 | Partial | Complete stopped-home copy and restore preserves access, Task content, Project context, and setup. Schedules and remaining data classes are pending. | — |
 | HOME-06 | Partial | Release startup, passkey setup, recovery, and restart work in a Unicode home with spaces. Files and helpers remain pending. | — |
 | HOME-07 | Not run | Controlled setup pending. | — |
 | HOME-08 | Not run | Controlled setup pending. | — |
@@ -60,7 +82,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | AUTH-08 | Partial | Unclaimed reads and signed-out GraphQL, artifacts, and WebSocket are denied. Unclaimed WebSocket remains pending. | — |
 | AUTH-09 | Pass · Chromium | Authenticated foreign-Origin requests return 403. Foreign-Host requests return 400. | — |
 | AUTH-10 | Not run | Controlled setup pending. | Not run |
-| SETUP-02 | Not run | Controlled setup pending. | — |
+| SETUP-02 | Partial | Proposed client choices leave setup incomplete. One confirmation saves the complete selection. Browser draft controls remain pending. | — |
 | SETUP-03 | Not run | Controlled setup pending. | Not run |
 | SETUP-04 | Not run | Controlled setup pending. | Not run |
 | SETUP-05 | Not run | Controlled setup pending. | — |
@@ -69,12 +91,12 @@ A human variant remains pending even when its controlled counterpart passes.
 | SETUP-08 | Not run | Controlled setup pending. | — |
 | SETUP-09 | Not run | Controlled setup pending. | — |
 | SETUP-10 | Not run | Controlled setup pending. | — |
-| CHAT-01 | Not run | Controlled setup pending. | — |
+| CHAT-01 | Partial | Controlled OpenAI-compatible HTTPS transport saves an answer and restores it after reload. Other providers and transcript count assertions remain pending. | — |
 | CHAT-02 | Not run | Controlled setup pending. | — |
 | CHAT-03 | Not run | Controlled setup pending. | — |
 | CHAT-04 | Not run | Controlled setup pending. | — |
 | CHAT-05 | Not run | Controlled setup pending. | — |
-| CHAT-06 | Not run | Controlled setup pending. | — |
+| CHAT-06 | Partial | Controlled provider text preserves Unicode, emoji, paragraphs, and an exact URL through reload. Rich text and cross-client variants remain pending. | — |
 | CHAT-07 | Not run | Controlled setup pending. | — |
 | CHAT-08 | Not run | Controlled setup pending. | — |
 | CHAT-09 | Not run | Controlled setup pending. | — |
@@ -93,16 +115,16 @@ A human variant remains pending even when its controlled counterpart passes.
 | MODEL-07 | Not run | Controlled setup pending. | — |
 | MODEL-08 | Not run | Controlled setup pending. | — |
 | TASK-01 | Not run | Controlled setup pending. | — |
-| TASK-02 | Not run | Controlled setup pending. | — |
-| TASK-03 | Not run | Controlled setup pending. | — |
-| TASK-04 | Not run | Controlled setup pending. | — |
+| TASK-02 | Partial | Browser Add to Inbox preserves the exact Unicode document without starting work. Run Now remains pending. | — |
+| TASK-03 | Partial | Command edits preserve exact content in the allocated directory. Browser edit controls remain pending. | — |
+| TASK-04 | Partial | The server rejects a stale competing save and preserves current content. Browser draft recovery remains pending. | — |
 | TASK-05 | Not run | Controlled setup pending. | — |
 | TASK-06 | Not run | Controlled setup pending. | — |
 | TASK-07 | Not run | Controlled setup pending. | — |
 | TASK-08 | Not run | Controlled setup pending. | — |
 | TASK-09 | Not run | Controlled setup pending. | — |
-| TASK-10 | Not run | Controlled setup pending. | — |
-| TASK-11 | Not run | Controlled setup pending. | — |
+| TASK-10 | Partial | A repeated capture returns the original Task identity. Lost responses for other commands remain pending. | — |
+| TASK-11 | Pass · Linux | Equal Unicode titles create distinct Task directories. Exact old and new documents remain intact. | — |
 | RUN-01 | Not run | Controlled setup pending. | — |
 | RUN-02 | Not run | Controlled setup pending. | — |
 | RUN-03 | Not run | Controlled setup pending. | — |
@@ -131,9 +153,9 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-11 | Not run | Controlled setup pending. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
 | PROJECT-01 | Not run | Controlled setup pending. | — |
-| PROJECT-02 | Not run | Controlled setup pending. | — |
+| PROJECT-02 | Partial | Competing Project saves reject stale content. The current document survives reload and restore. Browser draft recovery remains pending. | — |
 | PROJECT-03 | Not run | Controlled setup pending. | — |
-| PROJECT-04 | Not run | Controlled setup pending. | — |
+| PROJECT-04 | Partial | Archive preserves readable context and refuses writes. Reopen clears archived state. Browser controls remain pending. | — |
 | PROJECT-05 | Not run | Controlled setup pending. | — |
 | AGENT-01 | Not run | Controlled setup pending. | — |
 | AGENT-02 | Not run | Controlled setup pending. | — |
@@ -165,19 +187,19 @@ A human variant remains pending even when its controlled counterpart passes.
 | INFO-04 | Not run | Controlled setup pending. | — |
 | INFO-05 | Not run | Controlled setup pending. | — |
 | INFO-06 | Not run | Controlled setup pending. | — |
-| API-01 | Not run | Controlled setup pending. | — |
+| API-01 | Partial | Chat tool calls propose two definitions. Explicit client review accepts each. Controlled OAuth then creates usable API connections. | — |
 | API-02 | Not run | Controlled setup pending. | — |
-| API-03 | Not run | Controlled setup pending. | Not run |
-| API-04 | Not run | Controlled setup pending. | Not run |
-| API-05 | Not run | Controlled setup pending. | Not run |
+| API-03 | Partial | One fake browser OAuth sign-in attaches two APIs to a shared grant. Both return the same synthetic account. Independent policy variants remain pending. | Not run |
+| API-04 | Partial | Two synthetic accounts receive distinct grants. Renamed labels now reach model tools. Invoking the second account remains pending. | Not run |
+| API-05 | Partial | Fake consent denial creates no token and records a denied attempt. Cancel, expiry, and other callback failures remain pending. | Not run |
 | API-06 | Not run | Controlled setup pending. | Not run |
 | API-07 | Not run | Controlled setup pending. | Not run |
-| API-08 | Not run | Controlled setup pending. | Not run |
+| API-08 | Partial | A rejected shared access token refreshes once. Sequential reads through both APIs return the correct account. Concurrent refresh remains pending. | Not run |
 | API-09 | Not run | Controlled setup pending. | — |
 | API-10 | Not run | Controlled setup pending. | — |
 | API-11 | Not run | Controlled setup pending. | — |
 | API-12 | Not run | Controlled setup pending. | — |
-| API-13 | Not run | Controlled setup pending. | — |
+| API-13 | Partial | Connection and account labels update model descriptions. Disable, re-enable, and deletion variants remain pending. | — |
 | API-14 | Not run | Controlled setup pending. | — |
 | API-15 | Not run | Controlled setup pending. | — |
 | MCP-01 | Not run | Controlled setup pending. | — |

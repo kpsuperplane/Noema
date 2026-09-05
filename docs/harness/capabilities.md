@@ -185,6 +185,9 @@ OAuth authority is split across:
 Many account grants can reuse one application. Compatible connections can
 reference one grant. Each operation declares alternative complete scope sets.
 Catalog compilation exposes only operations covered by current granted scopes.
+Model tool descriptions include the API name and current connection and account labels.
+Unlabeled connections and grants retain their stable identifiers in those descriptions.
+Renaming an account changes its metadata without replacing its protected token file.
 
 OAuth start, callback, refresh, attachment, and invocation check the exact
 application, grant, connection, definition, and policy revisions. Refresh uses

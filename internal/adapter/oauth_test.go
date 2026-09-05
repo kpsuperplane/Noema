@@ -5,12 +5,96 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/store"
 )
+
+func TestModelToolsKeepConnectionAndGrantLabels(t *testing.T) {
+	service, _ := newOAuthService(t, "http://localhost:3737/adapter/oauth/callback")
+	application, err := service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil,
+		[]byte(`{"installed":{"client_id":"test-client","client_secret":"private-client-value"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := oauthManifest()
+	manifest.Reviewed = true
+	manifest.DisplayName = "Calendar 日本語"
+	definition, err := service.files.installDefinition(manifest, "https://example.com/docs", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first Connection
+	for _, label := range []string{"Personal café", "Office 日本語"} {
+		generation := randomHex()
+		grant := OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID,
+			AccountLabel: &label, Audience: "google-apis", GrantedScopes: []string{"scope.read"},
+			DesiredScopes: []string{"scope.read"}, AuthorityRevision: 2, TokenRevision: 2,
+			TokenGeneration: &generation, Status: "active"}
+		token := oauthGrantToken{SchemaVersion: 1, GenerationID: generation, AccessToken: "private-access-value"}
+		if err := service.files.installOAuthOwned("adapters/oauth-grants", grant.GrantID, "grant.json", grant, "tokens", generation, token); err != nil {
+			t.Fatal(err)
+		}
+		_, connection, err := service.AttachOAuthConnection(t.Context(), definition.SemanticDigest, grant.GrantID, 2, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		connection, err = service.SaveConnectionPolicy(t.Context(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask")
+		if err != nil {
+			t.Fatal(err)
+		}
+		connectionLabel := label + " calendar"
+		connection, err = service.SaveConnectionLabel(t.Context(), connection.ConnectionID,
+			strconv.Itoa(connection.ConnectionRevision), nil, &connectionLabel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first.ConnectionID == "" {
+			first = connection
+		}
+	}
+	bindings, err := service.Bindings()
+	if err != nil || len(bindings) != 2 {
+		t.Fatalf("model bindings count = %d, error = %v", len(bindings), err)
+	}
+	for _, binding := range bindings {
+		label := "Office 日本語"
+		if binding.ConnectionID == first.ConnectionID {
+			label = "Personal café"
+		}
+		for _, text := range []string{manifest.DisplayName, "Account: " + strconv.Quote(label), strconv.Quote(label + " calendar"), manifest.Operations[0].Description} {
+			if !strings.Contains(binding.Description, text) {
+				t.Fatalf("model tool description omits %q", text)
+			}
+		}
+		if strings.Contains(binding.Description, "private-access-value") || strings.Contains(binding.Description, "private-client-value") {
+			t.Fatal("model tool description contains a credential")
+		}
+	}
+	renamed := "Renamed connection"
+	if _, err := service.SaveConnectionLabel(t.Context(), first.ConnectionID, strconv.Itoa(first.ConnectionRevision), nil, &renamed); err != nil {
+		t.Fatal(err)
+	}
+	account := "Current account"
+	if _, err := service.LabelOAuthGrant(first.Authentication.GrantID, 2, &account); err != nil {
+		t.Fatal(err)
+	}
+	if _, token, err := service.files.loadOAuthGrant(first.Authentication.GrantID); err != nil || token.AccessToken != "private-access-value" {
+		t.Fatal("account rename did not preserve the existing credential")
+	}
+	bindings, err = service.Bindings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, binding := range bindings {
+		if binding.ConnectionID == first.ConnectionID && (!strings.Contains(binding.Description, renamed) || !strings.Contains(binding.Description, account) || strings.Contains(binding.Description, "Personal café")) {
+			t.Fatal("model tool description retained an old label")
+		}
+	}
+}
 
 func oauthManifest() Manifest {
 	value := testManifest()

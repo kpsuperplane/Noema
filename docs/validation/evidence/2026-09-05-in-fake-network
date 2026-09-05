@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mount --make-rprivate /
+mount --bind /var/tmp/noema-suite-run-20260905/fake-hosts /etc/hosts
+ip link set lo up
+ip addr add 93.184.215.14/32 dev lo
+exec "$@"

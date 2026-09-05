@@ -26,7 +26,7 @@ slice or a net-negative reduction.
 
 The Go server source replacement is complete. The server links no Rust or CGo.
 The user verification run is active; see `docs/validation/go-server-user-verification-results.md`.
-Controlled services cover automatic checks. Real device and consent variants remain pending for human testing.
+API model tools include current account labels. Account renaming preserves tokens. Controlled OAuth passes; real device and consent variants remain pending.
 
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Go server is the production authority. Rust remains only for retained support targets.
