@@ -37,6 +37,7 @@ type TaskRun struct {
 	ProviderCallCount, ToolCallCount                int64
 	InputTokens, CachedInputTokens, OutputTokens    int64
 	ActiveMilliseconds                              int64
+	ExecutionPolicy                                 TaskExecutionPolicy
 	QueuedAt, CreatedAt, UpdatedAt                  time.Time
 	StartedAt, EndedAt                              *time.Time
 }
@@ -744,7 +745,7 @@ func taskRunTx(ctx context.Context, q interface {
 	return run, nil
 }
 
-const taskRunSelect = `SELECT run_id,task_id,instance_name,run_kind,status,agent_id,task_generation,attempt_index,review_round,COALESCE(parent_run_id,''),provider_kind,provider_account_id,selection_mode,model_profile,reasoning_effort,fast_mode,executor_backend,executor_agent_id,effective_cwd,error_code,error_message,provider_call_count,tool_call_count,input_tokens,cached_input_tokens,output_tokens,active_milliseconds,queued_at_ms,started_at_ms,ended_at_ms,created_at_ms,updated_at_ms FROM task_runs`
+const taskRunSelect = `SELECT run_id,task_id,instance_name,run_kind,status,agent_id,task_generation,attempt_index,review_round,COALESCE(parent_run_id,''),provider_kind,provider_account_id,selection_mode,model_profile,reasoning_effort,fast_mode,executor_backend,executor_agent_id,effective_cwd,error_code,error_message,provider_call_count,tool_call_count,input_tokens,cached_input_tokens,output_tokens,active_milliseconds,max_provider_continuations,max_tool_calls,max_active_minutes,progress_audit_interval,max_automatic_retries,max_review_rounds,queued_at_ms,started_at_ms,ended_at_ms,created_at_ms,updated_at_ms FROM task_runs`
 
 func scanTaskRun(row rowScanner) (TaskRun, error) {
 	var v TaskRun
@@ -752,7 +753,7 @@ func scanTaskRun(row rowScanner) (TaskRun, error) {
 	var started, ended sql.NullInt64
 	var fast int
 	var queued, created, updated int64
-	err := row.Scan(&v.ID, &v.TaskID, &v.InstanceName, &v.Kind, &v.Status, &v.AgentID, &v.Generation, &v.AttemptIndex, &v.ReviewRound, &v.ParentRunID, &v.ProviderKind, &v.ProviderAccountID, &v.SelectionMode, &model, &effort, &fast, &v.ExecutorBackend, &v.ExecutorAgentID, &cwd, &code, &message, &v.ProviderCallCount, &v.ToolCallCount, &v.InputTokens, &v.CachedInputTokens, &v.OutputTokens, &v.ActiveMilliseconds, &queued, &started, &ended, &created, &updated)
+	err := row.Scan(&v.ID, &v.TaskID, &v.InstanceName, &v.Kind, &v.Status, &v.AgentID, &v.Generation, &v.AttemptIndex, &v.ReviewRound, &v.ParentRunID, &v.ProviderKind, &v.ProviderAccountID, &v.SelectionMode, &model, &effort, &fast, &v.ExecutorBackend, &v.ExecutorAgentID, &cwd, &code, &message, &v.ProviderCallCount, &v.ToolCallCount, &v.InputTokens, &v.CachedInputTokens, &v.OutputTokens, &v.ActiveMilliseconds, &v.ExecutionPolicy.MaxProviderContinuations, &v.ExecutionPolicy.MaxToolCalls, &v.ExecutionPolicy.MaxActiveMinutes, &v.ExecutionPolicy.ProgressAuditInterval, &v.ExecutionPolicy.MaxAutomaticRetries, &v.ExecutionPolicy.MaxReviewRounds, &queued, &started, &ended, &created, &updated)
 	if err != nil {
 		return v, err
 	}

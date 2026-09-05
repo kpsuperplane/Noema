@@ -15,11 +15,6 @@ type AcpPermissionResult struct {
 	OptionID        string
 }
 
-const (
-	TaskMaxAutomaticRetries = int64(3)
-	TaskMaxReviewRounds     = int64(3)
-)
-
 // TaskRunItemInput is one durable provider or tool transcript item.
 type TaskRunItemInput struct {
 	Kind, Status, CorrelationID, ParentID, Content string
@@ -123,16 +118,24 @@ ORDER BY r.queued_at_ms,r.run_id LIMIT 1`).Scan(&runID)
 	if err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
-	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='leased',updated_at_ms=?
+	policy, err := scanTaskExecutionPolicy(tx.QueryRowContext(ctx, `SELECT max_provider_continuations,max_tool_calls,
+max_active_minutes,progress_audit_interval,max_automatic_retries,max_review_rounds FROM task_execution_policy WHERE policy_id='default'`))
+	if err != nil {
+		return Task{}, TaskRun{}, false, err
+	}
+	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='leased',updated_at_ms=?,max_provider_continuations=?,
+max_tool_calls=?,max_active_minutes=?,progress_audit_interval=?,max_automatic_retries=?,max_review_rounds=?
 WHERE run_id=? AND status='queued' AND task_generation=? AND run_id=(SELECT current_run_id FROM tasks WHERE task_id=? AND generation=?)`,
-		millis(now), run.ID, run.Generation, task.ID, run.Generation)
+		millis(now), policy.MaxProviderContinuations, policy.MaxToolCalls, policy.MaxActiveMinutes,
+		policy.ProgressAuditInterval, policy.MaxAutomaticRetries, policy.MaxReviewRounds,
+		run.ID, run.Generation, task.ID, run.Generation)
 	if err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
 	if count, _ := changed.RowsAffected(); count != 1 {
 		return Task{}, TaskRun{}, false, ErrStaleRun
 	}
-	run.Status, run.UpdatedAt = "leased", now.UTC()
+	run.Status, run.UpdatedAt, run.ExecutionPolicy = "leased", now.UTC(), policy
 	if err = tx.Commit(); err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
@@ -416,7 +419,7 @@ completed_at_ms=?,cancelled_at_ms=NULL,revision=?,updated_at_ms=? WHERE task_id=
 			}
 			return appendTaskExecutionEvent(ctx, tx, *task, run, "task.completed", map[string]any{"notify_human": notifyHuman}, now)
 		case "request_changes":
-			if run.ReviewRound >= TaskMaxReviewRounds {
+			if run.ReviewRound >= run.ExecutionPolicy.MaxReviewRounds {
 				return openTaskExecutionGate(ctx, tx, task, run, "recovery", feedback, "Review rounds are exhausted.", "review_rounds_exhausted", "executor", now)
 			}
 			return queueTaskExecutionChild(ctx, tx, task, run, "executor", 0, run.ReviewRound+1, now)
@@ -456,7 +459,7 @@ func (s *Store) FailTaskExecution(ctx context.Context, runID string, generation 
 		if err != nil {
 			return err
 		}
-		if retryable && run.AttemptIndex < TaskMaxAutomaticRetries {
+		if retryable && run.AttemptIndex < run.ExecutionPolicy.MaxAutomaticRetries {
 			return queueTaskExecutionChild(ctx, tx, task, *run, run.Kind, run.AttemptIndex+1, run.ReviewRound, now)
 		}
 		return openTaskExecutionGate(ctx, tx, task, *run, "recovery", "The run failed and needs a recovery decision.", message, "infrastructure_retries_exhausted", run.Kind, now)

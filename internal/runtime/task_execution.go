@@ -22,11 +22,6 @@ import (
 	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
-const (
-	taskProviderLimit = 80
-	taskToolLimit     = 200
-)
-
 const taskFinishPlanning = "task.finish_planning"
 const taskFinishExecution = "task.finish_execution"
 const taskContinueExecution = "task.continue_execution"
@@ -39,7 +34,6 @@ const taskFilesDelete = "task.files.delete"
 
 var (
 	errTaskTerminal   = errors.New("Task run reached a terminal tool")
-	taskActiveLimit   = 30 * time.Minute
 	taskEmptySchema   = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	taskPathSchema    = json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096}},"required":["path"],"additionalProperties":false}`)
 	taskListSchema    = json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","maxLength":4096}},"additionalProperties":false}`)
@@ -213,9 +207,9 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	if err := r.database.StartTaskExecution(parent, run.ID, run.Generation, time.Now()); err != nil {
 		return
 	}
-	remaining := taskActiveLimit - time.Duration(run.ActiveMilliseconds)*time.Millisecond
+	remaining := time.Duration(run.ExecutionPolicy.MaxActiveMinutes)*time.Minute - time.Duration(run.ActiveMilliseconds)*time.Millisecond
 	if remaining <= 0 {
-		r.failRun(context.Background(), run, "active_time_limit", false)
+		r.finalizeTaskRun(task, run, nil, nil, false, "task active wall-time safety ceiling reached")
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, remaining)
@@ -260,9 +254,21 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	defer closeSession()
 	model, effort := r.taskModel(run, task)
 	toolCount := int(run.ToolCallCount)
+	progress := newToolProgress(task.Title)
 	var previousResponseID string
 	var incremental []provider.GenerationMessage
-	for round := int(run.ProviderCallCount); round < taskProviderLimit && ctx.Err() == nil; round++ {
+	for round := int(run.ProviderCallCount); round < int(run.ExecutionPolicy.MaxProviderContinuations) && ctx.Err() == nil; round++ {
+		if round > int(run.ProviderCallCount) && round%int(run.ExecutionPolicy.ProgressAuditInterval) == 0 {
+			outcome, auditErr := runProgressAudit(ctx, r.database, r.generator, progress.digest(round))
+			if auditErr == nil {
+				r.appendTaskProgress(run, int64(round), outcome.UserSummary)
+				progress.apply(outcome)
+				if outcome.Decision == "finalize" || outcome.Decision == "ask_human" {
+					r.finalizeTaskRun(task, run, generator, messages, wroteTask, "progress audit requested finalization")
+					return
+				}
+			}
+		}
 		started := time.Now()
 		tools, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
 		requestMessages := messages
@@ -285,7 +291,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				current, _ := r.database.TaskExecutionIsCurrent(context.Background(), run.ID, run.Generation)
 				if current {
-					r.failRun(context.Background(), run, "active_time_limit", false)
+					r.finalizeTaskRun(task, run, generator, messages, wroteTask, "task active wall-time safety ceiling reached")
 				}
 			} else if ctx.Err() == nil {
 				r.failRun(ctx, run, "provider_request_failed", true)
@@ -310,11 +316,11 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			r.failRun(ctx, run, "unsupported_tool_sequence", false)
 			return
 		}
-		toolCount++
-		if toolCount > taskToolLimit {
-			r.failRun(ctx, run, "tool_call_limit", false)
+		if toolCount >= int(run.ExecutionPolicy.MaxToolCalls) {
+			r.finalizeTaskRun(task, run, generator, messages, wroteTask, "task tool-call safety ceiling reached")
 			return
 		}
+		toolCount++
 		call := result.ToolCalls[0]
 		callInput := store.TaskRunItemInput{Kind: "tool_call", Status: "running", Round: int64(round), CorrelationID: call.ProviderCallID,
 			Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
@@ -344,6 +350,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
+			_ = progress.observe(call, payload, success, !binding.Behavior.ReadOnly)
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
 			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
 			messages = append(messages, incremental...)
@@ -373,6 +380,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
+			_ = progress.observe(call, payload, success, !binding.Behavior.ReadOnly)
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
 			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
 			messages = append(messages, incremental...)
@@ -396,6 +404,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
+			_ = progress.observe(call, payload, success, false)
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
 			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
 			messages = append(messages, incremental...)
@@ -412,6 +421,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 			return
 		}
+		_ = progress.observe(call, payload, success, taskWrite || taskToolHasSideEffect(call.Name))
 		if terminal && success {
 			if err := r.finishTaskTerminal(ctx, run, call.Name, call.Payload); err != nil {
 				if !errors.Is(err, store.ErrStaleRun) {
@@ -428,13 +438,92 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 	}
 	if ctx.Err() != nil {
+		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return
+		}
 		current, _ := r.database.TaskExecutionIsCurrent(context.Background(), run.ID, run.Generation)
 		if current {
-			r.failRun(context.Background(), run, "active_time_limit", false)
+			r.finalizeTaskRun(task, run, generator, messages, wroteTask, "task active wall-time safety ceiling reached")
 		}
 		return
 	}
-	r.failRun(ctx, run, "provider_continuation_limit", false)
+	r.finalizeTaskRun(task, run, generator, messages, wroteTask, "maximum provider tool continuations reached")
+}
+
+func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, generator provider.Generator,
+	messages []provider.GenerationMessage, wroteTask bool, reason string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if generator == nil {
+		var err error
+		generator, err = r.generator(run.ProviderKind)
+		if err != nil {
+			r.failRun(ctx, run, "configuration_unavailable", false)
+			return
+		}
+	}
+	if len(messages) == 0 {
+		var err error
+		messages, wroteTask, err = r.taskMessages(ctx, task, run)
+		if err != nil {
+			r.failRun(ctx, run, "task_context_unavailable", false)
+			return
+		}
+	}
+	terminal := make([]provider.GenerationTool, 0, 3)
+	for _, tool := range taskExecutionTools(run.Kind) {
+		if taskTerminalTool(tool.Name) {
+			terminal = append(terminal, tool)
+		}
+	}
+	messages = append(messages, provider.GenerationMessage{Role: "developer", Content: "The Task reached this safety ceiling: " + reason + ". Make no more nonterminal calls. Submit exactly one available terminal tool with the honest current result or smallest required human decision."})
+	started := time.Now()
+	model, effort := r.taskModel(run, task)
+	result, err := generator.Generate(ctx, provider.GenerateRequest{AccountID: run.ProviderAccountID, Model: model,
+		Messages: messages, ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
+		Tools: terminal, ToolTransport: provider.ToolTransportNative, ToolChoice: provider.ToolChoiceRequired,
+		FastMode: run.FastMode}, func(provider.StreamEvent) {})
+	if err != nil {
+		r.failRun(ctx, run, "terminal_finalization_failed", false)
+		return
+	}
+	round := run.ProviderCallCount
+	usage := store.TaskRunUsage{ProviderCalls: 1, InputTokens: int64(result.Usage.InputTokens), CachedInputTokens: int64(result.Usage.CachedInputTokens), OutputTokens: int64(result.Usage.OutputTokens), ActiveMilliseconds: time.Since(started).Milliseconds()}
+	assistant := store.TaskRunItemInput{Kind: "assistant_output", Status: "completed", Round: round, Content: result.Text, Payload: taskAssistantPayload(result)}
+	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{assistant}, usage, time.Now()) != nil ||
+		len(result.ToolCalls) != 1 || !taskTerminalTool(result.ToolCalls[0].Name) || !taskToolAllowed(run.Kind, result.ToolCalls[0].Name) {
+		r.failRun(ctx, run, "terminal_finalization_failed", false)
+		return
+	}
+	call := result.ToolCalls[0]
+	callInput := store.TaskRunItemInput{Kind: "tool_call", Status: "running", Round: round, CorrelationID: call.ProviderCallID,
+		Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{callInput}, store.TaskRunUsage{ToolCalls: 1}, time.Now()) != nil {
+		return
+	}
+	items, err := r.database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil || len(items) == 0 {
+		return
+	}
+	payload, success, isTerminal, _ := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
+	status := "failed"
+	if success {
+		status = "completed"
+	}
+	resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: round, ParentID: items[len(items)-1].ID,
+		Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success}}
+	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()) != nil {
+		return
+	}
+	if !success || !isTerminal || r.finishTaskTerminal(ctx, run, call.Name, call.Payload) != nil {
+		r.failRun(ctx, run, "terminal_finalization_failed", false)
+	}
+}
+
+func (r *TaskExecution) appendTaskProgress(run store.TaskRun, round int64, content string) {
+	_ = r.database.AppendTaskRunItems(r.ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
+		Kind: "progress_notice", Status: "completed", Round: round, Content: content,
+	}}, store.TaskRunUsage{}, time.Now())
 }
 
 func (r *TaskExecution) executeACP(ctx context.Context, task store.Task, run store.TaskRun, messages []provider.GenerationMessage) {

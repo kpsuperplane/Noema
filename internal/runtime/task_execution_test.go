@@ -410,27 +410,42 @@ func TestTaskExecutionDoesNotRepeatIncompleteToolCall(t *testing.T) {
 	}
 }
 
-func TestTaskExecutionTimeoutBecomesTerminalRecovery(t *testing.T) {
+func TestTaskExecutionPolicyTriggersProgressAuditAndTerminalFinalization(t *testing.T) {
 	chat, database, _ := chatFixture(t)
-	task := createQueuedRuntimeTask(t, database, chat.home, "Bound provider time.")
-	previousLimit := taskActiveLimit
-	taskActiveLimit = 2 * time.Second
-	generator := generatorFunc(func(ctx context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		<-ctx.Done()
-		return provider.GenerationResult{}, ctx.Err()
+	policy, err := database.TaskExecutionPolicy(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.MaxProviderContinuations, policy.ProgressAuditInterval = 2, 1
+	if _, err = database.UpdateTaskExecutionPolicy(t.Context(), policy); err != nil {
+		t.Fatal(err)
+	}
+	task := createQueuedRuntimeTask(t, database, chat.home, "Finalize after the progress check.")
+	calls := 0
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		calls++
+		if taskRequestHasTool(request.Tools, progressAuditToolName) {
+			return taskToolResult("audit", progressAuditToolName, map[string]any{"decision": "finalize", "user_summary": "Ready.", "next_goal": nil}), nil
+		}
+		if request.ToolChoice == provider.ToolChoiceRequired {
+			for _, tool := range request.Tools {
+				if !taskTerminalTool(tool.Name) {
+					t.Fatalf("nonterminal finalization tool %q", tool.Name)
+				}
+			}
+			return taskToolResult("final", taskReportBlocked, map[string]any{"gate_kind": "clarification", "question": "Continue?"}), nil
+		}
+		return taskToolResult("work", taskFilesRead, map[string]any{"path": "TASK.md"}), nil
 	})
 	runtime, err := NewTaskExecution(context.Background(), database, generator, generator, generator, chat.home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		runtime.Close()
-		taskActiveLimit = previousLimit
-	}()
+	defer runtime.Close()
 	waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "waiting" })
 	runs, err := database.TaskRuns(context.Background(), task.ID, 10)
-	if err != nil || len(runs) != 1 || runs[0].ErrorCode == nil || *runs[0].ErrorCode != "active_time_limit" {
-		t.Fatalf("timed out run = %#v, %v", runs, err)
+	if err != nil || len(runs) != 1 || runs[0].ExecutionPolicy != policy || calls != 3 {
+		t.Fatalf("finalized run = %#v, calls = %d, %v", runs, calls, err)
 	}
 }
 
