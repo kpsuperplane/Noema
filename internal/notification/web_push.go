@@ -43,9 +43,12 @@ const (
 // Service owns one installation's Web Push signing key and visibility leases.
 type Service struct {
 	database *store.Store
+	paths    home.Paths
 	origin   string
 	keys     *webpush.VAPIDKeys
+	apns     *http.Client
 	visible  map[string]int
+	clients  map[string]int
 	mu       sync.Mutex
 	wake     chan struct{}
 }
@@ -64,8 +67,11 @@ func New(paths home.Paths, database *store.Store, publicOrigin string) (*Service
 	if err != nil || parsed.Hostname() == "" {
 		return nil, errors.New("invalid Web Push origin")
 	}
-	service := &Service{database: database, origin: publicOrigin,
-		visible: make(map[string]int), wake: make(chan struct{}, 1)}
+	service := &Service{database: database, paths: paths, origin: publicOrigin,
+		visible: make(map[string]int), clients: make(map[string]int), wake: make(chan struct{}, 1),
+		apns: &http.Client{Timeout: pushRequestTimeout, Transport: &http.Transport{
+			Proxy: nil, ForceAttemptHTTP2: true, DialContext: (&net.Dialer{Timeout: pushConnectionTimeout}).DialContext,
+		}}}
 	if parsed.Scheme != "https" {
 		return service, nil
 	}
@@ -160,22 +166,35 @@ func (s *Service) Presence(ctx context.Context, session [32]byte, id string) (<-
 func (s *Service) QueueTaskAttention(
 	ctx context.Context, eventKey, title, body, taskPath string,
 ) error {
-	return s.queue(ctx, store.WebPushNotification{EventKey: eventKey,
+	value := store.WebPushNotification{EventKey: eventKey,
 		Title: notificationText(title), Body: notificationText(body), NavigatePath: taskPath,
-		Urgency: "high", TTLSeconds: 86400})
+		Urgency: "high", TTLSeconds: 86400}
+	if !s.Available() {
+		return nil
+	}
+	if err := s.database.QueueWebPushNotification(ctx, value, nil, time.Now()); err != nil {
+		return err
+	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // Run projects primary Chat final answers and delivers due notifications.
 func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
-	if !s.Available() {
-		return
-	}
+	defer s.apns.CloseIdleConnections()
 	for {
 		projectionErr := s.reconcilePrimary(ctx)
-		deliveryErr := s.drain(ctx)
-		deadline, err := s.database.NextWebPushDelivery(ctx)
+		var deliveryErr error
+		if s.Available() {
+			deliveryErr = s.drain(ctx)
+		}
+		apnsErr := s.drainAPNS(ctx)
+		deadline, err := s.nextDelivery(ctx)
 		delay := recoveryInterval
-		failed := projectionErr != nil || deliveryErr != nil || err != nil
+		failed := projectionErr != nil || deliveryErr != nil || apnsErr != nil || err != nil
 		if !failed && deadline != nil {
 			until := time.Until(*deadline)
 			if until < delay {
@@ -206,6 +225,21 @@ func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 		case <-timer.C:
 		}
 	}
+}
+
+func (s *Service) nextDelivery(ctx context.Context) (*time.Time, error) {
+	apns, err := s.database.NextAPNSDelivery(ctx)
+	if err != nil || !s.Available() {
+		return apns, err
+	}
+	web, err := s.database.NextWebPushDelivery(ctx)
+	if err != nil || apns == nil {
+		return web, err
+	}
+	if web != nil && web.Before(*apns) {
+		return web, nil
+	}
+	return apns, nil
 }
 
 func (s *Service) reconcilePrimary(ctx context.Context) error {
@@ -259,7 +293,22 @@ func (s *Service) queue(ctx context.Context, value store.WebPushNotification) er
 		visible[id] = struct{}{}
 	}
 	s.mu.Unlock()
-	if err := s.database.QueueWebPushNotification(ctx, value, visible, time.Now()); err != nil {
+	now := time.Now()
+	if s.Available() {
+		if err := s.database.QueueWebPushNotification(ctx, value, visible, now); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	clients := make(map[string]struct{}, len(s.clients))
+	for id := range s.clients {
+		clients[id] = struct{}{}
+	}
+	s.mu.Unlock()
+	if err := s.database.QueueAPNSNotification(ctx, store.APNSNotification{
+		EventKey: value.EventKey, Title: value.Title, Body: value.Body,
+		Route: "chat", Urgency: value.Urgency, TTLSeconds: value.TTLSeconds,
+	}, clients, now); err != nil {
 		return err
 	}
 	select {

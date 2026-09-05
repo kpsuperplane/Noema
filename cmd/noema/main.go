@@ -92,9 +92,9 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	go browserAuth.RunCleanup(ctx)
-	webPush, err := notification.New(paths, taskStore, authConfig.Origin)
+	notifications, err := notification.New(paths, taskStore, authConfig.Origin)
 	if err != nil {
-		return fmt.Errorf("open Web Push service: %w", err)
+		return fmt.Errorf("open notification service: %w", err)
 	}
 	providerAccounts, err := provider.NewAccountService(paths.Root(), taskStore)
 	if err != nil {
@@ -130,7 +130,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer chatRuntime.Close()
-	go webPush.Run(ctx, chatRuntime.SubscribeAll(ctx))
+	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -143,7 +143,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 
 	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
 		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
-		artifacts, nativeMemory, webPush,
+		artifacts, nativeMemory, notifications,
 	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)

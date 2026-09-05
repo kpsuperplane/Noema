@@ -68,6 +68,11 @@ func (p Paths) WebPushVAPID() string {
 	return filepath.Join(p.root, "notifications", "web-push-vapid.json")
 }
 
+// APNSProvider returns the protected Apple Push provider configuration path.
+func (p Paths) APNSProvider() string {
+	return filepath.Join(p.root, "notifications", "apns-provider.json")
+}
+
 // Open creates the home and returns rooted filesystem access.
 func (p Paths) Open() (*os.Root, error) {
 	if p.root == "" {

@@ -31,7 +31,7 @@ func TestWebPushSchemaRegistrationOwnershipAndSecretSinks(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	var version int
-	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 15 {
+	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)

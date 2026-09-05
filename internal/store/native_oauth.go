@@ -641,6 +641,14 @@ UPDATE native_oauth_access_tokens SET revoked_at = ?
 WHERE family_id = ? AND revoked_at IS NULL`, now, familyID); err != nil {
 		return fmt.Errorf("revoke native OAuth access credentials: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM client_notification_registrations
+WHERE client_id = (SELECT client_id FROM native_oauth_families WHERE family_id = ?)`, familyID); err != nil {
+		return fmt.Errorf("remove native notification registration: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM client_live_activity_registrations
+WHERE client_id = (SELECT client_id FROM native_oauth_families WHERE family_id = ?)`, familyID); err != nil {
+		return fmt.Errorf("remove Live Activity registration: %w", err)
+	}
 	return nil
 }
 
@@ -650,10 +658,16 @@ UPDATE native_oauth_families SET revoked_at = ?, revoke_reason = ?
 WHERE client_id = ? AND revoked_at IS NULL`, now, reason, clientID); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 UPDATE native_oauth_access_tokens SET revoked_at = ?
 WHERE family_id IN (SELECT family_id FROM native_oauth_families WHERE client_id = ?)
-  AND revoked_at IS NULL`, now, clientID)
+  AND revoked_at IS NULL`, now, clientID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM client_notification_registrations WHERE client_id = ?", clientID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "DELETE FROM client_live_activity_registrations WHERE client_id = ?", clientID)
 	return err
 }
 
