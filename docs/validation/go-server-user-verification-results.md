@@ -416,7 +416,20 @@ Desktop and phone history showed separate manual and scheduled entries.
 The manual history link opened the correct result. The fixture was then ended.
 The [results](evidence/2026-09-05-recurrence-history-results.json) retain occurrence identities, timing, completion, and cleanup.
 The [validation record](evidence/2026-09-05-recurrence-history-validation.json) records scope and reused frontend checks.
-TIME-05 and TIME-09 pass for live Codex and Chromium. Automatic template copying remains pending under TIME-06.
+TIME-05 and TIME-09 pass for live Codex and Chromium. The automatic template check follows below.
+
+## Automatic recurrence template copying
+
+The [socket driver](evidence/2026-09-05-recurrence-auto-template.mjs) edited a minute-based recurrence on the requested instance.
+At 23:10 UTC, the live scheduler created an occurrence with the exact edited template and revision.
+The driver read that initial file 32 milliseconds after the scheduled instant.
+The earlier cancelled Task kept its sole `TASK.md` file with exact original Unicode content.
+The recurrence was ended after the new occurrence appeared.
+The [completion driver](evidence/2026-09-05-recurrence-auto-completion.mjs) confirmed successful Planner, Executor, and Reviewer runs.
+One Executor produced `81`. The browser displayed that result after reload.
+The [results](evidence/2026-09-05-recurrence-auto-template-results.json) retain exact files, timestamps, revisions, and completion.
+The [validation record](evidence/2026-09-05-recurrence-auto-validation.json) records scope and reused checks.
+TIME-06 passes for the live scheduler, Codex, and Chromium. No production change was required.
 
 ## Case results
 
@@ -508,7 +521,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-03 | Not run | Controlled setup pending. | — |
 | TIME-04 | Not run | Controlled setup pending. | — |
 | TIME-05 | Pass · live Codex/Chromium | The active recurrence remains in Scheduled after its manual occurrence completes and its initial occurrence is cancelled. History survives reload. | — |
-| TIME-06 | Partial | A manual occurrence copies the updated template. Existing Task content remains unchanged. Automatic future-slot copy remains pending. | — |
+| TIME-06 | Pass · live Codex/Chromium | The automatic slot copies the exact edited template and revision. The earlier Task file stays unchanged. The new Task completes the edited request. | — |
 | TIME-07 | Pass · Chromium | Fixed the recurrence schedule dialog crash. Competing browser drafts preserve current text and timing. The stale description survives reload for an explicit save. | — |
 | TIME-08 | Partial | Pause, resume, and skip next update schedule state. End preserves readable content and rejects edits. Future execution variants remain pending. | — |
 | TIME-09 | Pass · live Codex/Chromium | Browser Run now creates one manual occurrence and preserves the next normal slot through completion. Its history link opens the correct result. | — |

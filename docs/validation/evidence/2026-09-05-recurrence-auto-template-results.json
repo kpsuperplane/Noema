@@ -1,0 +1,125 @@
+{
+  "origin": "https://noema.kevinpei.com",
+  "transport": "Same-instance development socket",
+  "events": [
+    {
+      "kind": "task.captured",
+      "taskId": "task:3484ce76b97e5fedf2e79fecb61fa698",
+      "occurredAt": "2026-09-05T23:10:00.021Z"
+    },
+    {
+      "kind": "task.queued",
+      "taskId": "task:3484ce76b97e5fedf2e79fecb61fa698",
+      "occurredAt": "2026-09-05T23:10:00.026Z"
+    }
+  ],
+  "original": "# Original automatic template\n\nDo not execute this cancelled fixture. Preserve caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded.\n",
+  "updated": "# Updated automatic template\n\nCalculate 9 \u00d7 9. Write only 81 to RESULT.md. Do not access external services. Keep caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded intact.\n",
+  "initialTaskId": "task:2aa91b0a33cd23da2603e88925404fd2",
+  "recurrenceId": "recurrence:3051a4adb48a117822214935f6c22ce6",
+  "afterEdit": {
+    "recurrenceId": "recurrence:3051a4adb48a117822214935f6c22ce6",
+    "revision": 2,
+    "lifecycle": "ACTIVE",
+    "nextRunAt": "2026-09-05T23:10:00Z",
+    "taskDocument": "# Updated automatic template\n\nCalculate 9 \u00d7 9. Write only 81 to RESULT.md. Do not access external services. Keep caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded intact.\n",
+    "taskDocumentDigest": "1addd111e55dc3a866d735acb49324b91171e59cc8476808499c0325d8eee0bb",
+    "occurrences": [
+      {
+        "taskId": "task:2aa91b0a33cd23da2603e88925404fd2",
+        "trigger": "SCHEDULED",
+        "scheduledFor": "2026-09-05T23:09:00Z",
+        "recurrenceRevision": 1
+      }
+    ]
+  },
+  "created": {
+    "occurrence": {
+      "taskId": "task:3484ce76b97e5fedf2e79fecb61fa698",
+      "trigger": "SCHEDULED",
+      "scheduledFor": "2026-09-05T23:10:00Z",
+      "recurrenceRevision": 2
+    },
+    "initialDocument": "# Updated automatic template\n\nCalculate 9 \u00d7 9. Write only 81 to RESULT.md. Do not access external services. Keep caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded intact.\n",
+    "observedAt": "2026-09-05T23:10:00.032Z",
+    "recurrence": {
+      "recurrenceId": "recurrence:3051a4adb48a117822214935f6c22ce6",
+      "revision": 2,
+      "lifecycle": "ACTIVE",
+      "nextRunAt": "2026-09-05T23:11:00Z",
+      "taskDocument": "# Updated automatic template\n\nCalculate 9 \u00d7 9. Write only 81 to RESULT.md. Do not access external services. Keep caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded intact.\n",
+      "taskDocumentDigest": "1addd111e55dc3a866d735acb49324b91171e59cc8476808499c0325d8eee0bb",
+      "occurrences": [
+        {
+          "taskId": "task:3484ce76b97e5fedf2e79fecb61fa698",
+          "trigger": "SCHEDULED",
+          "scheduledFor": "2026-09-05T23:10:00Z",
+          "recurrenceRevision": 2
+        },
+        {
+          "taskId": "task:2aa91b0a33cd23da2603e88925404fd2",
+          "trigger": "SCHEDULED",
+          "scheduledFor": "2026-09-05T23:09:00Z",
+          "recurrenceRevision": 1
+        }
+      ]
+    }
+  },
+  "ended": {
+    "recurrenceId": "recurrence:3051a4adb48a117822214935f6c22ce6",
+    "revision": 3,
+    "lifecycle": "ENDED",
+    "nextRunAt": null,
+    "taskDocument": "# Updated automatic template\n\nCalculate 9 \u00d7 9. Write only 81 to RESULT.md. Do not access external services. Keep caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded intact.\n",
+    "taskDocumentDigest": "1addd111e55dc3a866d735acb49324b91171e59cc8476808499c0325d8eee0bb",
+    "occurrences": [
+      {
+        "taskId": "task:3484ce76b97e5fedf2e79fecb61fa698",
+        "trigger": "SCHEDULED",
+        "scheduledFor": "2026-09-05T23:10:00Z",
+        "recurrenceRevision": 2
+      },
+      {
+        "taskId": "task:2aa91b0a33cd23da2603e88925404fd2",
+        "trigger": "SCHEDULED",
+        "scheduledFor": "2026-09-05T23:09:00Z",
+        "recurrenceRevision": 1
+      }
+    ]
+  },
+  "oldFileUnchanged": true,
+  "completion": {
+    "task": {
+      "taskId": "task:3484ce76b97e5fedf2e79fecb61fa698",
+      "title": "Migration audit \u2014 automatic template copy",
+      "taskDocument": "# Updated automatic template\n\nCalculate 9 \u00d7 9. Write only 81 to RESULT.md. Do not access external services. Keep caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded intact.\n\n## Plan\n- Compute 9 \u00d7 9 as 81.\n- Create `RESULT.md` containing exactly `81` and no other text.\n- Use only the local task files; do not access external services.\n- Preserve the text `caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded` unchanged.\n\n## Progress\n- Computed 9 \u00d7 9 as 81.\n- Created `RESULT.md` containing exactly `81`.\n- Preserved `caf\u00e9 \u65e5\u672c\u8a9e \ud83e\udded` unchanged.\n",
+      "stage": {
+        "key": "done"
+      },
+      "completedAt": "2026-09-05T23:10:46.927Z",
+      "schedule": {
+        "scheduledFor": "2026-09-05T23:10:00Z"
+      },
+      "runs": [
+        {
+          "runId": "run:fc98e9ea57a819e4ddbf6539f6004ceb",
+          "kind": "REVIEWER",
+          "status": "COMPLETED"
+        },
+        {
+          "runId": "run:b0dd1b7f4eb59a65a358d166f70ebbba",
+          "kind": "EXECUTOR",
+          "status": "COMPLETED"
+        },
+        {
+          "runId": "run:7723c4a1b8024f95f3c0c143abca8d32",
+          "kind": "PLANNER",
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    "result": "81",
+    "browserResultVisible": true
+  },
+  "oldFilesUnchangedAfterCompletion": true
+}
