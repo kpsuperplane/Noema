@@ -271,7 +271,8 @@ The initial dependency choices are:
 - webpush-go for Web Push;
 - apns2 for APNs;
 - chromedp with external Chrome for interactive browsing;
-- Starlark-Go for bounded scripts;
+- a pinned, hash-verified Obscura stealth binary for the default browser route;
+- `arnodel/golua` Lua 5.4 for bounded scripts;
 - a WebAssembly PDFium runtime and focused Go document readers.
 
 Select a pure-Go SQLite driver through transaction, concurrency, backup, and
@@ -290,8 +291,15 @@ Reject any module that requires CGo or a Rust build.
 The shipped server and its dependencies use `CGO_ENABLED=0`. The Linux race
 test can use the Go toolchain's CGo-based test instrumentation.
 
-External Chrome, `llama-server`, LibreOffice, and the Apple provider bridge can
+External Chrome, Obscura, `llama-server`, LibreOffice, and the Apple provider bridge can
 remain integrations. The Go server owns their limits, lifecycle, and protocol.
+
+Install Obscura only after the human selects it. Resolve one supported operating-system and architecture asset from a compiled manifest.
+Download into a bounded temporary file under `NOEMA_HOME`. Verify the pinned size and SHA-256 digest before extraction.
+Reject archive traversal, unexpected files, links, and oversized content. Publish the executable through an atomic rename.
+Keep the prior browser binding when installation fails. Reuse a verified installation without network access.
+Pin one Obscura version per Noema release. Do not resolve `latest` during installation or update silently.
+Run Obscura as a bounded child process. Use its stdio MCP server behind Noema's fixed browser policy and tool contract.
 
 Browser fingerprints and document formatting can differ. Preserve the supported
 actions, bounded outputs, security checks, and main content.
@@ -849,6 +857,8 @@ Stop and request a product decision if any condition occurs:
 | Cutover | Use one final replacement after acceptance passes. |
 | Coordination | Assume no concurrent feature work during migration. |
 | Schedule | Continue until the migration is complete. |
+| Obscura | Install one pinned, verified external binary into `NOEMA_HOME` when selected. |
+| Scripts | Use a pure-Go Lua 5.4 runtime. Rewrite current Luau syntax when necessary. |
 
 The implementation owns build thresholds, dependency choices, migration order,
 and the final removal date.
