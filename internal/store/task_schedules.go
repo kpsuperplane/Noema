@@ -36,6 +36,7 @@ type TaskCommandResult struct {
 	Event                WorkEvent
 	RecurrenceID         string
 	ObsoleteRecurrenceID string
+	DocumentDigest       string
 	Replayed             bool
 }
 
@@ -144,7 +145,7 @@ func (s *Store) CreateTaskWithOptions(
 		return TaskCommandResult{}, err
 	}
 	task := Task{ID: id, ProjectID: options.ProjectID, Title: title, State: TaskCaptured,
-		Revision: 1, ExecutorAgentID: options.ExecutorAgentID,
+		Revision: 1, Generation: 1, StageKey: "inbox", ExecutorAgentID: options.ExecutorAgentID,
 		ExecutorAcpConnectionRevision: executorRevision, CwdOverride: cloneString(options.CwdOverride),
 		CreatedAt: now, UpdatedAt: now}
 	applyScheduleToTask(&task, options.Schedule)
@@ -757,12 +758,15 @@ func processDueTaskTx(ctx context.Context, tx *sql.Tx, id string, now time.Time,
 	task.ScheduleProcessedAt = &processed
 	kind := "task.schedule_released"
 	if recovering && task.ScheduledFor.Before(now) && task.MissedRunPolicy == string(schedule.MissedRunSkip) {
-		task.State = TaskCancelled
+		task.State, task.StageKey, task.CurrentRunID, task.ActiveGateID = TaskCancelled, "cancelled", "", ""
+		task.CancelledAt, task.CompletedAt = timeAddress(now.UTC()), nil
 		kind = "task.cancelled"
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE tasks SET state = ?, schedule_processed_at_ms = ?,
-revision = ?, updated_at_ms = ? WHERE task_id = ? AND revision = ?`, task.State, millis(now),
-		task.Revision, millis(now), id, task.Revision-1)
+	_, err = tx.ExecContext(ctx, `UPDATE tasks SET state = ?, stage_key=?, current_run_id=NULLIF(?,''),
+active_gate_id=NULLIF(?,''), completed_at_ms=?, cancelled_at_ms=?, schedule_processed_at_ms = ?,
+revision = ?, updated_at_ms = ? WHERE task_id = ? AND revision = ?`, task.State, task.StageKey,
+		task.CurrentRunID, task.ActiveGateID, nullableTime(task.CompletedAt), nullableTime(task.CancelledAt),
+		millis(now), task.Revision, millis(now), id, task.Revision-1)
 	if err != nil {
 		return err
 	}
@@ -897,7 +901,7 @@ func materializeOccurrenceTx(
 		}
 	}
 	task := Task{ID: id, ProjectID: value.ProjectID, Title: value.Title, State: TaskCaptured,
-		Revision: 1, ExecutorAgentID: value.ExecutorAgentID,
+		Revision: 1, Generation: 1, StageKey: "inbox", ExecutorAgentID: value.ExecutorAgentID,
 		ExecutorAcpConnectionRevision: cloneInt(value.ExecutorAcpConnectionRevision),
 		CwdOverride:                   cloneString(value.CwdOverride), ScheduledFor: &due,
 		ScheduleTimeZone: value.TimeZone, MissedRunPolicy: string(value.MissedRunPolicy),

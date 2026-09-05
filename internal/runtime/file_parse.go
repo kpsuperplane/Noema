@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/abemedia/go-cfb"
 	"github.com/kpsuperplane/noema/internal/documents"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -412,43 +413,56 @@ func documentMedia(content []byte, format string) (string, string) {
 	if bytes.HasPrefix(bytes.TrimSpace(content), []byte(`{\rtf`)) {
 		return documents.MediaRTF, "rtf"
 	}
-	if mediaType, name := documentMediaFromExtension(format); mediaType != "" {
-		return mediaType, name
+	if compound, err := cfb.NewReader(bytes.NewReader(content)); err == nil {
+		for _, candidate := range []struct {
+			stream, mediaType, format string
+		}{
+			{"WordDocument", documents.MediaDOC, "doc"},
+			{"PowerPoint Document", documents.MediaPPT, "ppt"},
+			{"Workbook", documents.MediaXLS, "excel"},
+			{"Book", documents.MediaXLS, "excel"},
+		} {
+			if _, err = compound.OpenStream(candidate.stream); err == nil {
+				return candidate.mediaType, candidate.format
+			}
+		}
 	}
 	archive, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
-	if err != nil || len(archive.File) > 10_000 {
-		return "", format
-	}
-	for _, file := range archive.File {
-		switch filepath.ToSlash(file.Name) {
-		case "mimetype":
-			reader, openError := file.Open()
-			if openError != nil {
-				continue
-			}
-			value, readError := io.ReadAll(io.LimitReader(reader, 256))
-			reader.Close()
-			if readError == nil {
-				switch strings.TrimSpace(string(value)) {
-				case documents.MediaODT:
-					return documents.MediaODT, "odt"
-				case documents.MediaODS:
-					return documents.MediaODS, "ods"
-				case documents.MediaODP:
-					return documents.MediaODP, "odp"
-				case documents.MediaEPUB:
-					return documents.MediaEPUB, "epub"
+	if err == nil && len(archive.File) <= 10_000 {
+		for _, file := range archive.File {
+			switch filepath.ToSlash(file.Name) {
+			case "mimetype":
+				reader, openError := file.Open()
+				if openError != nil {
+					continue
 				}
+				value, readError := io.ReadAll(io.LimitReader(reader, 256))
+				reader.Close()
+				if readError == nil {
+					switch strings.TrimSpace(string(value)) {
+					case documents.MediaODT:
+						return documents.MediaODT, "odt"
+					case documents.MediaODS:
+						return documents.MediaODS, "ods"
+					case documents.MediaODP:
+						return documents.MediaODP, "odp"
+					case documents.MediaEPUB:
+						return documents.MediaEPUB, "epub"
+					}
+				}
+			case "word/document.xml":
+				return documents.MediaDOCX, "docx"
+			case "ppt/presentation.xml":
+				return documents.MediaPPTX, "pptx"
+			case "xl/workbook.xml":
+				return documents.MediaXLSX, "excel"
+			case "META-INF/container.xml":
+				return documents.MediaEPUB, "epub"
 			}
-		case "word/document.xml":
-			return documents.MediaDOCX, "docx"
-		case "ppt/presentation.xml":
-			return documents.MediaPPTX, "pptx"
-		case "xl/workbook.xml":
-			return documents.MediaXLSX, "excel"
-		case "META-INF/container.xml":
-			return documents.MediaEPUB, "epub"
 		}
+	}
+	if mediaType, name := documentMediaFromExtension(format); mediaType != "" {
+		return mediaType, name
 	}
 	return "", format
 }
@@ -467,6 +481,8 @@ func documentMediaFromExtension(format string) (string, string) {
 		return documents.MediaODT, "odt"
 	case "pptx":
 		return documents.MediaPPTX, "pptx"
+	case "ppt", "pps", "pot":
+		return documents.MediaPPT, "ppt"
 	case "odp":
 		return documents.MediaODP, "odp"
 	case "rtf":

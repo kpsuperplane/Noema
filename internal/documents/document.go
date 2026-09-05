@@ -15,6 +15,7 @@ const (
 	MediaDOC  = "application/msword"
 	MediaODT  = "application/vnd.oasis.opendocument.text"
 	MediaPPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	MediaPPT  = "application/vnd.ms-powerpoint"
 	MediaODP  = "application/vnd.oasis.opendocument.presentation"
 	MediaRTF  = "application/rtf"
 	MediaPDF  = "application/pdf"
@@ -35,7 +36,7 @@ var errInvalidDocument = errors.New("invalid document")
 // IsDocument reports whether a media type has a bounded Markdown parser.
 func IsDocument(mediaType string) bool {
 	switch normalizedMediaType(mediaType) {
-	case MediaXLSX, MediaXLS, MediaODS, MediaDOCX, MediaDOC, MediaODT, MediaPPTX, MediaODP,
+	case MediaXLSX, MediaXLS, MediaODS, MediaDOCX, MediaDOC, MediaODT, MediaPPTX, MediaPPT, MediaODP,
 		MediaRTF, "text/rtf", "application/x-rtf", MediaPDF, MediaEPUB:
 		return true
 	default:
@@ -70,6 +71,8 @@ func DocumentMarkdown(data []byte, mediaType string) (content string, converted 
 		result, err = parseODF(data, false)
 	case MediaPPTX:
 		result, err = parsePPTX(data)
+	case MediaPPT:
+		result, err = parsePPT(data)
 	case MediaODP:
 		result, err = parseODF(data, true)
 	case MediaRTF, "text/rtf", "application/x-rtf":

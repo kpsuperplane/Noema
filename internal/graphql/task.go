@@ -113,9 +113,9 @@ func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDet
 		TaskDocumentDigest:       document.Digest,
 		ResultMetadata:           map[string]any{},
 		WorkspaceFiles:           []*model.TaskWorkspaceFile{},
-		Stage:                    taskStageModel(task.State),
+		Stage:                    taskStageModel(task),
 		Revision:                 int(task.Revision),
-		Generation:               1,
+		Generation:               int(task.Generation),
 		ExecutorAgentID:          task.ExecutorAgentID,
 		ExecutorBackend:          taskExecutorBackend(task),
 		CwdOverride:              task.CwdOverride,
@@ -126,11 +126,11 @@ func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDet
 		Messages:                 []*model.TaskMessage{},
 		Runs:                     []*model.TaskRun{},
 		ContributorInstanceNames: []string{},
-		ValidActions:             validTaskActions(task),
+		ValidActions:             validTaskActions(task, nil),
 	}
 	detail.Schedule = taskScheduleModel(task)
-	if isTerminal(task.State) {
-		completedAt := detail.UpdatedAt
+	if task.CompletedAt != nil {
+		completedAt := task.CompletedAt.Format(time.RFC3339Nano)
 		detail.CompletedAt = &completedAt
 	}
 	return detail
@@ -159,18 +159,22 @@ func taskSummaryModel(task store.Task, workspaceID string, document string) *mod
 		},
 		Title:               task.Title,
 		TaskDocumentPreview: taskDocumentPreview(document),
-		Stage:               taskStageModel(task.State),
+		Stage:               taskStageModel(task),
 		Revision:            int(task.Revision),
-		Generation:          1,
+		Generation:          int(task.Generation),
 		ExecutorAgentID:     task.ExecutorAgentID,
 		ExecutorBackend:     taskExecutorBackend(task),
 		CwdOverride:         task.CwdOverride,
 		EffectiveCwdSource:  "default",
 		CreatedAt:           task.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:           task.UpdatedAt.Format(time.RFC3339Nano),
-		ValidActions:        validTaskActions(task),
+		ValidActions:        validTaskActions(task, nil),
 	}
 	result.Schedule = taskScheduleModel(task)
+	if task.CompletedAt != nil {
+		value := task.CompletedAt.Format(time.RFC3339Nano)
+		result.CompletedAt = &value
+	}
 	return result
 }
 
@@ -191,6 +195,7 @@ func (r *Resolver) taskSummaryModel(
 			}
 		}
 	}
+	r.hydrateTaskSummary(ctx, task, result)
 	return result
 }
 
@@ -207,6 +212,26 @@ func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, documen
 				result.EffectiveCwd = project.Folder
 				result.EffectiveCwdSource = "project"
 			}
+		}
+	}
+	if runs, err := r.Store.TaskRuns(ctx, task.ID, 50); err == nil {
+		for _, run := range runs {
+			mapped := taskRunModel(run)
+			result.Runs = append(result.Runs, mapped)
+			if run.ID == task.CurrentRunID {
+				result.CurrentRun = currentRunModel(run)
+			}
+		}
+	}
+	if messages, err := r.Store.TaskMessages(ctx, task.ID, 50); err == nil {
+		for _, message := range messages {
+			result.Messages = append(result.Messages, taskMessageModel(message))
+		}
+	}
+	if task.ActiveGateID != "" {
+		if gate, err := r.Store.TaskGate(ctx, task.ActiveGateID); err == nil {
+			result.ActiveGate = taskGateModel(gate)
+			result.ValidActions = validTaskActions(task, &gate)
 		}
 	}
 	return result
@@ -266,37 +291,50 @@ func taskDocumentPreview(document string) string {
 	return string(runes)
 }
 
-func taskStageModel(state store.TaskState) *model.WorkflowStage {
-	stage := &model.WorkflowStage{
-		StageID:    store.TaskStageID(state),
-		WorkflowID: "workflow:personal:default",
-		Key:        string(state),
-		Name:       strings.ToUpper(string(state[:1])) + string(state[1:]),
+func taskStageModel(task store.Task) *model.WorkflowStage {
+	state, key := task.State, task.StageKey
+	if key == "" {
+		key = string(state)
+		if state == store.TaskCaptured {
+			key = "inbox"
+		}
 	}
-	switch state {
-	case store.TaskCaptured:
-		stage.Key = "inbox"
+	stage := &model.WorkflowStage{
+		StageID:    "stage:personal:" + key,
+		WorkflowID: "workflow:personal:default",
+		Key:        key,
+		Name:       strings.ToUpper(key[:1]) + key[1:],
+	}
+	switch key {
+	case "inbox":
 		stage.Name = "Inbox"
+		stage.DisplayOrder = 10
 		stage.Behavior = model.WorkflowStageBehaviorIntake
-	case store.TaskRunning:
-		stage.DisplayOrder = 1
+	case "queue":
+		stage.DisplayOrder = 20
+		stage.Behavior = model.WorkflowStageBehaviorDispatch
+	case "doing":
+		stage.DisplayOrder = 30
 		stage.Behavior = model.WorkflowStageBehaviorActive
-	case store.TaskCompleted:
-		stage.DisplayOrder = 2
-		stage.Behavior = model.WorkflowStageBehaviorTerminalSuccess
-	case store.TaskCancelled:
-		stage.DisplayOrder = 3
-		stage.Behavior = model.WorkflowStageBehaviorTerminalCancelled
-	case store.TaskFailed:
-		stage.DisplayOrder = 4
+	case "waiting":
+		stage.DisplayOrder = 40
 		stage.Behavior = model.WorkflowStageBehaviorHumanGate
+	case "done":
+		stage.DisplayOrder = 50
+		stage.Behavior = model.WorkflowStageBehaviorTerminalSuccess
+	case "cancelled":
+		stage.DisplayOrder = 60
+		stage.Behavior = model.WorkflowStageBehaviorTerminalCancelled
 	}
 	return stage
 }
 
-func validTaskActions(task store.Task) []model.ValidTaskAction {
-	switch task.State {
-	case store.TaskCaptured:
+func validTaskActions(task store.Task, gate *store.TaskGate) []model.ValidTaskAction {
+	switch task.StageKey {
+	case "", "inbox":
+		if task.RecurrenceID != "" {
+			return []model.ValidTaskAction{model.ValidTaskActionRunNow, model.ValidTaskActionCancel}
+		}
 		if task.ScheduledFor != nil && task.ScheduleProcessedAt == nil {
 			return []model.ValidTaskAction{model.ValidTaskActionEdit, model.ValidTaskActionReschedule,
 				model.ValidTaskActionUnschedule, model.ValidTaskActionRunNow, model.ValidTaskActionCancel}
@@ -307,12 +345,22 @@ func validTaskActions(task store.Task) []model.ValidTaskAction {
 			model.ValidTaskActionSchedule,
 			model.ValidTaskActionCancel,
 		}
-	case store.TaskRunning:
+	case "queue", "doing":
 		return []model.ValidTaskAction{model.ValidTaskActionCancel}
-	case store.TaskCompleted, store.TaskCancelled:
+	case "done", "cancelled":
 		return []model.ValidTaskAction{model.ValidTaskActionReopen}
-	case store.TaskFailed:
-		return []model.ValidTaskAction{model.ValidTaskActionRetry, model.ValidTaskActionCancel}
+	case "waiting":
+		if gate != nil {
+			actions := []model.ValidTaskAction{}
+			if gate.AllowsResolution("answer") {
+				actions = append(actions, model.ValidTaskActionAnswer)
+			}
+			if gate.AllowsResolution("retry") {
+				actions = append(actions, model.ValidTaskActionRetry)
+			}
+			return append(actions, model.ValidTaskActionCancel)
+		}
+		return []model.ValidTaskAction{}
 	default:
 		return []model.ValidTaskAction{}
 	}

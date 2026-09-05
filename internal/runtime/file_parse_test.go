@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/abemedia/go-cfb"
 	"github.com/kpsuperplane/noema/internal/documents"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -87,7 +90,7 @@ func TestFileParseRoutesMediaAndEnforcesBounds(t *testing.T) {
 	wantMedia := map[string]string{
 		"xls": documents.MediaXLS, "xlsx": documents.MediaXLSX, "ods": documents.MediaODS,
 		"docx": documents.MediaDOCX, "odt": documents.MediaODT,
-		"pptx": documents.MediaPPTX, "odp": documents.MediaODP,
+		"pptx": documents.MediaPPTX, "ppt": documents.MediaPPT, "pps": documents.MediaPPT, "pot": documents.MediaPPT, "odp": documents.MediaODP,
 		"rtf": documents.MediaRTF, "pdf": documents.MediaPDF, "epub": documents.MediaEPUB,
 	}
 	for extension, want := range wantMedia {
@@ -109,7 +112,6 @@ func TestFileParseRoutesMediaAndEnforcesBounds(t *testing.T) {
 	if !isImageMedia(" image/custom; parameter=value") {
 		t.Fatal("image media type did not route to OCR")
 	}
-
 	cwd := t.TempDir()
 	text := strings.Repeat("é", fileParseMinimumCharacters+2)
 	if err := os.WriteFile(filepath.Join(cwd, "data.csv"), []byte(text), 0o600); err != nil {
@@ -245,6 +247,67 @@ func installFakeTesseract(t *testing.T) {
 	t.Setenv("PATH", directory)
 	if goruntime.GOOS == "windows" {
 		t.Setenv("PATHEXT", ".EXE")
+	}
+}
+
+func TestDocumentMediaPrefersContentOverLegacyExtension(t *testing.T) {
+	var pptx bytes.Buffer
+	zipWriter := zip.NewWriter(&pptx)
+	part, err := zipWriter.Create("ppt/presentation.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = part.Write([]byte("<presentation/>")); err != nil {
+		t.Fatal(err)
+	}
+	if err = zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if media, format := documentMedia(pptx.Bytes(), "ppt"); media != documents.MediaPPTX || format != "pptx" {
+		t.Fatalf("PPTX named .ppt = %q, format = %q", media, format)
+	}
+
+	compound := func(streamName string) []byte {
+		t.Helper()
+		file, createError := os.CreateTemp(t.TempDir(), "*.ppt")
+		if createError != nil {
+			t.Fatal(createError)
+		}
+		writer := cfb.NewWriterV3(file)
+		stream, createError := writer.CreateStream(streamName)
+		if createError == nil {
+			_, createError = stream.Write([]byte("content"))
+		}
+		if createError == nil {
+			createError = stream.Close()
+		}
+		if createError == nil {
+			createError = writer.Close()
+		}
+		if closeError := file.Close(); createError == nil {
+			createError = closeError
+		}
+		if createError != nil {
+			t.Fatal(createError)
+		}
+		content, readError := os.ReadFile(file.Name())
+		if readError != nil {
+			t.Fatal(readError)
+		}
+		return content
+	}
+	for _, test := range []struct {
+		stream, mediaType, format string
+	}{
+		{"WordDocument", documents.MediaDOC, "doc"},
+		{"PowerPoint Document", documents.MediaPPT, "ppt"},
+		{"Workbook", documents.MediaXLS, "excel"},
+		{"Book", documents.MediaXLS, "excel"},
+	} {
+		media, format := documentMedia(compound(test.stream), "ppt")
+		if media != test.mediaType || format != test.format {
+			t.Fatalf("%s CFB named .ppt = %q, format = %q", test.stream, media, format)
+		}
 	}
 }
 

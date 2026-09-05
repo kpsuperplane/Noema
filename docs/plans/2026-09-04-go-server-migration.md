@@ -559,6 +559,21 @@ The Task scheduling authority unit uses Go schema versions 12 and 13. It include
 
 Task execution does not yet consume released Tasks.
 
+### Task lifecycle API unit
+
+The Task lifecycle API uses Go schema versions 15 and 17. It includes:
+
+- Inbox replacement, queue, answer, retry, cancel, and reopen commands;
+- generation and revision checks with repeat-safe command receipts;
+- durable runs, gates, human messages, and run transcript items;
+- exact gate-resolution rules and approval-decision storage;
+- preserved run lineage after human gates;
+- exact overview counts and bounded recent Task pages;
+- staged Task document replacement with restart recovery;
+- coherent missed-schedule and terminal state projection.
+
+Provider and ACP workers do not yet consume queued Task runs.
+
 ### Agent settings unit
 
 The Agent settings unit uses Go schema version 10. It includes:
@@ -603,18 +618,19 @@ Update events, preference writes, and consolidation remain later units.
 
 ### Bounded document conversion units
 
-Pure-Go document conversion now supports XLS, XLSX, ODS, DOCX, ODT, PPTX, ODP, RTF, PDF, and EPUB.
+Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
 It enforces the 32 MiB input and 20,000-character output contracts.
 Archive expansion, XML depth, XML tokens, rows, cells, and parser failures remain bounded.
 
 Spreadsheet conversion is connected to Artifact previews.
 The Chat `file.parse` tool uses rooted reads and one isolated parser process.
 The worker has a 30-second limit and a 512 MiB Unix address-space limit.
-Legacy DOC, legacy PPT, and OCR remain later conversion units.
+Legacy DOC and legacy PPT use bounded Compound File Binary parsers.
+OCR remains a later conversion unit.
 
-### Browser Web Push unit
+### Browser Web Push and native Apple notification units
 
-The browser Web Push unit uses Go schema version 14. It includes:
+The browser Web Push unit uses Go schema version 14. Native Apple notifications use version 16. They include:
 
 - protected per-installation VAPID configuration;
 - browser-session-owned registration, removal, status, and presence;
@@ -622,8 +638,11 @@ The browser Web Push unit uses Go schema version 14. It includes:
 - private-network endpoint rejection and resolved-address pinning;
 - presence suppression and primary Chat final-answer projection;
 - one bounded Task-attention queue entrypoint for the Task execution unit.
+- protected APNs provider configuration and client-owned device registrations;
+- durable native Chat and Task alerts with presence suppression and bounded retries;
+- client-owned Live Activity push-to-start and update-token lifecycle.
 
-APNs, native notification delivery, and Live Activities remain later units.
+Task-derived Live Activity start, update, and end delivery remains a later unit.
 
 ## 11. Validation Strategy
 
