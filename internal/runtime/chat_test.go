@@ -1021,6 +1021,8 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 		case 1:
 			return openRouterToolResponse(taskID, "context_call", "Checking."), nil
 		case 2:
+			return openRouterStreamResponse("Earlier Task context."), nil
+		case 3:
 			return &http.Response{
 				StatusCode: http.StatusBadRequest, Header: make(http.Header),
 				Body: io.NopCloser(strings.NewReader("context exceeded")),
@@ -1038,7 +1040,7 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if requestCount != 3 || finalRequest == nil || finalRequest["max_completion_tokens"] != float64(1024) {
+	if requestCount != 4 || finalRequest == nil || finalRequest["max_completion_tokens"] != float64(1024) {
 		t.Fatalf("finalization requests = %d, final = %#v", requestCount, finalRequest)
 	}
 	if _, exists := finalRequest["tools"]; exists {

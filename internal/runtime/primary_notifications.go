@@ -155,19 +155,27 @@ func (c *Chat) narratePrimaryNotification(conversation store.Conversation, promp
 	if err != nil {
 		return "", nil, err
 	}
-	messages, err := c.database.ConversationProviderItems(c.ctx, conversation.ID)
+	contextState, err := c.database.ConversationProviderContext(c.ctx, conversation.ID,
+		assignment.ProviderKind, assignment.ModelProfile)
 	if err != nil {
 		return "", nil, err
 	}
-	providerMessages, err := providerMessagesFromItems(messages, "", assignment.ProviderKind)
+	completed, _, _, err := chatContextParts(contextState, "", assignment.ProviderKind)
 	if err != nil {
 		return "", nil, err
 	}
-	providerMessages = append(providerMessages, provider.GenerationMessage{Role: "developer", Content: prompt})
+	outputTokens := maxOutputTokensFor(assignment.ProviderKind)
+	providerMessages, _, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database,
+		generator: generator, accountID: assignment.ProviderAccountID, providerKind: assignment.ProviderKind,
+		model: assignment.ModelProfile, completed: completed,
+		active: []provider.GenerationMessage{{Role: "developer", Content: prompt}}, outputReserve: *outputTokens})
+	if err != nil {
+		return "", nil, err
+	}
 	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
-		ConversationID: conversation.ID, MaxOutputTokens: maxOutputTokens(),
+		ConversationID: conversation.ID, MaxOutputTokens: outputTokens,
 		Tools: nil, ToolTransport: provider.ToolTransportNone, ToolChoice: provider.ToolChoiceNone,
 		HostedWebSearch: false, FastMode: assignment.FastMode,
 	}, func(provider.StreamEvent) {})
