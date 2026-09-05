@@ -359,7 +359,7 @@ Publish the complete staged directory with one atomic rename.
 Launch one long-lived stdio process for each browser owner. Use a minimal explicit environment.
 Never set `OBSCURA_ALLOW_PRIVATE_NETWORK`. Never pass `--allow-private-network`.
 Apply a 10-second start deadline and a 30-second command deadline.
-Apply a 30-minute re-armable idle deadline. Do not poll.
+Apply a 15-minute re-armable idle deadline. Do not poll.
 Limit MCP frames to 2 MiB. Keep only a bounded 64 KiB stderr diagnostic ring.
 Release session capacity only after the complete process tree exits.
 
@@ -379,6 +379,37 @@ The private command must return structured snapshots and bounded screenshots.
 It must use trusted events and atomically return the resulting URL and main-document status.
 Noema must check every requested and resulting URL through its public-network policy.
 Stop if the artifact cannot preserve these contracts on all five targets.
+
+### Search, fetch, and web settings slice
+
+Implement this slice after schema version 27.
+Use schema version 28 for search and fetch bindings and observed public URLs.
+Primary Chat and Task Executor can use explicit `web.search` and `web.fetch` tools.
+Task Planner and Reviewer cannot use web tools.
+Native hosted web remains active when no explicit search or fetch binding exists.
+An explicit binding disables hosted web and advertises both tools.
+Search stays read-only. An unobserved fetch uses the existing action-review path.
+Every fetch repeats URL and DNS policy checks, including redirects.
+Reuse the existing web-fetch summarizer assignment.
+Use a maintained pure-Go readability dependency after license and graph review.
+
+Target 2,800 production lines and 850 test lines.
+Stop at 3,900 production lines or 1,300 test lines.
+Use seven focused tests for parsing, network policy, extraction bounds, providers, schema, settings, and runtime routing.
+
+### Browser route and execution slice
+
+Implement this slice only after approved Noema-specific Obscura artifacts exist.
+Use schema version 29 for the ordered browser route and observed browser links.
+Keep browser sessions process-local. Add no session table.
+One session belongs to one Chat conversation or Task generation.
+A provider switch starts fresh and transfers no browser state.
+Reuse the existing action-review, Artifact, URL-policy, and runtime lifecycle authorities.
+The web client saves an ordered route. An iOS provider selection moves that provider to the route front.
+
+Target 3,800 production lines and 1,050 test lines.
+Stop at 4,300 production lines or 1,300 test lines.
+Use seven focused tests for tools, route storage, installation, processes, ownership, review, and uncertain outcomes.
 
 Browser fingerprints and document formatting can differ. Preserve the supported
 actions, bounded outputs, security checks, and main content.
