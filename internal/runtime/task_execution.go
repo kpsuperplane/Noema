@@ -2,14 +2,17 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/acp"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -147,6 +150,10 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		r.failRun(ctx, run, "task_context_unavailable", false)
 		return
 	}
+	if run.ExecutorBackend == "acp" {
+		r.executeACP(ctx, task, run, messages)
+		return
+	}
 	items, err := r.database.TaskRunReplayItems(ctx, run.ID)
 	if err != nil {
 		r.failRun(ctx, run, "task_replay_unavailable", false)
@@ -261,6 +268,144 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		return
 	}
 	r.failRun(ctx, run, "provider_continuation_limit", false)
+}
+
+func (r *TaskExecution) executeACP(ctx context.Context, task store.Task, run store.TaskRun, messages []provider.GenerationMessage) {
+	if run.Kind != "executor" || run.AcpLaunch == nil {
+		r.failRun(ctx, run, "configuration_unavailable", false)
+		return
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		r.failRun(ctx, run, "configuration_unavailable", false)
+		return
+	}
+	workspace := filepath.Join(r.root.Name(), "tasks", strings.TrimPrefix(task.ID, "task:"))
+	promptParts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		promptParts = append(promptParts, message.Content)
+	}
+	terminal, err := acp.Execute(ctx, acp.ExecutorRequest{
+		Command: acp.Command{Path: run.AcpLaunch.Command, Args: run.AcpLaunch.Arguments},
+		Cwd:     workspace, Prompt: acp.FormatExecutionPrompt(strings.Join(promptParts, "\n\n")), HelperPath: executable,
+		OnSession: func(sessionID string) error {
+			return r.database.RecordAcpSession(ctx, run.ID, run.Generation, sessionID, time.Now())
+		},
+		OnUpdate: func(raw json.RawMessage) {
+			kind, status, correlation, content := acp.UpdateIdentity(raw)
+			var update any
+			if json.Unmarshal(raw, &update) != nil {
+				update = map[string]any{"diagnostic": "invalid ACP update"}
+			}
+			_ = r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
+				Kind: kind, Status: status, CorrelationID: correlation, Content: content,
+				Payload: map[string]any{"acp_update": update},
+			}}, store.TaskRunUsage{}, time.Now())
+		},
+		Permission: func(request acp.PermissionRequest) (acp.PermissionDecision, error) {
+			return r.resolveAcpPermission(ctx, task, run, request)
+		},
+	})
+	if errors.Is(err, acp.ErrPermissionPending) {
+		return
+	}
+	if errors.Is(err, acp.ErrOutcomeUncertain) {
+		storeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = r.database.MarkTaskExecutionUncertain(storeContext, run.ID, run.Generation, time.Now())
+		return
+	}
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			current, _ := r.database.TaskExecutionIsCurrent(context.Background(), run.ID, run.Generation)
+			if current {
+				r.failRun(context.Background(), run, "active_time_limit", false)
+			}
+		} else if ctx.Err() == nil {
+			r.failRun(ctx, run, "acp_execution_failed", true)
+		}
+		return
+	}
+	payload, success, terminalCall, _ := r.executeTaskTool(ctx, task, run, terminal.Name, terminal.Arguments, true)
+	call := store.TaskRunItemInput{Kind: "tool_call", Status: "running", CorrelationID: "acp:terminal",
+		Payload: map[string]any{"name": terminal.Name, "arguments": terminal.Arguments, "provider_name": "acp"}}
+	if appendErr := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{call}, store.TaskRunUsage{ToolCalls: 1}, time.Now()); appendErr != nil {
+		return
+	}
+	items, loadErr := r.database.TaskRunReplayItems(ctx, run.ID)
+	if loadErr != nil || len(items) == 0 {
+		return
+	}
+	status := "completed"
+	if !success {
+		status = "failed"
+	}
+	result := store.TaskRunItemInput{Kind: "tool_result", Status: status, ParentID: items[len(items)-1].ID,
+		Payload: map[string]any{"name": terminal.Name, "arguments": terminal.Arguments, "result": payload, "success": success, "provider_name": "acp"}}
+	if appendErr := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{result}, store.TaskRunUsage{}, time.Now()); appendErr != nil {
+		return
+	}
+	if !success || !terminalCall {
+		r.failRun(ctx, run, "acp_terminal_invalid", false)
+		return
+	}
+	if err := r.finishTaskTerminal(ctx, run, terminal.Name, terminal.Arguments); err != nil && !errors.Is(err, store.ErrStaleRun) {
+		r.failRun(ctx, run, "task_transition_failed", false)
+	}
+}
+
+func (r *TaskExecution) resolveAcpPermission(ctx context.Context, task store.Task, run store.TaskRun, request acp.PermissionRequest) (acp.PermissionDecision, error) {
+	allowID := ""
+	for _, option := range request.Options {
+		if option.Kind == "allow_once" {
+			allowID = option.ID
+			break
+		}
+	}
+	if allowID == "" {
+		return acp.PermissionDecision{}, nil
+	}
+	var normalizedToolCall any
+	decoder := json.NewDecoder(strings.NewReader(string(request.ToolCall)))
+	decoder.UseNumber()
+	if decoder.Decode(&normalizedToolCall) != nil {
+		return acp.PermissionDecision{}, nil
+	}
+	fingerprintInput, _ := json.Marshal(map[string]any{"agent_id": run.AgentID, "generation": run.Generation, "tool_call": normalizedToolCall, "options": request.Options})
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(fingerprintInput))
+	resolved, err := r.database.ResolvedAcpPermission(ctx, run.ID, fingerprint)
+	if err != nil {
+		return acp.PermissionDecision{}, err
+	}
+	if resolved.Found {
+		if !resolved.Approved || resolved.OptionID != allowID {
+			return acp.PermissionDecision{}, nil
+		}
+		if err := r.database.RecordAcpPermissionUse(ctx, run.ID, run.Generation, fingerprint, time.Now()); err != nil {
+			return acp.PermissionDecision{}, err
+		}
+		return acp.PermissionDecision{OptionID: allowID}, nil
+	}
+	title := "Agent-requested operation"
+	var toolCall struct {
+		Title string `json:"title"`
+	}
+	if json.Unmarshal(request.ToolCall, &toolCall) == nil && strings.TrimSpace(toolCall.Title) != "" {
+		title = strings.TrimSpace(toolCall.Title)
+	}
+	if len([]rune(title)) > 256 {
+		title = string([]rune(title)[:256])
+	}
+	if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
+		Kind: "progress_notice", Status: "completed", CorrelationID: "acp:permission:" + fingerprint,
+		Content: title, Payload: map[string]any{"acp_permission": request, "allow_once_option_id": allowID},
+	}}, store.TaskRunUsage{}, time.Now()); err != nil {
+		return acp.PermissionDecision{}, err
+	}
+	if err := r.database.BlockTaskExecution(ctx, run.ID, run.Generation, "approval", "Allow this ACP operation once?", title, nil, time.Now()); err != nil {
+		return acp.PermissionDecision{}, err
+	}
+	return acp.PermissionDecision{Pending: true}, nil
 }
 
 func (r *TaskExecution) taskMessages(ctx context.Context, task store.Task, run store.TaskRun) ([]provider.GenerationMessage, bool, error) {

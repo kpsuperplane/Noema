@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// AcpPermissionResult is one resolved exact ACP permission request.
+type AcpPermissionResult struct {
+	Found, Approved bool
+	OptionID        string
+}
+
 const (
 	TaskMaxAutomaticRetries = int64(3)
 	TaskMaxReviewRounds     = int64(3)
@@ -28,20 +34,59 @@ type TaskRunUsage struct {
 	ActiveMilliseconds                           int64
 }
 
-// RecoverTaskExecutions returns interrupted current provider runs to the queue.
+// RecoverTaskExecutions returns interrupted current runs to the queue.
 func (s *Store) RecoverTaskExecutions(ctx context.Context, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT r.run_id FROM task_runs r JOIN tasks t ON t.current_run_id=r.run_id
+WHERE r.status IN ('leased','running') AND r.executor_backend='acp' AND r.task_generation=t.generation
+AND EXISTS(SELECT 1 FROM task_run_items i WHERE i.run_id=r.run_id AND i.correlation_id LIKE 'acp:permission-used:%'
+AND json_type(i.payload_json,'$.permission_fingerprint')='text')`)
+	if err != nil {
+		return err
+	}
+	var uncertain []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		uncertain = append(uncertain, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range uncertain {
+		run, err := taskRunTx(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id=?", run.TaskID))
+		if err != nil {
+			return err
+		}
+		if task.CurrentRunID != run.ID || task.Generation != run.Generation {
+			return ErrStaleRun
+		}
+		if err := markTaskExecutionUncertainTx(ctx, tx, &task, run, now); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='queued',updated_at_ms=?
-WHERE status IN ('leased','running') AND executor_backend='provider' AND run_id IN
+WHERE status IN ('leased','running') AND run_id IN
 (SELECT current_run_id FROM tasks WHERE state='running' AND current_run_id IS NOT NULL)`, millis(now)); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE tasks SET stage_key='queue',updated_at_ms=?
-WHERE state='running' AND current_run_id IN (SELECT run_id FROM task_runs WHERE status='queued' AND executor_backend='provider')`, millis(now)); err != nil {
+WHERE state='running' AND current_run_id IN (SELECT run_id FROM task_runs WHERE status='queued')`, millis(now)); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err == nil {
@@ -50,7 +95,7 @@ WHERE state='running' AND current_run_id IN (SELECT run_id FROM task_runs WHERE 
 	return err
 }
 
-// ClaimTaskExecution leases the oldest current built-in provider run.
+// ClaimTaskExecution leases the oldest current Task run.
 func (s *Store) ClaimTaskExecution(ctx context.Context, now time.Time) (Task, TaskRun, bool, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -59,7 +104,7 @@ func (s *Store) ClaimTaskExecution(ctx context.Context, now time.Time) (Task, Ta
 	defer tx.Rollback()
 	var runID string
 	err = tx.QueryRowContext(ctx, `SELECT r.run_id FROM task_runs r JOIN tasks t ON t.current_run_id=r.run_id
-WHERE r.status='queued' AND r.executor_backend='provider' AND r.task_generation=t.generation
+WHERE r.status='queued' AND r.executor_backend IN ('provider','acp') AND r.task_generation=t.generation
 ORDER BY r.queued_at_ms,r.run_id LIMIT 1`).Scan(&runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, TaskRun{}, false, nil
@@ -157,6 +202,51 @@ WHERE run_id=? AND status='running'`, usage.ProviderCalls, usage.ToolCalls, usag
 	})
 }
 
+// RecordAcpSession saves one client-visible session identity under the current-run check.
+func (s *Store) RecordAcpSession(ctx context.Context, runID string, generation int64, sessionID string, now time.Time) error {
+	if strings.TrimSpace(sessionID) == "" || len(sessionID) > 512 {
+		return errors.New("invalid ACP session identity")
+	}
+	return s.AppendTaskRunItems(ctx, runID, generation, []TaskRunItemInput{{
+		Kind: "progress_notice", Status: "completed", CorrelationID: "acp:session",
+		Content: "ACP session started.", Payload: map[string]any{"acp_session_id": sessionID},
+	}}, TaskRunUsage{}, now)
+}
+
+// ResolvedAcpPermission reads one parent-run approval for the current ACP run.
+func (s *Store) ResolvedAcpPermission(ctx context.Context, runID, fingerprint string) (AcpPermissionResult, error) {
+	var decision, option string
+	err := s.db.QueryRowContext(ctx, `SELECT m.approval_decision,json_extract(i.payload_json,'$.allow_once_option_id')
+FROM task_runs current
+JOIN task_gates g ON g.originating_run_id=current.parent_run_id AND g.gate_kind='approval' AND g.gate_state='resolved'
+JOIN task_messages m ON m.message_id=g.resolution_message_id
+JOIN task_run_items i ON i.run_id=current.parent_run_id AND i.correlation_id=?
+  AND json_type(i.payload_json,'$.allow_once_option_id')='text'
+JOIN tasks t ON t.current_run_id=current.run_id AND t.generation=current.task_generation
+WHERE current.run_id=? AND current.status='running' LIMIT 1`, "acp:permission:"+fingerprint, runID).Scan(&decision, &option)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AcpPermissionResult{}, nil
+	}
+	if err != nil {
+		return AcpPermissionResult{}, err
+	}
+	var consumed int
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM task_run_items
+WHERE run_id=? AND correlation_id=? AND json_type(payload_json,'$.permission_fingerprint')='text')`,
+		runID, "acp:permission-used:"+fingerprint).Scan(&consumed); err != nil {
+		return AcpPermissionResult{}, err
+	}
+	return AcpPermissionResult{Found: true, Approved: decision == "approved" && consumed == 0, OptionID: option}, nil
+}
+
+// RecordAcpPermissionUse consumes one exact approval before ACP can perform its effect.
+func (s *Store) RecordAcpPermissionUse(ctx context.Context, runID string, generation int64, fingerprint string, now time.Time) error {
+	return s.AppendTaskRunItems(ctx, runID, generation, []TaskRunItemInput{{
+		Kind: "progress_notice", Status: "completed", CorrelationID: "acp:permission-used:" + fingerprint,
+		Content: "ACP permission used once.", Payload: map[string]any{"permission_fingerprint": fingerprint},
+	}}, TaskRunUsage{}, now)
+}
+
 // TaskExecutionIsCurrent reports whether one run still owns the active generation.
 func (s *Store) TaskExecutionIsCurrent(ctx context.Context, runID string, generation int64) (bool, error) {
 	var count int
@@ -168,7 +258,8 @@ WHERE r.run_id=? AND r.task_generation=? AND t.generation=? AND r.status IN ('le
 // TaskRunReplayItems returns one bounded run transcript in provider order.
 func (s *Store) TaskRunReplayItems(ctx context.Context, runID string) ([]TaskRunItem, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms
-FROM task_run_items WHERE run_id=? ORDER BY sequence_index LIMIT 4097`, runID)
+FROM task_run_items WHERE run_id=? AND COALESCE(json_type(payload_json,'$.acp_launch'),'')<>'object'
+ORDER BY sequence_index LIMIT 4097`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -293,6 +384,28 @@ func (s *Store) FailTaskExecution(ctx context.Context, runID string, generation 
 	})
 }
 
+// MarkTaskExecutionUncertain opens recovery after an approved ACP effect loses its process.
+func (s *Store) MarkTaskExecutionUncertain(ctx context.Context, runID string, generation int64, now time.Time) error {
+	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, task *Task, run *TaskRun) error {
+		return markTaskExecutionUncertainTx(ctx, tx, task, *run, now)
+	})
+}
+
+func markTaskExecutionUncertainTx(ctx context.Context, tx *sql.Tx, task *Task, run TaskRun, now time.Time) error {
+	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='failed',error_code='outcome_uncertain',
+error_message='An approved ACP operation may have completed.',ended_at_ms=?,updated_at_ms=?
+WHERE run_id=? AND status IN ('leased','running')`, millis(now), millis(now), run.ID)
+	if err != nil {
+		return err
+	}
+	if count, _ := changed.RowsAffected(); count != 1 {
+		return ErrStaleRun
+	}
+	return openTaskExecutionGate(ctx, tx, task, run, "recovery",
+		"Check the external result before continuing.", "An approved ACP operation may have completed.",
+		"unsafe_effect_uncertain", "executor", now)
+}
+
 func (s *Store) completeTaskRun(ctx context.Context, runID string, generation int64, kind string, now time.Time, next func(*sql.Tx, *Task, TaskRun) error) error {
 	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, task *Task, run *TaskRun) error {
 		if run.Kind != kind {
@@ -365,7 +478,14 @@ func insertTaskExecutionRun(ctx context.Context, tx *sql.Tx, task Task, kind str
 		Status: "queued", AgentID: task.ExecutorAgentID, Generation: task.Generation, AttemptIndex: attempt, ReviewRound: review,
 		ParentRunID: parent.ID, SelectionMode: "provider_default", ExecutorBackend: "provider", ExecutorAgentID: task.ExecutorAgentID,
 		EffectiveCwd: cloneString(task.CwdOverride), QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
-	if attempt > 0 && kind == parent.Kind {
+	var acpLaunch *AcpLaunch
+	if kind == "executor" && task.ExecutorAcpConnectionRevision != nil {
+		run.ExecutorBackend = "acp"
+		acpLaunch, err = resolveAcpLaunchTx(ctx, tx, task)
+		if err != nil {
+			return TaskRun{}, err
+		}
+	} else if attempt > 0 && kind == parent.Kind {
 		run.ProviderKind, run.ProviderAccountID, run.SelectionMode = parent.ProviderKind, parent.ProviderAccountID, parent.SelectionMode
 		run.ModelProfile, run.ReasoningEffort, run.FastMode = cloneString(parent.ModelProfile), cloneString(parent.ReasoningEffort), parent.FastMode
 	} else {
@@ -394,7 +514,75 @@ executor_agent_id,effective_cwd,queued_at_ms,created_at_ms,updated_at_ms) VALUES
 		run.ID, run.TaskID, run.Generation, run.InstanceName, run.Kind, run.AgentID, run.AttemptIndex, run.ReviewRound, parent.ID,
 		run.ProviderKind, run.ProviderAccountID, run.SelectionMode, nullableString(run.ModelProfile), nullableString(run.ReasoningEffort), run.FastMode,
 		run.ExecutorBackend, run.ExecutorAgentID, nullableString(run.EffectiveCwd), millis(now), millis(now), millis(now))
+	if err == nil && acpLaunch != nil {
+		run.AcpLaunch = acpLaunch
+		err = insertAcpLaunchTx(ctx, tx, run.ID, *acpLaunch, now)
+	}
 	return run, err
+}
+
+func resolveAcpLaunchTx(ctx context.Context, tx *sql.Tx, task Task) (*AcpLaunch, error) {
+	if task.ExecutorAcpConnectionRevision == nil {
+		return nil, nil
+	}
+	var launch AcpLaunch
+	var arguments string
+	var enabled int
+	err := tx.QueryRowContext(ctx, `SELECT command,arguments_json,connection_revision,enabled
+FROM acp_agents WHERE agent_id=?`, task.ExecutorAgentID).
+		Scan(&launch.Command, &arguments, &launch.ConnectionRevision, &enabled)
+	if err != nil || enabled != 1 || json.Unmarshal([]byte(arguments), &launch.Arguments) != nil {
+		return nil, ErrInvalidAcpAgent
+	}
+	return &launch, nil
+}
+
+func insertAcpLaunchTx(ctx context.Context, tx *sql.Tx, runID string, launch AcpLaunch, now time.Time) error {
+	id, err := newID("run_item")
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]any{"acp_launch": launch})
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO task_run_items
+(item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,content_text,payload_json,created_at_ms,updated_at_ms)
+VALUES (?,?,0,0,'progress_notice','completed','acp:launch','ACP Executor selected.',?,?,?)`,
+		id, runID, string(payload), millis(now), millis(now))
+	return err
+}
+
+func hydrateAcpRun(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, run *TaskRun) error {
+	if run.ExecutorBackend != "acp" {
+		return nil
+	}
+	var launchJSON string
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload_json,'$.acp_launch') FROM task_run_items
+WHERE run_id=? AND correlation_id='acp:launch' AND json_type(payload_json,'$.acp_launch')='object'
+ORDER BY sequence_index LIMIT 1`, run.ID).Scan(&launchJSON)
+	if err != nil {
+		return err
+	}
+	var launch AcpLaunch
+	if json.Unmarshal([]byte(launchJSON), &launch) != nil || launch.ConnectionRevision < 1 || launch.Command == "" {
+		return errors.New("invalid ACP launch snapshot")
+	}
+	run.AcpLaunch = &launch
+	var session string
+	err = q.QueryRowContext(ctx, `SELECT json_extract(payload_json,'$.acp_session_id') FROM task_run_items
+WHERE run_id=? AND correlation_id='acp:session' AND json_type(payload_json,'$.acp_session_id')='text'
+ORDER BY sequence_index DESC LIMIT 1`, run.ID).Scan(&session)
+	if err == nil {
+		run.AcpSessionID = &session
+		return nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	return err
 }
 
 func openTaskExecutionGate(ctx context.Context, tx *sql.Tx, task *Task, run TaskRun, kind, prompt, detail, reason, retryKind string, now time.Time) error {
@@ -461,7 +649,7 @@ func validTaskRunItem(item TaskRunItemInput) bool {
 	validKind := item.Kind == "model_input" || item.Kind == "assistant_output" || item.Kind == "tool_call" ||
 		item.Kind == "tool_result" || item.Kind == "progress_notice" || item.Kind == "task_submission" ||
 		item.Kind == "task_review" || item.Kind == "failure" || item.Kind == "cancellation"
-	validStatus := item.Status == "running" || item.Status == "completed" || item.Status == "failed"
+	validStatus := item.Status == "pending" || item.Status == "running" || item.Status == "completed" || item.Status == "failed"
 	return validKind && validStatus && item.Round >= 0 && len(item.Content) <= 512<<10
 }
 

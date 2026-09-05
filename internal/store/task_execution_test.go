@@ -48,3 +48,84 @@ func TestTaskExecutionRecoveryAndCurrentRunTransitions(t *testing.T) {
 		t.Fatalf("stale transition = %v", err)
 	}
 }
+
+func TestACPTaskRunCapturesLaunchAndRecovers(t *testing.T) {
+	database := openTestStore(t)
+	account := createReadyModelAccount(t, database)
+	if _, err := database.ConfirmHostedModelAssignments(context.Background(), account.ID, testModelAssignments(account, "model-a")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC)
+	agent, err := database.CreateAcpAgent(context.Background(), "ACP", "first-command", []string{"--stdio"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := NewTaskID()
+	task, err := database.CreateTask(context.Background(), id, "ACP Execution", "correlation:acp:create", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := database.UpdateInboxTask(context.Background(), id, task.Revision, task.Generation,
+		TaskUpdate{ExecutorAgentID: &agent.AgentID}, testTaskLifecycleCommand("update_task", "acp"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.QueueTask(context.Background(), id, updated.Task.Revision, 1, testTaskLifecycleCommand("queue_task", "acp"), now); err != nil {
+		t.Fatal(err)
+	}
+	_, planner, found, err := database.ClaimTaskExecution(context.Background(), now)
+	if err != nil || !found || planner.ExecutorBackend != "provider" {
+		t.Fatalf("planner = %#v, %t, %v", planner, found, err)
+	}
+	if err = database.StartTaskExecution(context.Background(), planner.ID, 1, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.UpdateAcpAgent(context.Background(), agent.AgentID, 1, "ACP changed", "second-command", nil, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FinishTaskPlanning(context.Background(), planner.ID, 1, "simple", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.UpdateAcpAgent(context.Background(), agent.AgentID, 2, "ACP changed again", "third-command", nil, true, now); err != nil {
+		t.Fatal(err)
+	}
+	_, executor, found, err := database.ClaimTaskExecution(context.Background(), now)
+	if err != nil || !found || executor.ExecutorBackend != "acp" || executor.AcpLaunch == nil ||
+		executor.AcpLaunch.Command != "second-command" || executor.AcpLaunch.ConnectionRevision != 2 || len(executor.AcpLaunch.Arguments) != 0 {
+		t.Fatalf("ACP launch = %#v, %t, %v", executor, found, err)
+	}
+	if err = database.StartTaskExecution(context.Background(), executor.ID, 1, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecordAcpSession(context.Background(), executor.ID, 1, "session:before-restart", now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecoverTaskExecutions(context.Background(), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, recovered, found, err := database.ClaimTaskExecution(context.Background(), now.Add(2*time.Second))
+	if err != nil || !found || recovered.ID != executor.ID || recovered.AcpLaunch == nil ||
+		recovered.AcpLaunch.Command != "second-command" || recovered.AcpSessionID == nil || *recovered.AcpSessionID != "session:before-restart" {
+		t.Fatalf("recovered ACP run = %#v, %t, %v", recovered, found, err)
+	}
+	if err = database.StartTaskExecution(context.Background(), recovered.ID, 1, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecordAcpPermissionUse(context.Background(), recovered.ID, 1, "exact-effect", now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecoverTaskExecutions(context.Background(), now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	uncertainTask, err := database.Task(context.Background(), id)
+	if err != nil || uncertainTask.StageKey != "waiting" || uncertainTask.ActiveGateID == "" {
+		t.Fatalf("uncertain Task = %#v, %v", uncertainTask, err)
+	}
+	gate, err := database.TaskGate(context.Background(), uncertainTask.ActiveGateID)
+	if err != nil || gate.RecoveryReason == nil || *gate.RecoveryReason != "unsafe_effect_uncertain" {
+		t.Fatalf("uncertain gate = %#v, %v", gate, err)
+	}
+	if _, _, found, err = database.ClaimTaskExecution(context.Background(), now.Add(5*time.Second)); err != nil || found {
+		t.Fatalf("uncertain ACP run was reclaimed: %t, %v", found, err)
+	}
+}
