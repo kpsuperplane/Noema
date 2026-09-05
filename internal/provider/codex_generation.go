@@ -291,18 +291,19 @@ func codexGenerationStatusError(status int) error {
 }
 
 type codexGenerationPayload struct {
-	Model             string             `json:"model"`
-	Input             []any              `json:"input"`
-	Temperature       *float32           `json:"temperature,omitempty"`
-	Reasoning         *codexReasoning    `json:"reasoning,omitempty"`
-	ServiceTier       string             `json:"service_tier,omitempty"`
-	Tools             []codexToolPayload `json:"tools,omitempty"`
-	Include           []string           `json:"include,omitempty"`
-	ToolChoice        string             `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool              `json:"parallel_tool_calls,omitempty"`
-	PromptCacheKey    string             `json:"prompt_cache_key,omitempty"`
-	Store             bool               `json:"store"`
-	Stream            bool               `json:"stream"`
+	Model              string             `json:"model"`
+	Input              []any              `json:"input"`
+	PreviousResponseID string             `json:"previous_response_id,omitempty"`
+	Temperature        *float32           `json:"temperature,omitempty"`
+	Reasoning          *codexReasoning    `json:"reasoning,omitempty"`
+	ServiceTier        string             `json:"service_tier,omitempty"`
+	Tools              []codexToolPayload `json:"tools,omitempty"`
+	Include            []string           `json:"include,omitempty"`
+	ToolChoice         string             `json:"tool_choice,omitempty"`
+	ParallelToolCalls  *bool              `json:"parallel_tool_calls,omitempty"`
+	PromptCacheKey     string             `json:"prompt_cache_key,omitempty"`
+	Store              bool               `json:"store"`
+	Stream             bool               `json:"stream"`
 }
 
 type codexReasoning struct {
@@ -327,6 +328,11 @@ func prepareCodexGeneration(
 	model := strings.TrimSpace(request.Model)
 	if model == "" {
 		return nil, openRouterToolNameMap{}, errors.New("Codex generation model is required")
+	}
+	previousResponseID := strings.TrimSpace(request.PreviousResponseID)
+	if previousResponseID != request.PreviousResponseID ||
+		(previousResponseID != "" && (!validCodexHeader(previousResponseID) || !request.StoreResponse)) {
+		return nil, openRouterToolNameMap{}, errors.New("Codex previous response id is invalid")
 	}
 	if request.HostedWebSearch && request.ToolTransport != ToolTransportNative {
 		return nil, openRouterToolNameMap{}, errors.New("Codex hosted web search is disabled")
@@ -362,7 +368,8 @@ func prepareCodexGeneration(
 	}
 	payload := codexGenerationPayload{
 		Model: model, Input: input, Temperature: request.Temperature,
-		PromptCacheKey: strings.TrimSpace(request.ConversationID), Store: false, Stream: true,
+		PreviousResponseID: previousResponseID,
+		PromptCacheKey:     strings.TrimSpace(request.ConversationID), Store: request.StoreResponse, Stream: true,
 		Tools: tools,
 	}
 	if request.HostedWebSearch {
@@ -1133,6 +1140,17 @@ func normalizeCodexHostedSearch(index int, item map[string]json.RawMessage) (Hos
 	name := "web.search"
 	arguments := map[string]any{}
 	kind := jsonString(object["type"])
+	if kind == "open_page" {
+		parsed, parseErr := url.Parse(jsonString(object["url"]))
+		if parseErr != nil {
+			return HostedSearch{}, errors.New("Codex hosted web URL is invalid")
+		}
+		if parsed.User != nil {
+			if _, hasPassword := parsed.User.Password(); hasPassword {
+				return HostedSearch{}, errors.New("Codex hosted web URL contains credentials")
+			}
+		}
+	}
 	if kind == "open_page" || kind == "find_in_page" {
 		name = "web.fetch"
 		if value, ok := object["url"].(string); ok {

@@ -254,7 +254,7 @@ func (s *Store) CompleteConversationTurn(
 	usage *ProviderUsage,
 	now time.Time,
 ) (ConversationItem, error) {
-	return s.CompleteConversationTurnOutput(ctx, turn, text, providerText, usage, nil, nil, 0, now)
+	return s.CompleteConversationTurnOutput(ctx, turn, text, providerText, usage, nil, nil, 0, 0, now)
 }
 
 // CompleteConversationTurnOutput atomically saves reasoning, text, and terminal state.
@@ -266,13 +266,14 @@ func (s *Store) CompleteConversationTurnOutput(
 	usage *ProviderUsage,
 	reasoning []json.RawMessage,
 	citations []ProviderCitation,
+	unresolvedCitationMarkers int,
 	providerRound int,
 	now time.Time,
 ) (ConversationItem, error) {
 	if strings.TrimSpace(text) == "" || !utf8.ValidString(text) || len(text) > maxConversationText {
 		return ConversationItem{}, errors.New("assistant response is empty, invalid, or too large")
 	}
-	if providerRound < 0 {
+	if providerRound < 0 || unresolvedCitationMarkers < 0 {
 		return ConversationItem{}, errors.New("provider round is invalid")
 	}
 	for _, detail := range reasoning {
@@ -290,9 +291,7 @@ func (s *Store) CompleteConversationTurnOutput(
 		"provider_round": providerRound, "stream_id": streamID,
 		"phase": "final_answer", "provider_item_id": nil,
 	}
-	if len(citations) != 0 {
-		metadata["citations"] = citations
-	}
+	addProviderCitationMetadata(metadata, citations, unresolvedCitationMarkers)
 	if usage != nil {
 		metadata["provider"] = usage.Provider
 		ratio := float64(0)
@@ -311,6 +310,17 @@ func (s *Store) CompleteConversationTurnOutput(
 		ctx, turn, ConversationAssistantText, text, providerText, metadata,
 		reasoning, providerRound, now,
 	)
+}
+
+func addProviderCitationMetadata(metadata map[string]any, citations []ProviderCitation, unresolved int) {
+	if len(citations) != 0 {
+		metadata["citations"] = citations
+	}
+	if unresolved != 0 {
+		metadata["provider_citation_diagnostic"] = map[string]any{
+			"code": "unresolved_marker", "count": unresolved,
+		}
+	}
 }
 
 // FailConversationTurn atomically saves a durable notice and marks the Chat failed.

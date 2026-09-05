@@ -324,7 +324,7 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages, err := providerMessagesFromItems(messages)
+	providerMessages, err := providerMessagesFromItems(messages, turn.ID, assignment.ProviderKind)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
@@ -346,6 +346,7 @@ func (c *Chat) execute(request queuedTurn) {
 		ToolTransport:   provider.ToolTransportNative,
 		ToolChoice:      provider.ToolChoiceAuto,
 		HostedWebSearch: hostedWeb,
+		StoreResponse:   assignment.ProviderKind == "codex",
 		FastMode:        assignment.FastMode,
 	}, func(event provider.StreamEvent) {
 		if event.Kind == provider.TextDelta {

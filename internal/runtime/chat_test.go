@@ -286,7 +286,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 }
 
-func TestChatPersistsHostedWebFactsAndReplaysOpenRouterContinuation(t *testing.T) {
+func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
 	ctx := context.Background()
 	events, err := chat.Subscribe(ctx, conversation.ID)
@@ -343,7 +343,7 @@ func TestChatPersistsHostedWebFactsAndReplaysOpenRouterContinuation(t *testing.T
 			}
 		}
 	}
-	if replayedSearches != 2 {
+	if replayedSearches != 0 {
 		t.Fatalf("replayed hosted searches = %d in %#v", replayedSearches, secondRequest["messages"])
 	}
 	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
@@ -547,7 +547,9 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		requests = append(requests, request)
 		if len(requests) == 1 {
 			return provider.GenerationResult{
-				Model: "gpt-5.6-terra", Text: "I will inspect it.", Usage: provider.Usage{TotalTokens: 3},
+				ID: "resp_1", Model: "gpt-5.6-terra", Text: "I will inspect it.", Usage: provider.Usage{TotalTokens: 3},
+				Searches: []provider.HostedSearch{{ID: "search_1", Name: "web.search", Status: "completed",
+					Arguments: json.RawMessage(`{"query":"current"}`), Result: json.RawMessage(`{"status":"completed"}`)}},
 				Reasoning: []provider.GenerationReasoning{{ProviderDetails: []json.RawMessage{
 					json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`),
 				}}},
@@ -559,7 +561,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			}, nil
 		}
 		return provider.GenerationResult{
-			Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
+			ID: "resp_2", Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
 		}, nil
 	})
 	chat, err := NewChat(database, openRouter, codex, homeRoot, openChatMemory(t, homeRoot))
@@ -585,16 +587,21 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			t.Fatalf("Codex request %d = %#v", index, request)
 		}
 	}
-	replayedCall, replayedResult := false, false
+	if requests[0].PreviousResponseID != "" || !requests[0].StoreResponse ||
+		requests[1].PreviousResponseID != "resp_1" || !requests[1].StoreResponse {
+		t.Fatalf("Codex response continuation = %#v", requests)
+	}
+	replayedCall, incrementalResult := false, false
 	for _, message := range requests[1].Messages {
 		for _, call := range message.ToolCalls {
 			replayedCall = replayedCall || call.ProviderItemID == "fc_1"
 		}
-		replayedResult = replayedResult ||
+		incrementalResult = incrementalResult ||
 			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
 	}
-	if !replayedCall || !replayedResult {
-		t.Fatalf("Codex continuation replay = call %t, result %t", replayedCall, replayedResult)
+	if replayedCall || !incrementalResult || len(requests[1].Messages) != 1 {
+		t.Fatalf("Codex incremental continuation = call %t, result %t, messages %#v",
+			replayedCall, incrementalResult, requests[1].Messages)
 	}
 	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
 	if err != nil {
@@ -623,6 +630,24 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	}
 	if finalText != "Codex complete." {
 		t.Fatalf("durable final text = %q", finalText)
+	}
+	assignment, err := chat.primaryAssignment(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	_, _, err = chat.generateChatToolContinuation(
+		queuedTurn{conversation: conversation, location: time.UTC},
+		store.ConversationTurn{ID: page.Items[0].TurnID, ConversationID: conversation.ID},
+		assignment,
+		generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+			called = true
+			return provider.GenerationResult{}, nil
+		}),
+		2, "", "", "", true, provider.GenerationMessage{},
+	)
+	if err == nil || called || !strings.Contains(err.Error(), "provider-hosted web state") {
+		t.Fatalf("missing Codex hosted state = called %t, error %v", called, err)
 	}
 }
 
