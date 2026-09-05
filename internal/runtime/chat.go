@@ -498,14 +498,15 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
+	contextGenerator := generator
 	generator, closeSession, _ := openGenerationSession(generator)
 	defer closeSession()
-	messages, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
+	contextState, err := c.database.ConversationProviderContext(c.ctx, turn.ConversationID, assignment.ProviderKind, assignment.ModelProfile)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages, err := providerMessagesFromItems(messages, turn.ID, assignment.ProviderKind)
+	completed, active, through, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
@@ -522,20 +523,29 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	providerMessages = append(
-		developerMessages(environment, memoryContext, projectContext, hostedWeb),
-		providerMessages...,
-	)
-	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
 	tools, err := c.chatTools(c.ctx)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
 	}
+	outputTokens := maxOutputTokensFor(assignment.ProviderKind)
+	providerMessages, _, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database, generator: contextGenerator,
+		accountID: assignment.ProviderAccountID, providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
+		base: developerMessages(environment, memoryContext, projectContext, hostedWeb), completed: completed, active: active,
+		tools: tools, hostedWeb: hostedWeb, outputReserve: *outputTokens,
+		persist: func(summary string, recent []provider.GenerationMessage) error {
+			return c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
+				assignment.ModelProfile, summary, recent, through, time.Now())
+		}})
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
 	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
-		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
+		ConversationID: turn.ConversationID, MaxOutputTokens: outputTokens,
 		Tools:           tools,
 		ToolTransport:   provider.ToolTransportNative,
 		ToolChoice:      provider.ToolChoiceAuto,
@@ -731,4 +741,12 @@ func cloneOptionalString(value *string) *string {
 func maxOutputTokens() *uint32 {
 	value := uint32(8192)
 	return &value
+}
+
+func maxOutputTokensFor(providerKind string) *uint32 {
+	if providerKind == "foundation_local" {
+		value := uint32(512)
+		return &value
+	}
+	return maxOutputTokens()
 }

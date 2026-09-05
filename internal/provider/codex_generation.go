@@ -160,6 +160,10 @@ func (g *CodexGenerator) OpenGenerationSession() GenerationSession {
 
 func (s *codexGenerationSession) Close() error { return s.responses.Close() }
 
+func (s *codexGenerationSession) ContinuationReady(previousID string) bool {
+	return previousID != "" && s.responses.previousResponseID != ""
+}
+
 func (s *codexGenerationSession) Generate(
 	ctx context.Context,
 	request GenerateRequest,

@@ -131,6 +131,10 @@ func (g *OpenAIGenerator) OpenGenerationSession() GenerationSession {
 
 func (s *openAIGenerationSession) Close() error { return s.responses.Close() }
 
+func (s *openAIGenerationSession) ContinuationReady(previousID string) bool {
+	return previousID != "" && s.responses.previousResponseID != ""
+}
+
 func (s *openAIGenerationSession) Generate(
 	ctx context.Context,
 	request GenerateRequest,

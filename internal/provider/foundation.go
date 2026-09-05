@@ -228,6 +228,12 @@ type foundationSession struct {
 	closed     bool
 }
 
+func (s *foundationSession) ContinuationReady(_ string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed && len(s.pending) != 0
+}
+
 func (s *foundationSession) Generate(
 	ctx context.Context, request GenerateRequest, onEvent func(StreamEvent),
 ) (GenerationResult, error) {
@@ -249,6 +255,9 @@ func (s *foundationSession) Generate(
 	history := request.Messages
 	if len(request.ReplayMessages) != 0 {
 		history = request.ReplayMessages
+	}
+	if len(s.pending) != 0 {
+		history = request.Messages
 	}
 	tools, definitions, err := foundationTools(request.Tools)
 	if err != nil {

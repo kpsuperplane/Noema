@@ -178,7 +178,8 @@ func InitialBuiltinAccounts(now time.Time) []Account {
 	now = now.UTC()
 	accounts := BuiltinAccounts(now)[:2]
 	foundation := builtinNoAuthAccount("foundation_local", "default", "Apple Foundation Models", StatusUnknown, now)
-	profiles, _ := json.Marshal([]ModelProfile{{ID: "default", Label: "Default on-device"}})
+	contextWindow := uint32(foundationContextWindow)
+	profiles, _ := json.Marshal([]ModelProfile{{ID: "default", Label: "Default on-device", ContextWindowTokens: &contextWindow}})
 	foundation.Metadata["profiles"] = profiles
 	return append(accounts,
 		foundation,
@@ -266,10 +267,11 @@ func isExternalOpenAIAccount(account Account) bool {
 
 func openAIModelProfiles() []ModelProfile {
 	efforts := []string{"low", "medium", "high", "xhigh"}
+	contextWindow := uint32(128_000)
 	return []ModelProfile{
-		{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium"},
-		{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium"},
-		{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium"},
+		{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium", ContextWindowTokens: &contextWindow},
+		{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium", ContextWindowTokens: &contextWindow},
+		{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol", ReasoningEfforts: efforts, DefaultReasoningEffort: "medium", ContextWindowTokens: &contextWindow},
 	}
 }
 

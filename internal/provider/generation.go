@@ -25,6 +25,11 @@ type SessionGenerator interface {
 	OpenGenerationSession() GenerationSession
 }
 
+// ContinuationSession reports whether one live session can accept incremental input.
+type ContinuationSession interface {
+	ContinuationReady(string) bool
+}
+
 // GenerationMessage is one provider-neutral history message.
 type GenerationMessage struct {
 	Role, Content                   string

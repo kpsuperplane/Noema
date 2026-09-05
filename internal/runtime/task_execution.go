@@ -245,7 +245,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		return
 	}
 	wroteTask = wroteTask || recoveredTaskWrite
-	messages = append(messages, replay...)
+	roleMessages := messages
+	messages = append(append([]provider.GenerationMessage(nil), roleMessages...), replay...)
 	items, err = r.database.TaskRunReplayItems(ctx, run.ID)
 	if err != nil {
 		r.failRun(ctx, run, "task_replay_unavailable", false)
@@ -256,6 +257,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		r.failRun(ctx, run, "configuration_unavailable", false)
 		return
 	}
+	contextGenerator := generator
 	generator, closeSession, sessionActive := openGenerationSession(generator)
 	defer closeSession()
 	model, effort := r.taskModel(run, task)
@@ -299,14 +301,61 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		tools, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
 		requestMessages := messages
 		var replayMessages []provider.GenerationMessage
-		if sessionActive && previousResponseID != "" {
+		outputTokens := maxOutputTokensFor(run.ProviderKind)
+		continuing := continuationReady(generator, previousResponseID)
+		if continuing {
 			requestMessages, replayMessages = incremental, messages
+			requestMessages, _, err = prepareModelContext(ctx, modelContextRequest{database: r.database,
+				generator: contextGenerator, accountID: run.ProviderAccountID, providerKind: run.ProviderKind,
+				model: model, active: requestMessages, tools: tools,
+				hostedWeb:     run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)),
+				outputReserve: *outputTokens})
+		} else {
+			completed, active := splitActiveHistory(messages[len(roleMessages):], incremental)
+			requestMessages, compacted, contextErr := prepareModelContext(ctx, modelContextRequest{database: r.database,
+				generator: contextGenerator, accountID: run.ProviderAccountID, providerKind: run.ProviderKind,
+				model: model, base: roleMessages, completed: completed, active: active, tools: tools,
+				hostedWeb:     run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)),
+				outputReserve: *outputTokens, persist: func(summary string, recent []provider.GenerationMessage) error {
+					return r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
+						Kind: "model_context_update", Status: "completed", Round: int64(round),
+						Payload: map[string]any{"summary": summary, "recent_messages": recent},
+					}}, store.TaskRunUsage{}, time.Now())
+				}})
+			err = contextErr
+			if err == nil && compacted {
+				fresh, _, loadErr := r.taskMessages(ctx, task, run)
+				if loadErr != nil {
+					err = loadErr
+				} else {
+					history := requestMessages[len(roleMessages):]
+					roleMessages = fresh
+					messages = joinContextMessages(roleMessages, history)
+					requestMessages, _, err = prepareModelContext(ctx, modelContextRequest{database: r.database,
+						generator: contextGenerator, accountID: run.ProviderAccountID, providerKind: run.ProviderKind,
+						model: model, base: roleMessages, active: history, tools: tools,
+						hostedWeb:     run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)),
+						outputReserve: *outputTokens})
+				}
+			}
+		}
+		if err != nil {
+			code := "provider_request_failed"
+			if errors.Is(err, errContextWindowExceeded) {
+				code = "context_window_exceeded"
+			}
+			r.failRun(ctx, run, code, false)
+			return
+		}
+		requestPreviousID := ""
+		if continuing {
+			requestPreviousID = previousResponseID
 		}
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
 			AccountID: run.ProviderAccountID, Model: model, Messages: requestMessages,
-			ReplayMessages: replayMessages, PreviousResponseID: previousResponseID,
+			ReplayMessages: replayMessages, PreviousResponseID: requestPreviousID,
 			StoreResponse:   sessionActive && responseIDContinuationProvider(run.ProviderKind),
-			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
+			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: outputTokens,
 			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
 			HostedWebSearch: run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)), FastMode: run.FastMode,
@@ -1089,14 +1138,48 @@ func taskToolAllowed(kind, name string) bool {
 
 func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, run store.TaskRun, items []store.TaskRunItem) ([]provider.GenerationMessage, bool, error) {
 	messages := make([]provider.GenerationMessage, 0, len(items))
-	results := make(map[string]store.TaskRunItem)
+	start := 0
+	allResults := make(map[string]store.TaskRunItem)
 	for _, item := range items {
+		if item.Kind == "tool_result" && item.ParentID != nil {
+			allResults[*item.ParentID] = item
+		}
+	}
+	wroteTask := false
+	for index, item := range items {
+		if item.Kind == "model_context_update" {
+			summary, _ := item.Payload["summary"].(string)
+			if strings.TrimSpace(summary) == "" {
+				return nil, false, errors.New("invalid Task context update")
+			}
+			messages = []provider.GenerationMessage{{Role: "assistant", Content: "Noema compacted prior completed context:\n" + summary}}
+			var recent []provider.GenerationMessage
+			if raw, exists := item.Payload["recent_messages"]; exists && decodeTaskPayload(raw, &recent) != nil {
+				return nil, false, errors.New("invalid Task context update")
+			}
+			messages = append(messages, recent...)
+			start = index + 1
+		}
+		if item.Kind == "tool_call" {
+			name, _ := item.Payload["name"].(string)
+			arguments, _ := json.Marshal(item.Payload["arguments"])
+			var input struct {
+				Path string `json:"path"`
+			}
+			if result, ok := allResults[item.ID]; ok && name == taskFilesWrite &&
+				json.Unmarshal(arguments, &input) == nil && input.Path == "TASK.md" {
+				success, _ := result.Payload["success"].(bool)
+				wroteTask = wroteTask || success
+			}
+		}
+	}
+	results := make(map[string]store.TaskRunItem)
+	for _, item := range items[start:] {
 		if item.Kind == "tool_result" && item.ParentID != nil {
 			results[*item.ParentID] = item
 		}
 	}
-	wroteTask := false
-	for _, item := range items {
+	for _, item := range items[start:] {
 		switch item.Kind {
 		case "progress_notice":
 			if item.CorrelationID != nil && (*item.CorrelationID == "task:stall" ||
@@ -1160,14 +1243,6 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 			if taskTerminalTool(name) && success {
 				_ = r.finishTaskTerminal(ctx, run, name, arguments)
 				return nil, wroteTask, errTaskTerminal
-			}
-			if name == taskFilesWrite {
-				var input struct {
-					Path string `json:"path"`
-				}
-				if json.Unmarshal(arguments, &input) == nil && input.Path == "TASK.md" && success {
-					wroteTask = true
-				}
 			}
 		}
 	}

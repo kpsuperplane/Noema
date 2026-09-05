@@ -204,7 +204,10 @@ func (s *Store) UpdateFoundationAvailability(
 	if status != provider.StatusAuthenticated && status != provider.StatusUnavailable {
 		return errors.New("Foundation Models availability status is invalid")
 	}
-	profiles, _ := json.Marshal([]provider.ModelProfile{{ID: "default", Label: "Default on-device"}})
+	window := uint32(4096)
+	profiles, _ := json.Marshal([]provider.ModelProfile{{
+		ID: "default", Label: "Default on-device", ContextWindowTokens: &window,
+	}})
 	result, err := s.db.ExecContext(ctx, `
 UPDATE provider_accounts
 SET status=?, last_checked_at_ms=?,

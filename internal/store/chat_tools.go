@@ -79,6 +79,14 @@ type ConversationToolResultInput struct {
 	Payload        json.RawMessage
 }
 
+// ConversationContext is the latest summary checkpoint and subsequent durable provider items.
+type ConversationContext struct {
+	Summary         string
+	RecentJSON      string
+	ThroughSequence int64
+	Items           []ConversationItem
+}
+
 // ConversationProviderItems returns complete durable provider context in order.
 func (s *Store) ConversationProviderItems(
 	ctx context.Context,
@@ -87,17 +95,47 @@ func (s *Store) ConversationProviderItems(
 	if _, err := s.Conversation(ctx, conversationID); err != nil {
 		return nil, err
 	}
+	return s.conversationProviderItemsAfter(ctx, conversationID, 0)
+}
+
+// ConversationProviderContext returns one matching checkpoint and items after its coverage.
+func (s *Store) ConversationProviderContext(
+	ctx context.Context, conversationID, providerKind, modelProfile string,
+) (ConversationContext, error) {
+	if _, err := s.Conversation(ctx, conversationID); err != nil {
+		return ConversationContext{}, err
+	}
+	var value ConversationContext
+	err := s.db.QueryRowContext(ctx, `SELECT
+COALESCE(json_extract(payload_json,'$.summary'),''),
+COALESCE(json_extract(payload_json,'$.recent_messages'),'[]'),
+COALESCE(json_extract(payload_json,'$.through_sequence'),0)
+FROM conversation_items WHERE conversation_id=? AND kind='model_context_update'
+AND json_extract(payload_json,'$.provider_kind')=? AND json_extract(payload_json,'$.model_profile')=?
+ORDER BY sequence_index DESC LIMIT 1`, conversationID, providerKind, modelProfile).
+		Scan(&value.Summary, &value.RecentJSON, &value.ThroughSequence)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return ConversationContext{}, err
+	}
+	items, err := s.conversationProviderItemsAfter(ctx, conversationID, value.ThroughSequence)
+	value.Items = items
+	return value, err
+}
+
+func (s *Store) conversationProviderItemsAfter(
+	ctx context.Context, conversationID string, after int64,
+) ([]ConversationItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT item_id, conversation_id, COALESCE(turn_id, ''), COALESCE(parent_item_id, ''),
        sequence_index, kind, status, author_actor_id, COALESCE(content_text, ''),
        COALESCE(provider_content_text, ''), payload_json, metadata_json, created_at_ms
 FROM conversation_items
-WHERE conversation_id = ? AND deleted_at_ms IS NULL AND (
+WHERE conversation_id = ? AND sequence_index > ? AND deleted_at_ms IS NULL AND (
     (kind IN ('user_text', 'assistant_text', 'reasoning') AND status = 'completed')
     OR (kind IN ('tool_call', 'tool_result')
         AND status IN ('completed', 'failed', 'cancelled', 'interrupted'))
 )
-ORDER BY sequence_index`, conversationID)
+ORDER BY sequence_index`, conversationID, after)
 	if err != nil {
 		return nil, fmt.Errorf("query provider conversation items: %w", err)
 	}
@@ -111,6 +149,48 @@ ORDER BY sequence_index`, conversationID)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// AppendConversationContextUpdate saves one hidden summary under the active turn.
+func (s *Store) AppendConversationContextUpdate(
+	ctx context.Context, turn ConversationTurn, providerKind, modelProfile, summary string,
+	recent any, throughSequence int64, now time.Time,
+) error {
+	if strings.TrimSpace(providerKind) == "" || strings.TrimSpace(modelProfile) == "" ||
+		strings.TrimSpace(summary) == "" || len(summary) > maxConversationText || throughSequence < 1 {
+		return errors.New("conversation context update is invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var active int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_turns
+WHERE turn_id=? AND conversation_id=? AND status IN ('input_received','running')`, turn.ID, turn.ConversationID).Scan(&active); err != nil {
+		return err
+	}
+	if active != 1 {
+		return errors.New("conversation turn is already final")
+	}
+	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
+	if err != nil {
+		return err
+	}
+	id, err := newID("item")
+	if err != nil {
+		return err
+	}
+	_, err = insertConversationOutputTx(ctx, tx, ConversationItem{ID: id, ConversationID: turn.ConversationID,
+		TurnID: turn.ID, Sequence: sequence, Kind: ConversationModelContextUpdate, Status: "completed",
+		AuthorActorID: "system:context-runtime", Payload: map[string]any{"provider_kind": providerKind,
+			"model_profile": modelProfile, "summary": summary, "recent_messages": recent,
+			"through_sequence": throughSequence},
+		Metadata: map[string]any{"source": "context_compaction"}, CreatedAt: now.UTC()})
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // AppendConversationActivity saves one readable runtime activity under an active turn.

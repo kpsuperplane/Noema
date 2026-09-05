@@ -32,6 +32,7 @@ const (
 	ConversationToolResult              ConversationItemKind = "tool_result"
 	ConversationActivity                ConversationItemKind = "activity"
 	ConversationReasoning               ConversationItemKind = "reasoning"
+	ConversationModelContextUpdate      ConversationItemKind = "model_context_update"
 	ConversationMultipleChoicePrompt    ConversationItemKind = "multiple_choice_prompt"
 	ConversationMultipleChoiceSelection ConversationItemKind = "multiple_choice_selection"
 	ConversationA2UICard                ConversationItemKind = "a2ui_card"

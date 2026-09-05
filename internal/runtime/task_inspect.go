@@ -840,11 +840,17 @@ func (c *Chat) generateChatToolContinuation(
 	incremental provider.GenerationMessage,
 	expectedCredentialRevision *uint64,
 ) (provider.GenerationResult, bool, error) {
-	stored, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
+	contextState, err := c.database.ConversationProviderContext(c.ctx, turn.ConversationID,
+		assignment.ProviderKind, assignment.ModelProfile)
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
-	messages, err := providerMessagesFromItems(stored, turn.ID, assignment.ProviderKind)
+	completed, active, through, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
+	if err != nil {
+		return provider.GenerationResult{}, false, err
+	}
+	messages := joinContextMessages(completed, active)
+	contextGenerator, err := c.generatorFor(assignment.ProviderKind)
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
@@ -865,27 +871,53 @@ func (c *Chat) generateChatToolContinuation(
 	if stopReason != "" {
 		environment += "\n\n" + toolFinalizationInstruction(stopReason)
 		messages = compactToolFinalizationMessages(messages, modelToolPayloadLimit)
+		completed, active = nil, messages
 		tools = nil
 		transport = provider.ToolTransportNone
 		requestProjectContext = ""
 	}
 	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, transport) && (c.web == nil || !c.web.Explicit(c.ctx))
 	developer := developerMessages(environment, memoryContext, requestProjectContext, hostedWeb)
-	messages = append(developer, messages...)
-	replayMessages := messages
 	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
-	continuingResponse := responseContinuation && previousResponseID != ""
-	_, sessionActive := generator.(provider.GenerationSession)
-	continuingSession := sessionActive && previousResponseID != ""
+	continuingSession := continuationReady(generator, previousResponseID)
+	_, isSession := generator.(provider.GenerationSession)
+	continuingResponse := responseContinuation && previousResponseID != "" && (!isSession || continuingSession)
+	continuing := continuingResponse || continuingSession
+	if !continuing {
+		currentCompleted, currentActive := splitActiveHistory(active, []provider.GenerationMessage{incremental})
+		outputTokens := toolOutputTokens(stopReason != "")
+		var persist func(string, []provider.GenerationMessage) error
+		if len(currentCompleted) == 0 {
+			persist = func(summary string, recent []provider.GenerationMessage) error {
+				return c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
+					assignment.ModelProfile, summary, recent, through, time.Now())
+			}
+		} else {
+			currentActive = joinContextMessages(
+				compactToolFinalizationMessages(currentCompleted, 1<<10), currentActive)
+		}
+		active = currentActive
+		messages, _, err = prepareModelContext(c.ctx, modelContextRequest{database: c.database,
+			generator: contextGenerator, accountID: assignment.ProviderAccountID,
+			providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
+			base: developer, completed: completed, active: active, tools: tools,
+			hostedWeb: hostedWeb, outputReserve: *outputTokens, persist: persist})
+		if err != nil {
+			return provider.GenerationResult{}, false, err
+		}
+	} else {
+		messages = append(developer, messages...)
+	}
+	replayMessages := messages
 	var sessionReplay []provider.GenerationMessage
 	if continuingSession {
 		sessionReplay = replayMessages
 	}
-	if responseContinuation && previousResponseID == "" && hostedState {
+	if responseContinuation && hostedState && !continuing {
 		return provider.GenerationResult{}, false,
 			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
 	}
-	if continuingResponse || continuingSession {
+	if continuing {
 		messages = []provider.GenerationMessage{incremental}
 		if requestProjectContext != "" {
 			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})
@@ -944,7 +976,7 @@ func (c *Chat) generateChatToolContinuation(
 		stopReason = "provider replay limit reached"
 		environment += "\n\n" + toolFinalizationInstruction(stopReason)
 	}
-	messages = compactToolFinalizationMessages(messages[len(developer):], payloadLimit)
+	messages = compactToolFinalizationMessages(replayMessages[len(developer):], payloadLimit)
 	messages = append(developerMessages(environment, memoryContext, "", false), messages...)
 	tools = nil
 	transport = provider.ToolTransportNone
