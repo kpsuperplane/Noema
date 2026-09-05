@@ -378,7 +378,7 @@ func (r *mutationRootResolver) SaveToolProgressAuditPreference(ctx context.Conte
 
 // SaveActionReviewerPreference is the resolver for the saveActionReviewerPreference field.
 func (r *mutationRootResolver) SaveActionReviewerPreference(ctx context.Context, input model.SaveActionReviewerPreferenceInput) (*model.AgentModelPreference, error) {
-	panic(fmt.Errorf("not implemented: SaveActionReviewerPreference - saveActionReviewerPreference"))
+	return r.saveActionReviewerPreference(ctx, input)
 }
 
 // UpdateMemory is the resolver for the updateMemory field.
@@ -716,7 +716,7 @@ func (r *queryRootResolver) UsageSettings(ctx context.Context) (*model.UsageSett
 
 // PrivacySettings is the resolver for the privacySettings field.
 func (r *queryRootResolver) PrivacySettings(ctx context.Context) (*model.PrivacySettings, error) {
-	panic(fmt.Errorf("not implemented: PrivacySettings - privacySettings"))
+	return r.privacySettings(ctx)
 }
 
 // McpServers is the resolver for the mcpServers field.
