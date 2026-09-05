@@ -50,16 +50,16 @@ var (
 
 // TaskExecution runs current built-in provider Task runs from durable wakeups.
 type TaskExecution struct {
-	database                  *store.Store
-	mcp                       *noemamcp.Service
-	adapters                  *adapter.Service
-	artifacts                 *artifact.Service
-	root                      *os.Root
-	openRouter, codex, openAI provider.Generator
-	ctx                       context.Context
-	cancel                    context.CancelFunc
-	done                      chan struct{}
-	closeOnce                 sync.Once
+	database                              *store.Store
+	mcp                                   *noemamcp.Service
+	adapters                              *adapter.Service
+	artifacts                             *artifact.Service
+	root                                  *os.Root
+	openRouter, codex, openAI, foundation provider.Generator
+	ctx                                   context.Context
+	cancel                                context.CancelFunc
+	done                                  chan struct{}
+	closeOnce                             sync.Once
 }
 
 // NewTaskExecution starts the event-driven built-in Task worker.
@@ -77,6 +77,7 @@ func NewTaskExecution(
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
 	var artifactService *artifact.Service
+	var foundationGenerator *provider.FoundationGenerator
 	for _, service := range services {
 		switch value := service.(type) {
 		case *noemamcp.Service:
@@ -85,6 +86,8 @@ func NewTaskExecution(
 			adapterService = value
 		case *artifact.Service:
 			artifactService = value
+		case *provider.FoundationGenerator:
+			foundationGenerator = value
 		}
 	}
 	if artifactService == nil {
@@ -96,7 +99,7 @@ func NewTaskExecution(
 		}
 	}
 	runtime := &TaskExecution{
-		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI,
+		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, foundation: foundationGenerator,
 		mcp: mcpService, adapters: adapterService, artifacts: artifactService,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 	}
@@ -248,13 +251,24 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		r.failRun(ctx, run, "configuration_unavailable", false)
 		return
 	}
+	generator, closeSession, sessionActive := openGenerationSession(generator)
+	defer closeSession()
 	model, effort := r.taskModel(run, task)
 	toolCount := int(run.ToolCallCount)
+	var previousResponseID string
+	var incremental []provider.GenerationMessage
 	for round := int(run.ProviderCallCount); round < taskProviderLimit && ctx.Err() == nil; round++ {
 		started := time.Now()
 		tools, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
+		requestMessages := messages
+		var replayMessages []provider.GenerationMessage
+		if sessionActive && previousResponseID != "" {
+			requestMessages, replayMessages = incremental, messages
+		}
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
-			AccountID: run.ProviderAccountID, Model: model, Messages: messages,
+			AccountID: run.ProviderAccountID, Model: model, Messages: requestMessages,
+			ReplayMessages: replayMessages, PreviousResponseID: previousResponseID,
+			StoreResponse:   sessionActive && responseIDContinuationProvider(run.ProviderKind),
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
 			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
@@ -278,10 +292,14 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{assistant}, usage, time.Now()); err != nil {
 			return
 		}
+		if sessionActive {
+			previousResponseID = result.ID
+		}
 		messages = append(messages, taskResultMessages(result)...)
 		if len(result.ToolCalls) != 1 {
 			if len(result.ToolCalls) == 0 {
-				messages = append(messages, provider.GenerationMessage{Role: "user", Content: "Use one available terminal tool when this run is complete or blocked."})
+				incremental = []provider.GenerationMessage{{Role: "user", Content: "Use one available terminal tool when this run is complete or blocked."}}
+				messages = append(messages, incremental...)
 				continue
 			}
 			r.failRun(ctx, run, "unsupported_tool_sequence", false)
@@ -322,7 +340,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+			messages = append(messages, incremental...)
 			continue
 		}
 		if binding, ok := adapterBindings[call.Name]; ok {
@@ -350,7 +369,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+			messages = append(messages, incremental...)
 			continue
 		}
 		payload, success, terminal, taskWrite := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
@@ -373,7 +393,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			return
 		}
 		messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-		messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+		incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+		messages = append(messages, incremental...)
 		if terminal {
 			return
 		}
@@ -1128,6 +1149,11 @@ func (r *TaskExecution) generator(kind string) (provider.Generator, error) {
 		return r.codex, nil
 	case "openai":
 		return r.openAI, nil
+	case "foundation_local":
+		if r.foundation != nil {
+			return r.foundation, nil
+		}
+		return nil, errors.New("Apple Foundation Models is unavailable")
 	default:
 		return nil, fmt.Errorf("Task provider %q is unavailable", kind)
 	}

@@ -102,6 +102,9 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	if err := adapterService.SetOAuthCallback(authConfig.Origin + "/adapter/oauth/callback"); err != nil {
+		return err
+	}
 	browserAuth, err := auth.New(paths, taskStore, authConfig, recovery)
 	if err != nil {
 		return err
@@ -150,8 +153,16 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	foundationGenerator, err := provider.NewFoundationGenerator(providerAccounts)
+	if err != nil {
+		return err
+	}
+	if _, err := foundationGenerator.RefreshAccount(ctx, time.Now()); err != nil {
+		return err
+	}
 	chatRuntime, err := noemaruntime.NewChat(
-		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory, mcpService, adapterService,
+		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
+		mcpService, adapterService, foundationGenerator,
 	)
 	if err != nil {
 		return err
@@ -160,7 +171,8 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer chatRuntime.Close()
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
-		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, mcpService, adapterService, artifacts,
+		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
+		mcpService, adapterService, artifacts, foundationGenerator,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)
@@ -170,6 +182,43 @@ func run(ctx context.Context, address string, output *os.File) error {
 		handled, _ := taskExecution.ResumeMCPAuthentication(context.Background(), attemptID)
 		if !handled {
 			_ = chatRuntime.ResumeMCPAuthentication(context.Background(), attemptID)
+		}
+	})
+	adapterService.SetOAuthCompletionHandler(func(event noemaadapter.OAuthAttemptEvent) {
+		ctx := context.Background()
+		requests, err := taskStore.AdapterAuthRequestsForAttempt(ctx, event.AttemptID)
+		if err != nil {
+			return
+		}
+		if event.Status == "superseded" {
+			for _, request := range requests {
+				if request.TaskID != "" {
+					_ = taskExecution.SupersedeAdapterAuthentication(ctx, request)
+				} else {
+					_ = chatRuntime.SupersedeAdapterAuthentication(ctx, request.ID, request.Revision)
+				}
+			}
+			return
+		}
+		if event.Status != "completed" {
+			for _, request := range requests {
+				_ = taskStore.RetryAdapterOAuthAuthentication(ctx, request, "oauth_attempt_"+event.Status, time.Now())
+				if request.ConversationID != "" {
+					chatRuntime.NotifyHumanInterventionsChanged(request.ConversationID)
+				}
+			}
+			return
+		}
+		if taskStore.CompleteAdapterOAuthAuthentication(ctx, event.AttemptID, time.Now()) != nil {
+			return
+		}
+		connections, err := adapterService.ConnectionIDsForGrant(event.GrantID)
+		if err != nil {
+			return
+		}
+		for _, connectionID := range connections {
+			_, _ = taskExecution.ResumeAdapterAuthentication(ctx, connectionID)
+			_ = chatRuntime.ResumeAdapterAuthentication(ctx, connectionID)
 		}
 	})
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
@@ -189,6 +238,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		mcpService,
 	)
 	resolver.TaskExecution = taskExecution
+	resolver.SetFoundation(foundationGenerator)
 	resolver.SetAdapters(adapterService)
 	graphqlHandler := noemagraphql.NewHandler(resolver)
 	mux := http.NewServeMux()
@@ -196,6 +246,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	mux.Handle("/graphql/ws", graphqlHandler)
 	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
 	mux.Handle("/mcp/oauth/callback", mcpService.CallbackHandler())
+	mux.Handle("/adapter/oauth/callback", adapterService.OAuthCallbackHandler())
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{

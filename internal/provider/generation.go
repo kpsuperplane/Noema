@@ -14,6 +14,17 @@ type Generator interface {
 	Generate(context.Context, GenerateRequest, func(StreamEvent)) (GenerationResult, error)
 }
 
+// GenerationSession reuses one provider connection for related generations.
+type GenerationSession interface {
+	Generator
+	Close() error
+}
+
+// SessionGenerator opens a bounded provider generation session.
+type SessionGenerator interface {
+	OpenGenerationSession() GenerationSession
+}
+
 // GenerationMessage is one provider-neutral history message.
 type GenerationMessage struct {
 	Role, Content                   string
@@ -42,8 +53,10 @@ type ReplayToolResult struct {
 
 // GenerateRequest is one provider-neutral generation request.
 type GenerateRequest struct {
-	AccountID, Model           string
-	Messages                   []GenerationMessage
+	AccountID, Model string
+	Messages         []GenerationMessage
+	// ReplayMessages supplies full local replay when a session sends incremental input.
+	ReplayMessages             []GenerationMessage
 	PreviousResponseID         string
 	StoreResponse              bool
 	ExpectedCredentialRevision *uint64

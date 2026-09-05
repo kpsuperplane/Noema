@@ -342,6 +342,8 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 		c.failTurn(SendTurnInput{ConversationID: action.ConversationID}, turn, err)
 		return
 	}
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
 	request := queuedTurn{input: SendTurnInput{ConversationID: action.ConversationID},
 		conversation: conversation, location: time.UTC}
 	c.publish(Event{Kind: EventAgentStatus, ConversationID: action.ConversationID, Status: AgentStatusThinking})

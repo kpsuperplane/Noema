@@ -114,8 +114,12 @@ func (c *Chat) executeReviewedAdapter(action store.ActionRequest) (json.RawMessa
 func (c *Chat) createChatAdapterAuth(conversation store.Conversation, turn store.ConversationTurn, call store.ConversationItem,
 	binding adapter.Binding, arguments json.RawMessage, actionID string, assignment any, round int, responseID string, hosted bool) (*store.ConversationItem, error) {
 	authority, _ := json.Marshal(map[string]any{"binding": binding, "assignment": assignment, "response_id": responseID, "hosted_state": hosted})
+	authorityKind, authorityID := "adapter_connection", binding.ConnectionID
+	if binding.GrantID != "" {
+		authorityKind, authorityID = "adapter_grant", binding.GrantID
+	}
 	_, notice, err := c.database.CreateMCPAuthRequest(c.ctx, store.MCPAuthRequest{OwnerHumanID: "human:local", ConversationID: conversation.ID,
-		TurnID: turn.ID, CallItemID: call.ID, AuthorityKind: "adapter_connection", AuthorityID: binding.ConnectionID,
+		TurnID: turn.ID, CallItemID: call.ID, AuthorityKind: authorityKind, AuthorityID: authorityID, AdapterConnectionID: nullableAdapterConnection(binding), AdapterSemanticDigest: nullableAdapterDigest(binding), AdapterAuthorityRevision: nullableAdapterRevision(binding),
 		CapabilityName: binding.Name, ActionID: actionID, BindingJSON: string(authority), ArgumentsJSON: string(arguments), ProviderRound: round}, time.Now())
 	if err != nil {
 		return nil, err
@@ -213,8 +217,31 @@ func (r *TaskExecution) executeTaskAdapterAction(ctx context.Context, action sto
 func (r *TaskExecution) createTaskAdapterAuth(ctx context.Context, task store.Task, run store.TaskRun, call store.TaskRunItem,
 	binding adapter.Binding, arguments json.RawMessage, actionID string) error {
 	authority, _ := json.Marshal(map[string]any{"binding": binding})
+	authorityKind, authorityID := "adapter_connection", binding.ConnectionID
+	if binding.GrantID != "" {
+		authorityKind, authorityID = "adapter_grant", binding.GrantID
+	}
 	_, _, err := r.database.CreateMCPAuthRequest(ctx, store.MCPAuthRequest{OwnerHumanID: "human:local", TaskID: task.ID,
-		RunID: run.ID, RunItemID: call.ID, TaskGeneration: run.Generation, AuthorityKind: "adapter_connection", AuthorityID: binding.ConnectionID,
+		RunID: run.ID, RunItemID: call.ID, TaskGeneration: run.Generation, AuthorityKind: authorityKind, AuthorityID: authorityID, AdapterConnectionID: nullableAdapterConnection(binding), AdapterSemanticDigest: nullableAdapterDigest(binding), AdapterAuthorityRevision: nullableAdapterRevision(binding),
 		CapabilityName: binding.Name, ActionID: actionID, BindingJSON: string(authority), ArgumentsJSON: string(arguments), ProviderRound: int(call.Round)}, time.Now())
 	return err
+}
+
+func nullableAdapterConnection(binding adapter.Binding) string {
+	if binding.GrantID != "" {
+		return binding.ConnectionID
+	}
+	return ""
+}
+func nullableAdapterDigest(binding adapter.Binding) string {
+	if binding.GrantID != "" {
+		return binding.SemanticDigest
+	}
+	return ""
+}
+func nullableAdapterRevision(binding adapter.Binding) int {
+	if binding.GrantID != "" {
+		return binding.CredentialRevision
+	}
+	return 0
 }

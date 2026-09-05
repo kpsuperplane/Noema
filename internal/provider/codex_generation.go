@@ -34,6 +34,11 @@ type CodexGenerator struct {
 	tokenURL     string
 }
 
+type codexGenerationSession struct {
+	provider  *CodexGenerator
+	responses *responsesWebSocketSession
+}
+
 // NewCodexGenerator creates the production Codex generation transport.
 func NewCodexGenerator(accounts *AccountService) (*CodexGenerator, error) {
 	return newCodexGenerator(
@@ -148,6 +153,146 @@ func (g *CodexGenerator) Generate(
 	return normalizeCodexGeneration(request, parsed, toolNames)
 }
 
+// OpenGenerationSession opens one lazy Responses WebSocket session.
+func (g *CodexGenerator) OpenGenerationSession() GenerationSession {
+	return &codexGenerationSession{provider: g, responses: newResponsesWebSocketSession(g.client, g.responsesURL)}
+}
+
+func (s *codexGenerationSession) Close() error { return s.responses.Close() }
+
+func (s *codexGenerationSession) Generate(
+	ctx context.Context,
+	request GenerateRequest,
+	onEvent func(StreamEvent),
+) (GenerationResult, error) {
+	replay := request.Messages
+	if request.ReplayMessages != nil {
+		replay = request.ReplayMessages
+	}
+	continuing := s.responses.previousResponseID != "" && request.PreviousResponseID != ""
+	if s.responses.hasHostedWebState && !continuing {
+		return GenerationResult{}, ErrProviderUnavailable
+	}
+	prepared := request
+	prepared.StoreResponse = false
+	prepared.Messages, prepared.PreviousResponseID = replay, ""
+	profile := responsesGenerationProfile{
+		accountID: codexGenerationAccountID, providerName: "Codex", stream: true,
+		allowUnstoredContinuation: true,
+	}
+	if continuing {
+		prepared.Messages = request.Messages
+		prepared.PreviousResponseID = s.responses.previousResponseID
+	}
+	body, names, err := prepareResponsesGeneration(prepared, profile)
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	account, err := s.provider.accounts.LoadAccount(ctx, request.AccountID)
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	if request.ExpectedCredentialRevision != nil &&
+		account.Metadata.CredentialRevision() != *request.ExpectedCredentialRevision {
+		return GenerationResult{}, ErrAccountConflict
+	}
+	clientVersion := codexClientVersion(account.Metadata)
+	tokens, err := s.provider.accounts.RefreshCodexTokens(ctx, nil, time.Now(), s.provider.refreshCodexTokens)
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	if err := s.provider.validateCredentialRevision(ctx, request.ExpectedCredentialRevision); err != nil {
+		return GenerationResult{}, err
+	}
+	var parsed codexStreamResult
+	var accessDigest codexAccessTokenDigest
+	send := func() error {
+		return tokens.Use(func(accessToken string, _ string, _ uint64) error {
+			accessDigest = codexAccessTokenDigestFor(accessToken)
+			headers, headerErr := codexGenerationHeaders(prepared, clientVersion, accessToken)
+			if headerErr != nil {
+				return headerErr
+			}
+			var sendErr error
+			parsed, sendErr = s.responses.send(ctx, body, headers, accessToken, onEvent)
+			return sendErr
+		})
+	}
+	err = send()
+	if responsesWebSocketKind(err) == responsesWebSocketAuthentication {
+		tokens, err = s.provider.accounts.RefreshCodexTokens(
+			ctx, &accessDigest, time.Now(), s.provider.refreshCodexTokens,
+		)
+		if err == nil {
+			err = s.provider.validateCredentialRevision(ctx, request.ExpectedCredentialRevision)
+		}
+		if err == nil {
+			err = send()
+		}
+	}
+	if responsesWebSocketKind(err) == responsesWebSocketMissingPrevious && continuing {
+		if s.responses.hasHostedWebState || request.ReplayMessages == nil {
+			return GenerationResult{}, ErrProviderUnavailable
+		}
+		s.responses.previousResponseID = ""
+		prepared.Messages, prepared.PreviousResponseID = replay, ""
+		body, names, err = prepareResponsesGeneration(prepared, profile)
+		if err == nil {
+			err = send()
+		}
+	}
+	if err != nil {
+		kind := responsesWebSocketKind(err)
+		if kind != responsesWebSocketSetup && kind != responsesWebSocketUnsupported {
+			return GenerationResult{}, err
+		}
+		if s.responses.hasHostedWebState || (continuing && request.ReplayMessages == nil) {
+			return GenerationResult{}, ErrProviderUnavailable
+		}
+		fallback := request
+		fallback.Messages, fallback.PreviousResponseID, fallback.StoreResponse = replay, "", false
+		result, fallbackErr := s.provider.Generate(ctx, fallback, onEvent)
+		s.responses.previousResponseID = ""
+		if fallbackErr == nil {
+			s.responses.hasHostedWebState = s.responses.hasHostedWebState || len(result.Searches) != 0
+		}
+		return result, fallbackErr
+	}
+	result, err := normalizeCodexGeneration(prepared, parsed, names)
+	if err != nil {
+		return GenerationResult{}, errors.New("Codex returned an invalid generation response")
+	}
+	s.responses.previousResponseID = result.ID
+	s.responses.hasHostedWebState = s.responses.hasHostedWebState || len(result.Searches) != 0
+	return result, nil
+}
+
+func codexGenerationHeaders(
+	request GenerateRequest,
+	clientVersion string,
+	accessToken string,
+) (http.Header, error) {
+	headers := make(http.Header)
+	headers.Set("originator", codexGenerationOriginator)
+	headers.Set("version", clientVersion)
+	headers.Set("User-Agent", codexGenerationOriginator+"/"+clientVersion+" (Noema)")
+	headers.Set("Accept", "text/event-stream")
+	if sessionID := strings.TrimSpace(request.ConversationID); sessionID != "" {
+		if !validCodexHeader(sessionID) {
+			return nil, errors.New("Codex generation conversation id is invalid")
+		}
+		headers.Set("session-id", sessionID)
+	}
+	accountID, err := codexChatGPTAccountID(accessToken)
+	if err != nil {
+		return nil, err
+	}
+	if accountID != "" {
+		headers.Set("ChatGPT-Account-ID", accountID)
+	}
+	return headers, nil
+}
+
 func (g *CodexGenerator) validateCredentialRevision(ctx context.Context, expected *uint64) error {
 	if expected == nil {
 		return nil
@@ -174,30 +319,21 @@ func (g *CodexGenerator) sendCodexGeneration(
 		return nil, codexAccessTokenDigest{}, errors.New("Codex generation request is invalid")
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
-	httpRequest.Header.Set("Accept", "text/event-stream")
-	httpRequest.Header.Set("originator", codexGenerationOriginator)
-	httpRequest.Header.Set("version", clientVersion)
-	httpRequest.Header.Set("User-Agent", codexGenerationOriginator+"/"+clientVersion+" (Noema)")
-	if sessionID := strings.TrimSpace(request.ConversationID); sessionID != "" {
-		if !validCodexHeader(sessionID) {
-			return nil, codexAccessTokenDigest{}, errors.New("Codex generation conversation id is invalid")
-		}
-		httpRequest.Header.Set("session-id", sessionID)
-	}
 
 	var response *http.Response
 	var usedAccessDigest codexAccessTokenDigest
 	err = tokens.Use(func(accessToken string, _ string, _ uint64) error {
 		usedAccessDigest = codexAccessTokenDigestFor(accessToken)
-		httpRequest.Header.Set("Authorization", "Bearer "+accessToken)
-		accountID, err := codexChatGPTAccountID(accessToken)
+		headers, err := codexGenerationHeaders(request, clientVersion, accessToken)
 		if err != nil {
-			httpRequest.Header.Del("Authorization")
 			return err
 		}
-		if accountID != "" {
-			httpRequest.Header.Set("ChatGPT-Account-ID", accountID)
+		for name, values := range headers {
+			for _, value := range values {
+				httpRequest.Header.Add(name, value)
+			}
 		}
+		httpRequest.Header.Set("Authorization", "Bearer "+accessToken)
 		var sendErr error
 		response, sendErr = g.client.Do(httpRequest)
 		httpRequest.Header.Del("Authorization")
@@ -365,6 +501,7 @@ type responsesGenerationProfile struct {
 	accountID, providerName, promptCacheRetention string
 	forwardMaxOutput, includeEncryptedReasoning   bool
 	promptCacheOptions, stream                    bool
+	allowUnstoredContinuation                     bool
 }
 
 func prepareResponsesGeneration(
@@ -380,7 +517,8 @@ func prepareResponsesGeneration(
 	}
 	previousResponseID := strings.TrimSpace(request.PreviousResponseID)
 	if previousResponseID != request.PreviousResponseID ||
-		(previousResponseID != "" && (!validCodexHeader(previousResponseID) || !request.StoreResponse)) {
+		(previousResponseID != "" && (!validCodexHeader(previousResponseID) ||
+			(!request.StoreResponse && !profile.allowUnstoredContinuation))) {
 		return nil, openRouterToolNameMap{}, fmt.Errorf("%s previous response id is invalid", profile.providerName)
 	}
 	if request.HostedWebSearch && request.ToolTransport != ToolTransportNative {

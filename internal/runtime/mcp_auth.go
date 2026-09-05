@@ -29,6 +29,12 @@ func (c *Chat) SkipAdapterAuthentication(ctx context.Context, requestID string, 
 	return c.sendMCPAuth(ctx, mcpAuthResolution{requestID: requestID, revision: revision, skip: true})
 }
 
+// SupersedeAdapterAuthentication closes one call attached to an obsolete OAuth attempt.
+func (c *Chat) SupersedeAdapterAuthentication(ctx context.Context, requestID string, revision int) error {
+	_, err := c.sendMCPAuth(ctx, mcpAuthResolution{requestID: requestID, revision: revision, supersede: true})
+	return err
+}
+
 // SkipMCPAuthentication closes one exact call without credentials.
 func (c *Chat) SkipMCPAuthentication(ctx context.Context, requestID string, revision int) (store.MCPAuthRequest, error) {
 	return c.sendMCPAuth(ctx, mcpAuthResolution{requestID: requestID, revision: revision, skip: true})
@@ -54,19 +60,23 @@ func (c *Chat) sendMCPAuth(ctx context.Context, request mcpAuthResolution) (stor
 }
 
 func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthRequest, error) {
-	if input.skip {
+	if input.skip || input.supersede {
 		request, err := c.database.MCPAuthRequest(c.ctx, input.requestID, input.revision)
 		if err != nil || request.OwnerHumanID != "human:local" {
 			return request, errors.New("MCP authentication request is unavailable")
 		}
 		label := "MCP"
-		if request.AuthorityKind == "adapter_connection" {
+		if request.AuthorityKind == "adapter_connection" || request.AuthorityKind == "adapter_grant" {
 			label = "Adapter"
 		}
-		payload := toolFailure("authentication_skipped", label+" authentication was skipped")
+		state, failure, message := "cancelled", "authentication_skipped", label+" authentication was skipped"
+		if input.supersede {
+			state, failure, message = "superseded", "oauth_attempt_superseded", label+" authentication changed"
+		}
+		payload := toolFailure(failure, message)
 		if request.ActionID != "" {
 			request, action, finishErr := c.database.FinishMCPAuthAction(c.ctx, request, store.ActionFailed, payload,
-				"authentication_skipped", "cancelled", time.Now())
+				failure, state, time.Now())
 			if finishErr != nil {
 				return request, finishErr
 			}
@@ -76,11 +86,10 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 			}
 			return request, finishErr
 		}
-		request, err = c.database.FinishMCPAuthRequest(c.ctx, request.ID, request.Revision, "cancelled", "authentication_skipped", time.Now())
-		if err != nil {
+		if err = c.finishMCPAuthCall(request, payload, false); err != nil {
 			return request, err
 		}
-		return request, c.finishMCPAuthCall(request, payload, false)
+		return c.database.FinishMCPAuthRequest(c.ctx, request.ID, request.Revision, state, failure, time.Now())
 	}
 	if input.adapterConnectionID != "" {
 		if c.adapters == nil {
@@ -246,7 +255,7 @@ func decodeMCPAuthAuthority(raw string) (noemamcp.Binding, store.ModelAssignment
 }
 
 func (c *Chat) finishMCPAuthCall(request store.MCPAuthRequest, payload json.RawMessage, success bool) error {
-	if request.AuthorityKind == "adapter_connection" {
+	if request.AuthorityKind == "adapter_connection" || request.AuthorityKind == "adapter_grant" {
 		_, assignment, responseID, hostedState, err := decodeAdapterAuthAuthority(request.BindingJSON)
 		if err != nil {
 			return err
@@ -285,6 +294,8 @@ func (c *Chat) finishMCPAuthCallWithAssignment(request store.MCPAuthRequest, pay
 	if err != nil {
 		return err
 	}
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
 	queued := queuedTurn{input: SendTurnInput{ConversationID: request.ConversationID}, conversation: conversation, location: time.UTC}
 	incremental := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: request.ProviderCallID,
 		ProviderName: request.ProviderName, Name: request.CapabilityName, Arguments: json.RawMessage(request.ArgumentsJSON), Success: success, Payload: payload}}

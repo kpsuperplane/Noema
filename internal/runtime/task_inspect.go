@@ -853,11 +853,17 @@ func (c *Chat) generateChatToolContinuation(
 	replayMessages := messages
 	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
 	continuingResponse := responseContinuation && previousResponseID != ""
+	_, sessionActive := generator.(provider.GenerationSession)
+	continuingSession := sessionActive && previousResponseID != ""
+	var sessionReplay []provider.GenerationMessage
+	if continuingSession {
+		sessionReplay = replayMessages
+	}
 	if responseContinuation && previousResponseID == "" && hostedState {
 		return provider.GenerationResult{}, false,
 			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
 	}
-	if continuingResponse {
+	if continuingResponse || continuingSession {
 		messages = []provider.GenerationMessage{incremental}
 		if requestProjectContext != "" {
 			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})
@@ -872,8 +878,9 @@ func (c *Chat) generateChatToolContinuation(
 	generate := func() (provider.GenerationResult, error) {
 		return generator.Generate(c.ctx, provider.GenerateRequest{
 			AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
-			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
-			ConversationID: turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
+			Messages: messages, ReplayMessages: sessionReplay,
+			ReasoningEffort: string(assignment.ReasoningEffort),
+			ConversationID:  turn.ConversationID, MaxOutputTokens: toolOutputTokens(stopReason != ""),
 			Tools: tools, ToolTransport: transport, ToolChoice: provider.ToolChoiceAuto,
 			HostedWebSearch:            hostedWeb,
 			PreviousResponseID:         previousResponseID,
@@ -920,6 +927,15 @@ func (c *Chat) generateChatToolContinuation(
 	tools = nil
 	transport = provider.ToolTransportNone
 	hostedWeb = false
+	if continuingSession {
+		sessionReplay = messages
+		messages = []provider.GenerationMessage{incremental}
+		if stopReason != "" {
+			messages = append(messages, provider.GenerationMessage{
+				Role: "developer", Content: toolFinalizationInstruction(stopReason),
+			})
+		}
+	}
 	result, err = generate()
 	return result, true, err
 }

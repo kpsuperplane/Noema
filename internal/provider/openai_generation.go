@@ -24,6 +24,11 @@ type OpenAIGenerator struct {
 	responsesURL string
 }
 
+type openAIGenerationSession struct {
+	provider  *OpenAIGenerator
+	responses *responsesWebSocketSession
+}
+
 // NewOpenAIGenerator creates the production OpenAI generation transport.
 func NewOpenAIGenerator(accounts *AccountService) (*OpenAIGenerator, error) {
 	return newOpenAIGenerator(
@@ -58,32 +63,11 @@ func (g *OpenAIGenerator) Generate(
 	request GenerateRequest,
 	onEvent func(StreamEvent),
 ) (GenerationResult, error) {
-	body, toolNames, err := prepareResponsesGeneration(request, responsesGenerationProfile{
-		accountID: openAIDefaultAccountID, providerName: "OpenAI",
-		promptCacheRetention: "24h", forwardMaxOutput: true,
-		includeEncryptedReasoning: true, promptCacheOptions: true, stream: true,
-	})
+	body, toolNames, err := prepareResponsesGeneration(request, openAIResponsesProfile())
 	if err != nil {
 		return GenerationResult{}, err
 	}
-	account, err := g.accounts.LoadAccount(ctx, request.AccountID)
-	if err != nil {
-		return GenerationResult{}, err
-	}
-	if account.ID != openAIDefaultAccountID || account.ProviderKind != "openai" ||
-		!account.IsActive || account.Status != StatusAuthenticated {
-		return GenerationResult{}, ErrAuthenticationRejected
-	}
-	if request.ExpectedCredentialRevision != nil &&
-		account.Metadata.CredentialRevision() != *request.ExpectedCredentialRevision {
-		return GenerationResult{}, ErrAccountConflict
-	}
-	var secret Secret
-	if request.ExpectedCredentialRevision == nil {
-		secret, err = g.accounts.LoadSecret(ctx, request.AccountID)
-	} else {
-		secret, err = g.accounts.LoadSecretAtRevision(ctx, request.AccountID, *request.ExpectedCredentialRevision)
-	}
+	account, secret, err := g.accountSecret(ctx, request)
 	if err != nil {
 		return GenerationResult{}, err
 	}
@@ -138,6 +122,126 @@ func (g *OpenAIGenerator) Generate(
 		return GenerationResult{}, errors.New("OpenAI returned an invalid generation response")
 	}
 	return result, nil
+}
+
+// OpenGenerationSession opens one lazy Responses WebSocket session.
+func (g *OpenAIGenerator) OpenGenerationSession() GenerationSession {
+	return &openAIGenerationSession{provider: g, responses: newResponsesWebSocketSession(g.client, g.responsesURL)}
+}
+
+func (s *openAIGenerationSession) Close() error { return s.responses.Close() }
+
+func (s *openAIGenerationSession) Generate(
+	ctx context.Context,
+	request GenerateRequest,
+	onEvent func(StreamEvent),
+) (GenerationResult, error) {
+	replay := request.Messages
+	if request.ReplayMessages != nil {
+		replay = request.ReplayMessages
+	}
+	continuing := s.responses.previousResponseID != "" && request.PreviousResponseID != ""
+	if s.responses.hasHostedWebState && !continuing {
+		return GenerationResult{}, ErrProviderUnavailable
+	}
+	prepared := request
+	prepared.StoreResponse = true
+	prepared.Messages = replay
+	prepared.PreviousResponseID = ""
+	if continuing {
+		prepared.Messages = request.Messages
+		prepared.PreviousResponseID = s.responses.previousResponseID
+	}
+	body, names, err := prepareResponsesGeneration(prepared, openAIResponsesProfile())
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	account, secret, err := s.provider.accountSecret(ctx, prepared)
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	headers := make(http.Header)
+	headerRequest := &http.Request{Header: headers}
+	if err := setOpenAIAccountHeaders(headerRequest, account.Metadata); err != nil {
+		return GenerationResult{}, err
+	}
+	var parsed codexStreamResult
+	err = secret.Use(func(token string) error {
+		var sendErr error
+		parsed, sendErr = s.responses.send(ctx, body, headers, token, onEvent)
+		return sendErr
+	})
+	if responsesWebSocketKind(err) == responsesWebSocketMissingPrevious && continuing {
+		if s.responses.hasHostedWebState || request.ReplayMessages == nil {
+			return GenerationResult{}, ErrProviderUnavailable
+		}
+		s.responses.previousResponseID = ""
+		prepared.Messages, prepared.PreviousResponseID = replay, ""
+		body, names, err = prepareResponsesGeneration(prepared, openAIResponsesProfile())
+		if err == nil {
+			err = secret.Use(func(token string) error {
+				var sendErr error
+				parsed, sendErr = s.responses.send(ctx, body, headers, token, onEvent)
+				return sendErr
+			})
+		}
+	}
+	if err != nil {
+		kind := responsesWebSocketKind(err)
+		if kind != responsesWebSocketSetup && kind != responsesWebSocketUnsupported {
+			return GenerationResult{}, err
+		}
+		if continuing && request.ReplayMessages == nil {
+			return GenerationResult{}, ErrProviderUnavailable
+		}
+		fallback := prepared
+		if !continuing || s.responses.previousResponseID == "" {
+			fallback.Messages, fallback.PreviousResponseID = replay, ""
+		}
+		result, fallbackErr := s.provider.Generate(ctx, fallback, onEvent)
+		if fallbackErr == nil {
+			s.responses.previousResponseID = result.ID
+			s.responses.hasHostedWebState = s.responses.hasHostedWebState || len(result.Searches) != 0
+		}
+		return result, fallbackErr
+	}
+	result, err := normalizeCodexGeneration(prepared, parsed, names)
+	if err != nil {
+		return GenerationResult{}, errors.New("OpenAI returned an invalid generation response")
+	}
+	s.responses.previousResponseID = result.ID
+	s.responses.hasHostedWebState = s.responses.hasHostedWebState || len(result.Searches) != 0
+	return result, nil
+}
+
+func (g *OpenAIGenerator) accountSecret(ctx context.Context, request GenerateRequest) (Account, Secret, error) {
+	account, err := g.accounts.LoadAccount(ctx, request.AccountID)
+	if err != nil {
+		return Account{}, Secret{}, err
+	}
+	if account.ID != openAIDefaultAccountID || account.ProviderKind != "openai" ||
+		!account.IsActive || account.Status != StatusAuthenticated {
+		return Account{}, Secret{}, ErrAuthenticationRejected
+	}
+	if request.ExpectedCredentialRevision != nil &&
+		account.Metadata.CredentialRevision() != *request.ExpectedCredentialRevision {
+		return Account{}, Secret{}, ErrAccountConflict
+	}
+	var secret Secret
+	if request.ExpectedCredentialRevision == nil {
+		secret, err = g.accounts.LoadSecret(ctx, request.AccountID)
+	} else {
+		secret, err = g.accounts.LoadSecretAtRevision(ctx, request.AccountID, *request.ExpectedCredentialRevision)
+	}
+	return account, secret, err
+}
+
+func openAIResponsesProfile() responsesGenerationProfile {
+	return responsesGenerationProfile{
+		accountID: openAIDefaultAccountID, providerName: "OpenAI",
+		promptCacheRetention: "24h", forwardMaxOutput: true,
+		includeEncryptedReasoning: true, promptCacheOptions: true, stream: true,
+	}
 }
 
 func setOpenAIAccountHeaders(request *http.Request, metadata AccountMetadata) error {
