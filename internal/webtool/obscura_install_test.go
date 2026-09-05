@@ -68,6 +68,37 @@ func TestPrepareObscuraInstallsAndReusesVerifiedWorker(t *testing.T) {
 	}
 }
 
+func TestPrepareObscuraAcceptsConcurrentInstallWinner(t *testing.T) {
+	asset, _ := obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
+	archive := obscuraTestArchive(t, asset, nil)
+	digest := sha256.Sum256(archive)
+	checksums := make(chan struct{}, 2)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if filepath.Base(request.URL.Path) == asset.archive+".sha256" {
+			checksums <- struct{}{}
+			<-release
+			fmt.Fprintf(writer, "%s  %s\n", hex.EncodeToString(digest[:]), asset.archive)
+			return
+		}
+		_, _ = writer.Write(archive)
+	}))
+	defer server.Close()
+	home := t.TempDir()
+	results := make(chan error, 2)
+	for range 2 {
+		go func() { results <- installObscura(t.Context(), home, server.URL, server.Client()) }()
+	}
+	<-checksums
+	<-checksums
+	close(release)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestObscuraWindowsArchiveVerifiesExactWorker(t *testing.T) {
 	asset, _ := obscuraAssetFor("windows", "amd64")
 	archive := obscuraTestArchive(t, asset, nil)

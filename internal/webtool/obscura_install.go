@@ -110,6 +110,9 @@ func installObscura(ctx context.Context, home, releaseURL string, client *http.C
 		return err
 	}
 	if err := os.Rename(stage, destination); err != nil {
+		if installedObscuraPath(home, asset) != "" {
+			return nil
+		}
 		return err
 	}
 	return nil
