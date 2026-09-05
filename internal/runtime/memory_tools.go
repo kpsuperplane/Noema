@@ -112,13 +112,19 @@ func (c *Chat) executeChatTool(
 	arguments json.RawMessage,
 	requestID string,
 	turnID string,
+	details ...chatTaskToolDetails,
 ) (json.RawMessage, bool) {
 	correlationID := ""
 	if turnID != "" {
 		correlationID = "correlation:turn:" + turnID
 	}
 	if isPrimaryTaskTool(name) {
-		return c.executePrimaryTaskTool(ctx, name, requestID, correlationID, arguments)
+		detail := chatTaskToolDetails{TimeZone: "UTC"}
+		if len(details) != 0 {
+			detail = details[0]
+		}
+		return c.executePrimaryTaskTool(ctx, name, requestID, correlationID, arguments,
+			store.ArtifactSource{ConversationID: conversation.ID, TurnID: turnID, ItemID: detail.SourceItemID}, detail.TimeZone)
 	}
 	if isProjectTool(name) {
 		return c.executeProjectTool(ctx, name, requestID, correlationID, arguments)
@@ -162,6 +168,19 @@ func (c *Chat) executeChatTool(
 	default:
 		return toolFailure("invalid_input", "tool is unavailable"), false
 	}
+}
+
+type chatTaskToolDetails struct {
+	SourceItemID string
+	TimeZone     string
+}
+
+func taskToolDetails(request queuedTurn) chatTaskToolDetails {
+	zone := "UTC"
+	if request.location != nil {
+		zone = request.location.String()
+	}
+	return chatTaskToolDetails{SourceItemID: request.sourceItemID, TimeZone: zone}
 }
 
 func (c *Chat) connectMCPService(ctx context.Context, arguments json.RawMessage) (json.RawMessage, bool) {

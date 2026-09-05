@@ -91,6 +91,7 @@ type queuedTurn struct {
 	input        SendTurnInput
 	conversation store.Conversation
 	location     *time.Location
+	sourceItemID string
 }
 
 type actionResolution struct {
@@ -480,6 +481,7 @@ func (c *Chat) execute(request queuedTurn) {
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &userItem,
 	})
 	c.publishMemoryChanged()
+	request.sourceItemID = userItem.ID
 
 	assignment, err := c.primaryAssignment(c.ctx)
 	if err != nil {

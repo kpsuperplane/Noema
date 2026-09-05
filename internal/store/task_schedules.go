@@ -30,6 +30,9 @@ type TaskCreateOptions struct {
 	Schedule                   *schedule.Schedule
 	InitialRunKind             string
 	ExecutionComplexity        string
+	Source                     ArtifactSource
+	SourceToolCallID           string
+	SourceClientTimeZone       string
 }
 
 // TaskCommandResult is one committed scheduled Task command.
@@ -39,6 +42,7 @@ type TaskCommandResult struct {
 	RecurrenceID         string
 	ObsoleteRecurrenceID string
 	DocumentDigest       string
+	GateID               string
 	Replayed             bool
 }
 
@@ -93,6 +97,7 @@ type RecurrenceChanges struct {
 	StartsAt                                   *time.Time
 	MissedRunPolicy                            *schedule.MissedRunPolicy
 	OverlapPolicy                              *schedule.OverlapPolicy
+	DocumentChanged                            bool
 }
 
 // DueTask identifies one new occurrence whose TASK.md must copy the template.
@@ -155,17 +160,20 @@ func (s *Store) CreateTaskWithOptions(
 		Revision: 1, Generation: 1, StageKey: "inbox", ExecutorAgentID: options.ExecutorAgentID,
 		ExecutorAcpConnectionRevision: executorRevision, CwdOverride: cloneString(options.CwdOverride),
 		ExecutionComplexity: options.ExecutionComplexity,
-		CreatedAt:           now, UpdatedAt: now}
+		Source:              options.Source, SourceToolCallID: options.SourceToolCallID, SourceClientTimeZone: options.SourceClientTimeZone,
+		CreatedAt: now, UpdatedAt: now}
 	applyScheduleToTask(&task, options.Schedule)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks
 (task_id, project_id, title, state, current_run_id, revision, executor_agent_id,
  executor_acp_connection_revision, cwd_override, scheduled_for_ms, schedule_time_zone,
- missed_run_policy, recurrence_scheduled_for_ms, execution_complexity, created_at_ms, updated_at_ms)
+ missed_run_policy, recurrence_scheduled_for_ms, execution_complexity, source_conversation_id,
+ source_turn_id, source_item_id, source_tool_call_id, source_client_time_zone, created_at_ms, updated_at_ms)
 VALUES (?, NULLIF(?, ''), ?, 'captured', NULL, 1, ?, ?, ?, ?, NULLIF(?, ''),
- NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?)`, task.ID, task.ProjectID, task.Title, task.ExecutorAgentID,
+ NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)`, task.ID, task.ProjectID, task.Title, task.ExecutorAgentID,
 		nullableInt(task.ExecutorAcpConnectionRevision), nullableString(task.CwdOverride),
 		nullableTime(task.ScheduledFor), task.ScheduleTimeZone, task.MissedRunPolicy,
-		nullableTime(task.RecurrenceScheduledFor), task.ExecutionComplexity, millis(now), millis(now)); err != nil {
+		nullableTime(task.RecurrenceScheduledFor), task.ExecutionComplexity, task.Source.ConversationID,
+		task.Source.TurnID, task.Source.ItemID, task.SourceToolCallID, task.SourceClientTimeZone, millis(now), millis(now)); err != nil {
 		return TaskCommandResult{}, fmt.Errorf("insert Task: %w", err)
 	}
 	recurrenceID, err := createTaskRecurrenceTx(ctx, tx, &task, options.Schedule, now)
@@ -477,6 +485,10 @@ func (s *Store) UpdateTaskRecurrence(
 	ctx context.Context, id string, expectedRevision int64, changes RecurrenceChanges,
 	command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
+	if !changes.SetProject && changes.Title == nil && changes.StartsAt == nil && changes.CronExpression == nil &&
+		changes.TimeZone == nil && changes.MissedRunPolicy == nil && changes.OverlapPolicy == nil && !changes.DocumentChanged {
+		return TaskCommandResult{}, errors.New("empty recurrence update")
+	}
 	return s.recurrenceCommand(ctx, id, expectedRevision, command, now,
 		func(tx *sql.Tx, value *TaskRecurrence) error {
 			if value.Lifecycle == RecurrenceEnded {

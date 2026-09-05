@@ -63,17 +63,29 @@ func TestPrimaryTaskToolsCaptureUpdateListScheduleAndReplay(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
 	ctx := context.Background()
 	created, success := chat.executeChatTool(ctx, conversation, taskCaptureName,
-		mustToolJSON(t, map[string]any{"title": " First ", "task_document": "# First\n"}), "task-create", "turn:create")
+		mustToolJSON(t, map[string]any{"title": " First ", "task_document": "# First\n"}), "task-create", "turn:create",
+		chatTaskToolDetails{SourceItemID: "item:user-source", TimeZone: "America/Los_Angeles"})
 	if !success {
 		t.Fatalf("capture = %s", created)
 	}
 	createdValue := mustToolValue(t, created)
 	task := createdValue["task"].(map[string]any)
 	taskID := task["task_id"].(string)
+	storedSource, err := database.Task(ctx, taskID)
+	if err != nil || storedSource.Source != (store.ArtifactSource{ConversationID: conversation.ID, TurnID: "turn:create", ItemID: "item:user-source"}) ||
+		storedSource.SourceToolCallID != "task-create" || storedSource.SourceClientTimeZone != "America/Los_Angeles" {
+		t.Fatalf("Task source = %#v, %v", storedSource, err)
+	}
 	replayed, success := chat.executeChatTool(ctx, conversation, taskCaptureName,
 		mustToolJSON(t, map[string]any{"title": " First ", "task_document": "# First\n"}), "task-create", "turn:create")
 	if !success || mustToolValue(t, replayed)["event_sequence"] != createdValue["event_sequence"] {
 		t.Fatalf("capture replay = %s, %t", replayed, success)
+	}
+	blank, success := chat.executeChatTool(ctx, conversation, taskUpdateName,
+		mustToolJSON(t, map[string]any{"task_id": taskID, "expected_revision": 1, "expected_generation": 1,
+			"project_id": "  "}), "task-blank-project", "turn:update")
+	if success || !bytes.Contains(blank, []byte(`"code":"invalid_input"`)) {
+		t.Fatalf("blank Task placement = %s, %t", blank, success)
 	}
 	updated, success := chat.executeChatTool(ctx, conversation, taskUpdateName,
 		mustToolJSON(t, map[string]any{"task_id": taskID, "expected_revision": 1, "expected_generation": 1,
@@ -93,10 +105,11 @@ func TestPrimaryTaskToolsCaptureUpdateListScheduleAndReplay(t *testing.T) {
 	future := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
 	scheduled, success := chat.executeChatTool(ctx, conversation, taskScheduleName,
 		mustToolJSON(t, map[string]any{"task_id": taskID, "expected_revision": 2, "expected_generation": 1,
-			"scheduled_for": future, "time_zone": "UTC", "missed_run_policy": "run_once"}),
-		"task-schedule", "turn:schedule")
+			"scheduled_for": future, "missed_run_policy": "run_once"}),
+		"task-schedule", "turn:schedule", chatTaskToolDetails{TimeZone: "America/New_York"})
 	stored, err := database.Task(ctx, taskID)
-	if !success || err != nil || stored.ScheduledFor == nil || stored.Revision != 3 {
+	if !success || err != nil || stored.ScheduledFor == nil || stored.Revision != 3 || stored.ScheduleTimeZone != "America/New_York" ||
+		mustToolValue(t, scheduled)["task"].(map[string]any)["missed_run_policy"] != "run_once" {
 		t.Fatalf("schedule = %s, %t; Task %#v, %v", scheduled, success, stored, err)
 	}
 	unscheduled, success := chat.executeChatTool(ctx, conversation, taskUnscheduleName,
@@ -119,22 +132,45 @@ func TestPrimaryTaskToolsCaptureUpdateListScheduleAndReplay(t *testing.T) {
 		t.Fatalf("recurring capture = %s", recurring)
 	}
 	recurrenceID := mustToolValue(t, recurring)["recurrence_id"].(string)
+	if mustToolValue(t, recurring)["recurrence_authority"] == nil {
+		t.Fatalf("recurring result lacks authority: %s", recurring)
+	}
+	eventsBefore, _ := database.WorkEventsForTask(ctx, mustToolValue(t, recurring)["task"].(map[string]any)["task_id"].(string), 0, 100)
+	empty, success := chat.executeChatTool(ctx, conversation, taskRecurrenceUpdateName,
+		mustToolJSON(t, map[string]any{"recurrence_id": recurrenceID, "expected_revision": 1}), "task-repeat-empty", "turn:repeat")
+	afterEmpty, _ := database.TaskRecurrence(ctx, recurrenceID)
+	eventsAfter, _ := database.WorkEventsForTask(ctx, mustToolValue(t, recurring)["task"].(map[string]any)["task_id"].(string), 0, 100)
+	if success || !bytes.Contains(empty, []byte(`"code":"invalid_input"`)) || afterEmpty.Revision != 1 || len(eventsAfter) != len(eventsBefore) {
+		t.Fatalf("empty recurrence update = %s, %t; revision %d; events %d -> %d", empty, success, afterEmpty.Revision, len(eventsBefore), len(eventsAfter))
+	}
+	changed, success := chat.executeChatTool(ctx, conversation, taskRecurrenceUpdateName,
+		mustToolJSON(t, map[string]any{"recurrence_id": recurrenceID, "expected_revision": 1,
+			"title": "Repeat updated", "project_id": "  "}), "task-repeat-update", "turn:repeat")
+	if !success || mustToolValue(t, changed)["recurrence_authority"].(map[string]any)["project_id"] != nil {
+		t.Fatalf("blank recurrence placement = %s, %t", changed, success)
+	}
 	paused, success := chat.executeChatTool(ctx, conversation, taskRecurrencePauseName,
-		mustToolJSON(t, map[string]any{"recurrence_id": recurrenceID, "expected_revision": 1}),
+		mustToolJSON(t, map[string]any{"recurrence_id": recurrenceID, "expected_revision": 2}),
 		"task-repeat-pause", "turn:repeat")
 	if !success {
 		t.Fatalf("pause recurrence = %s", paused)
 	}
 	recurrence, err := database.TaskRecurrence(ctx, recurrenceID)
-	if err != nil || recurrence.Lifecycle != store.RecurrencePaused || recurrence.Revision != 2 {
+	if err != nil || recurrence.Lifecycle != store.RecurrencePaused || recurrence.Revision != 3 {
 		t.Fatalf("paused recurrence = %#v, %v", recurrence, err)
 	}
 }
 
 func TestTaskDelegateIsAtomicAndSelectsInitialRun(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
+	projectPayload, projectSuccess := chat.executeChatTool(t.Context(), conversation, projectCreateName,
+		projectTestArguments(t, map[string]any{"name": "Delegated"}), "delegate-project", "turn:delegate")
+	if !projectSuccess {
+		t.Fatalf("create Project = %s", projectPayload)
+	}
+	projectID := projectTestValue(t, projectPayload)["project"].(map[string]any)["project_id"].(string)
 	raw := mustToolJSON(t, map[string]any{"title": "Delegate", "task_document": "# Delegate\n",
-		"project":          map[string]any{"kind": "none"},
+		"project":          map[string]any{"kind": "existing", "project_id": projectID},
 		"execution_intent": map[string]any{"request_markdown": "Do it.", "complexity": "simple"}})
 	payload, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName, raw, "delegate-call", "turn:delegate")
 	if !success {
@@ -147,6 +183,9 @@ func TestTaskDelegateIsAtomicAndSelectsInitialRun(t *testing.T) {
 	if err != nil || runErr != nil || task.StageKey != "queue" || task.Revision != 2 ||
 		task.ExecutionComplexity != "simple" || len(runs) != 1 || runs[0].Kind != "executor" || task.CurrentRunID != runs[0].ID {
 		t.Fatalf("delegated Task = %#v; runs %#v; errors %v, %v", task, runs, err, runErr)
+	}
+	if value["run_id"] != runs[0].ID || value["project"].(map[string]any)["project_id"] != projectID {
+		t.Fatalf("delegated result = %s", payload)
 	}
 	replayed, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName, raw, "delegate-call", "turn:delegate")
 	page, _ := database.ListTasks(t.Context(), store.TaskListFilter{Scope: "all"}, 10, nil)
@@ -161,7 +200,7 @@ func TestTaskArtifactToolsFenceOwnershipVersionsAndParse(t *testing.T) {
 		mustToolJSON(t, map[string]any{"title": "Artifacts", "task_document": "# Artifacts\n",
 			"project":          map[string]any{"kind": "none"},
 			"execution_intent": map[string]any{"request_markdown": "Create it.", "complexity": "simple"}}),
-		"artifact-delegate", "turn:artifact")
+		"artifact-delegate", "turn:artifact", chatTaskToolDetails{SourceItemID: "item:artifact-source", TimeZone: "Europe/Paris"})
 	if !success {
 		t.Fatalf("delegate = %s", delegated)
 	}
@@ -185,6 +224,17 @@ func TestTaskArtifactToolsFenceOwnershipVersionsAndParse(t *testing.T) {
 		t.Fatalf("create Artifact = %s", created)
 	}
 	artifactID := mustToolValue(t, created)["artifact_id"].(string)
+	createdArtifact, err := database.ArtifactWithVersionsByID(t.Context(), artifactID)
+	if err != nil || createdArtifact.Artifact.Source != task.Source || createdArtifact.CurrentVersion.Source != task.Source {
+		t.Fatalf("Artifact source = %#v, %v; Task source %#v", createdArtifact.Artifact.Source, err, task.Source)
+	}
+	childFuture := time.Now().Add(3 * time.Hour).UTC().Format(time.RFC3339Nano)
+	childPayload, childSuccess := runtime.captureScopedTask(t.Context(), task, run,
+		mustToolJSON(t, map[string]any{"title": "Child", "schedule": map[string]any{"scheduled_for": childFuture}}))
+	child, childErr := database.Task(t.Context(), mustToolValue(t, childPayload)["task"].(map[string]any)["task_id"].(string))
+	if !childSuccess || childErr != nil || child.ScheduleTimeZone != "Europe/Paris" || child.Source != task.Source {
+		t.Fatalf("scoped capture = %s, %t; Task %#v, %v", childPayload, childSuccess, child, childErr)
+	}
 	listed, success, _, _ := runtime.executeTaskTool(t.Context(), task, run, taskListArtifactsName, json.RawMessage(`{}`), false)
 	if !success || len(mustToolValue(t, listed)["artifacts"].([]any)) != 1 {
 		t.Fatalf("list Artifacts = %s, %t", listed, success)

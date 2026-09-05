@@ -58,6 +58,9 @@ type Task struct {
 	CompletedAt                   *time.Time
 	CancelledAt                   *time.Time
 	ExecutionComplexity           string
+	Source                        ArtifactSource
+	SourceToolCallID              string
+	SourceClientTimeZone          string
 	CreatedAt                     time.Time
 	UpdatedAt                     time.Time
 }
@@ -323,6 +326,7 @@ func scanTask(row rowScanner) (Task, error) {
 	var scheduledFor, processedAt, recurrenceScheduledFor sql.NullInt64
 	var recurrenceRevision, executorRevision sql.NullInt64
 	var projectID, cwdOverride, recurrenceID, activeGateID, complexity sql.NullString
+	var sourceConversationID, sourceTurnID, sourceItemID, sourceToolCallID, sourceTimeZone sql.NullString
 	var completedAt, cancelledAt sql.NullInt64
 	if err := row.Scan(
 		&task.ID,
@@ -347,6 +351,11 @@ func scanTask(row rowScanner) (Task, error) {
 		&completedAt,
 		&cancelledAt,
 		&complexity,
+		&sourceConversationID,
+		&sourceTurnID,
+		&sourceItemID,
+		&sourceToolCallID,
+		&sourceTimeZone,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
@@ -367,6 +376,9 @@ func scanTask(row rowScanner) (Task, error) {
 	task.CompletedAt = nullTimePointer(completedAt)
 	task.CancelledAt = nullTimePointer(cancelledAt)
 	task.ExecutionComplexity = complexity.String
+	task.Source = ArtifactSource{ConversationID: sourceConversationID.String, TurnID: sourceTurnID.String, ItemID: sourceItemID.String}
+	task.SourceToolCallID = sourceToolCallID.String
+	task.SourceClientTimeZone = sourceTimeZone.String
 	task.CreatedAt = fromMillis(createdAt)
 	task.UpdatedAt = fromMillis(updatedAt)
 	return task, nil
@@ -378,7 +390,9 @@ SELECT task_id, project_id, title, state, COALESCE(current_run_id, ''), revision
        scheduled_for_ms, COALESCE(schedule_time_zone, ''), COALESCE(missed_run_policy, ''),
        schedule_processed_at_ms, recurrence_id, recurrence_revision,
        recurrence_scheduled_for_ms, generation, stage_key, active_gate_id,
-       completed_at_ms, cancelled_at_ms, execution_complexity, created_at_ms, updated_at_ms
+       completed_at_ms, cancelled_at_ms, execution_complexity,
+       source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
+       source_client_time_zone, created_at_ms, updated_at_ms
 FROM tasks`
 
 func nullStringPointer(value sql.NullString) *string {

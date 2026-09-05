@@ -272,7 +272,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
 			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
-			HostedWebSearch: hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative), FastMode: run.FastMode,
+			HostedWebSearch: run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative), FastMode: run.FastMode,
 		}, func(provider.StreamEvent) {})
 		elapsed := time.Since(started).Milliseconds()
 		usage := store.TaskRunUsage{ProviderCalls: 1, InputTokens: int64(result.Usage.InputTokens), CachedInputTokens: int64(result.Usage.CachedInputTokens), OutputTokens: int64(result.Usage.OutputTokens), ActiveMilliseconds: elapsed}

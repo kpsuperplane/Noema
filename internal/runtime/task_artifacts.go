@@ -123,7 +123,7 @@ func (r *TaskExecution) createTaskArtifact(ctx context.Context, task store.Task,
 		}
 		versions = append(versions, artifactVersionInput{Title: versionTitle, Content: content})
 	}
-	source := store.ArtifactSource{}
+	source := task.Source
 	metadata := map[string]any{"created_by_tool": artifactCreateLocalName, "task_id": task.ID, "task_run_id": run.ID, "filename": filename}
 	created, err := r.artifacts.CreateLocal(ctx, artifact.LocalInput{Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: task.ID},
 		Title: strings.TrimSpace(title), Description: description, Kind: strings.TrimSpace(kind), Filename: filename,

@@ -87,7 +87,8 @@ func taskToolHasSideEffect(name string) bool {
 	return isPrimaryTaskTool(name) && name != taskListName && name != taskInspectName
 }
 
-func (c *Chat) executePrimaryTaskTool(ctx context.Context, name, requestID, correlationID string, raw json.RawMessage) (json.RawMessage, bool) {
+func (c *Chat) executePrimaryTaskTool(ctx context.Context, name, requestID, correlationID string, raw json.RawMessage,
+	source store.ArtifactSource, sourceTimeZone string) (json.RawMessage, bool) {
 	if requestID == "" || len(raw) > modelToolPayloadLimit {
 		return toolFailure("invalid_input", "Task command is invalid"), false
 	}
@@ -100,7 +101,7 @@ func (c *Chat) executePrimaryTaskTool(ctx context.Context, name, requestID, corr
 	var result store.TaskCommandResult
 	switch name {
 	case taskCaptureName, taskDelegateName:
-		return c.captureTaskTool(ctx, name, fields, command, now)
+		return c.captureTaskTool(ctx, name, fields, command, now, source, requestID, sourceTimeZone)
 	case taskListName:
 		return c.listTaskTool(ctx, fields)
 	case taskInspectName:
@@ -137,7 +138,7 @@ func (c *Chat) executePrimaryTaskTool(ctx context.Context, name, requestID, corr
 			result, err = c.database.CancelTask(ctx, id, revision, generation, stringValue(reason), command, now)
 		}
 	case taskScheduleName, taskRescheduleName:
-		return c.setTaskScheduleTool(ctx, fields, command, now, name == taskRescheduleName)
+		return c.setTaskScheduleTool(ctx, fields, command, now, name == taskRescheduleName, sourceTimeZone)
 	case taskRecurrenceUpdateName:
 		return c.updateRecurrenceTool(ctx, fields, command, now)
 	case taskRecurrencePauseName, taskRecurrenceResumeName, taskRecurrenceSkipName,
@@ -154,7 +155,7 @@ func (c *Chat) executePrimaryTaskTool(ctx context.Context, name, requestID, corr
 		return taskToolError(err)
 	}
 	c.database.NotifyWork()
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, c.database, result)
 }
 
 func taskModelCommand(name, requestID, correlationID string, raw json.RawMessage) store.TaskCommand {
@@ -166,7 +167,8 @@ func taskModelCommand(name, requestID, correlationID string, raw json.RawMessage
 		ClientMutationID: requestID, RequestDigest: hex.EncodeToString(digest[:]), CorrelationID: correlationID}
 }
 
-func (c *Chat) captureTaskTool(ctx context.Context, name string, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time) (json.RawMessage, bool) {
+func (c *Chat) captureTaskTool(ctx context.Context, name string, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time,
+	source store.ArtifactSource, sourceToolCallID, sourceTimeZone string) (json.RawMessage, bool) {
 	allowed := []string{"title", "task_document", "project_id", "executor_agent_id", "cwd_override", "schedule"}
 	if name == taskDelegateName {
 		allowed = []string{"title", "task_document", "project", "executor_agent_id", "cwd_override", "complexity_hint", "execution_intent"}
@@ -179,7 +181,8 @@ func (c *Chat) captureTaskTool(ctx context.Context, name string, fields map[stri
 	if !titleOK || !documentOK || name == taskDelegateName && (document == nil || *document == "") {
 		return taskToolInputFailure()
 	}
-	options := store.TaskCreateOptions{ExecutorAgentID: store.TaskExecutorAgentID}
+	options := store.TaskCreateOptions{ExecutorAgentID: store.TaskExecutorAgentID, Source: source,
+		SourceToolCallID: sourceToolCallID, SourceClientTimeZone: sourceTimeZone}
 	if value, ok := taskOptionalString(fields, "executor_agent_id", 255); !ok {
 		return taskToolInputFailure()
 	} else if value != nil {
@@ -235,7 +238,7 @@ func (c *Chat) captureTaskTool(ctx context.Context, name string, fields map[stri
 			options.ProjectID = *value
 		}
 		if rawSchedule, exists := fields["schedule"]; exists {
-			value, err := parseTaskSchedule(rawSchedule, now)
+			value, err := parseTaskSchedule(rawSchedule, now, sourceTimeZone)
 			if err != nil {
 				return taskToolInputFailure()
 			}
@@ -255,7 +258,7 @@ func (c *Chat) captureTaskTool(ctx context.Context, name string, fields map[stri
 				return taskToolError(ensureErr)
 			}
 		}
-		return marshalTaskResult(replay)
+		return marshalTaskResult(ctx, c.database, replay)
 	}
 	id, err := store.NewTaskID()
 	if err != nil {
@@ -285,7 +288,7 @@ func (c *Chat) captureTaskTool(ctx context.Context, name string, fields map[stri
 		}
 	}
 	c.database.NotifyWork()
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, c.database, result)
 }
 
 func (r *TaskExecution) captureScopedTask(ctx context.Context, parent store.Task, run store.TaskRun, raw json.RawMessage) (json.RawMessage, bool) {
@@ -299,9 +302,9 @@ func (r *TaskExecution) captureScopedTask(ctx context.Context, parent store.Task
 		return taskToolInputFailure()
 	}
 	options := store.TaskCreateOptions{ProjectID: parent.ProjectID, ExecutorAgentID: parent.ExecutorAgentID,
-		CwdOverride: parent.CwdOverride}
+		CwdOverride: parent.CwdOverride, Source: parent.Source, SourceClientTimeZone: parent.SourceClientTimeZone}
 	if rawSchedule, exists := fields["schedule"]; exists {
-		value, parseErr := parseTaskSchedule(rawSchedule, time.Now())
+		value, parseErr := parseTaskSchedule(rawSchedule, time.Now(), parent.SourceClientTimeZone)
 		if parseErr != nil {
 			return taskToolInputFailure()
 		}
@@ -309,12 +312,13 @@ func (r *TaskExecution) captureScopedTask(ctx context.Context, parent store.Task
 	}
 	digest := sha256.Sum256(raw)
 	requestID := run.ID + ":capture:" + hex.EncodeToString(digest[:8])
+	options.SourceToolCallID = requestID
 	command := taskModelCommand(taskCaptureName, requestID, "correlation:task:"+parent.ID, raw)
 	if replay, found, lookupErr := r.database.LookupTaskCommandReceipt(ctx, command); lookupErr != nil || found {
 		if lookupErr != nil {
 			return taskToolError(lookupErr)
 		}
-		return marshalTaskResult(replay)
+		return marshalTaskResult(ctx, r.database, replay)
 	}
 	id, err := store.NewTaskID()
 	if err != nil {
@@ -342,7 +346,7 @@ func (r *TaskExecution) captureScopedTask(ctx context.Context, parent store.Task
 		}
 	}
 	r.database.NotifyWork()
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, r.database, result)
 }
 
 func (c *Chat) listTaskTool(ctx context.Context, fields map[string]json.RawMessage) (json.RawMessage, bool) {
@@ -462,7 +466,7 @@ func (c *Chat) updateTaskTool(ctx context.Context, fields map[string]json.RawMes
 	cwd, cwdOK := taskOptionalString(fields, "cwd_override", 4096)
 	clearCWD, clearCWDOK := projectOptionalBool(fields, "clear_cwd_override")
 	executor, executorOK := taskOptionalString(fields, "executor_agent_id", 255)
-	if !projectOK || !clearProjectOK || !cwdOK || !clearCWDOK || !executorOK || projectID != nil && clearProject || cwd != nil && clearCWD {
+	if !projectOK || !clearProjectOK || !cwdOK || !clearCWDOK || !executorOK || projectID != nil && strings.TrimSpace(*projectID) == "" || projectID != nil && clearProject || cwd != nil && clearCWD {
 		return taskToolInputFailure()
 	}
 	changes.ProjectID, changes.SetProject = projectID, projectID != nil || clearProject
@@ -491,7 +495,7 @@ func (c *Chat) updateTaskTool(ctx context.Context, fields map[string]json.RawMes
 				if _, recoverErr := home.RecoverTaskDocumentStage(c.home, replay.Task.ID, command.RequestDigest, replay.DocumentDigest); recoverErr != nil {
 					return taskToolError(recoverErr)
 				}
-				return marshalTaskResult(replay)
+				return marshalTaskResult(ctx, c.database, replay)
 			}
 			_ = home.DiscardTaskDocumentStage(c.home, id, command.RequestDigest)
 		}
@@ -502,10 +506,10 @@ func (c *Chat) updateTaskTool(ctx context.Context, fields map[string]json.RawMes
 			return taskToolError(err)
 		}
 	}
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, c.database, result)
 }
 
-func (c *Chat) setTaskScheduleTool(ctx context.Context, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time, replace bool) (json.RawMessage, bool) {
+func (c *Chat) setTaskScheduleTool(ctx context.Context, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time, replace bool, sourceTimeZone string) (json.RawMessage, bool) {
 	if !onlyProjectFields(fields, "task_id", "expected_revision", "expected_generation", "scheduled_for", "time_zone", "missed_run_policy", "recurrence") {
 		return taskToolInputFailure()
 	}
@@ -517,7 +521,7 @@ func (c *Chat) setTaskScheduleTool(ctx context.Context, fields map[string]json.R
 		}
 	}
 	rawSchedule, _ := json.Marshal(scheduleFields)
-	value, err := parseTaskSchedule(rawSchedule, now)
+	value, err := parseTaskSchedule(rawSchedule, now, sourceTimeZone)
 	if !ok || generation != 1 || err != nil {
 		return taskToolInputFailure()
 	}
@@ -542,7 +546,7 @@ func (c *Chat) setTaskScheduleTool(ctx context.Context, fields map[string]json.R
 		}
 	}
 	c.database.NotifyWork()
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, c.database, result)
 }
 
 func (c *Chat) updateRecurrenceTool(ctx context.Context, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time) (json.RawMessage, bool) {
@@ -562,6 +566,9 @@ func (c *Chat) updateRecurrenceTool(ctx context.Context, fields map[string]json.
 	}
 	projectID, projectOK := taskOptionalString(fields, "project_id", 255)
 	clearProject, clearOK := projectOptionalBool(fields, "clear_project")
+	if projectID != nil && strings.TrimSpace(*projectID) == "" {
+		projectID = nil
+	}
 	if !projectOK || !clearOK || projectID != nil && clearProject {
 		return taskToolInputFailure()
 	}
@@ -611,6 +618,11 @@ func (c *Chat) updateRecurrenceTool(ctx context.Context, fields map[string]json.
 			return taskToolError(err)
 		}
 		stage = &prepared
+		changes.DocumentChanged = true
+	}
+	if !changes.SetProject && changes.Title == nil && changes.StartsAt == nil && changes.CronExpression == nil &&
+		changes.TimeZone == nil && changes.MissedRunPolicy == nil && changes.OverlapPolicy == nil && stage == nil {
+		return taskToolInputFailure()
 	}
 	unlock := c.database.LockTaskSchedules()
 	defer unlock()
@@ -621,7 +633,7 @@ func (c *Chat) updateRecurrenceTool(ctx context.Context, fields map[string]json.
 				if _, recoverErr := home.CommitRecurrenceDocumentStage(c.home, *stage); recoverErr != nil {
 					return taskToolError(recoverErr)
 				}
-				return marshalTaskResult(replay)
+				return marshalTaskResult(ctx, c.database, replay)
 			}
 			_ = home.DiscardRecurrenceDocumentStage(c.home, command.RequestDigest)
 		}
@@ -633,7 +645,7 @@ func (c *Chat) updateRecurrenceTool(ctx context.Context, fields map[string]json.
 		}
 	}
 	c.database.NotifyWork()
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, c.database, result)
 }
 
 func (c *Chat) recurrenceCommandTool(ctx context.Context, name string, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time) (json.RawMessage, bool) {
@@ -666,7 +678,7 @@ func (c *Chat) recurrenceCommandTool(ctx context.Context, name string, fields ma
 			if copyErr := home.CopyRecurrenceDocumentToTask(c.home, id, replay.Task.ID); copyErr != nil {
 				return taskToolError(copyErr)
 			}
-			return marshalTaskResult(replay)
+			return marshalTaskResult(ctx, c.database, replay)
 		}
 		taskID, createErr := store.NewTaskID()
 		if createErr != nil || home.StageRecurrenceDocumentToTask(c.home, id, taskID) != nil {
@@ -688,7 +700,7 @@ func (c *Chat) recurrenceCommandTool(ctx context.Context, name string, fields ma
 		return taskToolError(err)
 	}
 	c.database.NotifyWork()
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, c.database, result)
 }
 
 func (c *Chat) resolveTaskGateTool(ctx context.Context, name string, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time) (json.RawMessage, bool) {
@@ -736,7 +748,8 @@ func (c *Chat) resolveTaskGateTool(ctx context.Context, name string, fields map[
 		return taskToolError(err)
 	}
 	c.database.NotifyWork()
-	return marshalTaskResult(result)
+	result.GateID = gateID
+	return marshalTaskResult(ctx, c.database, result)
 }
 
 func (c *Chat) reopenTaskTool(ctx context.Context, fields map[string]json.RawMessage, command store.TaskCommand, now time.Time) (json.RawMessage, bool) {
@@ -768,6 +781,16 @@ func (c *Chat) reopenTaskTool(ctx context.Context, fields map[string]json.RawMes
 	result, err := c.database.ReopenTask(ctx, id, revision, generation, direction, complexity, documentDigest, command, now)
 	if err != nil {
 		if stage != nil {
+			replay, found, lookupErr := c.database.LookupTaskCommandReceipt(ctx, command)
+			if lookupErr != nil {
+				return taskToolError(lookupErr)
+			}
+			if found {
+				if _, recoverErr := home.RecoverTaskDocumentStage(c.home, replay.Task.ID, command.RequestDigest, replay.DocumentDigest); recoverErr != nil {
+					return taskToolError(recoverErr)
+				}
+				return marshalTaskResult(ctx, c.database, replay)
+			}
 			_ = home.DiscardTaskDocumentStage(c.home, id, command.RequestDigest)
 		}
 		return taskToolError(err)
@@ -778,10 +801,10 @@ func (c *Chat) reopenTaskTool(ctx context.Context, fields map[string]json.RawMes
 		}
 	}
 	c.database.NotifyWork()
-	return marshalTaskResult(result)
+	return marshalTaskResult(ctx, c.database, result)
 }
 
-func parseTaskSchedule(raw json.RawMessage, now time.Time) (*schedule.Schedule, error) {
+func parseTaskSchedule(raw json.RawMessage, now time.Time, defaultTimeZone string) (*schedule.Schedule, error) {
 	var value struct {
 		ScheduledFor    string `json:"scheduled_for"`
 		TimeZone        string `json:"time_zone"`
@@ -800,6 +823,12 @@ func parseTaskSchedule(raw json.RawMessage, now time.Time) (*schedule.Schedule, 
 	scheduledFor, err := schedule.ParseInstant(value.ScheduledFor)
 	if err != nil {
 		return nil, err
+	}
+	if value.TimeZone == "" {
+		if defaultTimeZone == "" {
+			defaultTimeZone = "UTC"
+		}
+		value.TimeZone = defaultTimeZone
 	}
 	result := schedule.Schedule{ScheduledFor: scheduledFor, TimeZone: value.TimeZone, MissedRunPolicy: schedule.MissedRunOnce}
 	if value.MissedRunPolicy != "" {
@@ -871,7 +900,8 @@ func taskValue(task store.Task) map[string]any {
 		"generation": task.Generation, "revision": task.Revision, "project_id": nilString(task.ProjectID),
 		"executor_agent_id": task.ExecutorAgentID, "cwd_override": task.CwdOverride,
 		"scheduled_for": timeValue(task.ScheduledFor), "schedule_time_zone": nilString(task.ScheduleTimeZone),
-		"recurrence_id": nilString(task.RecurrenceID), "recurrence_revision": task.RecurrenceRevision,
+		"missed_run_policy": nilString(task.MissedRunPolicy),
+		"recurrence_id":     nilString(task.RecurrenceID), "recurrence_revision": task.RecurrenceRevision,
 		"recurrence_scheduled_for": timeValue(task.RecurrenceScheduledFor)}
 }
 
@@ -896,9 +926,34 @@ func timeValue(value *time.Time) any {
 	return value.Format(time.RFC3339Nano)
 }
 
-func marshalTaskResult(result store.TaskCommandResult) (json.RawMessage, bool) {
-	payload, err := json.Marshal(map[string]any{"task": taskValue(result.Task), "event_id": result.Event.EventID,
-		"event_sequence": result.Event.ID, "recurrence_id": nilString(result.RecurrenceID), "replayed": result.Replayed})
+func marshalTaskResult(ctx context.Context, database *store.Store, result store.TaskCommandResult) (json.RawMessage, bool) {
+	var project, recurrence any
+	if result.Task.ProjectID != "" {
+		value, err := database.Project(ctx, result.Task.ProjectID)
+		if err != nil {
+			return taskToolError(err)
+		}
+		project = projectValue(value, false)
+	}
+	recurrenceID := result.RecurrenceID
+	if recurrenceID == "" {
+		recurrenceID = result.Task.RecurrenceID
+	}
+	if recurrenceID != "" {
+		value, err := database.TaskRecurrence(ctx, recurrenceID)
+		if err != nil {
+			return taskToolError(err)
+		}
+		recurrence = recurrenceValue(value)
+	}
+	runID := result.Event.RunID
+	if runID == "" {
+		runID = result.Task.CurrentRunID
+	}
+	payload, err := json.Marshal(map[string]any{"task": taskValue(result.Task), "project": project,
+		"recurrence_authority": recurrence, "gate_id": nilString(result.GateID), "run_id": nilString(runID),
+		"event_id": result.Event.EventID, "event_sequence": result.Event.ID,
+		"recurrence_id": nilString(result.RecurrenceID), "replayed": result.Replayed})
 	if err != nil {
 		return taskToolError(err)
 	}

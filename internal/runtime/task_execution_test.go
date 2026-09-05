@@ -156,6 +156,9 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 		mu.Lock()
 		roleCalls[role]++
 		call := roleCalls[role]
+		if request.HostedWebSearch != (role == "executor") {
+			requestProblem = "hosted web search did not match the Task role"
+		}
 		mu.Unlock()
 		if call > 1 && (request.PreviousResponseID == "" || len(request.ReplayMessages) <= len(request.Messages)) {
 			mu.Lock()
@@ -165,7 +168,7 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 		switch role {
 		case "planner":
 			if call == 1 {
-				if !request.HostedWebSearch || !taskRequestHasTool(request.Tools, fileParseName) ||
+				if !taskRequestHasTool(request.Tools, fileParseName) ||
 					len(request.Messages) < 2 || request.Messages[0].Role != "system" ||
 					strings.Contains(request.Messages[0].Content, "Complete the exact work.") ||
 					request.Messages[1].Role != "user" || !strings.Contains(request.Messages[1].Content, "Complete the exact work.") {

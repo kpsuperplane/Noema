@@ -238,6 +238,30 @@ PRAGMA user_version = 8;`); err != nil {
 	}
 }
 
+func TestTaskSourceSchemaConvergesFromVersionTwentySix(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v26.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacy.Exec(schemaAtVersion(26) + `
+INSERT INTO tasks(task_id,title,state,current_run_id,revision,created_at_ms,updated_at_ms)
+VALUES ('task:0123456789abcdef0123456789abcdef','Existing','captured',NULL,1,1,1);
+PRAGMA user_version=26;`); err != nil {
+		t.Fatal(err)
+	}
+	_ = legacy.Close()
+	database, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	task, err := database.Task(t.Context(), "task:0123456789abcdef0123456789abcdef")
+	if err != nil || task.Source != (ArtifactSource{}) || task.SourceClientTimeZone != "" {
+		t.Fatalf("upgraded Task source = %#v, %v", task, err)
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "noema.sqlite3"))
@@ -255,9 +279,9 @@ func openTestStore(t *testing.T) *Store {
 func schemaAtVersion(version int) string {
 	parts := []string{
 		strings.TrimSuffix(schemaSQL, schemaV2SQL+schemaV3SQL+schemaV4SQL+schemaV5SQL+
-			schemaV6SQL+schemaV7SQL+schemaV8SQL+schemaV9SQL+schemaV10SQL+schemaV11SQL+schemaV12SQL+schemaV13SQL+schemaV14SQL+schemaV15SQL+schemaV16SQL+schemaV17SQL+schemaV18SQL+schemaV19SQL+schemaV20SQL+schemaV21SQL+schemaV22SQL+schemaV23SQL+schemaV24SQL+schemaV25SQL+schemaV26SQL),
+			schemaV6SQL+schemaV7SQL+schemaV8SQL+schemaV9SQL+schemaV10SQL+schemaV11SQL+schemaV12SQL+schemaV13SQL+schemaV14SQL+schemaV15SQL+schemaV16SQL+schemaV17SQL+schemaV18SQL+schemaV19SQL+schemaV20SQL+schemaV21SQL+schemaV22SQL+schemaV23SQL+schemaV24SQL+schemaV25SQL+schemaV26SQL+schemaV27SQL),
 		schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL,
-		schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL, schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL, schemaV23SQL, schemaV24SQL, schemaV25SQL, schemaV26SQL,
+		schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL, schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL, schemaV23SQL, schemaV24SQL, schemaV25SQL, schemaV26SQL, schemaV27SQL,
 	}
 	return strings.Join(parts[:version], "")
 }
