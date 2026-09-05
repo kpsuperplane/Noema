@@ -378,6 +378,18 @@ The update finishes without an error and advances its processed sequence. Reload
 The [validation record](evidence/2026-09-05-memory-duplicate-validation.json) identifies the tested revision, driver hashes, reused checks, and limits.
 No production code changed. This result does not cover secret-bearing input or every Memory rejection path.
 
+## Browser schedule controls
+
+The [browser driver](evidence/2026-09-05-schedule-browser.mjs) changed timing on one synthetic Task at noema.kevinpei.com.
+Reschedule saved the replacement instant without starting a run.
+Unschedule returned the same Task to Inbox and preserved Unicode content after reload.
+The phone control then started that Task before its future schedule.
+The [completion driver](evidence/2026-09-05-schedule-completion.mjs) confirmed successful Planner, Executor, and Reviewer runs.
+One Executor wrote `56` to `RESULT.md`. The reloaded desktop browser displayed that result.
+The [results](evidence/2026-09-05-schedule-browser-results.json) retain exact timing, Task identity, and run records.
+The [validation record](evidence/2026-09-05-schedule-browser-validation.json) records scope and reused checks.
+No production change was required. TIME-02 passes for live Codex and Chromium.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -464,7 +476,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-14 | Not run | Controlled setup pending. | — |
 | RUN-15 | Not run | Controlled setup pending. | — |
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
-| TIME-02 | Partial | Fixed released schedules that never entered the queue. Reschedule, unschedule, and early execution pass through commands. Browser controls remain pending. | — |
+| TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
 | TIME-03 | Not run | Controlled setup pending. | — |
 | TIME-04 | Not run | Controlled setup pending. | — |
 | TIME-05 | Not run | Controlled setup pending. | — |

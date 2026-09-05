@@ -1,0 +1,30 @@
+import {chromium} from '/tmp/bunx-0-playwright@latest/node_modules/playwright/index.mjs';
+import {readFile,writeFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const root='/var/tmp/noema-suite-run-20260905',origin='https://noema.kevinpei.com';
+const browser=await chromium.launch({headless:true,args:['--no-sandbox','--host-resolver-rules=MAP noema.kevinpei.com 127.0.0.1']});
+const evidence={origin,startedAt:new Date().toISOString(),checks:[]};
+try{
+ const context=await browser.newContext({serviceWorkers:'block',storageState:'/var/tmp/noema-audit-credentials/browser-session.json',viewport:{width:1440,height:1000},timezoneId:'UTC'}),page=await context.newPage();await page.goto(origin+'/tasks');
+ const gql=async(query,variables)=>{const r=await page.evaluate(async({query,variables})=>(await(await fetch('/graphql',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query,variables})})).json()),{query,variables});assert.equal(r.errors,undefined,JSON.stringify(r.errors));return r.data;};
+ const get=async id=>(await gql('query($id:String!){task(taskId:$id){taskId title taskDocument revision generation stage{key} schedule{scheduledFor timeZone} runs{runId}}}',{id})).task;
+ const doc='# Browser schedule audit\n\nCalculate 7 × 8. Write 56 to RESULT.md. Do not use external services or change other files. Preserve café 日本語 🧭.';
+ const future=new Date(Date.now()+86400000);future.setUTCSeconds(0,0);
+ const created=process.env.AUDIT_RESUME ? {taskId:JSON.parse(await readFile(root+'/schedule-browser-results.json','utf8')).taskId} : (await gql('mutation($input:CaptureTaskInput!){captureTask(input:$input){task{taskId}}}',{input:{workspaceId:'workspace:personal',title:'Migration audit — browser schedule café 日本語',taskDocument:doc,clientMutationId:crypto.randomUUID(),schedule:{scheduledFor:future.toISOString(),timeZone:'UTC',missedRunPolicy:'RUN_ONCE'}}})).captureTask.task;
+ evidence.taskId=created.taskId;await writeFile(root+'/schedule-browser-results.json',JSON.stringify(evidence,null,2));
+ await page.reload();await page.locator('a[href*="'+encodeURIComponent(created.taskId)+'"]').click();
+ const initial=await get(created.taskId);assert.equal(initial.runs.length,0);
+ await page.getByRole('button',{name:'Reschedule task',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Schedule task',exact:true});await dialog.waitFor();
+ console.log('DIALOG',await dialog.locator('input').evaluateAll(xs=>xs.map(x=>({type:x.type,label:x.getAttribute('aria-label'),value:x.value}))));
+ const replacement=new Date(future.getTime()+86400000).toISOString().slice(0,16);
+ await dialog.locator('input').first().fill(replacement.slice(0,10));await dialog.locator('input').first().press('Tab');await dialog.getByLabel('Starts time',{exact:true}).fill(replacement.slice(11));await dialog.getByLabel('Starts time',{exact:true}).press('Tab');await dialog.getByRole('textbox',{name:/Timezone/}).fill('UTC');await dialog.getByRole('button',{name:'Save',exact:true}).click();await dialog.waitFor({state:'hidden'});
+ const rescheduled=await get(created.taskId);assert.equal(Date.parse(rescheduled.schedule.scheduledFor),Date.parse(replacement+'Z'));assert.equal(rescheduled.taskDocument,doc);assert.equal(rescheduled.runs.length,0);evidence.checks.push({action:'reschedule',task:rescheduled});
+ await page.getByRole('button',{name:'Unschedule task',exact:true}).click();await dialog.getByRole('button',{name:'Unschedule',exact:true}).click();await dialog.waitFor({state:'hidden'});await page.getByRole('button',{name:'Start task',exact:true}).waitFor();
+ const unscheduled=await get(created.taskId);assert.equal(unscheduled.stage.key,'inbox');assert.equal(unscheduled.schedule,null);assert.equal(unscheduled.taskDocument,doc);assert.equal(unscheduled.runs.length,0);evidence.checks.push({action:'unschedule',task:unscheduled});
+ await page.reload();await page.getByRole('button',{name:'Start task',exact:true}).waitFor();assert.deepEqual(await get(created.taskId),unscheduled);
+ await page.getByRole('button',{name:'Schedule task',exact:true}).click();await dialog.locator('input').first().fill(replacement.slice(0,10));await dialog.locator('input').first().press('Tab');await dialog.getByLabel('Starts time',{exact:true}).fill(replacement.slice(11));await dialog.getByLabel('Starts time',{exact:true}).press('Tab');await dialog.getByRole('textbox',{name:/Timezone/}).fill('UTC');await dialog.getByRole('button',{name:'Save',exact:true}).click();await dialog.waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'Run task now',exact:true}).waitFor();await page.setViewportSize({width:390,height:844});await page.screenshot({path:root+'/schedule-phone.png'});
+ await page.getByRole('button',{name:'Run task now',exact:true}).click();
+ await page.getByRole('button',{name:'Run task now',exact:true}).waitFor({state:'hidden'});const running=await get(created.taskId);assert.notEqual(running.stage.key,'scheduled');assert.notEqual(running.stage.key,'inbox');assert.equal(running.taskId,created.taskId);assert.ok(Date.now()<Date.parse(replacement+'Z'));evidence.checks.push({action:'run-now',task:running});
+ console.log('PASS schedule controls',created.taskId);
+}catch(error){evidence.error=String(error);throw error;}finally{await writeFile(root+'/schedule-browser-results.json',JSON.stringify(evidence,null,2));await browser.close();}
