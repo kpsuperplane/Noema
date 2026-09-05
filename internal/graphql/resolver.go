@@ -34,6 +34,7 @@ type Resolver struct {
 	Notifications    *notification.Service
 	providerAuth     map[string]providerAuthService
 	projectMu        sync.Mutex
+	taskMu           sync.Mutex
 }
 
 // NewResolver creates a GraphQL resolver for one open store.

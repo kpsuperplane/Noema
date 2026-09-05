@@ -52,6 +52,12 @@ type Task struct {
 	RecurrenceID                  string
 	RecurrenceRevision            *int64
 	RecurrenceScheduledFor        *time.Time
+	Generation                    int64
+	StageKey                      string
+	ActiveGateID                  string
+	CompletedAt                   *time.Time
+	CancelledAt                   *time.Time
+	ExecutionComplexity           string
 	CreatedAt                     time.Time
 	UpdatedAt                     time.Time
 }
@@ -100,6 +106,8 @@ func (s *Store) CreateTask(ctx context.Context, id string, title string, correla
 		Title:           title,
 		State:           TaskCaptured,
 		Revision:        1,
+		Generation:      1,
+		StageKey:        "inbox",
 		ExecutorAgentID: TaskExecutorAgentID,
 		CreatedAt:       now,
 		UpdatedAt:       now,
@@ -244,11 +252,20 @@ AND schedule_processed_at_ms IS NULL FROM tasks WHERE task_id = ?`, taskID).Scan
 		}
 	}
 
+	nextStage := map[TaskState]string{TaskCaptured: "inbox", TaskRunning: "doing", TaskCompleted: "done", TaskFailed: "waiting", TaskCancelled: "cancelled"}[nextState]
+	var completedAt, cancelledAt any
+	if nextState == TaskCompleted {
+		completedAt = millis(now)
+	}
+	if nextState == TaskCancelled {
+		cancelledAt = millis(now)
+	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE tasks
-SET state = ?, current_run_id = NULLIF(?, ''), revision = revision + 1, updated_at_ms = ?
+SET state = ?, current_run_id = NULLIF(?, ''), stage_key = ?, completed_at_ms = ?,
+    cancelled_at_ms = ?, revision = revision + 1, updated_at_ms = ?
 WHERE task_id = ? AND state = ? AND COALESCE(current_run_id, '') = ?`,
-		nextState, nextRunID, millis(now), taskID, expectedState, expectedRunID)
+		nextState, nextRunID, nextStage, completedAt, cancelledAt, millis(now), taskID, expectedState, expectedRunID)
 	if err != nil {
 		return Task{}, fmt.Errorf("change task: %w", err)
 	}
@@ -305,7 +322,8 @@ func scanTask(row rowScanner) (Task, error) {
 	var updatedAt int64
 	var scheduledFor, processedAt, recurrenceScheduledFor sql.NullInt64
 	var recurrenceRevision, executorRevision sql.NullInt64
-	var projectID, cwdOverride, recurrenceID sql.NullString
+	var projectID, cwdOverride, recurrenceID, activeGateID, complexity sql.NullString
+	var completedAt, cancelledAt sql.NullInt64
 	if err := row.Scan(
 		&task.ID,
 		&projectID,
@@ -323,6 +341,12 @@ func scanTask(row rowScanner) (Task, error) {
 		&recurrenceID,
 		&recurrenceRevision,
 		&recurrenceScheduledFor,
+		&task.Generation,
+		&task.StageKey,
+		&activeGateID,
+		&completedAt,
+		&cancelledAt,
+		&complexity,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
@@ -339,6 +363,10 @@ func scanTask(row rowScanner) (Task, error) {
 	task.RecurrenceID = recurrenceID.String
 	task.RecurrenceRevision = nullIntPointer(recurrenceRevision)
 	task.RecurrenceScheduledFor = nullTimePointer(recurrenceScheduledFor)
+	task.ActiveGateID = activeGateID.String
+	task.CompletedAt = nullTimePointer(completedAt)
+	task.CancelledAt = nullTimePointer(cancelledAt)
+	task.ExecutionComplexity = complexity.String
 	task.CreatedAt = fromMillis(createdAt)
 	task.UpdatedAt = fromMillis(updatedAt)
 	return task, nil
@@ -349,7 +377,8 @@ SELECT task_id, project_id, title, state, COALESCE(current_run_id, ''), revision
        executor_agent_id, executor_acp_connection_revision, cwd_override,
        scheduled_for_ms, COALESCE(schedule_time_zone, ''), COALESCE(missed_run_policy, ''),
        schedule_processed_at_ms, recurrence_id, recurrence_revision,
-       recurrence_scheduled_for_ms, created_at_ms, updated_at_ms
+       recurrence_scheduled_for_ms, generation, stage_key, active_gate_id,
+       completed_at_ms, cancelled_at_ms, execution_complexity, created_at_ms, updated_at_ms
 FROM tasks`
 
 func nullStringPointer(value sql.NullString) *string {

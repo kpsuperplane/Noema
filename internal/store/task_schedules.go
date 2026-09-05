@@ -36,6 +36,7 @@ type TaskCommandResult struct {
 	Event                WorkEvent
 	RecurrenceID         string
 	ObsoleteRecurrenceID string
+	DocumentDigest       string
 	Replayed             bool
 }
 
@@ -144,7 +145,7 @@ func (s *Store) CreateTaskWithOptions(
 		return TaskCommandResult{}, err
 	}
 	task := Task{ID: id, ProjectID: options.ProjectID, Title: title, State: TaskCaptured,
-		Revision: 1, ExecutorAgentID: options.ExecutorAgentID,
+		Revision: 1, Generation: 1, StageKey: "inbox", ExecutorAgentID: options.ExecutorAgentID,
 		ExecutorAcpConnectionRevision: executorRevision, CwdOverride: cloneString(options.CwdOverride),
 		CreatedAt: now, UpdatedAt: now}
 	applyScheduleToTask(&task, options.Schedule)
@@ -897,7 +898,7 @@ func materializeOccurrenceTx(
 		}
 	}
 	task := Task{ID: id, ProjectID: value.ProjectID, Title: value.Title, State: TaskCaptured,
-		Revision: 1, ExecutorAgentID: value.ExecutorAgentID,
+		Revision: 1, Generation: 1, StageKey: "inbox", ExecutorAgentID: value.ExecutorAgentID,
 		ExecutorAcpConnectionRevision: cloneInt(value.ExecutorAcpConnectionRevision),
 		CwdOverride:                   cloneString(value.CwdOverride), ScheduledFor: &due,
 		ScheduleTimeZone: value.TimeZone, MissedRunPolicy: string(value.MissedRunPolicy),

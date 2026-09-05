@@ -25,6 +25,155 @@ type TaskDocument struct {
 	Digest  string
 }
 
+// TaskDocumentStage is one durable replacement prepared before its database command.
+type TaskDocumentStage struct {
+	TaskID, RequestDigest, ExpectedDigest string
+	Document                              TaskDocument
+}
+
+// PrepareTaskDocumentReplace checks the current digest and saves one replacement.
+func PrepareTaskDocumentReplace(root *os.Root, taskID, expectedDigest, content, requestDigest string) (TaskDocumentStage, error) {
+	current, err := ReadTaskDocument(root, taskID)
+	if err != nil {
+		return TaskDocumentStage{}, err
+	}
+	if current.Digest != expectedDigest {
+		return TaskDocumentStage{}, errors.New("Task document changed")
+	}
+	if !validTaskDocumentDigest(requestDigest) || len(content) > taskDocumentLimit || !utf8.ValidString(content) {
+		return TaskDocumentStage{}, errors.New("invalid Task document replacement")
+	}
+	stage := TaskDocumentStage{TaskID: taskID, RequestDigest: requestDigest,
+		ExpectedDigest: expectedDigest, Document: taskDocument(content)}
+	task, err := openTaskDocumentRoot(root, taskID)
+	if err != nil {
+		return TaskDocumentStage{}, err
+	}
+	defer task.Close()
+	name := taskDocumentStageName(requestDigest)
+	file, err := task.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		existing, readErr := readBoundedRegularFile(task, name, taskDocumentLimit)
+		if readErr != nil || taskDocument(string(existing)) != stage.Document {
+			return TaskDocumentStage{}, errors.New("Task document stage has different content")
+		}
+		return stage, nil
+	}
+	if err != nil {
+		return TaskDocumentStage{}, err
+	}
+	if written, writeErr := io.WriteString(file, content); writeErr != nil || written != len(content) {
+		_ = file.Close()
+		_ = task.Remove(name)
+		if writeErr == nil {
+			writeErr = io.ErrShortWrite
+		}
+		return TaskDocumentStage{}, writeErr
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return TaskDocumentStage{}, err
+	}
+	if err := file.Close(); err != nil {
+		return TaskDocumentStage{}, err
+	}
+	if err := syncDirectory(task, "."); err != nil {
+		return TaskDocumentStage{}, err
+	}
+	return stage, nil
+}
+
+// CommitTaskDocumentStage atomically publishes one prepared replacement.
+func CommitTaskDocumentStage(root *os.Root, stage TaskDocumentStage) (TaskDocument, error) {
+	if !validTaskDocumentDigest(stage.RequestDigest) || stage.Document != taskDocument(stage.Document.Content) {
+		return TaskDocument{}, errors.New("invalid Task document stage")
+	}
+	task, err := openTaskDocumentRoot(root, stage.TaskID)
+	if err != nil {
+		return TaskDocument{}, err
+	}
+	defer task.Close()
+	current, err := readTaskDocumentFile(task)
+	if err != nil {
+		return TaskDocument{}, err
+	}
+	name := taskDocumentStageName(stage.RequestDigest)
+	if current.Digest == stage.Document.Digest {
+		_ = task.Remove(name)
+		return current, nil
+	}
+	if current.Digest != stage.ExpectedDigest {
+		return TaskDocument{}, errors.New("Task document changed before publication")
+	}
+	staged, err := readBoundedRegularFile(task, name, taskDocumentLimit)
+	if err != nil || taskDocument(string(staged)) != stage.Document {
+		return TaskDocument{}, errors.New("Task document stage is unavailable")
+	}
+	if err := task.Rename(name, taskDocumentName); err != nil {
+		return TaskDocument{}, err
+	}
+	if err := syncDirectory(task, "."); err != nil {
+		return TaskDocument{}, err
+	}
+	return stage.Document, nil
+}
+
+// RecoverTaskDocumentStage publishes or verifies one committed receipt result.
+func RecoverTaskDocumentStage(root *os.Root, taskID, requestDigest, documentDigest string) (TaskDocument, error) {
+	current, err := ReadTaskDocument(root, taskID)
+	if err == nil && current.Digest == documentDigest {
+		return current, nil
+	}
+	task, openErr := openTaskDocumentRoot(root, taskID)
+	if openErr != nil {
+		return TaskDocument{}, errors.Join(err, openErr)
+	}
+	defer task.Close()
+	name := taskDocumentStageName(requestDigest)
+	staged, readErr := readBoundedRegularFile(task, name, taskDocumentLimit)
+	if readErr != nil || taskDocument(string(staged)).Digest != documentDigest {
+		return TaskDocument{}, errors.New("committed Task document stage is unavailable")
+	}
+	if renameErr := task.Rename(name, taskDocumentName); renameErr != nil {
+		return TaskDocument{}, renameErr
+	}
+	if syncErr := syncDirectory(task, "."); syncErr != nil {
+		return TaskDocument{}, syncErr
+	}
+	return taskDocument(string(staged)), nil
+}
+
+// DiscardTaskDocumentStage removes one uncommitted replacement.
+func DiscardTaskDocumentStage(root *os.Root, taskID, requestDigest string) error {
+	task, err := openTaskDocumentRoot(root, taskID)
+	if err != nil {
+		return err
+	}
+	defer task.Close()
+	if err := task.Remove(taskDocumentStageName(requestDigest)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncDirectory(task, ".")
+}
+
+func openTaskDocumentRoot(root *os.Root, taskID string) (*os.Root, error) {
+	name, err := taskName(taskID)
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := openRealRoot(root, taskRootName)
+	if err != nil {
+		return nil, err
+	}
+	defer tasks.Close()
+	return openRealRoot(tasks, name)
+}
+func taskDocumentStageName(digest string) string { return ".TASK.md.publish-" + digest }
+func validTaskDocumentDigest(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32 && hex.EncodeToString(decoded) == value
+}
+
 // CreatePendingTaskDocument writes a durable document before its Task row commits.
 func CreatePendingTaskDocument(root *os.Root, taskID string, content string) (TaskDocument, error) {
 	if root == nil {

@@ -205,12 +205,12 @@ func (r *mutationRootResolver) CaptureTask(ctx context.Context, input model.Capt
 
 // UpdateInboxTask is the resolver for the updateInboxTask field.
 func (r *mutationRootResolver) UpdateInboxTask(ctx context.Context, input model.UpdateInboxTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: UpdateInboxTask - updateInboxTask"))
+	return r.updateInboxTask(ctx, input)
 }
 
 // QueueTask is the resolver for the queueTask field.
 func (r *mutationRootResolver) QueueTask(ctx context.Context, input model.QueueTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: QueueTask - queueTask"))
+	return r.queueTask(ctx, input)
 }
 
 // ScheduleTask is the resolver for the scheduleTask field.
@@ -265,22 +265,22 @@ func (r *mutationRootResolver) RunTaskRecurrenceNow(ctx context.Context, input m
 
 // AnswerTask is the resolver for the answerTask field.
 func (r *mutationRootResolver) AnswerTask(ctx context.Context, input model.AnswerTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: AnswerTask - answerTask"))
+	return r.answerTask(ctx, input)
 }
 
 // RetryTask is the resolver for the retryTask field.
 func (r *mutationRootResolver) RetryTask(ctx context.Context, input model.RetryTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: RetryTask - retryTask"))
+	return r.retryTask(ctx, input)
 }
 
 // CancelTask is the resolver for the cancelTask field.
 func (r *mutationRootResolver) CancelTask(ctx context.Context, input model.CancelTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: CancelTask - cancelTask"))
+	return r.cancelTask(ctx, input)
 }
 
 // ReopenTask is the resolver for the reopenTask field.
 func (r *mutationRootResolver) ReopenTask(ctx context.Context, input model.ReopenTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: ReopenTask - reopenTask"))
+	return r.reopenTask(ctx, input)
 }
 
 // UpdateTaskModelPoolEntry is the resolver for the updateTaskModelPoolEntry field.
@@ -648,12 +648,12 @@ func (r *queryRootResolver) ProjectDocument(ctx context.Context, projectID strin
 
 // TasksOverview is the resolver for the tasksOverview field.
 func (r *queryRootResolver) TasksOverview(ctx context.Context, workspaceID string, projectID *string) (*model.TasksOverview, error) {
-	panic(fmt.Errorf("not implemented: TasksOverview - tasksOverview"))
+	return r.tasksOverview(ctx, workspaceID, projectID)
 }
 
 // Tasks is the resolver for the tasks field.
 func (r *queryRootResolver) Tasks(ctx context.Context, input model.TaskListInput, first *int, after *string) (*model.TaskConnection, error) {
-	panic(fmt.Errorf("not implemented: Tasks - tasks"))
+	return r.tasks(ctx, input, first, after)
 }
 
 // NeedsYou is the resolver for the needsYou field.
@@ -673,12 +673,12 @@ func (r *queryRootResolver) PendingHumanInterventions(ctx context.Context, conve
 
 // TaskHistory is the resolver for the taskHistory field.
 func (r *queryRootResolver) TaskHistory(ctx context.Context, workspaceID string, projectID *string, kind *model.TerminalTaskKind, first *int, after *string) (*model.TaskConnection, error) {
-	panic(fmt.Errorf("not implemented: TaskHistory - taskHistory"))
+	return r.taskHistory(ctx, workspaceID, projectID, kind, first, after)
 }
 
 // TaskRunItems is the resolver for the taskRunItems field.
 func (r *queryRootResolver) TaskRunItems(ctx context.Context, runID string, first *int, after *string) (*model.TaskRunItemConnection, error) {
-	panic(fmt.Errorf("not implemented: TaskRunItems - taskRunItems"))
+	return r.taskRunItems(ctx, runID, first, after)
 }
 
 // RuntimeDebugProfile is the resolver for the runtimeDebugProfile field.
