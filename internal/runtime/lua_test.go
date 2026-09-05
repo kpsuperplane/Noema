@@ -67,10 +67,50 @@ return { original = input, decoded = decoded, null = json.null, array = json.arr
 		`input.name = "changed" return input`,
 		`input.items[1] = "changed" return input`,
 		`table.insert(input.items, "changed") return input`,
+		`local _, backing = pairs(input.items) backing[1] = "changed" return input`,
 	} {
 		if result, ok := runLuaToolForTest(t, mutation, `{"name":"ordinary","items":[]}`); ok {
 			t.Fatalf("read-only input mutation succeeded: %#v", result)
 		}
+	}
+}
+
+func TestLuaRejectsOutOfRangeIntegralInput(t *testing.T) {
+	payload, success := runLuaToolForTest(t, `return input.value`, `{"value":9223372036854775809}`)
+	if success {
+		t.Fatalf("out-of-range integer was rounded: %#v", payload)
+	}
+}
+
+func TestLuaRejectsInvalidUTF8Output(t *testing.T) {
+	for name, source := range map[string]string{
+		"value": `return string.char(255)`,
+		"keys":  `local value = json.object() value[string.char(255)] = 1 value[string.char(254)] = 2 return value`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			payload, success := runLuaToolForTest(t, source, "")
+			if success {
+				t.Fatalf("invalid UTF-8 output succeeded: %#v", payload)
+			}
+		})
+	}
+}
+
+func TestLuaOutputLimitUsesUnescapedJSON(t *testing.T) {
+	for name, source := range map[string]string{
+		"result": `return string.rep("<", 256 * 1024)`,
+		"encode": `return json.encode(string.rep("<", 200 * 1024))`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			payload, success := runLuaToolForTest(t, source, "")
+			if !success {
+				t.Fatalf("bounded output failed: %#v", payload)
+			}
+			value, ok := payload["value"].(string)
+			if !ok || !strings.Contains(value, "<") {
+				t.Fatalf("bounded output changed: %#v", payload)
+			}
+		})
 	}
 }
 

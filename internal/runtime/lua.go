@@ -95,7 +95,7 @@ func executeLuaTool(ctx context.Context, raw json.RawMessage) (json.RawMessage, 
 	if err != nil {
 		return toolFailure("execution_failed", "Sandboxed Lua execution failed"), false
 	}
-	payload, err := json.Marshal(map[string]any{"value": value})
+	payload, err := marshalLuaJSON(map[string]any{"value": value})
 	if err != nil || len(payload) > luaOutputLimit+32 {
 		return toolFailure("execution_failed", "Lua output is invalid or too large"), false
 	}
@@ -130,7 +130,7 @@ func runLua(source string, input any) (any, error) {
 		if err != nil {
 			return err
 		}
-		encoded, err := json.Marshal(output)
+		encoded, err := marshalLuaJSON(output)
 		if err != nil || len(encoded) > luaOutputLimit {
 			return errors.New("Lua output is invalid or too large")
 		}
@@ -229,7 +229,7 @@ func (s *luaSandbox) load() error {
 		if err != nil {
 			return nil, errors.New("invalid JSON value")
 		}
-		encoded, err := json.Marshal(value)
+		encoded, err := marshalLuaJSON(value)
 		if err != nil || len(encoded) > luaOutputLimit {
 			return nil, errors.New("JSON output is too large")
 		}
@@ -266,6 +266,16 @@ func decodeLuaJSON(raw []byte) (any, error) {
 		return nil, errors.New("JSON exceeds its limits")
 	}
 	return value, nil
+}
+
+func marshalLuaJSON(value any) ([]byte, error) {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(output.Bytes(), []byte("\n")), nil
 }
 
 func decodeUniqueLuaJSON(raw []byte) (any, error) {
@@ -388,10 +398,15 @@ func (s *luaSandbox) jsonToLua(value any, readOnly bool) (lua.Value, error) {
 		s.runtime.RequireBytes(len(value))
 		return lua.StringValue(value), nil
 	case json.Number:
-		if integer, err := strconv.ParseInt(string(value), 10, 64); err == nil {
+		text := string(value)
+		if !strings.ContainsAny(text, ".eE") {
+			integer, err := strconv.ParseInt(text, 10, 64)
+			if err != nil {
+				return lua.NilValue, errors.New("JSON integer is out of range")
+			}
 			return lua.IntValue(integer), nil
 		}
-		number, err := strconv.ParseFloat(string(value), 64)
+		number, err := strconv.ParseFloat(text, 64)
 		if err != nil || math.IsInf(number, 0) || math.IsNaN(number) {
 			return lua.NilValue, errors.New("JSON number is invalid")
 		}
@@ -457,7 +472,7 @@ func (s *luaSandbox) readOnlyProxy(values *lua.Table) *lua.Table {
 	s.runtime.SetEnv(meta, "__len", lua.FunctionValue(length))
 	next := lua.RawGet(s.runtime.GlobalEnv(), lua.StringValue("next"))
 	pairs := lua.NewGoFunction(func(thread *lua.Thread, call *lua.GoCont) (lua.Cont, error) {
-		return call.PushingNext(thread.Runtime, next, lua.TableValue(values), lua.NilValue), nil
+		return call.PushingNext(thread.Runtime, next, lua.TableValue(proxy), lua.NilValue), nil
 	}, "readonly_pairs", 1, false)
 	pairs.SolemnlyDeclareCompliance(lua.ComplyMemSafe | lua.ComplyCpuSafe | lua.ComplyTimeSafe | lua.ComplyIoSafe)
 	s.runtime.SetEnv(meta, "__pairs", lua.FunctionValue(pairs))
@@ -486,7 +501,7 @@ func (s *luaSandbox) luaToJSON(value lua.Value, depth int, nodes *int, active ma
 		return number, nil
 	}
 	if text, ok := value.TryString(); ok {
-		if len(text) > luaJSONMaximumString {
+		if !utf8.ValidString(text) || len(text) > luaJSONMaximumString {
 			return nil, errors.New("Lua string exceeds JSON limits")
 		}
 		return text, nil
@@ -552,7 +567,7 @@ func (s *luaSandbox) luaToJSON(value lua.Value, depth int, nodes *int, active ma
 	result := make(map[string]any, len(entries))
 	for _, entry := range entries {
 		key, ok := entry[0].TryString()
-		if !ok || len(key) > luaJSONMaximumString {
+		if !ok || !utf8.ValidString(key) || len(key) > luaJSONMaximumString {
 			return nil, errors.New("Lua object keys are invalid")
 		}
 		item, err := s.luaToJSON(entry[1], depth+1, nodes, active)
