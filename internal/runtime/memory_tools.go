@@ -40,11 +40,12 @@ func chatTools() []provider.GenerationTool {
 			InputSchema: append(json.RawMessage(nil), searchMemorySchema...),
 		},
 		fileDownloadTool(),
+		luaRunTool(),
 	}
 }
 
 func supportsChatTool(name string) bool {
-	return name == fileDownloadName || name == fileParseName || name == taskInspectName ||
+	return name == luaRunName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
@@ -55,6 +56,8 @@ func (c *Chat) executeChatTool(
 	arguments json.RawMessage,
 ) (json.RawMessage, bool) {
 	switch name {
+	case luaRunName:
+		return executeLuaTool(ctx, arguments)
 	case fileParseName:
 		return c.parseFileTool(ctx, conversation, arguments)
 	case taskInspectName:

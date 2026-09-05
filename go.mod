@@ -7,6 +7,7 @@ require (
 	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
 	github.com/abemedia/go-cfb v0.2.0
 	github.com/adhocore/gronx v1.20.3
+	github.com/arnodel/golua v0.1.2
 	github.com/coder/websocket v1.8.15
 	github.com/ergochat/webpush-go/v2 v2.0.0
 	github.com/giraffesyo/pdf v0.6.0

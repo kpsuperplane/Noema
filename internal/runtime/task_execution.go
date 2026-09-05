@@ -316,6 +316,7 @@ func taskRoleFiles(kind string) []string {
 
 func taskExecutionTools(kind string) []provider.GenerationTool {
 	files := []provider.GenerationTool{
+		luaRunTool(),
 		{Name: taskFilesList, Description: "List one rooted Task directory level.", InputSchema: taskListSchema},
 		{Name: taskFilesRead, Description: "Read one bounded UTF-8 Task file.", InputSchema: taskPathSchema},
 		fileParseTool(),
@@ -351,6 +352,9 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		return toolFailure("unsupported_tool", "Tool is unavailable for this Task role"), false, false, false
 	}
 	switch name {
+	case luaRunName:
+		payload, success := executeLuaTool(ctx, raw)
+		return payload, success, false, false
 	case taskFilesList:
 		var input struct {
 			Path string `json:"path"`
@@ -491,7 +495,7 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 
 func taskToolAllowed(kind, name string) bool {
 	switch name {
-	case taskFilesList, taskFilesRead, fileParseName:
+	case luaRunName, taskFilesList, taskFilesRead, fileParseName:
 		return kind == "planner" || kind == "executor" || kind == "reviewer"
 	case taskFilesWrite, taskFilesDelete, taskReportBlocked:
 		return kind == "planner" || kind == "executor"
