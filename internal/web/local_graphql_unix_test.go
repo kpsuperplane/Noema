@@ -14,7 +14,14 @@ import (
 	"time"
 )
 
-func TestLocalGraphQLSocketIsPrivatePostOnlyAndRemoved(t *testing.T) {
+func TestLocalSocketIsPrivateAndRemoved(t *testing.T) {
+	assets := t.TempDir()
+	for name, body := range map[string]string{"index.html": "<html>app</html>", "app.js": "// app"} {
+		if err := os.WriteFile(filepath.Join(assets, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("NOEMA_DEV_ASSET_DIR", assets)
 	path := filepath.Join(t.TempDir(), "run", "graphql.sock")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
@@ -52,13 +59,43 @@ func TestLocalGraphQLSocketIsPrivatePostOnlyAndRemoved(t *testing.T) {
 	}}
 	client := &http.Client{Transport: transport}
 	defer transport.CloseIdleConnections()
-	for _, target := range []string{"/graphql", "/auth/status", "/graphql/ws"} {
+	for _, target := range []string{"/graphql", "/auth/recovery", "/oauth/authorize", "/graphql/schema.graphql", "/graphql/ws?query=%7B__typename%7D"} {
 		request, _ := http.NewRequest(http.MethodGet, "http://local"+target, nil)
 		response, requestErr := client.Do(request)
 		if requestErr != nil || response.StatusCode != http.StatusNotFound {
 			t.Fatalf("GET %s = %v, %v", target, response, requestErr)
 		}
 		_ = response.Body.Close()
+	}
+	for target, want := range map[string]string{
+		"/auth/status":   `{"state":"authenticated"}`,
+		"/graphql/ws":    "graphql",
+		"/tasks":         "<html>app</html>",
+		"/assets/app.js": "// app",
+	} {
+		request, _ := http.NewRequest(http.MethodGet, "http://local"+target, nil)
+		if target == "/graphql/ws" {
+			request.Header.Set("Upgrade", "websocket")
+		}
+		response, requestErr := client.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK || string(body) != want {
+			t.Fatalf("GET %s = %d %q", target, response.StatusCode, body)
+		}
+	}
+	for _, target := range []string{"/auth/status", "/tasks", "/graphql/ws"} {
+		response, requestErr := client.Post("http://local"+target, "application/json", strings.NewReader("{}"))
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("POST %s = %d", target, response.StatusCode)
+		}
 	}
 	response, err := client.Post("http://local/graphql", "application/json", strings.NewReader("{}"))
 	if err != nil {

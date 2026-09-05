@@ -165,25 +165,27 @@ The operator must keep the edge private while using this mode for recovery.
 Before public access returns, the operator must review passkeys and native
 grants, disable the mode, restart, and verify passkey login.
 
-### Local Codex GraphQL
+### Local Codex web access
 
 `web.local_graphql_socket` defaults to `false`. When enabled, Noema creates
 `${NOEMA_HOME}/run/graphql.sock` for local Codex development.
 
-The socket uses HTTP GraphQL requests over a Unix domain socket. Its parent
+The socket uses HTTP requests over a Unix domain socket. Its parent
 directory uses mode `0700`, and the socket uses mode `0600`.
 
-Each socket request authenticates as `human:local`. It bypasses passkey login,
-recent-passkey checks, browser sessions, and the zero-passkey setup barrier.
+Socket requests bypass public passkey admission and the zero-passkey setup barrier.
+They do not create browser sessions. Shared GraphQL resolver checks still apply.
+Operations that require browser-session context can remain unavailable.
 
-The socket exposes only GraphQL POST requests. It does not expose GraphiQL,
-WebSockets, assets, artifacts, recovery, OAuth, or other HTTP routes.
+The socket exposes GraphQL POST requests, GraphQL WebSockets, app pages, and static assets.
+`GET /auth/status` reports authenticated socket access without creating a browser session.
+GraphiQL, the schema endpoint, artifacts, recovery, and OAuth routes remain unavailable.
 
-A separate socket router constructs the `human:local` principal at its boundary
-and calls the shared GraphQL schema. No header, path, Host value, source address,
-or public-listener middleware branch can select this authority.
+A separate socket router calls the shared GraphQL schema.
+No header, path, Host value, source address, or public-listener branch selects this socket authority.
 
-The normal GraphQL authorization and resource limits still apply. The stdio MCP
+The normal GraphQL authorization and resource limits still apply.
+GraphQL POST bodies remain limited to 64 KiB. The stdio MCP
 flag remains independent and continues to guard process creation.
 
 Enabling the socket does not change setup state, create browser sessions, or
@@ -191,6 +193,9 @@ authorize any TCP request. Its bypass exists only for each socket request.
 
 The public listener and reverse proxy must never route this socket. Noema does
 not provide an unauthenticated TCP fallback or a local bearer token.
+
+Browser inspection tools can forward requests directly through this socket.
+Keep that forwarding inside the inspection process, without an unauthenticated TCP relay.
 
 Local Codex can use any Unix-socket HTTP client. For example:
 

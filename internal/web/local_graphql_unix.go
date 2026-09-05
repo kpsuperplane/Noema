@@ -10,13 +10,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
 
 const localGraphQLBodyLimit = 64 * 1024
 
-// LocalGraphQLServer serves the private local GraphQL endpoint.
+// LocalGraphQLServer serves GraphQL and the web app through the private local socket.
 type LocalGraphQLServer struct {
 	listener net.Listener
 	server   *http.Server
@@ -59,9 +60,26 @@ func NewLocalGraphQLServer(path string, graphql http.Handler) (*LocalGraphQLServ
 		_ = os.Remove(path)
 		return nil, fmt.Errorf("protect local GraphQL socket: %w", err)
 	}
+	assets := NewAssetHandler()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if r.Method == http.MethodGet {
+			switch r.URL.Path {
+			case "/auth/status":
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"state":"authenticated"}`))
+			case "/graphql/ws":
+				if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+					http.NotFound(w, r)
+					return
+				}
+				graphql.ServeHTTP(w, r)
+			default:
+				assets.ServeHTTP(w, r)
+			}
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/graphql" {
 			http.NotFound(w, r)
 			return
