@@ -206,7 +206,8 @@ The gallery also opens modal and mobile drawer previews for bounded edits.
 The project, schedule, agent, folder, and Markdown controls are all icon-only.
 
 **Suggestion:** Preserve the current document editor. Remove the visible Task title and Instructions labels.
-Keep accessible names on both fields. Refine the footer.
+Keep accessible names on both fields. Let the instructions editor fill the remaining height above the options and actions.
+Use the existing capture document sizing for both rich text and Markdown source. Refine the footer.
 Show Add to Inbox beside Run now. Give project and scheduling controls visible labels.
 Place the Advanced section above the action row, at full width.
 Keep agent, folder, and source controls within that section. Show selected non-default values when they matter.

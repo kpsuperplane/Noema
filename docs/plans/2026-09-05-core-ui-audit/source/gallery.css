@@ -23,8 +23,12 @@
 
 .task-info .astryx-selector{width:auto;max-width:100%}
 
-.capture .task-instructions-editor{min-height:240px}.task-instructions-editor{min-width:0}.task-instructions-editor:focus-within{outline:var(--border-width) solid var(--noema-border-default);outline-offset:var(--spacing-2);border-radius:var(--radius-element)}
+.capture .task-instructions-editor{flex-grow:1;min-height:240px;cursor:text}.task-instructions-editor{min-width:0}.task-instructions-editor:focus-within{outline:var(--border-width) solid var(--noema-border-default);outline-offset:var(--spacing-2);border-radius:var(--radius-element)}
 @container(max-width:620px){.capture-title{font-size:22px}.capture .task-instructions-editor{min-height:200px}}
 
 /* The standalone gallery scrolls as one document, outside the app viewport shell. */
 html,body,#root{height:auto;min-height:100%}
+
+/* Carry the capture pane's remaining height through the shared editor hosts. */
+.capture .task-instructions-editor,.capture [data-slot="markdown-inline-editor"],.capture [data-slot="markdown-inline-editor-host"],.capture [data-slot="markdown-editor"],.capture [data-slot="markdown-editor"]>div,.capture .milkdown,.capture .astryx-field>div:has(>.astryx-textarea){display:flex;flex-direction:column;flex-grow:1}
+.capture .ProseMirror,.capture .astryx-textarea,.capture .astryx-textarea textarea{flex-grow:1}

@@ -133,3 +133,13 @@ The gallery keeps edits within the selected mock; it does not implement a task s
 - The dialog retains the task card, consequence, Keep task, and Cancel task.
 - The gallery build passed. Reviewed desktop and phone layouts and submitted the sample modal at both widths.
 - No text fields, horizontal overflow, or browser page errors occurred.
+
+## Capture editor height
+
+- New task instructions fill the remaining pane height above Advanced and the action row.
+- Rich text and Markdown source both stretch through the existing editor wrappers.
+- Clicking the blank editor area focuses the text editor.
+- Reviewed desktop and phone widths with standard and taller panes, plus expanded Advanced controls.
+- Increasing pane height from 545px to 800px increased editor height by 255px at both widths.
+- Action rows retained their bottom spacing. No horizontal overflow or browser page errors occurred.
+- The gallery build passed. Product UI source remains unchanged.
