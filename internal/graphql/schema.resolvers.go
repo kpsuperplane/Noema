@@ -85,26 +85,41 @@ func (r *mutationRootResolver) AddMcpConnection(ctx context.Context, input model
 
 // SaveCapabilityConnectionPolicy is the resolver for the saveCapabilityConnectionPolicy field.
 func (r *mutationRootResolver) SaveCapabilityConnectionPolicy(ctx context.Context, input model.SaveCapabilityConnectionPolicyInput) (*model.CapabilityConnection, error) {
+	if input.Kind == model.CapabilityIntegrationKindAPI {
+		return r.saveAdapterConnectionPolicy(ctx, input)
+	}
 	return r.saveMCPConnectionPolicy(ctx, input)
 }
 
 // SaveCapabilityConnectionLabel is the resolver for the saveCapabilityConnectionLabel field.
 func (r *mutationRootResolver) SaveCapabilityConnectionLabel(ctx context.Context, input model.SaveCapabilityConnectionLabelInput) (*model.CapabilityConnection, error) {
+	if input.Kind == model.CapabilityIntegrationKindAPI {
+		return r.saveAdapterConnectionLabel(ctx, input)
+	}
 	return r.saveMCPConnectionLabel(ctx, input)
 }
 
 // SaveCapabilityToolOverride is the resolver for the saveCapabilityToolOverride field.
 func (r *mutationRootResolver) SaveCapabilityToolOverride(ctx context.Context, input model.SaveCapabilityToolOverrideInput) (*model.CapabilityManagedTool, error) {
+	if input.Kind == model.CapabilityIntegrationKindAPI {
+		return r.changeAdapterTool(ctx, input)
+	}
 	return r.changeMCPTool(ctx, input)
 }
 
 // ResetCapabilityToolPolicy is the resolver for the resetCapabilityToolPolicy field.
 func (r *mutationRootResolver) ResetCapabilityToolPolicy(ctx context.Context, input model.ResetCapabilityToolPolicyInput) (*model.CapabilityManagedTool, error) {
+	if input.Kind == model.CapabilityIntegrationKindAPI {
+		return r.changeAdapterTool(ctx, input)
+	}
 	return r.changeMCPTool(ctx, input)
 }
 
 // SetCapabilityToolEnabled is the resolver for the setCapabilityToolEnabled field.
 func (r *mutationRootResolver) SetCapabilityToolEnabled(ctx context.Context, input model.SetCapabilityToolEnabledInput) (*model.CapabilityManagedTool, error) {
+	if input.Kind == model.CapabilityIntegrationKindAPI {
+		return r.changeAdapterTool(ctx, input)
+	}
 	return r.changeMCPTool(ctx, input)
 }
 
@@ -423,27 +438,27 @@ func (r *mutationRootResolver) CreateTaskLocalArtifact(ctx context.Context, inpu
 
 // ApproveAdapterDefinition is the resolver for the approveAdapterDefinition field.
 func (r *mutationRootResolver) ApproveAdapterDefinition(ctx context.Context, input model.ApproveAdapterDefinitionInput) (*model.AdapterDefinition, error) {
-	panic(fmt.Errorf("not implemented: ApproveAdapterDefinition - approveAdapterDefinition"))
+	return r.approveAdapterDefinition(ctx, input)
 }
 
 // CancelAdapterDefinition is the resolver for the cancelAdapterDefinition field.
 func (r *mutationRootResolver) CancelAdapterDefinition(ctx context.Context, input model.CancelAdapterDefinitionInput) (bool, error) {
-	panic(fmt.Errorf("not implemented: CancelAdapterDefinition - cancelAdapterDefinition"))
+	return r.cancelAdapterDefinition(ctx, input)
 }
 
 // SetupAdapterConnection is the resolver for the setupAdapterConnection field.
 func (r *mutationRootResolver) SetupAdapterConnection(ctx context.Context, input model.SetupAdapterConnectionInput) (*model.AdapterDefinition, error) {
-	panic(fmt.Errorf("not implemented: SetupAdapterConnection - setupAdapterConnection"))
+	return nil, fmt.Errorf("credential adapter setup is unavailable")
 }
 
 // DeleteAdapterConnection is the resolver for the deleteAdapterConnection field.
 func (r *mutationRootResolver) DeleteAdapterConnection(ctx context.Context, input model.DeleteAdapterConnectionInput) (bool, error) {
-	panic(fmt.Errorf("not implemented: DeleteAdapterConnection - deleteAdapterConnection"))
+	return r.deleteAdapterConnection(ctx, input)
 }
 
 // DeleteAdapterService is the resolver for the deleteAdapterService field.
 func (r *mutationRootResolver) DeleteAdapterService(ctx context.Context, input model.DeleteAdapterServiceInput) (bool, error) {
-	panic(fmt.Errorf("not implemented: DeleteAdapterService - deleteAdapterService"))
+	return r.deleteAdapterService(ctx, input)
 }
 
 // StartAdapterOauthSetup is the resolver for the startAdapterOauthSetup field.
@@ -483,7 +498,7 @@ func (r *mutationRootResolver) DeleteAdapterOauthApplication(ctx context.Context
 
 // SetAdapterConnectionActive is the resolver for the setAdapterConnectionActive field.
 func (r *mutationRootResolver) SetAdapterConnectionActive(ctx context.Context, input model.SetAdapterConnectionActiveInput) (*model.AdapterDefinition, error) {
-	panic(fmt.Errorf("not implemented: SetAdapterConnectionActive - setAdapterConnectionActive"))
+	return r.setAdapterConnectionActive(ctx, input)
 }
 
 // CreateMcpServer is the resolver for the createMcpServer field.
@@ -538,6 +553,9 @@ func (r *queryRootResolver) Clients(ctx context.Context) ([]*model.Client, error
 
 // CapabilityIntegrations is the resolver for the capabilityIntegrations field.
 func (r *queryRootResolver) CapabilityIntegrations(ctx context.Context, kind model.CapabilityIntegrationKind) ([]*model.CapabilityIntegration, error) {
+	if kind == model.CapabilityIntegrationKindAPI {
+		return r.adapterIntegrations(ctx)
+	}
 	if kind == model.CapabilityIntegrationKindMcp {
 		return r.mcpIntegrations(ctx)
 	}
@@ -546,11 +564,17 @@ func (r *queryRootResolver) CapabilityIntegrations(ctx context.Context, kind mod
 
 // CapabilityConnection is the resolver for the capabilityConnection field.
 func (r *queryRootResolver) CapabilityConnection(ctx context.Context, ref model.CapabilityConnectionRefInput) (*model.CapabilityConnection, error) {
+	if ref.Kind == model.CapabilityIntegrationKindAPI {
+		return r.adapterConnection(ctx, ref)
+	}
 	return r.mcpConnection(ctx, ref)
 }
 
 // CapabilityTools is the resolver for the capabilityTools field.
 func (r *queryRootResolver) CapabilityTools(ctx context.Context, ref model.CapabilityConnectionRefInput) ([]*model.CapabilityManagedTool, error) {
+	if ref.Kind == model.CapabilityIntegrationKindAPI {
+		return r.adapterTools(ctx, ref)
+	}
 	return r.mcpTools(ctx, ref)
 }
 
@@ -726,17 +750,17 @@ func (r *queryRootResolver) McpServers(ctx context.Context) ([]*model.McpServer,
 
 // AdapterDefinitions is the resolver for the adapterDefinitions field.
 func (r *queryRootResolver) AdapterDefinitions(ctx context.Context) ([]*model.AdapterDefinition, error) {
-	panic(fmt.Errorf("not implemented: AdapterDefinitions - adapterDefinitions"))
+	return r.adapterDefinitions(ctx)
 }
 
 // AdapterOauthState is the resolver for the adapterOauthState field.
 func (r *queryRootResolver) AdapterOauthState(ctx context.Context) (*model.AdapterOauthState, error) {
-	panic(fmt.Errorf("not implemented: AdapterOauthState - adapterOauthState"))
+	return r.adapterOauthState(ctx)
 }
 
 // AdapterManagement is the resolver for the adapterManagement field.
 func (r *queryRootResolver) AdapterManagement(ctx context.Context) (*model.AdapterManagement, error) {
-	panic(fmt.Errorf("not implemented: AdapterManagement - adapterManagement"))
+	return r.adapterManagement(ctx)
 }
 
 // AdapterOauthAttempt is the resolver for the adapterOauthAttempt field.

@@ -123,8 +123,14 @@ func (r *TaskExecution) ResolveActionRequest(ctx context.Context, actionID strin
 		payload, _ := json.Marshal(actionResultPayload(action))
 		return action, r.completeTaskMCPResult(ctx, action, call, payload, false)
 	}
-	payload, success, paused, err := r.executeTaskMCPAction(ctx,
-		store.Task{ID: action.TaskID}, store.TaskRun{ID: action.RunID, TaskID: action.TaskID, Generation: action.TaskGeneration}, call, action)
+	var payload json.RawMessage
+	var success, paused bool
+	if action.AuthorizationContext["adapter_binding"] != nil {
+		payload, success, paused, err = r.executeTaskAdapterAction(ctx, action)
+	} else {
+		payload, success, paused, err = r.executeTaskMCPAction(ctx,
+			store.Task{ID: action.TaskID}, store.TaskRun{ID: action.RunID, TaskID: action.TaskID, Generation: action.TaskGeneration}, call, action)
+	}
 	if err != nil || paused {
 		return action, err
 	}

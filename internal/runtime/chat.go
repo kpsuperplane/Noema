@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/kpsuperplane/noema/internal/adapter"
 	_ "time/tzdata"
 
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
@@ -134,6 +136,7 @@ type Chat struct {
 	home       *os.Root
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
+	adapters   *adapter.Service
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
@@ -162,7 +165,7 @@ func NewChat(
 	openAI provider.Generator,
 	homeRoot *os.Root,
 	memoryStore *noemamemory.Store,
-	mcpServices ...*noemamcp.Service,
+	services ...any,
 ) (*Chat, error) {
 	if database == nil || openRouter == nil || codex == nil || openAI == nil || homeRoot == nil || memoryStore == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
@@ -194,12 +197,18 @@ func NewChat(
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var mcpService *noemamcp.Service
-	if len(mcpServices) != 0 {
-		mcpService = mcpServices[0]
+	var adapterService *adapter.Service
+	for _, service := range services {
+		switch value := service.(type) {
+		case *noemamcp.Service:
+			mcpService = value
+		case *adapter.Service:
+			adapterService = value
+		}
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService,
+		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService, adapters: adapterService,
 		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
 		done:             make(chan struct{}),

@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/mcp"
@@ -34,6 +35,7 @@ type Resolver struct {
 	Artifacts        *artifact.Service
 	Memory           *memory.Store
 	MCP              *mcp.Service
+	Adapters         *adapter.Service
 	Notifications    *notification.Service
 	providerAuth     map[string]providerAuthService
 	projectMu        sync.Mutex
@@ -79,3 +81,6 @@ func NewResolver(
 	}
 	return resolver
 }
+
+// SetAdapters adds the credential-free HTTP adapter authority.
+func (r *Resolver) SetAdapters(service *adapter.Service) { r.Adapters = service }

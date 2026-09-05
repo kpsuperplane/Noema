@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/kpsuperplane/noema/internal/adapter"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -54,6 +55,14 @@ func supportsLocalChatTool(name string) bool {
 
 func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error) {
 	result := localChatTools()
+	if c.adapters != nil {
+		result = append(result, c.adapters.SetupTools()...)
+		bindings, err := c.adapters.Bindings()
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, adapter.GenerationTools(bindings)...)
+	}
 	if c.mcp == nil {
 		return result, nil
 	}
@@ -72,6 +81,14 @@ func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
 	}
 	if name == noemamcp.ConnectServiceToolName {
 		return c.mcp != nil
+	}
+	if c.adapters != nil {
+		if name == adapter.DefinitionTemplateTool || name == adapter.ProposeDefinitionTool {
+			return true
+		}
+		if _, err := c.adapters.Binding(name); err == nil {
+			return true
+		}
 	}
 	if c.mcp == nil {
 		return false
@@ -101,6 +118,11 @@ func (c *Chat) executeChatTool(
 		return c.searchMemory(arguments)
 	case noemamcp.ConnectServiceToolName:
 		return c.connectMCPService(ctx, arguments)
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
+		if c.adapters != nil {
+			return c.adapters.ExecuteSetup(name, arguments)
+		}
+		return toolFailure("invalid_input", "adapter service is unavailable"), false
 	default:
 		return toolFailure("invalid_input", "tool is unavailable"), false
 	}

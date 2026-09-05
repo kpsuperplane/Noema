@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/acp"
+	noemaadapter "github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
@@ -67,6 +68,10 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer taskStore.Close()
+	adapterService, err := noemaadapter.NewService(root, taskStore)
+	if err != nil {
+		return fmt.Errorf("open adapter service: %w", err)
+	}
 	nativeMemory, err := noemamemory.New(root)
 	if err != nil {
 		return err
@@ -146,7 +151,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	chatRuntime, err := noemaruntime.NewChat(
-		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory, mcpService,
+		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory, mcpService, adapterService,
 	)
 	if err != nil {
 		return err
@@ -155,7 +160,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer chatRuntime.Close()
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
-		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, mcpService,
+		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, mcpService, adapterService,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)
@@ -184,6 +189,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		mcpService,
 	)
 	resolver.TaskExecution = taskExecution
+	resolver.SetAdapters(adapterService)
 	graphqlHandler := noemagraphql.NewHandler(resolver)
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)

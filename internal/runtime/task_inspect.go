@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/home"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -492,19 +493,31 @@ func (c *Chat) persistChatToolRound(
 	hostedState bool,
 ) (json.RawMessage, bool, bool, error) {
 	var mcpBinding *noemamcp.Binding
+	var adapterBinding *adapter.Binding
 	if call.Name == fileDownloadName {
 		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
 			return nil, false, false, errors.New("file.download arguments are invalid")
 		}
-	} else if call.Name != noemamcp.ConnectServiceToolName && !supportsLocalChatTool(call.Name) {
-		if c.mcp == nil {
-			return nil, false, false, errors.New("MCP tool is unavailable")
+	} else if call.Name != noemamcp.ConnectServiceToolName && call.Name != adapter.DefinitionTemplateTool && call.Name != adapter.ProposeDefinitionTool && !supportsLocalChatTool(call.Name) {
+		if c.adapters != nil {
+			if binding, bindErr := c.adapters.Binding(call.Name); bindErr == nil {
+				if c.adapters.Validate(binding, call.Payload) != nil {
+					return nil, false, false, errors.New("adapter tool arguments are invalid")
+				}
+				adapterBinding = &binding
+			}
 		}
-		binding, err := c.mcp.Binding(c.ctx, call.Name)
-		if err != nil || noemamcp.ValidateArguments(binding.InputSchema, call.Payload) != nil {
-			return nil, false, false, errors.New("MCP tool arguments or authority are invalid")
+		if adapterBinding != nil {
+		} else {
+			if c.mcp == nil {
+				return nil, false, false, errors.New("MCP tool is unavailable")
+			}
+			binding, err := c.mcp.Binding(c.ctx, call.Name)
+			if err != nil || noemamcp.ValidateArguments(binding.InputSchema, call.Payload) != nil {
+				return nil, false, false, errors.New("MCP tool arguments or authority are invalid")
+			}
+			mcpBinding = &binding
 		}
-		mcpBinding = &binding
 	}
 	normalized := normalizeProviderText(generation.Text, generation.Citations)
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
@@ -594,6 +607,25 @@ func (c *Chat) persistChatToolRound(
 		}
 		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
 			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
+		return payload, success, false, nil
+	}
+	if adapterBinding != nil {
+		payload, success, approval, err := c.prepareAdapterAction(request.conversation, turn, callItem, assignment, providerRound, generation.ID, hostedState, *adapterBinding, call.Payload)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if approval != nil {
+			c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: approval})
+			c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
+			c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
+			c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})
+			return nil, false, true, nil
+		}
+		resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{CallItemID: callItem.ID, Provider: assignment.ProviderKind, ProviderRound: providerRound, OutputIndex: call.Index, ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName, Name: call.Name, Success: success, Payload: payload}, time.Now())
+		if err != nil {
+			return nil, false, false, err
+		}
+		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
 		return payload, success, false, nil
 	}
 	toolPayload, success := c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload)
