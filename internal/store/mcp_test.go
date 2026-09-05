@@ -236,6 +236,21 @@ func TestAdapterOAuthAuthenticationSchemaConvergesFromVersionTwentyFive(t *testi
 	if err != nil || request.State != "authorizing" {
 		t.Fatalf("begin OAuth = %#v, %v", request, err)
 	}
+	attached, err := database.AdapterAuthRequestsForAttempt(t.Context(), "attempt-ordinary")
+	if err != nil || len(attached) != 1 || attached[0].ID != request.ID {
+		t.Fatalf("attempt requests = %#v, %v", attached, err)
+	}
+	if err = database.RetryAdapterOAuthAuthentication(t.Context(), request, "oauth_attempt_denied", now); err != nil {
+		t.Fatal(err)
+	}
+	request, err = database.MCPAuthRequest(t.Context(), request.ID, request.Revision)
+	if err != nil || request.State != "awaiting_user" || request.Failure != "oauth_attempt_denied" || request.AdapterAttemptID != "" {
+		t.Fatalf("OAuth retry = %#v, %v", request, err)
+	}
+	request, err = database.BeginAdapterOAuthAuthentication(t.Context(), request, "attempt-restart", now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err = database.Close(); err != nil {
 		t.Fatal(err)
 	}

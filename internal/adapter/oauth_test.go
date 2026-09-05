@@ -130,6 +130,9 @@ func TestOAuthPKCEAttemptIsBoundedAndConsumesCallbackState(t *testing.T) {
 	if query.Get("code_challenge_method") != "S256" || query.Get("prompt") != "select_account" || query.Get("access_type") != "offline" || query.Get("state") == "" {
 		t.Fatalf("authorization query = %v", query)
 	}
+	if remaining := time.Until(time.Unix(attempt.ExpiresAt, 0)); remaining < 9*time.Minute || remaining > oauthAttemptTTL {
+		t.Fatalf("attempt lifetime = %s", remaining)
+	}
 	events, err := service.SubscribeOAuth(t.Context(), attempt.AttemptID)
 	if err != nil || (<-events).Status != "authorizing" {
 		t.Fatalf("initial attempt event = %v", err)
@@ -150,6 +153,24 @@ func TestOAuthPKCEAttemptIsBoundedAndConsumesCallbackState(t *testing.T) {
 	if _, err = service.CompleteOAuth(t.Context(), callback+"?state="+url.QueryEscape(state)+"&code=ordinary-code"); err == nil {
 		t.Fatal("consumed attempt was accepted")
 	}
+	terminalEvents := make(chan OAuthAttemptEvent, 1)
+	service.SetOAuthCompletionHandler(func(event OAuthAttemptEvent) { terminalEvents <- event })
+	service.mu.Lock()
+	service.oauthAttempts["expired-state"] = &oauthAttempt{ID: "expired-attempt", state: "expired-state", expires: time.Now().Add(-time.Second)}
+	service.expireOAuthAttempts(time.Now())
+	service.mu.Unlock()
+	if terminal := <-terminalEvents; terminal.AttemptID != "expired-attempt" || terminal.Status != "expired" {
+		t.Fatalf("expired event = %#v", terminal)
+	}
+	service.SetOAuthCompletionHandler(nil)
+	service.mu.Lock()
+	for index := 0; index <= oauthEventLimit; index++ {
+		service.setOAuthEvent(OAuthAttemptEvent{AttemptID: randomHex(), Status: "failed"})
+	}
+	if len(service.oauthEvents) != oauthEventLimit {
+		t.Fatalf("terminal event count = %d", len(service.oauthEvents))
+	}
+	service.mu.Unlock()
 }
 
 func TestOAuthTokenResponseAndGrantLifecycle(t *testing.T) {
@@ -173,7 +194,7 @@ func TestOAuthTokenResponseAndGrantLifecycle(t *testing.T) {
 	if _, err = parseOAuthToken(200, []byte(`{"access_token":"access","token_type":"Bearer","scope":"scope.other"}`), []string{"scope.read"}, true, 100); err == nil {
 		t.Fatal("refresh scope expansion was accepted")
 	}
-	service, _ := newOAuthService(t, "http://127.0.0.1:3737/adapter/oauth/callback")
+	service, directory := newOAuthService(t, "http://127.0.0.1:3737/adapter/oauth/callback")
 	profile := googleOAuthProfile()
 	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, []byte(`{"installed":{"client_id":"desktop-client","client_secret":"desktop-secret"}}`))
 	if err != nil {
@@ -195,6 +216,13 @@ func TestOAuthTokenResponseAndGrantLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, reused, err := service.AttachOAuthConnection(t.Context(), definition.SemanticDigest, grant.GrantID, grant.AuthorityRevision, "")
+	if err != nil || reused.ConnectionID != connection.ConnectionID {
+		t.Fatalf("grant reuse = %#v, %v", reused, err)
+	}
+	if _, _, err = service.AttachOAuthConnection(t.Context(), definition.SemanticDigest, grant.GrantID, grant.AuthorityRevision, connection.ConnectionID); err == nil {
+		t.Fatal("active connection was replaced")
+	}
 	if _, err = service.SaveConnectionPolicy(t.Context(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask"); err != nil {
 		t.Fatal(err)
 	}
@@ -203,8 +231,12 @@ func TestOAuthTokenResponseAndGrantLifecycle(t *testing.T) {
 		t.Fatalf("bindings = %#v, %v", bindings, err)
 	}
 	grant, err = service.DisconnectOAuthGrant(t.Context(), grant.GrantID, 2)
-	if err != nil || grant.Status != "revoked" {
+	if err != nil || grant.Status != "revoked" || grant.AuthorityRevision != 3 || grant.TokenRevision != 3 {
 		t.Fatalf("disconnect = %#v, %v", grant, err)
+	}
+	tokenDirectory := filepath.Join(directory, "adapters", "oauth-grants", grant.GrantID, "tokens")
+	if entries, readErr := os.ReadDir(tokenDirectory); readErr != nil || len(entries) != 0 {
+		t.Fatalf("disconnected token files = %#v, %v", entries, readErr)
 	}
 	bindings, err = service.Bindings()
 	if err != nil || len(bindings) != 0 {
@@ -213,5 +245,41 @@ func TestOAuthTokenResponseAndGrantLifecycle(t *testing.T) {
 	raw, _ := json.Marshal(grant)
 	if strings.Contains(string(raw), "access-secret") || strings.Contains(string(raw), "refresh-secret") {
 		t.Fatal("grant descriptor contains token material")
+	}
+	failureGeneration := randomHex()
+	failureGrant := OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: "google-apis", DesiredScopes: []string{"scope.read"}, GrantedScopes: []string{"scope.read"}, AuthorityRevision: 4, TokenGeneration: &failureGeneration, TokenRevision: 7, Status: "active"}
+	if err = service.files.installOAuthOwned("adapters/oauth-grants", failureGrant.GrantID, "grant.json", failureGrant, "tokens", failureGeneration, oauthGrantToken{SchemaVersion: 1, GenerationID: failureGeneration, AccessToken: "second-access", RefreshToken: "second-refresh"}); err != nil {
+		t.Fatal(err)
+	}
+	unreviewed := oauthManifest()
+	unreviewed.DefinitionRevision = "unreviewed"
+	unreviewedDefinition, err := service.files.installDefinition(unreviewed, "https://example.com/unreviewed", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.AttachOAuthConnection(t.Context(), unreviewedDefinition.SemanticDigest, failureGrant.GrantID, 4, ""); err == nil {
+		t.Fatal("unreviewed definition was attached")
+	}
+	if err = service.requireOAuthAuthentication(t.Context(), &failureGrant); err != nil {
+		t.Fatal(err)
+	}
+	failureGrant, _, err = service.files.loadOAuthGrant(failureGrant.GrantID)
+	if err != nil || failureGrant.Status != "authentication_required" || failureGrant.AuthorityRevision != 5 || failureGrant.TokenRevision != 8 || failureGrant.TokenGeneration != nil {
+		t.Fatalf("authentication failure grant = %#v, %v", failureGrant, err)
+	}
+	failureTokenDirectory := filepath.Join(directory, "adapters", "oauth-grants", failureGrant.GrantID, "tokens")
+	if entries, readErr := os.ReadDir(failureTokenDirectory); readErr != nil || len(entries) != 0 {
+		t.Fatalf("failed token files = %#v, %v", entries, readErr)
+	}
+	corruptID := randomHex()
+	corruptDirectory := filepath.Join(directory, "adapters", "oauth-grants", corruptID)
+	if err = os.Mkdir(corruptDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(corruptDirectory, "grant.json"), []byte(`{"status":"partial"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.OAuthSnapshot(); err == nil {
+		t.Fatal("invalid OAuth authority was omitted from the snapshot")
 	}
 }

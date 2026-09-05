@@ -31,7 +31,7 @@ type Service struct {
 	oauthAttempts    map[string]*oauthAttempt
 	oauthEvents      map[string]OAuthAttemptEvent
 	oauthSubscribers map[string]map[chan OAuthAttemptEvent]struct{}
-	oauthCompleted   func(string, string)
+	oauthCompleted   func(OAuthAttemptEvent)
 }
 
 // NewService recovers and indexes one fresh Go adapter authority.
@@ -890,14 +890,14 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		if refreshErr == nil && !operationScopesSatisfied(operation, token.Scopes) {
 			refreshErr = ErrAuthenticationRequired
 		}
-		if refreshErr == nil && grant.AuthorityRevision == current.CredentialRevision && (current.Behavior.ReadOnly || current.Behavior.RepeatSafe) {
+		if refreshErr == nil && grant.AuthorityRevision == current.CredentialRevision && current.Behavior.ReadOnly {
 			request.headers["Authorization"] = "Bearer " + token.AccessToken
 			response, refreshErr = executeHTTP(ctx, request, false)
 		}
 		if refreshErr != nil && !errors.Is(refreshErr, errOAuthRejected) && !errors.Is(refreshErr, ErrAuthenticationRequired) {
 			return nil, false, refreshErr
 		}
-		if refreshErr != nil || response.status == 401 || !(current.Behavior.ReadOnly || current.Behavior.RepeatSafe) {
+		if refreshErr != nil || response.status == 401 || !current.Behavior.ReadOnly {
 			_ = s.requireOAuthAuthentication(ctx, &grant)
 			return nil, false, ErrAuthenticationRequired
 		}

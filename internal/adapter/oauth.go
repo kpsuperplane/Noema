@@ -20,7 +20,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const oauthAttemptTTL = 15 * time.Minute
+const (
+	oauthAttemptTTL = 10 * time.Minute
+	oauthEventLimit = 64
+)
 
 var errOAuthRejected = errors.New("adapter OAuth grant was rejected")
 
@@ -91,7 +94,7 @@ func oauthCallbackMode(value *url.URL) string {
 	}
 	return ""
 }
-func (s *Service) SetOAuthCompletionHandler(handler func(string, string)) {
+func (s *Service) SetOAuthCompletionHandler(handler func(OAuthAttemptEvent)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.oauthCompleted = handler
@@ -102,19 +105,13 @@ func (s *Service) OAuthCallbackHandler() http.Handler {
 			http.Error(w, "OAuth callback is invalid", http.StatusBadRequest)
 			return
 		}
-		completed, err := s.CompleteOAuth(r.Context(), s.oauthCallback+"?"+r.URL.RawQuery)
+		_, err := s.CompleteOAuth(r.Context(), s.oauthCallback+"?"+r.URL.RawQuery)
 		if err != nil {
 			http.Error(w, "Noema could not finish this connection. Return to Noema.", http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, "<!doctype html><title>Noema</title><p>Connection complete. You can return to Noema.</p>")
-		s.mu.Lock()
-		handler := s.oauthCompleted
-		s.mu.Unlock()
-		if handler != nil {
-			go handler(completed.AttemptID, completed.GrantID)
-		}
 	})
 }
 
@@ -311,6 +308,15 @@ func operationScopesSatisfied(operation CompiledOperation, scopes []string) bool
 	return false
 }
 
+func currentReviewedDefinition(definitions []Definition, digest string) (Definition, bool) {
+	for _, definition := range definitions {
+		if definition.SemanticDigest == digest && definition.Manifest.Reviewed && !definition.Superseded {
+			return definition, true
+		}
+	}
+	return Definition{}, false
+}
+
 func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -331,8 +337,9 @@ func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 	if application.CallbackMode != oauthCallbackMode(callback) {
 		return OAuthAttempt{}, errors.New("adapter OAuth application callback changed")
 	}
-	definition, err := s.files.loadDefinition(start.SemanticDigest)
-	if err != nil || !definition.Manifest.Reviewed || definition.Superseded || definition.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
+	definitions, err := s.files.definitions()
+	definition, found := currentReviewedDefinition(definitions, start.SemanticDigest)
+	if err != nil || !found || definition.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
 		return OAuthAttempt{}, errors.New("adapter OAuth definition changed")
 	}
 	var grant OAuthGrant
@@ -352,8 +359,8 @@ func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 			return OAuthAttempt{}, errors.New("adapter OAuth service selection is invalid")
 		}
 		selected[extra.SemanticDigest] = true
-		other, e := s.files.loadDefinition(extra.SemanticDigest)
-		if e != nil || !other.Manifest.Reviewed || other.Superseded || other.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
+		other, found := currentReviewedDefinition(definitions, extra.SemanticDigest)
+		if !found || other.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
 			return OAuthAttempt{}, errors.New("adapter OAuth service selection is invalid")
 		}
 		more, valid := other.ScopeTarget(extra.OperationIDs, grant.GrantedScopes)
@@ -390,6 +397,11 @@ func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 	attempt := &oauthAttempt{ID: id, state: state, verifier: verifier, redirect: s.oauthCallback, expires: expires, ApplicationID: application.ApplicationID, ApplicationRevision: application.Revision, GrantID: start.GrantID, GrantRevision: start.ExpectedGrantRevision, SemanticDigest: start.SemanticDigest, ProfileDigest: application.ProfileDigest, Operations: append([]string(nil), start.OperationIDs...), Additional: start.Additional, Scopes: scopes}
 	s.oauthAttempts[state] = attempt
 	s.setOAuthEvent(OAuthAttemptEvent{AttemptID: id, SemanticDigest: start.SemanticDigest, GrantID: start.GrantID, GrantRevision: start.ExpectedGrantRevision, Status: "authorizing"})
+	time.AfterFunc(time.Until(expires), func() {
+		s.mu.Lock()
+		s.expireOAuthAttempts(time.Now())
+		s.mu.Unlock()
+	})
 	return OAuthAttempt{AttemptID: id, AuthorizationURL: config.AuthCodeURL(state, options...), ExpiresAt: expires.Unix()}, nil
 }
 func randomURL(size int) string {
@@ -471,19 +483,21 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 		return event, errors.New("adapter OAuth authorization was denied")
 	}
 	application, credential, e := s.files.loadOAuthApplication(attempt.ApplicationID)
-	definition, de := s.files.loadDefinition(attempt.SemanticDigest)
+	definitions, de := s.files.definitions()
+	definition, found := currentReviewedDefinition(definitions, attempt.SemanticDigest)
 	var current OAuthGrant
 	if attempt.GrantID != "" {
 		current, _, err = s.files.loadOAuthGrant(attempt.GrantID)
 	}
-	if e != nil || de != nil || err != nil || application.Revision != attempt.ApplicationRevision || definition.SemanticDigest != attempt.SemanticDigest || definition.Manifest.Authentication.ProfileDigest != attempt.ProfileDigest || current.AuthorityRevision != attempt.GrantRevision {
+	if e != nil || de != nil || !found || err != nil || application.Revision != attempt.ApplicationRevision || definition.Manifest.Authentication.ProfileDigest != attempt.ProfileDigest || current.AuthorityRevision != attempt.GrantRevision {
+		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "superseded"})
 		s.mu.Unlock()
 		return OAuthAttemptEvent{}, errors.New("adapter OAuth setup was superseded")
 	}
 	currentScopes, valid := definition.ScopeTarget(attempt.Operations, current.GrantedScopes)
 	for _, extra := range attempt.Additional {
-		other, loadErr := s.files.loadDefinition(extra.SemanticDigest)
-		if loadErr != nil || !other.Manifest.Reviewed || other.Superseded || other.Manifest.Authentication.ProfileDigest != attempt.ProfileDigest {
+		other, found := currentReviewedDefinition(definitions, extra.SemanticDigest)
+		if !found || other.Manifest.Authentication.ProfileDigest != attempt.ProfileDigest {
 			valid = false
 			break
 		}
@@ -494,6 +508,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 	sort.Strings(currentScopes)
 	currentScopes = uniqueStrings(currentScopes)
 	if !valid || strings.Join(currentScopes, "\x00") != strings.Join(attempt.Scopes, "\x00") {
+		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "superseded"})
 		s.mu.Unlock()
 		return OAuthAttemptEvent{}, errors.New("adapter OAuth setup was superseded")
 	}
@@ -509,12 +524,14 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 	defer s.mu.Unlock()
 	application, _, e = s.files.loadOAuthApplication(attempt.ApplicationID)
 	if e != nil || application.Revision != attempt.ApplicationRevision {
+		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "superseded"})
 		return OAuthAttemptEvent{}, errors.New("adapter OAuth setup was superseded")
 	}
 	if attempt.GrantID != "" {
 		var old oauthGrantToken
 		current, old, e = s.files.loadOAuthGrant(attempt.GrantID)
 		if e != nil || current.AuthorityRevision != attempt.GrantRevision {
+			s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "superseded"})
 			return OAuthAttemptEvent{}, errors.New("adapter OAuth setup was superseded")
 		}
 		if token.RefreshToken == "" {
@@ -524,6 +541,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 	if attempt.GrantID == "" {
 		current = OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: "google-apis", DesiredScopes: append([]string(nil), attempt.Scopes...), AuthorityRevision: 1, TokenRevision: 1, Status: "authentication_required"}
 		if err = s.files.installOAuthOwned("adapters/oauth-grants", current.GrantID, "grant.json", current, "", "", nil); err != nil {
+			s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "failed"})
 			return OAuthAttemptEvent{}, err
 		}
 	}
@@ -537,14 +555,19 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 	token.SchemaVersion = 1
 	token.GenerationID = generation
 	if err = s.files.replaceOAuthObject("adapters/oauth-grants", current.GrantID, "grant.json", current, "tokens", generation, token); err != nil {
+		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "failed"})
 		return OAuthAttemptEvent{}, err
 	}
 	if err = s.setGrantConnections(current.GrantID, "active"); err != nil {
+		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "failed"})
+		return OAuthAttemptEvent{}, err
+	}
+	if err = s.reconcile(ctx); err != nil {
+		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "failed"})
 		return OAuthAttemptEvent{}, err
 	}
 	event := OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: current.GrantID, GrantRevision: current.AuthorityRevision, Status: "completed"}
 	s.setOAuthEvent(event)
-	_ = s.reconcile(ctx)
 	return event, nil
 }
 
@@ -639,6 +662,14 @@ func (s *Service) OAuthAttempt(id string) (OAuthAttemptEvent, bool) {
 	return value, ok
 }
 func (s *Service) setOAuthEvent(value OAuthAttemptEvent) {
+	if _, exists := s.oauthEvents[value.AttemptID]; !exists && len(s.oauthEvents) >= oauthEventLimit {
+		for id, event := range s.oauthEvents {
+			if event.Status != "authorizing" {
+				delete(s.oauthEvents, id)
+				break
+			}
+		}
+	}
 	s.oauthEvents[value.AttemptID] = value
 	terminal := value.Status != "authorizing"
 	for subscriber := range s.oauthSubscribers[value.AttemptID] {
@@ -653,6 +684,9 @@ func (s *Service) setOAuthEvent(value OAuthAttemptEvent) {
 	}
 	if terminal {
 		delete(s.oauthSubscribers, value.AttemptID)
+		if handler := s.oauthCompleted; handler != nil {
+			go handler(value)
+		}
 	}
 }
 func (s *Service) SubscribeOAuth(ctx context.Context, id string) (<-chan OAuthAttemptEvent, error) {
@@ -709,10 +743,24 @@ func (s *Service) ConnectionIDsForGrant(grantID string) ([]string, error) {
 func (s *Service) AttachOAuthConnection(ctx context.Context, digest, grantID string, grantRevision int, replacement string) (Definition, Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	definition, err := s.files.loadDefinition(digest)
+	definitions, err := s.files.definitions()
+	var definition Definition
+	for _, candidate := range definitions {
+		if candidate.SemanticDigest == digest {
+			definition = candidate
+		}
+	}
+	family := map[string]bool{}
+	if definition.Manifest.DefinitionID != "" {
+		for _, candidate := range definitions {
+			if candidate.Manifest.DefinitionID == definition.Manifest.DefinitionID {
+				family[candidate.SemanticDigest] = true
+			}
+		}
+	}
 	grant, _, ge := s.files.loadOAuthGrant(grantID)
 	application, _, ae := s.files.loadOAuthApplication(grant.ApplicationID)
-	if err != nil || ge != nil || ae != nil || grant.AuthorityRevision != grantRevision || grant.Status != "active" || definition.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
+	if err != nil || ge != nil || ae != nil || definition.SemanticDigest == "" || !definition.Manifest.Reviewed || definition.Superseded || grant.AuthorityRevision != grantRevision || grant.Status != "active" || definition.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
 		return Definition{}, Connection{}, errors.New("adapter OAuth connection is unavailable")
 	}
 	allowed := []string{}
@@ -726,13 +774,28 @@ func (s *Service) AttachOAuthConnection(ctx context.Context, digest, grantID str
 	}
 	var connection Connection
 	if replacement == "" {
+		connections, loadErr := s.files.connections()
+		if loadErr != nil {
+			return Definition{}, Connection{}, loadErr
+		}
+		for _, candidate := range connections {
+			if family[candidate.SemanticDigest] && candidate.Authentication.GrantID == grantID {
+				if connection.ConnectionID != "" || candidate.SemanticDigest != digest {
+					return Definition{}, Connection{}, errors.New("adapter OAuth connection conflicts")
+				}
+				connection = candidate
+			}
+		}
+		if connection.ConnectionID != "" {
+			return definition, connection, nil
+		}
 		id := randomHex()
 		connection = Connection{SchemaVersion: 2, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "oauth_grant", GrantID: grantID}}
 		connection, err = s.files.installConnection(connection)
 	} else {
 		connection, err = s.files.loadConnection(replacement)
-		if err != nil {
-			return Definition{}, Connection{}, err
+		if err != nil || connection.Status != "authentication_required" || connection.SemanticDigest != digest {
+			return Definition{}, Connection{}, errors.New("adapter OAuth replacement changed")
 		}
 		connection.SemanticDigest = digest
 		connection.Authentication = ConnectionAuthentication{Kind: "oauth_grant", GrantID: grantID}
@@ -755,8 +818,9 @@ func (s *Service) DisconnectOAuthGrant(ctx context.Context, id string, revision 
 	}
 	grant.Status = "revoked"
 	grant.AuthorityRevision++
+	grant.TokenRevision++
 	grant.TokenGeneration = nil
-	err = s.files.replaceOAuthObject("adapters/oauth-grants", id, "grant.json", grant, "", "", nil)
+	err = s.files.replaceOAuthGrantWithoutToken(grant)
 	if err == nil {
 		err = s.setGrantConnections(id, "authentication_required")
 	}
@@ -826,8 +890,10 @@ func (s *Service) oauthBearer(ctx context.Context, grantID string, force bool) (
 func (s *Service) requireOAuthAuthentication(ctx context.Context, grant *OAuthGrant) error {
 	if grant.GrantID != "" {
 		grant.Status = "authentication_required"
+		grant.AuthorityRevision++
+		grant.TokenRevision++
 		grant.TokenGeneration = nil
-		if err := s.files.replaceOAuthObject("adapters/oauth-grants", grant.GrantID, "grant.json", *grant, "", "", nil); err != nil {
+		if err := s.files.replaceOAuthGrantWithoutToken(*grant); err != nil {
 			return err
 		}
 	}

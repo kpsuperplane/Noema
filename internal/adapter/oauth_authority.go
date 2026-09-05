@@ -205,8 +205,11 @@ func loadOAuthObjects(f *fileAuthority, path, file string, accept func([]byte) e
 			continue
 		}
 		raw, e := readObject(f.root, path+"/"+entry.Name(), file)
-		if e == nil {
-			_ = accept(raw)
+		if e != nil {
+			return e
+		}
+		if e = accept(raw); e != nil {
+			return errors.New("adapter OAuth object is invalid")
 		}
 	}
 	return nil
@@ -291,6 +294,24 @@ func (f *fileAuthority) replaceOAuthObject(parent, id, descriptor string, value 
 		return pruneOAuthGenerations(d, secretDir, secretID)
 	}
 	return nil
+}
+
+func (f *fileAuthority) replaceOAuthGrantWithoutToken(value OAuthGrant) error {
+	if err := f.replaceOAuthObject("adapters/oauth-grants", value.GrantID, "grant.json", value, "", "", nil); err != nil {
+		return err
+	}
+	directory, err := f.root.OpenRoot("adapters/oauth-grants/" + value.GrantID)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	if _, err = directory.Lstat("tokens"); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return pruneOAuthGenerations(directory, "tokens", "")
 }
 
 func pruneOAuthGenerations(root *os.Root, directory, keep string) error {

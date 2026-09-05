@@ -259,23 +259,42 @@ func (r *TaskExecution) ResumeAdapterAuthentication(ctx context.Context, connect
 
 // SkipMCPAuthentication closes one exact Task call without credentials.
 func (r *TaskExecution) SkipMCPAuthentication(ctx context.Context, request store.MCPAuthRequest) (store.MCPAuthRequest, error) {
+	return r.finishAdapterAuthentication(ctx, request, "cancelled", "authentication_skipped")
+}
+
+// SupersedeAdapterAuthentication closes one Task call attached to an obsolete OAuth attempt.
+func (r *TaskExecution) SupersedeAdapterAuthentication(ctx context.Context, request store.MCPAuthRequest) error {
+	_, err := r.finishAdapterAuthentication(ctx, request, "superseded", "oauth_attempt_superseded")
+	return err
+}
+
+func (r *TaskExecution) finishAdapterAuthentication(ctx context.Context, request store.MCPAuthRequest, authState, failure string) (store.MCPAuthRequest, error) {
 	if request.TaskID == "" {
 		return store.MCPAuthRequest{}, errors.New("Task authentication request is unavailable")
 	}
 	label := "MCP"
-	if request.AuthorityKind == "adapter_connection" {
+	if request.AuthorityKind == "adapter_connection" || request.AuthorityKind == "adapter_grant" {
 		label = "Adapter"
 	}
-	payload := toolFailure("authentication_skipped", label+" authentication was skipped")
-	var err error
-	if request.ActionID != "" {
-		request, _, err = r.database.FinishMCPAuthAction(ctx, request, store.ActionFailed, payload,
-			"authentication_skipped", "cancelled", time.Now())
-	} else {
-		request, err = r.database.FinishMCPAuthRequest(ctx, request.ID, request.Revision, "cancelled", "authentication_skipped", time.Now())
+	message := label + " authentication was skipped"
+	if authState == "superseded" {
+		message = label + " authentication changed"
 	}
-	if err != nil {
-		return store.MCPAuthRequest{}, err
+	payload := toolFailure(failure, message)
+	if request.ActionID != "" {
+		var err error
+		request, _, err = r.database.FinishMCPAuthAction(ctx, request, store.ActionFailed, payload,
+			failure, authState, time.Now())
+		if err != nil {
+			return store.MCPAuthRequest{}, err
+		}
+		call, err := r.taskAuthCall(ctx, request)
+		if err == nil {
+			err = r.completeTaskMCPResult(ctx, store.ActionRequest{TaskID: request.TaskID, RunID: request.RunID,
+				TaskGeneration: request.TaskGeneration, CapabilityName: request.CapabilityName,
+				AuthorizationContext: map[string]any{"provider_call_id": request.ProviderCallID, "provider_name": request.ProviderName}}, call, payload, false)
+		}
+		return request, err
 	}
 	call, err := r.taskAuthCall(ctx, request)
 	if err == nil {
@@ -283,7 +302,10 @@ func (r *TaskExecution) SkipMCPAuthentication(ctx context.Context, request store
 			TaskGeneration: request.TaskGeneration, CapabilityName: request.CapabilityName,
 			AuthorizationContext: map[string]any{"provider_call_id": request.ProviderCallID, "provider_name": request.ProviderName}}, call, payload, false)
 	}
-	return request, err
+	if err != nil {
+		return store.MCPAuthRequest{}, err
+	}
+	return r.database.FinishMCPAuthRequest(ctx, request.ID, request.Revision, authState, failure, time.Now())
 }
 
 func (r *TaskExecution) taskActionCall(ctx context.Context, action store.ActionRequest) (store.TaskRunItem, error) {

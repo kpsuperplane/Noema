@@ -308,7 +308,10 @@ func (r *Resolver) adapterDefinitions(ctx context.Context) ([]*model.AdapterDefi
 		}
 		view := definitionModel(value, snapshot)
 		if value.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
-			oauth, _ := service.OAuthSnapshot()
+			oauth, oauthErr := service.OAuthSnapshot()
+			if oauthErr != nil {
+				return nil, oauthErr
+			}
 			projectOAuthDefinition(view, value, snapshot, oauth)
 		}
 		result = append(result, view)
@@ -317,20 +320,23 @@ func (r *Resolver) adapterDefinitions(ctx context.Context) ([]*model.AdapterDefi
 }
 
 func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.Definition, snapshot adapter.ServiceSnapshot, oauth adapter.OAuthSnapshot) {
-	apps := []adapter.OAuthApplication{}
+	apps := map[string]adapter.OAuthApplication{}
 	for _, app := range oauth.Applications {
-		if app.ProfileDigest == definition.Manifest.Authentication.ProfileDigest {
-			apps = append(apps, app)
+		if app.ProfileDigest == definition.Manifest.Authentication.ProfileDigest && app.Status == "active" {
+			apps[app.ApplicationID] = app
 		}
 	}
 	grants := map[string]adapter.OAuthGrant{}
 	for _, grant := range oauth.Grants {
 		grants[grant.GrantID] = grant
 	}
-	for i, connection := range snapshot.Connections {
+	connected := map[string]bool{}
+	var reconnectAction, accessAction *model.AdapterNextAction
+	for _, connection := range snapshot.Connections {
 		if connection.SemanticDigest != definition.SemanticDigest || connection.Authentication.GrantID == "" {
 			continue
 		}
+		connected[connection.Authentication.GrantID] = true
 		grant, ok := grants[connection.Authentication.GrantID]
 		if !ok {
 			continue
@@ -343,9 +349,15 @@ func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.De
 				projected.AccountID = grant.AccountID
 				projected.GrantedScopes = grant.GrantedScopes
 				for _, access := range projected.OperationAccess {
+					if grant.Status != "active" {
+						continue
+					}
 					for _, op := range definition.Operations {
 						if op.OperationID == access.OperationID {
-							target, _ := definition.ScopeTarget([]string{op.OperationID}, grant.GrantedScopes)
+							target, valid := definition.ScopeTarget([]string{op.OperationID}, grant.GrantedScopes)
+							if !valid {
+								continue
+							}
 							missing := []string{}
 							present := map[string]bool{}
 							for _, scope := range grant.GrantedScopes {
@@ -369,39 +381,102 @@ func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.De
 					appID, grantRevision, connectionRevision := grant.ApplicationID, grant.AuthorityRevision, connection.ConnectionRevision
 					sort.Strings(missingScopes)
 					action := &model.AdapterNextAction{Kind: "add_access", SemanticDigest: definition.SemanticDigest, ApplicationID: &appID, GrantID: &grant.GrantID, ExpectedGrantRevision: &grantRevision, ConnectionID: &connection.ConnectionID, ExpectedConnectionRevision: &connectionRevision, OperationIds: missingOperations, MissingScopes: uniqueGraphQLStrings(missingScopes)}
+					if app, ok := apps[grant.ApplicationID]; ok {
+						applicationRevision := app.Revision
+						action.ExpectedApplicationRevision = &applicationRevision
+					}
 					view.ConnectionActions = append(view.ConnectionActions, action)
+					if accessAction == nil {
+						accessAction = action
+					}
 				}
 			}
 		}
-		if connection.Status == "authentication_required" {
+		if connection.Status == "authentication_required" || grant.Status != "active" {
 			appID := grant.ApplicationID
 			revision := grant.AuthorityRevision
 			action := &model.AdapterNextAction{Kind: "reconnect_account", SemanticDigest: definition.SemanticDigest, ApplicationID: &appID, GrantID: &grant.GrantID, ExpectedGrantRevision: &revision, OperationIds: connection.AllowedOperations, MissingScopes: []string{}}
+			if app, ok := apps[grant.ApplicationID]; ok {
+				applicationRevision := app.Revision
+				action.ExpectedApplicationRevision = &applicationRevision
+			}
 			view.ConnectionActions = append(view.ConnectionActions, action)
-			view.NextAction = action
+			if reconnectAction == nil {
+				reconnectAction = action
+			}
 		}
-		_ = i
 	}
 	if !definition.Manifest.Reviewed || definition.Superseded {
+		return
+	}
+	if reconnectAction != nil {
+		view.NextAction = reconnectAction
+		return
+	}
+	if accessAction != nil {
+		view.NextAction = accessAction
 		return
 	}
 	if len(apps) == 0 {
 		view.NextAction = &model.AdapterNextAction{Kind: "import_application", SemanticDigest: definition.SemanticDigest, OperationIds: []string{}, MissingScopes: []string{}}
 		return
 	}
-	if len(oauth.Grants) == 0 {
-		app := apps[0]
-		view.NextAction = &model.AdapterNextAction{Kind: "add_account", SemanticDigest: definition.SemanticDigest, ApplicationID: &app.ApplicationID, ExpectedApplicationRevision: &app.Revision, OperationIds: operationIDs(definition), MissingScopes: view.Scopes}
+	if len(view.Connections) != 0 {
 		return
 	}
-	if len(view.Connections) == 0 {
-		for _, grant := range oauth.Grants {
-			if grant.ApplicationID == apps[0].ApplicationID && grant.Status == "active" {
-				revision := grant.AuthorityRevision
-				view.NextAction = &model.AdapterNextAction{Kind: "attach_account", SemanticDigest: definition.SemanticDigest, GrantID: &grant.GrantID, ExpectedGrantRevision: &revision, OperationIds: operationIDs(definition), MissingScopes: []string{}}
-				return
+	operations := operationIDs(definition)
+	var attach, expand, reconnect []*model.AdapterNextAction
+	for _, grant := range oauth.Grants {
+		app, selected := apps[grant.ApplicationID]
+		if !selected || connected[grant.GrantID] {
+			continue
+		}
+		appID, appRevision, grantRevision := app.ApplicationID, app.Revision, grant.AuthorityRevision
+		action := &model.AdapterNextAction{SemanticDigest: definition.SemanticDigest, ApplicationID: &appID, ExpectedApplicationRevision: &appRevision, GrantID: &grant.GrantID, ExpectedGrantRevision: &grantRevision, OperationIds: operations, MissingScopes: []string{}}
+		if grant.Status != "active" {
+			action.Kind = "reconnect_account"
+			reconnect = append(reconnect, action)
+			continue
+		}
+		sufficient := true
+		for _, operation := range definition.Operations {
+			target, valid := definition.ScopeTarget([]string{operation.OperationID}, grant.GrantedScopes)
+			sufficient = sufficient && valid && len(target) == len(grant.GrantedScopes)
+		}
+		if sufficient {
+			action.Kind = "attach_account"
+			attach = append(attach, action)
+			continue
+		}
+		target, valid := definition.ScopeTarget(operations, grant.GrantedScopes)
+		if !valid {
+			continue
+		}
+		present := map[string]bool{}
+		for _, scope := range grant.GrantedScopes {
+			present[scope] = true
+		}
+		for _, scope := range target {
+			if !present[scope] {
+				action.MissingScopes = append(action.MissingScopes, scope)
 			}
 		}
+		action.Kind = "add_access"
+		expand = append(expand, action)
+	}
+	actions := append(attach, expand...)
+	actions = append(actions, reconnect...)
+	for _, app := range oauth.Applications {
+		selected, ok := apps[app.ApplicationID]
+		if !ok {
+			continue
+		}
+		appID, revision := selected.ApplicationID, selected.Revision
+		actions = append(actions, &model.AdapterNextAction{Kind: "add_account", SemanticDigest: definition.SemanticDigest, ApplicationID: &appID, ExpectedApplicationRevision: &revision, OperationIds: operations, MissingScopes: view.Scopes})
+	}
+	if len(actions) != 0 {
+		view.ConnectionActions = append(view.ConnectionActions, actions...)
+		view.NextAction = actions[0]
 	}
 }
 func operationIDs(definition adapter.Definition) []string {
@@ -514,7 +589,10 @@ func (r *Resolver) adapterOauthState(ctx context.Context) (*model.AdapterOauthSt
 		}
 		result.Accounts = append(result.Accounts, &model.AdapterExternalAccount{AccountID: value.AccountID, ProfileDigest: value.ProfileDigest, AccountLabel: value.AccountLabel, Revision: value.Revision, GrantIds: ids})
 	}
-	connections, _ := service.Snapshot()
+	connections, err := service.Snapshot()
+	if err != nil {
+		return nil, err
+	}
 	for _, value := range snapshot.Grants {
 		ids := []string{}
 		for _, connection := range connections.Connections {

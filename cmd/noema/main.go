@@ -184,12 +184,41 @@ func run(ctx context.Context, address string, output *os.File) error {
 			_ = chatRuntime.ResumeMCPAuthentication(context.Background(), attemptID)
 		}
 	})
-	adapterService.SetOAuthCompletionHandler(func(attemptID string, grantID string) {
-		_ = taskStore.CompleteAdapterOAuthAuthentication(context.Background(), attemptID, time.Now())
-		connections, _ := adapterService.ConnectionIDsForGrant(grantID)
+	adapterService.SetOAuthCompletionHandler(func(event noemaadapter.OAuthAttemptEvent) {
+		ctx := context.Background()
+		requests, err := taskStore.AdapterAuthRequestsForAttempt(ctx, event.AttemptID)
+		if err != nil {
+			return
+		}
+		if event.Status == "superseded" {
+			for _, request := range requests {
+				if request.TaskID != "" {
+					_ = taskExecution.SupersedeAdapterAuthentication(ctx, request)
+				} else {
+					_ = chatRuntime.SupersedeAdapterAuthentication(ctx, request.ID, request.Revision)
+				}
+			}
+			return
+		}
+		if event.Status != "completed" {
+			for _, request := range requests {
+				_ = taskStore.RetryAdapterOAuthAuthentication(ctx, request, "oauth_attempt_"+event.Status, time.Now())
+				if request.ConversationID != "" {
+					chatRuntime.NotifyHumanInterventionsChanged(request.ConversationID)
+				}
+			}
+			return
+		}
+		if taskStore.CompleteAdapterOAuthAuthentication(ctx, event.AttemptID, time.Now()) != nil {
+			return
+		}
+		connections, err := adapterService.ConnectionIDsForGrant(event.GrantID)
+		if err != nil {
+			return
+		}
 		for _, connectionID := range connections {
-			_, _ = taskExecution.ResumeAdapterAuthentication(context.Background(), connectionID)
-			_ = chatRuntime.ResumeAdapterAuthentication(context.Background(), connectionID)
+			_, _ = taskExecution.ResumeAdapterAuthentication(ctx, connectionID)
+			_ = chatRuntime.ResumeAdapterAuthentication(ctx, connectionID)
 		}
 	})
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))

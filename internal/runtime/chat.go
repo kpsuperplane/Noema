@@ -114,6 +114,7 @@ type mcpAuthResolution struct {
 	attemptID, requestID, adapterConnectionID string
 	revision                                  int
 	skip                                      bool
+	supersede                                 bool
 	reply                                     chan mcpAuthResult
 }
 type mcpAuthResult struct {

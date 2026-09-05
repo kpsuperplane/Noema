@@ -227,6 +227,37 @@ func (s *Store) CompleteAdapterOAuthAuthentication(ctx context.Context, attempt 
 	}
 	return nil
 }
+
+// RetryAdapterOAuthAuthentication returns one failed browser attempt to human attention.
+func (s *Store) RetryAdapterOAuthAuthentication(ctx context.Context, request MCPAuthRequest, failure string, now time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE mcp_auth_requests SET state='awaiting_user',adapter_attempt_id=NULL,failure_code=?,updated_at_ms=?
+	 WHERE request_id=? AND revision=? AND authority_kind='adapter_grant' AND adapter_attempt_id=? AND state='authorizing'`, failure, millis(now), request.ID, request.Revision, request.AdapterAttemptID)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return errors.New("adapter OAuth request changed")
+	}
+	return nil
+}
+
+// AdapterAuthRequestsForAttempt returns exact calls attached to one browser attempt.
+func (s *Store) AdapterAuthRequestsForAttempt(ctx context.Context, attempt string) ([]MCPAuthRequest, error) {
+	rows, err := s.db.QueryContext(ctx, mcpAuthSelect+` WHERE adapter_attempt_id=? AND state='authorizing' ORDER BY created_at_ms`, attempt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []MCPAuthRequest
+	for rows.Next() {
+		value, scanErr := scanMCPAuth(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
 func (s *Store) BeginMCPAuthentication(ctx context.Context, id string, revision int, owner, attempt string, now time.Time) (MCPAuthRequest, error) {
 	request, err := s.MCPAuthRequest(ctx, id, revision)
 	if err != nil || request.AuthorityKind != "mcp_server" || request.OwnerHumanID != owner || (request.State != "awaiting_user" && request.State != "authorizing") {
@@ -393,7 +424,7 @@ func (s *Store) FinishMCPAuthRequest(ctx context.Context, id string, revision in
 func (s *Store) FinishMCPAuthAction(ctx context.Context, request MCPAuthRequest, state ActionRequestState,
 	output json.RawMessage, failure, authState string, now time.Time) (MCPAuthRequest, ActionRequest, error) {
 	if request.ActionID == "" || (state != ActionSucceeded && state != ActionFailed && state != ActionOutcomeUncertain) ||
-		(authState != "completed" && authState != "cancelled") {
+		(authState != "completed" && authState != "cancelled" && authState != "superseded") {
 		return MCPAuthRequest{}, ActionRequest{}, errors.New("MCP authentication action result is invalid")
 	}
 	storedOutput, err := boundedJSONObject(output, actionArgumentsLimit)
