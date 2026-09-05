@@ -1,0 +1,58 @@
+{
+  "baseRevision": "69ddc88cec627e4260148de38bcf5e4a664916e2",
+  "testedChanges": {
+    "internal/store/task_schedules_test.go": "09a5cd65603818f9b152fcf2709c663e91a4424aee2651e29fee4523918f6978"
+  },
+  "case": "TIME-12",
+  "result": "pass",
+  "scope": "Recurrence schedule edits against occurrence creation; complements the one-time race cases.",
+  "test": "TestRecurrenceEditCompetesWithOccurrenceCreation",
+  "cases": [
+    "edit first",
+    "deadline first",
+    "concurrent"
+  ],
+  "assertions": [
+    "An edit committed first suppresses the replaced due slot.",
+    "An occurrence committed first retains the original title and recurrence revision.",
+    "Both orderings retain the accepted future slot at revision 2.",
+    "A later scheduler call cannot create another occurrence from replaced timing.",
+    "The future slot creates one occurrence with the edited title and revision.",
+    "Each retained occurrence has exactly one queued Planner after repeated queue handoff."
+  ],
+  "productionLinesAdded": 0,
+  "testLinesAdded": 94,
+  "newTestFunctions": 1,
+  "newTableCases": 3,
+  "goSize": {
+    "production": 78256,
+    "tests": 25491,
+    "generatedGraphQL": 79612,
+    "inclusive": 183359,
+    "productionRatio": 0.4497729754583597,
+    "inclusiveRatio": 0.7645501321791632
+  },
+  "validation": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/store -run ^TestRecurrenceEditCompetesWithOccurrenceCreation$ -v",
+      "result": "pass",
+      "log": "=== RUN   TestRecurrenceEditCompetesWithOccurrenceCreation\n=== RUN   TestRecurrenceEditCompetesWithOccurrenceCreation/edit_first\n=== RUN   TestRecurrenceEditCompetesWithOccurrenceCreation/deadline_first\n=== RUN   TestRecurrenceEditCompetesWithOccurrenceCreation/concurrent\n--- PASS: TestRecurrenceEditCompetesWithOccurrenceCreation (0.62s)\n    --- PASS: TestRecurrenceEditCompetesWithOccurrenceCreation/edit_first (0.20s)\n    --- PASS: TestRecurrenceEditCompetesWithOccurrenceCreation/deadline_first (0.20s)\n    --- PASS: TestRecurrenceEditCompetesWithOccurrenceCreation/concurrent (0.21s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/store\t0.619s\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "logSha256": "01aaf20919db0264660fd783f64ff37d5648ce5fe06a1b67b0eaf88864e24c4c"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "limits": [
+    "The checks use production store functions, real SQLite, and fixed instants. The live server clock was unchanged.",
+    "The concurrent case permits either transaction ordering. Separate cases verify each ordering explicitly.",
+    "Occurrences created before a template edit remain valid existing Tasks. Only later occurrence creation uses the edited template.",
+    "Exact Task document copying is covered separately by the live TIME-06 evidence."
+  ]
+}

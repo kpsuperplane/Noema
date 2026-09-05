@@ -477,7 +477,18 @@ If due processing wins, the stale edit is rejected and the original timing remai
 The concurrent case permits either valid transaction ordering. Repeated queue handoff creates no duplicate run.
 The [validation record](evidence/2026-09-05-schedule-race-validation.json) records passing focused tests, broad Go tests, and vet.
 This unit adds 82 test lines and no production code.
-TIME-12 remains partial because recurrence edits during occurrence creation need separate verification.
+The recurrence race coverage follows below.
+
+## Recurrence edits during occurrence creation
+
+The [recurrence race test](../../internal/store/task_schedules_test.go) adds edit-first, deadline-first, and concurrent cases through production store commands.
+An edit committed first suppresses the replaced slot.
+An occurrence committed first remains a valid existing Task with its original title and revision.
+Both orderings preserve the accepted future slot. Later scheduler calls cannot create more work from replaced timing.
+The future occurrence uses the edited title and revision. Repeated queue handoff leaves one Planner per occurrence.
+The [validation record](evidence/2026-09-05-recurrence-race-validation.json) records passing focused tests, broad Go tests, and vet.
+This unit adds 94 test lines and no production code.
+Together with the one-time race cases, this completes TIME-12 for controlled scheduler state.
 
 ## Case results
 
@@ -575,7 +586,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-09 | Pass · live Codex/Chromium | Browser Run now creates one manual occurrence and preserves the next normal slot through completion. Its history link opens the correct result. | — |
 | TIME-10 | Pass · controlled scheduler state | Skip creates no later Task while active. Queue one releases one catch-up Task. Allow creates both due occurrences. Fixed extra queue-one catch-up work. | — |
 | TIME-11 | Pass · controlled scheduler time | Production scheduling skips the missing spring minute and creates no duplicate run for the repeated fall minute. The next valid day queues one occurrence. | — |
-| TIME-12 | Partial | One-time edit-first, deadline-first, and concurrent cases pass. Accepted edits suppress the old deadline; stale edits cannot replace released timing. Recurrence races remain pending. | — |
+| TIME-12 | Pass · controlled scheduler state | One-time and recurrence races preserve accepted timing. Replaced slots create no later work. Existing occurrences retain their revision, and each occurrence queues once. | — |
 | PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
 | PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. Live Project checks above. | — |
 | PROJECT-03 | Not run | Controlled setup pending. | — |

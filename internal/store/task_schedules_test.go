@@ -267,6 +267,100 @@ func TestRescheduleCompetesWithDueTransition(t *testing.T) {
 	}
 }
 
+func TestRecurrenceEditCompetesWithOccurrenceCreation(t *testing.T) {
+	for _, order := range []string{"edit first", "deadline first", "concurrent"} {
+		t.Run(order, func(t *testing.T) {
+			database := openTestStore(t)
+			ctx := t.Context()
+			account := createReadyModelAccount(t, database)
+			if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+				t.Fatal(err)
+			}
+			first := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+			dueAt, future := first.Add(time.Minute), first.Add(time.Hour)
+			id, err := NewTaskID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := normalizedTestSchedule(t, first, schedule.MissedRunOnce, schedule.OverlapAllow)
+			created, err := database.CreateTaskWithOptions(ctx, id, "Original title", testTaskCommand("recurrence-race-create"),
+				TaskCreateOptions{Schedule: &value}, first.Add(-time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			title := "Edited title"
+			edit := func() error {
+				_, err := database.UpdateTaskRecurrence(ctx, created.RecurrenceID, 1,
+					RecurrenceChanges{StartsAt: &future, Title: &title}, testTaskCommand("recurrence-race-edit"), dueAt)
+				return err
+			}
+			var dueTasks []DueTask
+			process := func() error {
+				var err error
+				dueTasks, _, err = database.ProcessDueTaskSchedules(ctx, dueAt, false, nil)
+				return err
+			}
+			var editErr, dueErr error
+			switch order {
+			case "edit first":
+				editErr, dueErr = edit(), process()
+			case "deadline first":
+				dueErr, editErr = process(), edit()
+			case "concurrent":
+				start := make(chan struct{})
+				edited, processed := make(chan error, 1), make(chan error, 1)
+				go func() { <-start; edited <- edit() }()
+				go func() { <-start; processed <- process() }()
+				close(start)
+				editErr, dueErr = <-edited, <-processed
+			}
+			if editErr != nil || dueErr != nil {
+				t.Fatalf("edit error = %v, due error = %v", editErr, dueErr)
+			}
+			if len(dueTasks) > 1 || order == "edit first" && len(dueTasks) != 0 || order == "deadline first" && len(dueTasks) != 1 {
+				t.Fatalf("due Tasks for %s = %#v", order, dueTasks)
+			}
+			recurrence, err := database.TaskRecurrence(ctx, created.RecurrenceID)
+			if err != nil || recurrence.Revision != 2 || recurrence.NextRunAt == nil || !recurrence.NextRunAt.Equal(future) {
+				t.Fatalf("accepted recurrence = %#v, %v", recurrence, err)
+			}
+			for _, due := range dueTasks {
+				task, err := database.Task(ctx, due.TaskID)
+				if err != nil || task.Title != "Original title" || task.RecurrenceRevision == nil || *task.RecurrenceRevision != 1 {
+					t.Fatalf("occurrence created before edit = %#v, %v", task, err)
+				}
+			}
+			newTasks, _, err := database.ProcessDueTaskSchedules(ctx, dueAt.Add(time.Second), false, nil)
+			if err != nil || len(newTasks) != 0 {
+				t.Fatalf("obsolete timing created Tasks = %#v, %v", newTasks, err)
+			}
+			newTasks, _, err = database.ProcessDueTaskSchedules(ctx, future, false, nil)
+			if err != nil || len(newTasks) != 1 {
+				t.Fatalf("replacement slot = %#v, %v", newTasks, err)
+			}
+			newTask, err := database.Task(ctx, newTasks[0].TaskID)
+			if err != nil || newTask.Title != title || newTask.RecurrenceRevision == nil || *newTask.RecurrenceRevision != 2 || newTask.ScheduledFor == nil || !newTask.ScheduledFor.Equal(future) {
+				t.Fatalf("replacement occurrence = %#v, %v", newTask, err)
+			}
+			for range 2 {
+				if err := database.QueueReleasedTaskSchedules(ctx, future); err != nil {
+					t.Fatal(err)
+				}
+			}
+			occurrences, err := database.TaskRecurrenceOccurrences(ctx, created.RecurrenceID, 10)
+			if err != nil || len(occurrences) != 2+len(dueTasks) {
+				t.Fatalf("occurrence history = %#v, %v", occurrences, err)
+			}
+			for _, occurrence := range occurrences {
+				runs, err := database.TaskRuns(ctx, occurrence.TaskID, 10)
+				if err != nil || len(runs) != 1 || runs[0].Kind != "planner" || runs[0].Status != "queued" {
+					t.Fatalf("occurrence runs = %#v, %v", runs, err)
+				}
+			}
+		})
+	}
+}
+
 func TestRecurrenceOverlapPoliciesAcrossActiveSlots(t *testing.T) {
 	for _, test := range []struct {
 		name        string
