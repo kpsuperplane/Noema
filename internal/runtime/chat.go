@@ -43,6 +43,8 @@ const (
 	EventMemoryChanged     EventKind = "memory_changed"
 )
 
+const EventHumanInterventionsChanged EventKind = "human_interventions_changed"
+
 // AgentStatus is one live Chat status.
 type AgentStatus string
 
@@ -99,6 +101,11 @@ type actionResolutionResult struct {
 	err    error
 }
 
+type actionContinuation struct {
+	action  store.ActionRequest
+	trigger store.ConversationItem
+}
+
 type subscriber struct {
 	conversationID string
 	events         chan Event
@@ -125,6 +132,8 @@ type Chat struct {
 	memoryErr  string
 	memoryWG   sync.WaitGroup
 
+	recoveredActions []actionContinuation
+
 	subMu       sync.Mutex
 	subscribers map[uint64]subscriber
 	nextSubID   uint64
@@ -143,6 +152,7 @@ func NewChat(
 	}
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
 	actions, err := database.RecoverActionRequests(recoveryContext, time.Now())
+	recoveredActions := make([]actionContinuation, 0, len(actions))
 	for _, action := range actions {
 		turn, input, callErr := database.ActionConversationCall(recoveryContext, action)
 		if callErr != nil {
@@ -151,10 +161,12 @@ func NewChat(
 		}
 		input.Payload = mustJSON(actionResultPayload(action))
 		input.Success = action.State == store.ActionSucceeded
-		if _, callErr = database.FinishConversationToolCall(recoveryContext, turn, input, time.Now()); callErr != nil {
+		item, callErr := database.FinishConversationToolCall(recoveryContext, turn, input, time.Now())
+		if callErr != nil {
 			err = callErr
 			break
 		}
+		recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
 	}
 	if err == nil {
 		_, err = database.RecoverConversationTurns(recoveryContext, time.Now())
@@ -168,8 +180,9 @@ func NewChat(
 		ctx: ctx, cancel: cancel, database: database,
 		openRouter: openRouter, codex: codex, home: homeRoot, memory: memoryStore,
 		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
-		done:        make(chan struct{}),
-		subscribers: make(map[uint64]subscriber),
+		done:             make(chan struct{}),
+		recoveredActions: recoveredActions,
+		subscribers:      make(map[uint64]subscriber),
 	}
 	go chat.run()
 	return chat, nil
@@ -300,6 +313,13 @@ func (c *Chat) run() {
 			}
 		}
 	}()
+	for _, recovery := range c.recoveredActions {
+		if c.ctx.Err() != nil {
+			return
+		}
+		c.continueAfterAction(recovery.action, recovery.trigger)
+	}
+	c.recoveredActions = nil
 	for {
 		if c.ctx.Err() != nil {
 			return

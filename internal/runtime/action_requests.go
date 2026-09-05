@@ -133,6 +133,7 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	if err != nil {
 		return store.ActionRequest{}, err
 	}
+	c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: action.ConversationID})
 	if action.State == store.ActionExecutable {
 		conversation, conversationErr := c.database.Conversation(c.ctx, action.ConversationID)
 		if conversationErr != nil {
@@ -150,10 +151,6 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	resultItem, err := c.appendActionResult(action)
 	if err != nil {
 		return action, err
-	}
-	if action.State == store.ActionOutcomeUncertain {
-		c.publish(Event{Kind: EventTurnCompleted, ConversationID: action.ConversationID, TurnID: action.TurnID})
-		return action, nil
 	}
 	c.continueAfterAction(action, resultItem)
 	return action, nil

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,8 +62,8 @@ func fileDownloadTool() provider.GenerationTool {
 }
 
 func parseFileDownloadArguments(raw json.RawMessage) (fileDownloadRequest, error) {
-	var fields map[string]json.RawMessage
-	if decodeToolArguments(raw, &fields) != nil || len(fields) < 2 || len(fields) > 5 {
+	fields, err := uniqueDownloadArguments(raw)
+	if err != nil || len(fields) < 2 || len(fields) > 5 {
 		return fileDownloadRequest{}, errors.New("arguments do not match the file.download schema")
 	}
 	for name := range fields {
@@ -77,6 +79,15 @@ func parseFileDownloadArguments(raw json.RawMessage) (fileDownloadRequest, error
 	if request.URL == "" || utf8.RuneCountInString(request.URL) > fileDownloadMaximumURL ||
 		request.Path == "" || utf8.RuneCountInString(request.Path) > fileParseMaximumPath {
 		return fileDownloadRequest{}, errors.New("url or path is missing or too long")
+	}
+	parsedURL, err := url.Parse(request.URL)
+	if err != nil {
+		return fileDownloadRequest{}, errors.New("url is invalid")
+	}
+	if parsedURL.User != nil {
+		if _, hasPassword := parsedURL.User.Password(); hasPassword {
+			return fileDownloadRequest{}, errors.New("credential-bearing URLs are unavailable")
+		}
 	}
 	if value, ok := fields["parse"]; ok && json.Unmarshal(value, &request.Parse) != nil {
 		return fileDownloadRequest{}, errors.New("arguments do not match the file.download schema")
@@ -95,6 +106,38 @@ func parseFileDownloadArguments(raw json.RawMessage) (fileDownloadRequest, error
 		}
 	}
 	return request, nil
+}
+
+func uniqueDownloadArguments(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return nil, errors.New("arguments are invalid")
+	}
+	fields := make(map[string]json.RawMessage)
+	for decoder.More() {
+		nameToken, err := decoder.Token()
+		name, ok := nameToken.(string)
+		if err != nil || !ok {
+			return nil, errors.New("arguments are invalid")
+		}
+		if _, exists := fields[name]; exists {
+			return nil, errors.New("arguments are invalid")
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, errors.New("arguments are invalid")
+		}
+		fields[name] = value
+	}
+	if token, err = decoder.Token(); err != nil || token != json.Delim('}') {
+		return nil, errors.New("arguments are invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, errors.New("arguments are invalid")
+	}
+	return fields, nil
 }
 
 func executeFileDownload(ctx context.Context, cwd string, raw json.RawMessage) (json.RawMessage, error) {
@@ -161,7 +204,8 @@ func executeFileDownload(ctx context.Context, cwd string, raw json.RawMessage) (
 	var parsed any
 	if request.Parse {
 		arguments, _ := json.Marshal(map[string]any{"path": request.Path, "max_chars": request.MaxChars})
-		result, parseErr := parseConversationFile(ctx, cwd, arguments)
+		responseMediaType, _ := mediaType.(string)
+		result, parseErr := parseConversationFileWithMedia(ctx, cwd, arguments, responseMediaType)
 		if parseErr != nil {
 			parsed = map[string]string{"error": parseErr.Error()}
 		} else {

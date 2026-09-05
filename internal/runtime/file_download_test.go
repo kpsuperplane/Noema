@@ -15,11 +15,17 @@ func TestFileDownloadArgumentsAndRootedDestination(t *testing.T) {
 	if err != nil || request.Path != "reports/a.pdf" || !request.Parse || request.MaxChars != 1000 {
 		t.Fatalf("valid request = %#v, %v", request, err)
 	}
+	request, err = parseFileDownloadArguments(json.RawMessage(`{"url":"https://alice@example.net/report.pdf","path":"report.pdf"}`))
+	if err != nil || request.URL != "https://alice@example.net/report.pdf" {
+		t.Fatalf("username URL = %#v, %v", request, err)
+	}
 	for _, raw := range []string{
 		`{"url":"https://example.net/a","path":"../a"}`,
 		`{"url":"https://example.net/a","path":"/absolute"}`,
 		`{"url":"https://example.net/a","path":"a","unknown":true}`,
 		`{"url":"https://example.net/a","path":"a","reason":" "}`,
+		`{"url":"https://alice:secret@example.net/a","path":"a"}`,
+		`{"url":"https://example.net/a","url":"https://alice:secret@example.net/a","path":"a"}`,
 	} {
 		parsed, parseErr := parseFileDownloadArguments(json.RawMessage(raw))
 		if parseErr == nil {
@@ -31,6 +37,21 @@ func TestFileDownloadArgumentsAndRootedDestination(t *testing.T) {
 	}
 
 	rootPath := t.TempDir()
+	extensionless := filepath.Join(rootPath, "download")
+	if err := os.WriteFile(extensionless, []byte("plain response"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(extensionless)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := parseOpenFileWithMedia(t.Context(), file, "download", 1000, "text/plain; charset=utf-8")
+	_ = file.Close()
+	if parsed.Status != "converted" || parsed.Content == nil || *parsed.Content != "plain response" ||
+		parsed.Format == nil || *parsed.Format != "txt" {
+		t.Fatalf("extensionless parse = %#v", parsed)
+	}
+
 	root, err := os.OpenRoot(rootPath)
 	if err != nil {
 		t.Fatal(err)

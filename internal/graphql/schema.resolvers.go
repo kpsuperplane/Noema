@@ -668,7 +668,7 @@ func (r *queryRootResolver) PendingGovernedActions(ctx context.Context, conversa
 
 // PendingHumanInterventions is the resolver for the pendingHumanInterventions field.
 func (r *queryRootResolver) PendingHumanInterventions(ctx context.Context, conversationID *string, taskID *string, projectID *string, first *int) ([]model.HumanIntervention, error) {
-	panic(fmt.Errorf("not implemented: PendingHumanInterventions - pendingHumanInterventions"))
+	return r.pendingHumanInterventions(ctx, conversationID, taskID, projectID, first)
 }
 
 // TaskHistory is the resolver for the taskHistory field.

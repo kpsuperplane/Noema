@@ -33,6 +33,23 @@ func (r *Resolver) pendingActionRequests(
 	return result, nil
 }
 
+func (r *Resolver) pendingHumanInterventions(
+	ctx context.Context, conversationID, taskID, projectID *string, first *int,
+) ([]model.HumanIntervention, error) {
+	if projectID != nil {
+		return []model.HumanIntervention{}, nil
+	}
+	actions, err := r.pendingActionRequests(ctx, conversationID, taskID, first)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]model.HumanIntervention, 0, len(actions))
+	for _, action := range actions {
+		result = append(result, action)
+	}
+	return result, nil
+}
+
 func (r *Resolver) resolveActionRequest(
 	ctx context.Context, input model.ResolveGovernedActionInput,
 ) (*model.GovernedAction, error) {

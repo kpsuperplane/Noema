@@ -8,7 +8,8 @@ import (
 func TestPublicAddressPolicyRejectsInternalAndSpecialRanges(t *testing.T) {
 	for _, raw := range []string{
 		"0.0.0.0", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.1.1",
-		"192.0.2.1", "198.18.0.1", "203.0.113.1", "::1", "fc00::1", "fe80::1", "2001:db8::1",
+		"192.0.2.1", "198.18.0.1", "203.0.113.1", "::1", "fc00::1", "fec0::1", "fe80::1",
+		"2001:db8::1", "4000::1",
 	} {
 		if IsPublic(netip.MustParseAddr(raw)) {
 			t.Fatalf("address %s is public", raw)

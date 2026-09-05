@@ -21,9 +21,14 @@ type CheckedURL struct {
 // CheckURL validates and resolves one public HTTP or HTTPS URL.
 func CheckURL(ctx context.Context, raw string) (CheckedURL, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Hostname() == "" || parsed.User != nil ||
+	if err != nil || parsed.Hostname() == "" ||
 		(parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return CheckedURL{}, errors.New("public URL is invalid")
+	}
+	if parsed.User != nil {
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			return CheckedURL{}, errors.New("public URL credentials are unavailable")
+		}
 	}
 	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
 	if blockedHostname(host) {
@@ -91,6 +96,9 @@ func PinnedClient(checked CheckedURL, timeout time.Duration) *http.Client {
 func IsPublic(address netip.Addr) bool {
 	address = address.Unmap()
 	if !address.IsGlobalUnicast() || address.IsPrivate() {
+		return false
+	}
+	if address.Is6() && !netip.MustParsePrefix("2000::/3").Contains(address) {
 		return false
 	}
 	for _, raw := range []string{

@@ -105,6 +105,8 @@ func conversationEventModel(event runtime.Event) (model.ConversationEvent, error
 	switch event.Kind {
 	case runtime.EventSubscriptionReady:
 		return model.SubscriptionReadyEvent{ConversationID: event.ConversationID}, nil
+	case runtime.EventHumanInterventionsChanged:
+		return model.HumanInterventionsChangedEvent{ConversationID: event.ConversationID}, nil
 	case runtime.EventAgentStatus:
 		status, err := agentStatusModel(event.Status)
 		if err != nil {

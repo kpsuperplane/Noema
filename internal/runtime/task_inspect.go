@@ -343,6 +343,11 @@ func (c *Chat) persistChatToolRound(
 	call provider.GenerationToolCall,
 	providerRound int,
 ) (json.RawMessage, bool, bool, error) {
+	if call.Name == fileDownloadName {
+		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
+			return nil, false, false, errors.New("file.download arguments are invalid")
+		}
+	}
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
 		Provider:   assignment.ProviderKind,
 		Commentary: generation.Text, Reasoning: generationReasoning(generation),
@@ -381,6 +386,7 @@ func (c *Chat) persistChatToolRound(
 		if approval != nil {
 			c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
 				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: approval})
+			c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
 			c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
 			c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})
