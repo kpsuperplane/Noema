@@ -484,7 +484,7 @@ func TestTaskExecutionPolicyRecoversDueAuditFromReplay(t *testing.T) {
 		}
 		items, _ := database.TaskRunReplayItems(t.Context(), run.ID)
 		if err = database.AppendTaskRunItems(t.Context(), run.ID, run.Generation, []store.TaskRunItemInput{{Kind: "tool_result", Status: "completed", Round: round, ParentID: items[len(items)-1].ID,
-			Payload: map[string]any{"result": json.RawMessage(`{"content":"same"}`), "success": true}}}, store.TaskRunUsage{}, time.Now()); err != nil {
+			Payload: map[string]any{"result": json.RawMessage(`{"content":"same"}`), "success": true, "side_effect": true}}}, store.TaskRunUsage{}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -494,7 +494,7 @@ func TestTaskExecutionPolicyRecoversDueAuditFromReplay(t *testing.T) {
 		if taskRequestHasTool(request.Tools, progressAuditToolName) {
 			var digest progressAuditDigest
 			_ = json.Unmarshal([]byte(request.Messages[1].Content), &digest)
-			if digest.WholeTurn.ToolCounts[taskFilesRead] != 5 || len(digest.Window.ToolCounts) != 0 || !strings.Contains(digest.UserGoal, "Recover this exact TASK.md goal.") {
+			if digest.WholeTurn.ToolCounts[taskFilesRead] != 5 || digest.WholeTurn.SideEffectCount != 5 || len(digest.Window.ToolCounts) != 0 || !strings.Contains(digest.UserGoal, "Recover this exact TASK.md goal.") {
 				t.Fatalf("recovered audit digest = %#v", digest)
 			}
 			return taskToolResult("audit-recovery", progressAuditToolName, map[string]any{"decision": "ask_human", "user_summary": "Need input.", "next_goal": nil}), nil
