@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Clownsw/xls"
+	"github.com/xuri/excelize/v2"
 )
 
 const (
@@ -123,53 +124,62 @@ func parseXLSX(data []byte) ([]sheet, error) {
 	if err != nil {
 		return nil, err
 	}
-	workbook, err := readArchivePart(archive, entries, "xl/workbook.xml")
-	if err != nil {
-		return nil, err
-	}
-	relations, err := readArchivePart(archive, entries, "xl/_rels/workbook.xml.rels")
-	if err != nil {
-		return nil, err
-	}
-	names, err := workbookSheets(workbook)
-	if err != nil || len(names) == 0 || len(names) > maxSheets {
-		return nil, errInvalidSpreadsheet
-	}
-	targets, err := workbookRelations(relations)
-	if err != nil {
-		return nil, err
-	}
-	var shared []string
-	if _, exists := entries["xl/sharedStrings.xml"]; exists {
-		part, readErr := readArchivePart(archive, entries, "xl/sharedStrings.xml")
-		if readErr != nil {
-			return nil, readErr
+	// Excelize's row iterator does not report malformed XML at end of input.
+	for name := range entries {
+		if !strings.HasSuffix(name, ".xml") {
+			continue
 		}
-		shared, err = sharedStrings(part)
+		part, err := readArchivePart(archive, entries, name)
 		if err != nil {
 			return nil, err
 		}
+		decoder := xml.NewDecoder(bytes.NewReader(part))
+		for {
+			if _, err := decoder.Token(); err != nil {
+				if err != io.EOF {
+					return nil, errInvalidSpreadsheet
+				}
+				break
+			}
+		}
+	}
+	book, err := excelize.OpenReader(bytes.NewReader(data), excelize.Options{
+		UnzipSizeLimit: maxArchiveTotalBytes, UnzipXMLSizeLimit: maxArchiveTotalBytes,
+	})
+	if book != nil {
+		defer book.Close()
+	}
+	if err != nil {
+		return nil, errInvalidSpreadsheet
+	}
+	names := book.GetSheetList()
+	if len(names) == 0 || len(names) > maxSheets {
+		return nil, errInvalidSpreadsheet
 	}
 	result := make([]sheet, 0, len(names))
 	cells := 0
-	for _, named := range names {
-		target, exists := targets[named.id]
-		if !exists {
+	for _, name := range names {
+		rows, err := book.Rows(name)
+		if err != nil {
 			return nil, errInvalidSpreadsheet
 		}
-		partName, ok := safeWorkbookTarget(target)
-		if !ok {
+		current := sheet{name: name}
+		for len(current.rows) < maxRows && cells < maxCells && rows.Next() {
+			values, err := rows.Columns()
+			if err != nil {
+				_ = rows.Close()
+				return nil, errInvalidSpreadsheet
+			}
+			values = values[:min(len(values), maxColumns, maxCells-cells)]
+			cells += len(values)
+			current.rows = append(current.rows, values)
+		}
+		readErr := rows.Error()
+		closeErr := rows.Close()
+		if readErr != nil || closeErr != nil {
 			return nil, errInvalidSpreadsheet
 		}
-		part, err := readArchivePart(archive, entries, partName)
-		if err != nil {
-			return nil, err
-		}
-		rows, err := xlsxRows(part, shared, &cells)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, sheet{name: named.name, rows: rows})
+		result = append(result, current)
 		if cells >= maxCells {
 			break
 		}
@@ -257,202 +267,6 @@ func readArchivePart(_ *zip.Reader, entries archiveEntries, name string) ([]byte
 		return nil, errInvalidSpreadsheet
 	}
 	return content, nil
-}
-
-type namedSheet struct {
-	name string
-	id   string
-}
-
-func workbookSheets(content []byte) ([]namedSheet, error) {
-	decoder := xml.NewDecoder(bytes.NewReader(content))
-	var result []namedSheet
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			return result, nil
-		}
-		if err != nil {
-			return nil, errInvalidSpreadsheet
-		}
-		start, ok := token.(xml.StartElement)
-		if !ok || start.Name.Local != "sheet" {
-			continue
-		}
-		result = append(result, namedSheet{name: attribute(start, "name"), id: attribute(start, "id")})
-	}
-}
-
-func workbookRelations(content []byte) (map[string]string, error) {
-	decoder := xml.NewDecoder(bytes.NewReader(content))
-	result := make(map[string]string)
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			return result, nil
-		}
-		if err != nil {
-			return nil, errInvalidSpreadsheet
-		}
-		start, ok := token.(xml.StartElement)
-		if !ok || start.Name.Local != "Relationship" {
-			continue
-		}
-		result[attribute(start, "Id")] = attribute(start, "Target")
-	}
-}
-
-func safeWorkbookTarget(target string) (string, bool) {
-	if strings.HasPrefix(target, "/") {
-		target = strings.TrimPrefix(target, "/")
-	} else {
-		target = path.Join("xl", target)
-	}
-	target = path.Clean(target)
-	return target, target != "xl" && strings.HasPrefix(target, "xl/")
-}
-
-func sharedStrings(content []byte) ([]string, error) {
-	decoder := xml.NewDecoder(bytes.NewReader(content))
-	result := make([]string, 0)
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			return result, nil
-		}
-		if err != nil {
-			return nil, errInvalidSpreadsheet
-		}
-		start, ok := token.(xml.StartElement)
-		if !ok || start.Name.Local != "si" {
-			continue
-		}
-		text, err := xlsxString(decoder, start)
-		if err != nil || len(result) >= maxCells {
-			return nil, errInvalidSpreadsheet
-		}
-		result = append(result, text)
-	}
-}
-
-func xlsxString(decoder *xml.Decoder, start xml.StartElement) (string, error) {
-	var text strings.Builder
-	for {
-		token, err := decoder.Token()
-		if err != nil {
-			return "", errInvalidSpreadsheet
-		}
-		switch typed := token.(type) {
-		case xml.StartElement:
-			if typed.Name.Local == "t" {
-				part, err := elementText(decoder, typed)
-				if err != nil {
-					return "", err
-				}
-				text.WriteString(part)
-			}
-		case xml.EndElement:
-			if typed.Name == start.Name {
-				return text.String(), nil
-			}
-		}
-	}
-}
-
-func xlsxRows(content []byte, shared []string, cellCount *int) ([][]string, error) {
-	decoder := xml.NewDecoder(bytes.NewReader(content))
-	rows := make([][]string, 0)
-	var row []string
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			return rows, nil
-		}
-		if err != nil {
-			return nil, errInvalidSpreadsheet
-		}
-		switch typed := token.(type) {
-		case xml.StartElement:
-			switch typed.Name.Local {
-			case "row":
-				if len(rows) >= maxRows || *cellCount >= maxCells {
-					return rows, nil
-				}
-				row = nil
-			case "c":
-				if row == nil {
-					row = make([]string, 0)
-				}
-				column, value, err := xlsxCell(decoder, typed, shared)
-				if err != nil {
-					return nil, err
-				}
-				if column < 0 {
-					column = len(row)
-				}
-				if column < maxColumns {
-					for len(row) <= column {
-						row = append(row, "")
-					}
-					row[column] = value
-					(*cellCount)++
-				}
-			}
-		case xml.EndElement:
-			if typed.Name.Local == "row" {
-				rows = append(rows, row)
-			}
-		}
-	}
-}
-
-func xlsxCell(decoder *xml.Decoder, start xml.StartElement, shared []string) (int, string, error) {
-	column := columnFromReference(attribute(start, "r"))
-	cellType := attribute(start, "t")
-	var value, inline strings.Builder
-	for {
-		token, err := decoder.Token()
-		if err != nil {
-			return 0, "", errInvalidSpreadsheet
-		}
-		switch typed := token.(type) {
-		case xml.StartElement:
-			if typed.Name.Local == "v" {
-				text, err := elementText(decoder, typed)
-				if err != nil {
-					return 0, "", err
-				}
-				value.WriteString(text)
-			} else if typed.Name.Local == "t" {
-				text, err := elementText(decoder, typed)
-				if err != nil {
-					return 0, "", err
-				}
-				inline.WriteString(text)
-			}
-		case xml.EndElement:
-			if typed.Name == start.Name {
-				raw := value.String()
-				switch cellType {
-				case "s":
-					index, err := strconv.Atoi(strings.TrimSpace(raw))
-					if err != nil || index < 0 || index >= len(shared) {
-						return 0, "", errInvalidSpreadsheet
-					}
-					return column, shared[index], nil
-				case "b":
-					if strings.TrimSpace(raw) == "1" {
-						return column, "TRUE", nil
-					}
-					return column, "FALSE", nil
-				case "inlineStr":
-					return column, inline.String(), nil
-				default:
-					return column, raw, nil
-				}
-			}
-		}
-	}
 }
 
 func odsSheet(decoder *xml.Decoder, start xml.StartElement, cellCount *int) (sheet, error) {
@@ -638,25 +452,6 @@ func positiveAttribute(start xml.StartElement, name string) int {
 		return 1
 	}
 	return value
-}
-
-func columnFromReference(reference string) int {
-	column := 0
-	found := false
-	for _, character := range reference {
-		if character < 'A' || character > 'Z' {
-			break
-		}
-		found = true
-		column = column*26 + int(character-'A'+1)
-		if column > maxColumns {
-			return maxColumns
-		}
-	}
-	if !found {
-		return -1
-	}
-	return column - 1
 }
 
 func renderMarkdown(sheets []sheet) string {

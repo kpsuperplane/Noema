@@ -22,13 +22,15 @@ func TestSpreadsheetMarkdownXLS(t *testing.T) {
 }
 
 func TestSpreadsheetMarkdownOpenFormats(t *testing.T) {
-	xlsx := zipContent(t, map[string]string{
-		"xl/workbook.xml":            `<?xml version="1.0"?><workbook xmlns:r="relationships"><sheets><sheet name="Data" r:id="rId1"/><sheet name="Archive" r:id="rId2"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<?xml version="1.0"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>`,
-		"xl/sharedStrings.xml":       `<?xml version="1.0"?><sst><si><t>Name</t></si><si><r><t>A</t></r><r><t>lpha</t></r></si></sst>`,
-		"xl/worksheets/sheet1.xml":   `<?xml version="1.0"?><worksheet><sheetData><row><c r="A1" t="s"><v>0</v></c><c r="B1" t="inlineStr"><is><t>Count</t></is></c></row><row><c r="A2" t="s"><v>1</v></c><c r="B2"><v>2</v></c></row></sheetData></worksheet>`,
-		"xl/worksheets/sheet2.xml":   `<?xml version="1.0"?><worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>A|B&#10;C ![x](https://example.com/a.png)&lt;img&gt;</t></is></c><c r="B1" t="b"><v>1</v></c></row></sheetData></worksheet>`,
-	})
+	xlsxParts := map[string]string{
+		"_rels/.rels":                `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+		"xl/workbook.xml":            `<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" r:id="rId1"/><sheet name="Archive" r:id="rId2"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>`,
+		"xl/sharedStrings.xml":       `<?xml version="1.0"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>Name</t></si><si><r><t>A</t></r><r><t>lpha</t></r></si></sst>`,
+		"xl/worksheets/sheet1.xml":   `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row><c r="A1" t="s"><v>0</v></c><c r="B1" t="inlineStr"><is><t>Count</t></is></c></row><row><c r="A2" t="s"><v>1</v></c><c r="B2"><v>2</v></c></row></sheetData></worksheet>`,
+		"xl/worksheets/sheet2.xml":   `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row><c r="A1" t="inlineStr"><is><t>A|B&#10;C ![x](https://example.com/a.png)&lt;img&gt;</t></is></c><c r="B1" t="b"><v>1</v></c></row></sheetData></worksheet>`,
+	}
+	xlsx := zipContent(t, xlsxParts)
 	ods := zipContent(t, map[string]string{
 		"content.xml": `<?xml version="1.0"?><office:document-content xmlns:office="office" xmlns:table="table" xmlns:text="text"><office:body><office:spreadsheet><table:table table:name="Data"><table:table-header-rows><table:table-row><table:table-cell office:value-type="string"><text:p>Name</text:p></table:table-cell><table:table-cell office:value-type="string" office:string-value="Count"/></table:table-row></table:table-header-rows><table:table-row><table:table-cell office:value-type="string"><text:p>Alpha</text:p></table:table-cell><table:table-cell office:value-type="float" office:value="2"/></table:table-row></table:table></office:spreadsheet></office:body></office:document-content>`,
 	})
@@ -56,6 +58,11 @@ func TestSpreadsheetMarkdownOpenFormats(t *testing.T) {
 			}
 		})
 	}
+	xlsxParts["xl/worksheets/sheet1.xml"] = strings.TrimSuffix(xlsxParts["xl/worksheets/sheet1.xml"], "</worksheet>")
+	if _, converted := SpreadsheetMarkdown(zipContent(t, xlsxParts), MediaXLSX); converted {
+		t.Fatal("truncated worksheet converted")
+	}
+
 }
 
 func TestSpreadsheetMarkdownRejectsInvalidAndBoundsOutput(t *testing.T) {
@@ -65,13 +72,16 @@ func TestSpreadsheetMarkdownRejectsInvalidAndBoundsOutput(t *testing.T) {
 		}
 	}
 	bomb := zipContent(t, map[string]string{"content.xml": strings.Repeat("x", maxArchivePartBytes+1)})
-	if _, converted := SpreadsheetMarkdown(bomb, MediaODS); converted {
-		t.Fatal("oversized archive part converted")
+	for _, media := range []string{MediaODS, MediaXLSX} {
+		if _, converted := SpreadsheetMarkdown(bomb, media); converted {
+			t.Fatal("oversized archive part converted")
+		}
 	}
 	large := zipContent(t, map[string]string{
-		"xl/workbook.xml":            `<?xml version="1.0"?><workbook xmlns:r="relationships"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<?xml version="1.0"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml":   `<?xml version="1.0"?><worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>` + strings.Repeat("é", maxPreviewCharacters) + `</t></is></c></row></sheetData></worksheet>`,
+		"_rels/.rels":                `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+		"xl/workbook.xml":            `<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row><c r="A1" t="inlineStr"><is><t>` + strings.Repeat("é", maxPreviewCharacters) + `</t></is></c></row></sheetData></worksheet>`,
 	})
 	preview, converted := SpreadsheetMarkdown(large, MediaXLSX)
 	if !converted || utf8.RuneCountInString(preview) != maxPreviewCharacters || !utf8.ValidString(preview) {
@@ -81,9 +91,10 @@ func TestSpreadsheetMarkdownRejectsInvalidAndBoundsOutput(t *testing.T) {
 
 func TestSpreadsheetMarkdownAcceptsCurrentDocumentLimit(t *testing.T) {
 	parts := map[string]string{
-		"xl/workbook.xml":            `<workbook xmlns:r="relationships"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Name</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>kept</t></is></c></row></sheetData></worksheet>`,
+		"_rels/.rels":                `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+		"xl/workbook.xml":            `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row><c r="A1" t="inlineStr"><is><t>Name</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>kept</t></is></c></row></sheetData></worksheet>`,
 	}
 	var content bytes.Buffer
 	archive := zip.NewWriter(&content)

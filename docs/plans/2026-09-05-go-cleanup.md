@@ -56,3 +56,7 @@ Do not remove the browser worker or Tauri desktop capability.
 - Full permissions now allow dependency downloads and socket tests.
 - Migration registry complete. All Go unit tests and vet passed.
 - Use `GOTMPDIR=$PWD/target/go-tmp` while `/tmp` has limited free space.
+
+- XLSX replacement complete: Excelize v2.11.0; 205 fewer implementation lines.
+  Existing tests now use valid XLSX namespaces and package relationships.
+  Truncated XML and archive limits remain checked. All Go unit tests and vet passed.

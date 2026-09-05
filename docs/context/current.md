@@ -34,6 +34,7 @@ Primary Chat receives durable Task capture, waiting, recovery, completion, and i
 Native Memory owns bounded reads, search, citations, hierarchy, model updates, crash-safe publication, checkpoints, and root prompt context.
 Artifact storage owns safe local files, external URLs, versions, metadata, integrity checks, and authorized delivery.
 Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
+Excelize owns XLSX parsing and display formatting. Archive and output limits remain local.
 `file.parse` uses isolated conversion for DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, EPUB, and spreadsheet formats.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
 Built-in Tasks run all roles and Task tools, while preserving artifact sources, capture time zones, and Executor-only hosted web access.

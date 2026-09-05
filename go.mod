@@ -23,6 +23,7 @@ require (
 	github.com/ncruces/go-sqlite3 v0.35.4
 	github.com/rivo/uniseg v0.4.7
 	github.com/vektah/gqlparser/v2 v2.5.37
+	github.com/xuri/excelize/v2 v2.11.0
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
@@ -48,14 +49,19 @@ require (
 	github.com/ncruces/go-sqlite3-wasm/v5 v5.0.35304 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
+	github.com/richardlehane/mscfb v1.0.7 // indirect
+	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sosodev/duration v1.4.0 // indirect
 	github.com/tealeg/xlsx v1.0.5 // indirect
+	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/urfave/cli/v3 v3.11.0 // indirect
 	github.com/vstasn/ole2 v0.0.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/mod v0.40.0 // indirect
