@@ -154,11 +154,11 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	if err != nil {
 		return fmt.Errorf("open Artifact service: %w", err)
 	}
-	diagnostics := output
+	scheduleOutput := output
 	if desktop != nil {
-		diagnostics = os.Stderr
+		scheduleOutput = os.Stderr
 	}
-	runTaskSchedules(ctx, root, taskStore, diagnostics)
+	runTaskSchedules(ctx, root, taskStore, scheduleOutput)
 	var authConfig auth.Config
 	var recovery *auth.Recovery
 	authConfig, recovery, err = auth.LoadConfig(paths, address)
