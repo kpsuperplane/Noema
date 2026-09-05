@@ -26,12 +26,13 @@ var ErrConversationTurnActive = errors.New("conversation turn is already active"
 type ConversationItemKind string
 
 const (
-	ConversationUserText      ConversationItemKind = "user_text"
-	ConversationAssistantText ConversationItemKind = "assistant_text"
-	ConversationToolCall      ConversationItemKind = "tool_call"
-	ConversationToolResult    ConversationItemKind = "tool_result"
-	ConversationReasoning     ConversationItemKind = "reasoning"
-	ConversationErrorNotice   ConversationItemKind = "error_notice"
+	ConversationUserText        ConversationItemKind = "user_text"
+	ConversationAssistantText   ConversationItemKind = "assistant_text"
+	ConversationToolCall        ConversationItemKind = "tool_call"
+	ConversationToolResult      ConversationItemKind = "tool_result"
+	ConversationReasoning       ConversationItemKind = "reasoning"
+	ConversationApprovalRequest ConversationItemKind = "approval_request"
+	ConversationErrorNotice     ConversationItemKind = "error_notice"
 )
 
 // ConversationItem is one durable visible transcript record.
@@ -169,6 +170,62 @@ WHERE conversation_id = ?`, millis(now), conversationID); err != nil {
 	return ConversationTurn{
 		ID: turnID, ConversationID: conversationID, TurnIndex: turnIndex, Status: "input_received",
 	}, item, nil
+}
+
+// BeginConversationContinuation starts one model turn from a saved terminal tool result.
+func (s *Store) BeginConversationContinuation(
+	ctx context.Context, conversationID, triggerItemID string, now time.Time,
+) (ConversationTurn, error) {
+	turnID, err := newID("turn")
+	if err != nil {
+		return ConversationTurn{}, err
+	}
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return ConversationTurn{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var triggerStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM conversation_items
+WHERE item_id = ? AND conversation_id = ? AND deleted_at_ms IS NULL`,
+		triggerItemID, conversationID).Scan(&triggerStatus); err != nil {
+		return ConversationTurn{}, errors.New("conversation continuation trigger is unavailable")
+	}
+	if triggerStatus == "pending" || triggerStatus == "running" {
+		return ConversationTurn{}, errors.New("conversation continuation trigger is not final")
+	}
+	var active bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM conversation_turns
+WHERE conversation_id = ? AND status IN ('input_received','running','waiting_for_tool'))`,
+		conversationID).Scan(&active); err != nil {
+		return ConversationTurn{}, err
+	}
+	if active {
+		return ConversationTurn{}, ErrConversationTurnActive
+	}
+	var turnIndex int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(
+CAST(json_extract(metadata_json, '$.turn_index') AS INTEGER)),0) + 1
+FROM conversation_turns WHERE conversation_id = ?`, conversationID).Scan(&turnIndex); err != nil {
+		return ConversationTurn{}, err
+	}
+	metadata, _ := json.Marshal(map[string]any{"turn_index": turnIndex, "continuation": "action_request"})
+	if _, err := tx.ExecContext(ctx, `INSERT INTO conversation_turns (
+turn_id, conversation_id, trigger_item_id, status, metadata_json,
+started_at_ms, created_at_ms, updated_at_ms
+) VALUES (?,?,?,'running',?,?,?,?)`, turnID, conversationID, triggerItemID,
+		string(metadata), millis(now), millis(now), millis(now)); err != nil {
+		return ConversationTurn{}, fmt.Errorf("create conversation continuation: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE conversations SET agent_status = 'thinking', updated_at_ms = ?
+WHERE conversation_id = ?`, millis(now), conversationID); err != nil {
+		return ConversationTurn{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ConversationTurn{}, err
+	}
+	return ConversationTurn{ID: turnID, ConversationID: conversationID, TurnIndex: turnIndex, Status: "running"}, nil
 }
 
 // SetConversationAgentStatus saves one current Chat status.
@@ -446,11 +503,9 @@ WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`
 		providerKind = conversationProvider
 	}
 	metadata["provider"] = providerKind
-	var parentID string
-	if err := tx.QueryRowContext(ctx, `
-SELECT item_id FROM conversation_items
-WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID); err != nil {
-		return ConversationItem{}, fmt.Errorf("find conversation user item: %w", err)
+	parentID, err := conversationTurnParentTx(ctx, tx, turn)
+	if err != nil {
+		return ConversationItem{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE conversation_items SET status = 'failed', updated_at_ms = ?
@@ -526,6 +581,24 @@ UPDATE conversations SET agent_status = ?, updated_at_ms = ? WHERE conversation_
 		return ConversationItem{}, fmt.Errorf("commit conversation turn completion: %w", err)
 	}
 	return item, nil
+}
+
+func conversationTurnParentTx(ctx context.Context, tx *sql.Tx, turn ConversationTurn) (string, error) {
+	var parentID string
+	err := tx.QueryRowContext(ctx, `SELECT item_id FROM conversation_items
+WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID)
+	if err == nil {
+		return parentID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("find conversation turn parent: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT trigger_item_id FROM conversation_turns
+WHERE turn_id = ? AND conversation_id = ? AND trigger_item_id IS NOT NULL`,
+		turn.ID, turn.ConversationID).Scan(&parentID); err != nil {
+		return "", errors.New("conversation turn parent is unavailable")
+	}
+	return parentID, nil
 }
 
 // ConversationItemPage returns visible items before an optional cursor.

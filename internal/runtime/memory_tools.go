@@ -39,11 +39,12 @@ func chatTools() []provider.GenerationTool {
 			Description: "Search Memory when no clear page exists or the question spans pages.",
 			InputSchema: append(json.RawMessage(nil), searchMemorySchema...),
 		},
+		fileDownloadTool(),
 	}
 }
 
 func supportsChatTool(name string) bool {
-	return name == fileParseName || name == taskInspectName ||
+	return name == fileDownloadName || name == fileParseName || name == taskInspectName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
