@@ -17,8 +17,8 @@ const localHumanID = "human:local"
 
 func (r *Resolver) requireMCP(ctx context.Context) (*noemamcp.Service, error) {
 	_, browser := auth.BrowserSessionHash(ctx)
-	if (!browser && !auth.DesktopAccess(ctx)) || r.MCP == nil {
-		return nil, errors.New("browser session is unavailable")
+	if (!browser && !auth.DesktopAccess(ctx) && auth.ClientID(ctx) == "") || r.MCP == nil {
+		return nil, errors.New("authenticated MCP service is unavailable")
 	}
 	return r.MCP, nil
 }
