@@ -64,7 +64,7 @@ Keep unmatched cron schedules intact under Custom schedule.
 Group Repeat, Time, Time zone, and Starts on in that order.
 Use a searchable timezone control with friendly names and the exact zone available for inspection.
 Show a compact first-run preview. Keep the full upcoming-run preview available through disclosure.
-Keep missed-run and overlap controls together below the main schedule.
+Show missed-run and overlap controls together below the main schedule. These two controls do not need a disclosure.
 
 **Mock:** [Schedule dialog](http://localhost:8766/#schedule).
 **Source:** [ScheduleFields](../../../apps/web/src/components/tasks/ScheduleFields.tsx), [recurrence editor](../../../apps/web/src/components/tasks/TaskRecurrenceDetailPanel.tsx).
@@ -90,7 +90,8 @@ Keep the current confirmation points. Do not add confirmations to routine action
 These describe missing system activity instead of the person's next action.
 
 **Suggestion:** Keep the instructions prominent. Show “Ready when you are” beside Start task and Schedule.
-Keep provenance visible. Place revision and other inspection details below the instructions.
+Put Inbox status, provenance, and Settings within the document body, below its title.
+Remove the separate detail header. Show the brief revision information directly below the instructions.
 Retain workspace files and transcript access when they contain useful content.
 The cropped mock shows the unstarted state, not a replacement for completed task details.
 
@@ -103,8 +104,9 @@ The cropped mock shows the unstarted state, not a replacement for completed task
 The empty ACP group also separates agent models from task models.
 
 **Suggestion:** Give the chosen model enough width to show its name.
-Move reasoning, Fast, and task-model enablement into row-level Options.
-Keep a visible Off state for disabled task models. Show changed options in a concise row summary when useful.
+Keep model, reasoning, Fast, and task-model enablement visible in each row.
+Use a compact group with aligned controls. On phones, give the model selector its own full-width line.
+Keep a visible Off state for disabled task models.
 Keep agent models and task models adjacent. Put external agent setup after them on the same page.
 Retain direct saving for inline choices. Use one local saving, saved, or error state at the affected row.
 
@@ -120,7 +122,8 @@ Schedule metadata and description labels use several small type sizes and differ
 
 **Suggestion:** Emphasize the next date in one compact green summary.
 Align instructions and history to one left edge. Use the existing body and heading tokens.
-Use **Run history** instead of **Occurrences**. Show the task outcome where available.
+Use **Run history** instead of **Occurrences**. Reuse the existing task list item cards and TaskStatusBadge.
+Keep the same title, timestamp, preview, and status arrangement. Show the task outcome where available.
 Keep schedule state separate from the state of an individual run.
 Show skipped runs without suggesting a task exists. Keep destructive schedule actions in the existing menu.
 
@@ -136,8 +139,9 @@ Capability identifiers and contract fields appear in the main content.
 
 **Suggestion:** Put connection health beside the account name.
 Use compact label/value rows for sign-in method and default status.
-Use familiar capability names with brief explanations. Keep exact IDs and contracts under Technical details.
-Keep account deletion available in a quiet lower section with explicit consequences.
+Use familiar capability names with brief explanations. Show one or two short technical values directly.
+Reserve Technical details disclosure for larger records.
+Keep account deletion visible in a quiet lower section with explicit consequences.
 Do not collapse useful connection errors or remove supported providers.
 
 **Mock:** [Provider settings](http://localhost:8766/#providers).
@@ -149,7 +153,7 @@ Do not collapse useful connection errors or remove supported providers.
 The browser's installation requirement appears in the lower group.
 
 **Suggestion:** Put this device's state and next step first.
-Keep Apple delivery setup in a secondary section on the same page.
+Keep Apple delivery setup in a secondary section on the same page. Show its short explanation and Configure action directly.
 Show why notifications cannot be enabled when installation or permission is missing.
 The mock's enabled state is illustrative; it must not replace actual permission and installation checks.
 
@@ -169,6 +173,7 @@ Use 16px body spacing, 12px field groups, 6px label gaps, and 8px action gaps.
 Use standard 32px buttons. Set an explicit primary variant on Save.
 Pair equal-width actions with the primary action on the right.
 Retain mobile drawers. Keep actions reachable when forms or validation messages become long.
+Show the task agent and working folder directly in Task settings. These two fields do not need an Advanced disclosure.
 Focus the first input on open. Keep draft, saving, stale-version, and field-error behavior intact.
 
 **Mock:** [Task settings](http://localhost:8766/#task-settings). The gallery also opens actual modal and mobile drawer previews.
@@ -181,13 +186,19 @@ The project, schedule, agent, folder, and Markdown controls are all icon-only.
 
 **Suggestion:** Preserve the current document editor. Refine its footer.
 Show Add to Inbox beside Run now. Give project and scheduling controls visible labels.
-Keep agent, folder, and source controls in Advanced. Show selected non-default values when they matter.
+Place the Advanced section above the action row, at full width.
+Keep agent, folder, and source controls within that section. Show selected non-default values when they matter.
+Expanding Advanced must not change the arrangement of the action buttons.
 Do not turn capture into a multi-step form.
 
 **Mock:** [New task](http://localhost:8766/#capture).
 **Source:** [CaptureTaskDetail](../../../apps/web/src/components/tasks/CaptureTaskDetail.tsx).
 
 ## Smaller copy and finish changes
+
+Keep short information and compact controls visible. A disclosure must save meaningful space or hide a substantial secondary task.
+Do not use disclosure for one or two small items.
+
 
 - On a completely empty Tasks page, replace “No matching history” with a first-task message.
   Use “No completed tasks yet” for empty history without filters. Reserve “matching” for active filters.

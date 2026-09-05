@@ -15,8 +15,9 @@ The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
 Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
 Cargo now builds only the Tauri desktop shell.
 Apple Foundation Models and its Swift bridge are removed. Setup fills missing model roles and preserves other selections.
-Supporting flows now share the approved card, avatar, and existing theme.
-See `docs/plans/2026-09-04-supporting-ui/implementation.md` for implementation and validation.
+Supporting flows share the approved card, avatar, and theme; see `docs/plans/2026-09-04-supporting-ui/implementation.md`.
+Core UI mocks remain proposals; see `docs/plans/2026-09-05-core-ui-audit/README.md`.
+Keep compact controls visible, inline task metadata, and reuse task cards for recurring history.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.

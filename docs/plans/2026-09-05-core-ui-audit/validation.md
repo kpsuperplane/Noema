@@ -48,3 +48,14 @@ The gallery server contains sample artifacts only. It is separate from authentic
 
 Tracked Go size at completion: 78197 production, 24914 tests, 79612 generated; 182723 total.
 Production and inclusive migration ratios remain below 80 percent.
+
+## Mock refinement after user review
+
+- Removed the separate Inbox/Settings detail header. Those controls now sit within the document body.
+- Removed small disclosures from task metadata, task settings, schedule behavior, provider details, notifications, and external agent setup.
+- Recurring history reuses ListCardButton and TaskStatusBadge with the existing task-card content arrangement.
+- Capture Advanced occupies a full-width section above the footer. Its expanded state preserves button widths and horizontal alignment.
+- Model, reasoning, Fast, and task-model enablement stay visible. Phone layouts put the model selector on its own line.
+- Rebuilt the gallery and reviewed all ten views at 1440px and 390px widths.
+- No horizontal overflow or browser page errors occurred during the gallery review.
+- Product UI source remains unchanged. Updated screenshots and recommendations are saved with the mocks.
