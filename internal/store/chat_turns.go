@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/uptrace/bun"
 )
 
 const (
@@ -663,7 +665,7 @@ UPDATE conversations SET agent_status = ?, updated_at_ms = ? WHERE conversation_
 	return item, nil
 }
 
-func conversationTurnParentTx(ctx context.Context, tx *sql.Tx, turn ConversationTurn) (string, error) {
+func conversationTurnParentTx(ctx context.Context, tx bun.Tx, turn ConversationTurn) (string, error) {
 	var parentID string
 	err := tx.QueryRowContext(ctx, `SELECT item_id FROM conversation_items
 WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID)
@@ -740,7 +742,7 @@ ORDER BY sequence_index DESC LIMIT ?`, conversationID, before, limit+1)
 	return page, nil
 }
 
-func requireConversationTx(ctx context.Context, tx *sql.Tx, conversationID string) error {
+func requireConversationTx(ctx context.Context, tx bun.Tx, conversationID string) error {
 	var exists bool
 	if err := tx.QueryRowContext(ctx, `
 SELECT EXISTS(SELECT 1 FROM conversations WHERE conversation_id = ? AND owner_human_id = 'human:local')`,
@@ -753,7 +755,7 @@ SELECT EXISTS(SELECT 1 FROM conversations WHERE conversation_id = ? AND owner_hu
 	return nil
 }
 
-func conversationItemTx(ctx context.Context, tx *sql.Tx, itemID string) (ConversationItem, error) {
+func conversationItemTx(ctx context.Context, tx bun.Tx, itemID string) (ConversationItem, error) {
 	return scanConversationItem(tx.QueryRowContext(ctx, `
 SELECT item_id, conversation_id, COALESCE(turn_id, ''), COALESCE(parent_item_id, ''),
        sequence_index, kind, status, author_actor_id, COALESCE(content_text, ''),

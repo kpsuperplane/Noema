@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // ConversationChoiceContinuation is one answered choice ready for exact resumption.
@@ -294,7 +296,7 @@ func (s *Store) choiceContinuation(ctx context.Context, id string) (Conversation
 	return ConversationChoiceContinuation{Prompt: prompt, Selection: selection, Result: result, Turn: turn}, tx.Commit()
 }
 
-func choiceResolutionItemsTx(ctx context.Context, tx *sql.Tx, prompt ConversationItem) (ConversationItem, ConversationItem, error) {
+func choiceResolutionItemsTx(ctx context.Context, tx bun.Tx, prompt ConversationItem) (ConversationItem, ConversationItem, error) {
 	var selectionID string
 	if err := tx.QueryRowContext(ctx, `SELECT item_id FROM conversation_items
 WHERE parent_item_id = ? AND kind = 'multiple_choice_selection' ORDER BY sequence_index LIMIT 1`, prompt.ID).Scan(&selectionID); err != nil {
@@ -358,7 +360,7 @@ func optionalText(value *string) any {
 	return *value
 }
 
-func completeResumingConversationChoicesTx(ctx context.Context, tx *sql.Tx, turnID string, now time.Time) error {
+func completeResumingConversationChoicesTx(ctx context.Context, tx bun.Tx, turnID string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `
 UPDATE conversation_items
 SET payload_json = json_set(payload_json, '$.lifecycle', 'completed'), updated_at_ms = ?

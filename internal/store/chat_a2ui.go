@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // ConversationA2UIContinuation is one answered A2UI action ready for provider resumption.
@@ -272,7 +274,7 @@ func (s *Store) a2uiContinuation(ctx context.Context, id string) (ConversationA2
 	return ConversationA2UIContinuation{Surface: surface, Action: action, Result: result, Turn: turn}, tx.Commit()
 }
 
-func a2uiResolutionItemsTx(ctx context.Context, tx *sql.Tx, surface ConversationItem) (ConversationItem, ConversationItem, error) {
+func a2uiResolutionItemsTx(ctx context.Context, tx bun.Tx, surface ConversationItem) (ConversationItem, ConversationItem, error) {
 	var actionID string
 	if err := tx.QueryRowContext(ctx, `SELECT item_id FROM conversation_items WHERE parent_item_id = ? AND kind = 'a2ui_card' ORDER BY sequence_index LIMIT 1`, surface.ID).Scan(&actionID); err != nil {
 		return ConversationItem{}, ConversationItem{}, errors.New("A2UI action is unavailable")
@@ -289,7 +291,7 @@ func a2uiResolutionItemsTx(ctx context.Context, tx *sql.Tx, surface Conversation
 	return action, result, err
 }
 
-func completeResumingConversationA2UITx(ctx context.Context, tx *sql.Tx, turnID, state string, now time.Time) error {
+func completeResumingConversationA2UITx(ctx context.Context, tx bun.Tx, turnID, state string, now time.Time) error {
 	if state == "failed" {
 		if _, err := tx.ExecContext(ctx, `UPDATE conversation_items SET payload_json = json_set(payload_json, '$.payload.lifecycle', 'failed'), updated_at_ms = ? WHERE turn_id = ? AND kind = 'a2ui_card' AND json_extract(payload_json, '$.payload.lifecycle') = 'answered' AND parent_item_id IN (SELECT item_id FROM conversation_items WHERE turn_id = ? AND kind = 'a2ui_card' AND json_extract(payload_json, '$.interaction_state') = 'resuming')`, millis(now), turnID, turnID); err != nil {
 			return fmt.Errorf("fail resumed A2UI projection: %w", err)

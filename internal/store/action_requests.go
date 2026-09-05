@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/uptrace/bun"
 )
 
 const (
@@ -682,7 +684,7 @@ ORDER BY sequence_index DESC LIMIT 7`, conversationID, conversationID, turnID)
 	return context, rows.Err()
 }
 
-func insertActionApprovalItem(ctx context.Context, tx *sql.Tx, action ActionRequest, now time.Time) (ConversationItem, error) {
+func insertActionApprovalItem(ctx context.Context, tx bun.Tx, action ActionRequest, now time.Time) (ConversationItem, error) {
 	digest := sha256.Sum256([]byte(action.ID + ":approval"))
 	itemID := "item:" + hex.EncodeToString(digest[:16])
 	sequence, err := nextConversationSequenceTx(ctx, tx, action.ConversationID)
@@ -752,7 +754,7 @@ func validateActionAssessment(value ActionAssessment) (string, error) {
 	return "require_approval", nil
 }
 
-func requireExactActionOrigin(ctx context.Context, tx *sql.Tx, input NewActionRequest, arguments []byte, turnState string) error {
+func requireExactActionOrigin(ctx context.Context, tx bun.Tx, input NewActionRequest, arguments []byte, turnState string) error {
 	if input.TaskID != "" {
 		var status, kind, itemStatus, payload string
 		var generation int64
@@ -794,7 +796,7 @@ WHERE t.conversation_id = ? AND t.turn_id = ? AND i.item_id = ?`,
 	return nil
 }
 
-func requireStoredActionOrigin(ctx context.Context, tx *sql.Tx, action ActionRequest, requiredTurnState string) error {
+func requireStoredActionOrigin(ctx context.Context, tx bun.Tx, action ActionRequest, requiredTurnState string) error {
 	arguments, _ := json.Marshal(action.Arguments)
 	input := NewActionRequest{ConversationID: action.ConversationID, TurnID: action.TurnID,
 		CallItemID: action.CallItemID, TaskID: action.TaskID, RunID: action.RunID, RunItemID: action.RunItemID,
@@ -825,7 +827,7 @@ func boundedJSONObject(raw json.RawMessage, limit int) ([]byte, error) {
 	return json.Marshal(value)
 }
 
-func insertActionEvent(ctx context.Context, tx *sql.Tx, actionID, kind, actor string, payload map[string]any, now time.Time) error {
+func insertActionEvent(ctx context.Context, tx bun.Tx, actionID, kind, actor string, payload map[string]any, now time.Time) error {
 	eventID, err := newID("action_event")
 	if err != nil {
 		return err
@@ -864,7 +866,7 @@ SELECT a.action_id, a.revision, a.owner_human_id, a.conversation_id, a.turn_id,
 FROM action_requests a LEFT JOIN action_request_assessments aa
  ON aa.action_id = a.action_id AND aa.action_revision = a.revision`
 
-func actionRequestTx(ctx context.Context, tx *sql.Tx, actionID string, revision int) (ActionRequest, error) {
+func actionRequestTx(ctx context.Context, tx bun.Tx, actionID string, revision int) (ActionRequest, error) {
 	return scanActionRequest(tx.QueryRowContext(ctx, actionSelect+` WHERE a.action_id = ? AND a.revision = ?`, actionID, revision))
 }
 

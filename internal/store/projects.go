@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 var (
@@ -133,7 +135,7 @@ func (s *Store) CreateProject(
 	}
 	project := Project{ID: id, WorkspaceID: workspaceID, Name: name, Description: description,
 		Folder: folder, Revision: 1, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
-	return s.projectCommand(ctx, command, now, func(tx *sql.Tx) (ProjectResult, error) {
+	return s.projectCommand(ctx, command, now, func(tx bun.Tx) (ProjectResult, error) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO projects
 (project_id, workspace_id, name, description, folder, revision, created_at_ms, updated_at_ms)
 VALUES (?, ?, ?, ?, ?, 1, ?, ?)`, project.ID, project.WorkspaceID, project.Name,
@@ -180,7 +182,7 @@ func (s *Store) UpdateProject(
 		}
 		changes.Folder = folder
 	}
-	return s.projectCommand(ctx, command, now, func(tx *sql.Tx) (ProjectResult, error) {
+	return s.projectCommand(ctx, command, now, func(tx bun.Tx) (ProjectResult, error) {
 		current, err := projectTx(ctx, tx, id)
 		if err != nil {
 			return ProjectResult{}, err
@@ -233,7 +235,7 @@ func (s *Store) SetProjectArchived(
 	if !validProjectID(id) || expectedRevision <= 0 {
 		return ProjectResult{}, errors.New("invalid Project lifecycle command")
 	}
-	return s.projectCommand(ctx, command, now, func(tx *sql.Tx) (ProjectResult, error) {
+	return s.projectCommand(ctx, command, now, func(tx bun.Tx) (ProjectResult, error) {
 		current, err := projectTx(ctx, tx, id)
 		if err != nil {
 			return ProjectResult{}, err
@@ -447,7 +449,7 @@ WHERE result_project_id = ? AND request_digest = ? ORDER BY result_event_id DESC
 
 func (s *Store) projectCommand(
 	ctx context.Context, command ProjectCommand, now time.Time,
-	change func(*sql.Tx) (ProjectResult, error),
+	change func(bun.Tx) (ProjectResult, error),
 ) (ProjectResult, error) {
 	if err := validateProjectCommand(command); err != nil {
 		return ProjectResult{}, err
@@ -485,7 +487,7 @@ VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)`, command.ActorID, command.Name, command.C
 	return result, nil
 }
 
-func insertWorkEvent(ctx context.Context, tx *sql.Tx, workspaceID, projectID, taskID, runID string,
+func insertWorkEvent(ctx context.Context, tx bun.Tx, workspaceID, projectID, taskID, runID string,
 	revision int64, kind, actorID string, causationID *string, correlationID string,
 	payload map[string]any, now time.Time) (WorkEvent, error) {
 	if workspaceID != "workspace:personal" || revision <= 0 || strings.TrimSpace(kind) == "" ||
@@ -550,7 +552,7 @@ func scanProjectReceipt(row rowScanner, digest string) (ProjectResult, bool, err
 const projectSelect = `SELECT project_id, workspace_id, name, description, folder, revision,
 archived_at_ms, created_at_ms, updated_at_ms FROM projects`
 
-func projectTx(ctx context.Context, tx *sql.Tx, id string) (Project, error) {
+func projectTx(ctx context.Context, tx bun.Tx, id string) (Project, error) {
 	return scanProject(tx.QueryRowContext(ctx, projectSelect+" WHERE project_id = ?", id))
 }
 

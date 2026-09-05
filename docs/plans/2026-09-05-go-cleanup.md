@@ -72,3 +72,8 @@ Do not remove the browser worker or Tauri desktop capability.
   Local limits, secret-free diagnostics, exact permission handling, and process cleanup remain.
   Existing ACP unit tests and race tests passed; 99 implementation lines removed.
   Full Go validation found unrelated active public-page edits with two stale text assertions.
+
+- Bun v1.2.18 now owns Task, Task-run, Task-event, and Agent row mapping.
+  The existing SQLite driver, schema version, and transaction checks remain.
+  Production store code changed by -100 lines. Two mapping tests add 89 lines.
+  Go unit tests and vet passed. The Memory test now accepts merged invalidations.

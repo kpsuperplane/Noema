@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
+
+	"github.com/uptrace/bun"
 )
 
 const nativeOAuthLegacyRetry = 60
@@ -580,7 +582,7 @@ type nativeRefreshRow struct {
 	usedAt                           sql.NullInt64
 }
 
-func loadNativeRefresh(ctx context.Context, tx *sql.Tx, hash [32]byte) (nativeRefreshRow, bool, error) {
+func loadNativeRefresh(ctx context.Context, tx bun.Tx, hash [32]byte) (nativeRefreshRow, bool, error) {
 	var row nativeRefreshRow
 	err := tx.QueryRowContext(ctx, `
 SELECT family.family_id, family.client_id, family.absolute_expires_at,
@@ -602,7 +604,7 @@ WHERE refresh.token_hash = ?`, hash[:]).Scan(
 
 func nativeRetryable(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	used nativeRefreshRow,
 	proof NativeOAuthRetryProof,
 	now int64,
@@ -630,7 +632,7 @@ WHERE active.family_id = ? AND active.sequence = ? AND active.status = 'active'
 	return expiresAt, proof.RequestBound || expiresAt > now, nil
 }
 
-func revokeNativeFamily(ctx context.Context, tx *sql.Tx, familyID string, now int64, reason string) error {
+func revokeNativeFamily(ctx context.Context, tx bun.Tx, familyID string, now int64, reason string) error {
 	if _, err := tx.ExecContext(ctx, `
 UPDATE native_oauth_families SET revoked_at = ?, revoke_reason = ?
 WHERE family_id = ? AND revoked_at IS NULL`, now, reason, familyID); err != nil {
@@ -652,7 +654,7 @@ WHERE client_id = (SELECT client_id FROM native_oauth_families WHERE family_id =
 	return nil
 }
 
-func revokeNativeClientAuthority(ctx context.Context, tx *sql.Tx, clientID string, now int64, reason string) error {
+func revokeNativeClientAuthority(ctx context.Context, tx bun.Tx, clientID string, now int64, reason string) error {
 	if _, err := tx.ExecContext(ctx, `
 UPDATE native_oauth_families SET revoked_at = ?, revoke_reason = ?
 WHERE client_id = ? AND revoked_at IS NULL`, now, reason, clientID); err != nil {
@@ -686,7 +688,7 @@ func scanNativeClient(row rowScanner) (NativeOAuthClient, error) {
 	return client, nil
 }
 
-func nativeClient(ctx context.Context, tx *sql.Tx, clientID string) (NativeOAuthClient, bool, error) {
+func nativeClient(ctx context.Context, tx bun.Tx, clientID string) (NativeOAuthClient, bool, error) {
 	client, err := scanNativeClient(tx.QueryRowContext(ctx, `
 SELECT client_id, display_name, created_at, revoked_at FROM clients WHERE client_id = ?`, clientID))
 	if errors.Is(err, sql.ErrNoRows) {

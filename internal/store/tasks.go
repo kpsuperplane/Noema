@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 var (
@@ -36,7 +38,8 @@ const (
 
 // Task is the stored state needed by the first migration slice.
 type Task struct {
-	ID                            string
+	bun.BaseModel                 `bun:"table:tasks"`
+	ID                            string `bun:"task_id,pk"`
 	ProjectID                     string
 	Title                         string
 	State                         TaskState
@@ -45,33 +48,34 @@ type Task struct {
 	ExecutorAgentID               string
 	ExecutorAcpConnectionRevision *int64
 	CwdOverride                   *string
-	ScheduledFor                  *time.Time
+	ScheduledFor                  *time.Time `bun:"scheduled_for_ms"`
 	ScheduleTimeZone              string
 	MissedRunPolicy               string
-	ScheduleProcessedAt           *time.Time
+	ScheduleProcessedAt           *time.Time `bun:"schedule_processed_at_ms"`
 	RecurrenceID                  string
 	RecurrenceRevision            *int64
-	RecurrenceScheduledFor        *time.Time
+	RecurrenceScheduledFor        *time.Time `bun:"recurrence_scheduled_for_ms"`
 	Generation                    int64
 	StageKey                      string
 	ActiveGateID                  string
-	CompletedAt                   *time.Time
-	CancelledAt                   *time.Time
+	CompletedAt                   *time.Time `bun:"completed_at_ms"`
+	CancelledAt                   *time.Time `bun:"cancelled_at_ms"`
 	ExecutionComplexity           string
-	Source                        ArtifactSource
+	Source                        ArtifactSource `bun:"embed:source_"`
 	SourceToolCallID              string
 	SourceClientTimeZone          string
-	CreatedAt                     time.Time
-	UpdatedAt                     time.Time
+	CreatedAt                     time.Time `bun:"created_at_ms"`
+	UpdatedAt                     time.Time `bun:"updated_at_ms"`
 }
 
 // TaskEvent records one committed Task revision.
 type TaskEvent struct {
-	ID         int64
-	TaskID     string
-	Revision   int64
-	Kind       string
-	OccurredAt time.Time
+	bun.BaseModel `bun:"table:task_events"`
+	ID            int64 `bun:"event_id,pk"`
+	TaskID        string
+	Revision      int64 `bun:"task_revision"`
+	Kind          string
+	OccurredAt    time.Time `bun:"occurred_at_ms"`
 }
 
 // TaskStageID returns the current personal workflow stage identifier.
@@ -145,7 +149,7 @@ INSERT INTO tasks (
 
 // Task returns one stored Task.
 func (s *Store) Task(ctx context.Context, id string) (Task, error) {
-	return scanTask(s.db.QueryRowContext(ctx, taskSelect+" WHERE task_id = ?", id))
+	return taskTx(ctx, s.db, id)
 }
 
 // TaskExists reports whether one Task row is committed.
@@ -193,36 +197,10 @@ func (s *Store) FinishTask(
 
 // TaskEvents returns stored events after one event identifier.
 func (s *Store) TaskEvents(ctx context.Context, taskID string, after int64) ([]TaskEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT event_id, task_id, task_revision, kind, occurred_at_ms
-FROM task_events
-WHERE task_id = ? AND event_id > ?
-ORDER BY event_id`, taskID, after)
-	if err != nil {
-		return nil, fmt.Errorf("query task events: %w", err)
-	}
-	defer rows.Close()
-
 	events := make([]TaskEvent, 0)
-	for rows.Next() {
-		var event TaskEvent
-		var occurredAt int64
-		if err := rows.Scan(
-			&event.ID,
-			&event.TaskID,
-			&event.Revision,
-			&event.Kind,
-			&occurredAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan task event: %w", err)
-		}
-		event.OccurredAt = fromMillis(occurredAt)
-		events = append(events, event)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read task events: %w", err)
-	}
-	return events, nil
+	err := s.db.NewSelect().Model(&events).Where("task_id = ? AND event_id > ?", taskID, after).
+		Order("event_id").Scan(ctx)
+	return events, err
 }
 
 func (s *Store) changeTask(
@@ -287,7 +265,7 @@ WHERE task_id = ? AND state = ? AND COALESCE(current_run_id, '') = ?`,
 		return Task{}, ErrStaleRun
 	}
 
-	task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id = ?", taskID))
+	task, err := taskTx(ctx, tx, taskID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -319,81 +297,14 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanTask(row rowScanner) (Task, error) {
+func taskTx(ctx context.Context, db bun.IDB, id string) (Task, error) {
 	var task Task
-	var createdAt int64
-	var updatedAt int64
-	var scheduledFor, processedAt, recurrenceScheduledFor sql.NullInt64
-	var recurrenceRevision, executorRevision sql.NullInt64
-	var projectID, cwdOverride, recurrenceID, activeGateID, complexity sql.NullString
-	var sourceConversationID, sourceTurnID, sourceItemID, sourceToolCallID, sourceTimeZone sql.NullString
-	var completedAt, cancelledAt sql.NullInt64
-	if err := row.Scan(
-		&task.ID,
-		&projectID,
-		&task.Title,
-		&task.State,
-		&task.CurrentRunID,
-		&task.Revision,
-		&task.ExecutorAgentID,
-		&executorRevision,
-		&cwdOverride,
-		&scheduledFor,
-		&task.ScheduleTimeZone,
-		&task.MissedRunPolicy,
-		&processedAt,
-		&recurrenceID,
-		&recurrenceRevision,
-		&recurrenceScheduledFor,
-		&task.Generation,
-		&task.StageKey,
-		&activeGateID,
-		&completedAt,
-		&cancelledAt,
-		&complexity,
-		&sourceConversationID,
-		&sourceTurnID,
-		&sourceItemID,
-		&sourceToolCallID,
-		&sourceTimeZone,
-		&createdAt,
-		&updatedAt,
-	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Task{}, ErrTaskNotFound
-		}
-		return Task{}, fmt.Errorf("scan task: %w", err)
+	err := db.NewSelect().Model(&task).Where("task_id = ?", id).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrTaskNotFound
 	}
-	task.ProjectID = projectID.String
-	task.ExecutorAcpConnectionRevision = nullIntPointer(executorRevision)
-	task.CwdOverride = nullStringPointer(cwdOverride)
-	task.ScheduledFor = nullTimePointer(scheduledFor)
-	task.ScheduleProcessedAt = nullTimePointer(processedAt)
-	task.RecurrenceID = recurrenceID.String
-	task.RecurrenceRevision = nullIntPointer(recurrenceRevision)
-	task.RecurrenceScheduledFor = nullTimePointer(recurrenceScheduledFor)
-	task.ActiveGateID = activeGateID.String
-	task.CompletedAt = nullTimePointer(completedAt)
-	task.CancelledAt = nullTimePointer(cancelledAt)
-	task.ExecutionComplexity = complexity.String
-	task.Source = ArtifactSource{ConversationID: sourceConversationID.String, TurnID: sourceTurnID.String, ItemID: sourceItemID.String}
-	task.SourceToolCallID = sourceToolCallID.String
-	task.SourceClientTimeZone = sourceTimeZone.String
-	task.CreatedAt = fromMillis(createdAt)
-	task.UpdatedAt = fromMillis(updatedAt)
-	return task, nil
+	return task, err
 }
-
-const taskSelect = `
-SELECT task_id, project_id, title, state, COALESCE(current_run_id, ''), revision,
-       executor_agent_id, executor_acp_connection_revision, cwd_override,
-       scheduled_for_ms, COALESCE(schedule_time_zone, ''), COALESCE(missed_run_policy, ''),
-       schedule_processed_at_ms, recurrence_id, recurrence_revision,
-       recurrence_scheduled_for_ms, generation, stage_key, active_gate_id,
-       completed_at_ms, cancelled_at_ms, execution_complexity,
-       source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
-       source_client_time_zone, created_at_ms, updated_at_ms
-FROM tasks`
 
 func nullStringPointer(value sql.NullString) *string {
 	if !value.Valid {
@@ -417,7 +328,7 @@ func nullTimePointer(value sql.NullInt64) *time.Time {
 	return &instant
 }
 
-func insertTaskEvent(ctx context.Context, tx *sql.Tx, task Task, kind string) error {
+func insertTaskEvent(ctx context.Context, tx bun.Tx, task Task, kind string) error {
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO task_events (task_id, task_revision, kind, occurred_at_ms)
 VALUES (?, ?, ?, ?)`, task.ID, task.Revision, kind, millis(task.UpdatedAt)); err != nil {

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/kpsuperplane/noema/internal/provider"
+
+	"github.com/uptrace/bun"
 )
 
 var (
@@ -291,7 +293,7 @@ func validateSingleAssignment(assignment ModelAssignment) error {
 
 func modelAssignmentAccount(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	assignment ModelAssignment,
 ) (provider.Account, error) {
 	account, err := scanProviderAccount(tx.QueryRowContext(ctx, providerAccountSelect+`
@@ -322,7 +324,7 @@ WHERE provider_account_id = ?`, assignment.ProviderAccountID))
 
 func saveHostedModelAssignmentTx(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	assignment ModelAssignment,
 ) error {
 	result, err := tx.ExecContext(ctx, `

@@ -7,7 +7,8 @@ Durable contracts belong in subsystem documents. Git owns completed history.
 
 The human authorized all seven Go cleanup items. ORMs are permitted.
 The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
-One migration registry now drives fresh creation and upgrades at version 32.
+One migration registry drives fresh creation and upgrades at version 32.
+Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 `go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
 CI checks generated Go and web files. The Rust launcher is removed.
 The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
@@ -255,8 +256,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Current reviewer policy can execute an authorized medium-risk write.
   Do not add mandatory review, decline notes, or a general consent registry now.
 - The Milestone 3 evidence record is `docs/validation/personal-assistant-milestone-3-acceptance.md`.
-- The first Milestone 4 browser acceptance slice used controlled bank and flight fixtures.
-  The bank path passed with one receipt and one commit.
 - Task `task:18d0fabfeac8347e2c05` passed automatic flight reconciliation.
   It observed `PROCESSING`, used read-only checks, and reached `CONFIRMED` with one commit.
 - All six Milestone 4 acceptance families pass their shared gates.

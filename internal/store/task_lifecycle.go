@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // TaskUpdate contains the optional Inbox replacements for one Task.
@@ -23,23 +25,42 @@ type TaskUpdate struct {
 
 // TaskRun is one bounded Task execution record.
 type TaskRun struct {
-	ID, TaskID, InstanceName, Kind, Status, AgentID string
-	Generation, AttemptIndex, ReviewRound           int64
-	ParentRunID                                     string
-	ProviderKind, ProviderAccountID, SelectionMode  string
-	ModelProfile, ReasoningEffort                   *string
-	FastMode                                        bool
-	ExecutorBackend, ExecutorAgentID                string
-	EffectiveCwd                                    *string
-	AcpLaunch                                       *AcpLaunch
-	AcpSessionID                                    *string
-	ErrorCode, ErrorMessage                         *string
-	ProviderCallCount, ToolCallCount                int64
-	InputTokens, CachedInputTokens, OutputTokens    int64
-	ActiveMilliseconds                              int64
-	ExecutionPolicy                                 TaskExecutionPolicy
-	QueuedAt, CreatedAt, UpdatedAt                  time.Time
-	StartedAt, EndedAt                              *time.Time
+	bun.BaseModel      `bun:"table:task_runs"`
+	ID                 string `bun:"run_id,pk"`
+	TaskID             string
+	InstanceName       string
+	Kind               string `bun:"run_kind"`
+	Status             string
+	AgentID            string
+	Generation         int64 `bun:"task_generation"`
+	AttemptIndex       int64
+	ReviewRound        int64
+	ParentRunID        string
+	ProviderKind       string
+	ProviderAccountID  string
+	SelectionMode      string
+	ModelProfile       *string
+	ReasoningEffort    *string
+	FastMode           bool
+	ExecutorBackend    string
+	ExecutorAgentID    string
+	EffectiveCwd       *string
+	AcpLaunch          *AcpLaunch `bun:"-"`
+	AcpSessionID       *string    `bun:"-"`
+	ErrorCode          *string
+	ErrorMessage       *string
+	ProviderCallCount  int64
+	ToolCallCount      int64
+	InputTokens        int64
+	CachedInputTokens  int64
+	OutputTokens       int64
+	ActiveMilliseconds int64
+	ExecutionPolicy    TaskExecutionPolicy `bun:"embed:"`
+	QueuedAt           time.Time           `bun:"queued_at_ms"`
+	CreatedAt          time.Time           `bun:"created_at_ms"`
+	UpdatedAt          time.Time           `bun:"updated_at_ms"`
+	StartedAt          *time.Time          `bun:"started_at_ms"`
+	EndedAt            *time.Time          `bun:"ended_at_ms"`
 }
 
 // AcpLaunch is the immutable process selection saved with one ACP Executor run.
@@ -149,7 +170,7 @@ WHERE result_task_id=? AND request_digest=? ORDER BY result_event_id DESC LIMIT 
 // UpdateInboxTask replaces selected capture fields in one transaction.
 func (s *Store) UpdateInboxTask(ctx context.Context, id string, revision, generation int64,
 	changes TaskUpdate, command TaskCommand, now time.Time) (TaskCommandResult, error) {
-	return s.taskLifecycleCommand(ctx, command, func(tx *sql.Tx) (TaskCommandResult, error) {
+	return s.taskLifecycleCommand(ctx, command, func(tx bun.Tx) (TaskCommandResult, error) {
 		task, err := fencedTaskTx(ctx, tx, id, revision, generation)
 		if err != nil {
 			return TaskCommandResult{}, err
@@ -216,7 +237,7 @@ func (s *Store) QueueTask(ctx context.Context, id string, revision, generation i
 
 func (s *Store) queueTask(ctx context.Context, id string, revision, generation int64, kind string,
 	parent *TaskRun, command TaskCommand, now time.Time) (TaskCommandResult, error) {
-	return s.taskLifecycleCommand(ctx, command, func(tx *sql.Tx) (TaskCommandResult, error) {
+	return s.taskLifecycleCommand(ctx, command, func(tx bun.Tx) (TaskCommandResult, error) {
 		task, err := fencedTaskTx(ctx, tx, id, revision, generation)
 		if err != nil {
 			return TaskCommandResult{}, err
@@ -248,7 +269,7 @@ active_gate_id=NULL, revision=?, updated_at_ms=? WHERE task_id=? AND revision=? 
 // CancelTask stops all current work and advances the Task generation.
 func (s *Store) CancelTask(ctx context.Context, id string, revision, generation int64,
 	reason string, command TaskCommand, now time.Time) (TaskCommandResult, error) {
-	return s.taskLifecycleCommand(ctx, command, func(tx *sql.Tx) (TaskCommandResult, error) {
+	return s.taskLifecycleCommand(ctx, command, func(tx bun.Tx) (TaskCommandResult, error) {
 		task, err := fencedTaskTx(ctx, tx, id, revision, generation)
 		if err != nil {
 			return TaskCommandResult{}, err
@@ -284,7 +305,7 @@ WHERE task_id=? AND revision=? AND generation=?`, task.Generation, task.Revision
 // ReopenTask creates one new Executor generation for terminal history.
 func (s *Store) ReopenTask(ctx context.Context, id string, revision, generation int64, direction string,
 	complexity *string, documentDigest string, command TaskCommand, now time.Time) (TaskCommandResult, error) {
-	return s.taskLifecycleCommand(ctx, command, func(tx *sql.Tx) (TaskCommandResult, error) {
+	return s.taskLifecycleCommand(ctx, command, func(tx bun.Tx) (TaskCommandResult, error) {
 		task, err := fencedTaskTx(ctx, tx, id, revision, generation)
 		if err != nil {
 			return TaskCommandResult{}, err
@@ -322,7 +343,7 @@ WHERE task_id=? AND revision=? AND generation=?`, run.ID, task.Generation, task.
 // ResolveTaskGate saves an Answer or Retry and queues its continuation.
 func (s *Store) ResolveTaskGate(ctx context.Context, id, gateID string, revision, generation int64,
 	body, resolution string, approvalDecision *string, command TaskCommand, now time.Time) (TaskCommandResult, error) {
-	return s.taskLifecycleCommand(ctx, command, func(tx *sql.Tx) (TaskCommandResult, error) {
+	return s.taskLifecycleCommand(ctx, command, func(tx bun.Tx) (TaskCommandResult, error) {
 		task, err := fencedTaskTx(ctx, tx, id, revision, generation)
 		if err != nil {
 			return TaskCommandResult{}, err
@@ -387,7 +408,7 @@ revision=?, updated_at_ms=? WHERE task_id=? AND revision=? AND generation=?`, ru
 }
 
 func (s *Store) taskLifecycleCommand(ctx context.Context, command TaskCommand,
-	change func(*sql.Tx) (TaskCommandResult, error)) (TaskCommandResult, error) {
+	change func(bun.Tx) (TaskCommandResult, error)) (TaskCommandResult, error) {
 	if err := validateTaskCommand(command); err != nil {
 		return TaskCommandResult{}, err
 	}
@@ -413,11 +434,11 @@ func (s *Store) taskLifecycleCommand(ctx context.Context, command TaskCommand,
 	return result, nil
 }
 
-func fencedTaskTx(ctx context.Context, tx *sql.Tx, id string, revision, generation int64) (Task, error) {
+func fencedTaskTx(ctx context.Context, tx bun.Tx, id string, revision, generation int64) (Task, error) {
 	if !validTaskID(id) || revision < 1 || generation < 1 {
 		return Task{}, errors.New("invalid Task current-run check")
 	}
-	task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id=?", id))
+	task, err := taskTx(ctx, tx, id)
 	if err != nil {
 		return Task{}, err
 	}
@@ -427,7 +448,7 @@ func fencedTaskTx(ctx context.Context, tx *sql.Tx, id string, revision, generati
 	return task, nil
 }
 
-func finishTaskLifecycleTx(ctx context.Context, tx *sql.Tx, task Task, command TaskCommand,
+func finishTaskLifecycleTx(ctx context.Context, tx bun.Tx, task Task, command TaskCommand,
 	kind, runID, documentDigest string, now time.Time, details ...map[string]any) (TaskCommandResult, error) {
 	if err := insertTaskEvent(ctx, tx, task, strings.ReplaceAll(kind, ".", "_")); err != nil {
 		return TaskCommandResult{}, err
@@ -444,7 +465,7 @@ func finishTaskLifecycleTx(ctx context.Context, tx *sql.Tx, task Task, command T
 	return TaskCommandResult{Task: task, Event: event, DocumentDigest: documentDigest}, err
 }
 
-func insertQueuedTaskRun(ctx context.Context, tx *sql.Tx, task Task, kind string, parent *TaskRun, now time.Time) (TaskRun, error) {
+func insertQueuedTaskRun(ctx context.Context, tx bun.Tx, task Task, kind string, parent *TaskRun, now time.Time) (TaskRun, error) {
 	id, err := newID("run")
 	if err != nil {
 		return TaskRun{}, err
@@ -518,7 +539,7 @@ VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,
 	return run, err
 }
 
-func taskRunEffectiveCwdTx(ctx context.Context, tx *sql.Tx, task Task) (*string, error) {
+func taskRunEffectiveCwdTx(ctx context.Context, tx bun.Tx, task Task) (*string, error) {
 	if task.CwdOverride != nil {
 		return cloneString(task.CwdOverride), nil
 	}
@@ -532,7 +553,7 @@ func taskRunEffectiveCwdTx(ctx context.Context, tx *sql.Tx, task Task) (*string,
 	return nullStringPointer(folder), nil
 }
 
-func insertTaskMessage(ctx context.Context, tx *sql.Tx, task Task, gateID, kind, body string, approval *string, now time.Time) (string, error) {
+func insertTaskMessage(ctx context.Context, tx bun.Tx, task Task, gateID, kind, body string, approval *string, now time.Time) (string, error) {
 	id, err := newID("task_message")
 	if err != nil {
 		return "", err
@@ -547,9 +568,7 @@ func (s *Store) ListTasks(ctx context.Context, filter TaskListFilter, first int,
 	return listTasks(ctx, s.db, filter, first, after)
 }
 
-func listTasks(ctx context.Context, query interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}, filter TaskListFilter, first int, after *string) (TaskPage, error) {
+func listTasks(ctx context.Context, query bun.IDB, filter TaskListFilter, first int, after *string) (TaskPage, error) {
 	if first < 1 || first > 100 || filter.Scope != "active" && filter.Scope != "terminal" && filter.Scope != "all" {
 		return TaskPage{}, errors.New("invalid Task list")
 	}
@@ -565,38 +584,28 @@ func listTasks(ctx context.Context, query interface {
 			return TaskPage{}, err
 		}
 	}
-	clauses := []string{"(?='' OR COALESCE(project_id,'')=?)", "(?=0 OR updated_at_ms<? OR (updated_at_ms=? AND task_id<?))"}
-	arguments := []any{filter.ProjectID, filter.ProjectID, afterTime, afterTime, afterTime, afterID}
+	values := make([]Task, 0, first+1)
+	selection := query.NewSelect().Model(&values).Order("updated_at_ms DESC", "task_id DESC").Limit(first + 1)
+	if filter.ProjectID != "" {
+		selection.Where("project_id = ?", filter.ProjectID)
+	}
+	if after != nil {
+		selection.Where("updated_at_ms < ? OR (updated_at_ms = ? AND task_id < ?)", afterTime, afterTime, afterID)
+	}
 	if filter.Scope == "active" {
-		clauses = append(clauses, "stage_key NOT IN ('done','cancelled')")
+		selection.Where("stage_key NOT IN ('done','cancelled')")
 	}
 	if filter.Scope == "terminal" {
-		clauses = append(clauses, "stage_key IN ('done','cancelled')")
+		selection.Where("stage_key IN ('done','cancelled')")
 	}
 	if filter.AttentionOnly {
-		clauses = append(clauses, "active_gate_id IS NOT NULL")
+		selection.Where("active_gate_id IS NOT NULL")
 	}
 	if len(filter.StageKeys) > 0 {
-		marks := make([]string, len(filter.StageKeys))
-		for i, stage := range filter.StageKeys {
-			marks[i] = "?"
-			arguments = append(arguments, stage)
-		}
-		clauses = append(clauses, "stage_key IN ("+strings.Join(marks, ",")+")")
+		selection.Where("stage_key IN (?)", bun.List(filter.StageKeys))
 	}
-	arguments = append(arguments, first+1)
-	rows, err := query.QueryContext(ctx, taskSelect+" WHERE "+strings.Join(clauses, " AND ")+" ORDER BY updated_at_ms DESC, task_id DESC LIMIT ?", arguments...)
-	if err != nil {
+	if err := selection.Scan(ctx); err != nil {
 		return TaskPage{}, err
-	}
-	defer rows.Close()
-	values := make([]Task, 0, first+1)
-	for rows.Next() {
-		value, err := scanTask(rows)
-		if err != nil {
-			return TaskPage{}, err
-		}
-		values = append(values, value)
 	}
 	page := TaskPage{HasNextPage: len(values) > first}
 	if page.HasNextPage {
@@ -610,7 +619,7 @@ func listTasks(ctx context.Context, query interface {
 		value := page.Cursors[len(page.Cursors)-1]
 		page.EndCursor = &value
 	}
-	return page, rows.Err()
+	return page, nil
 }
 
 // TaskOverview returns recent active Tasks and exact stage counts from one snapshot.
@@ -666,24 +675,12 @@ func decodeTaskCursor(cursor, hash string) (int64, string, error) {
 }
 
 func (s *Store) TaskRuns(ctx context.Context, taskID string, limit int) ([]TaskRun, error) {
-	rows, err := s.db.QueryContext(ctx, taskRunSelect+" WHERE task_id=? ORDER BY created_at_ms DESC,run_id DESC LIMIT ?", taskID, limit)
-	if err != nil {
-		return nil, err
+	if limit == 0 {
+		return []TaskRun{}, nil
 	}
 	values := []TaskRun{}
-	for rows.Next() {
-		value, err := scanTaskRun(rows)
-		if err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		values = append(values, value)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
+	if err := s.db.NewSelect().Model(&values).Where("task_id = ?", taskID).
+		Order("created_at_ms DESC", "run_id DESC").Limit(limit).Scan(ctx); err != nil {
 		return nil, err
 	}
 	for index := range values {
@@ -739,10 +736,9 @@ func taskGateTx(ctx context.Context, q interface {
 	_ = json.Unmarshal([]byte(answers), &v.SuggestedAnswers)
 	return v, nil
 }
-func taskRunTx(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, id string) (TaskRun, error) {
-	run, err := scanTaskRun(q.QueryRowContext(ctx, taskRunSelect+" WHERE run_id=?", id))
+func taskRunTx(ctx context.Context, q bun.IDB, id string) (TaskRun, error) {
+	var run TaskRun
+	err := q.NewSelect().Model(&run).Where("run_id = ?", id).Scan(ctx)
 	if err != nil {
 		return TaskRun{}, err
 	}
@@ -750,32 +746,6 @@ func taskRunTx(ctx context.Context, q interface {
 		return TaskRun{}, err
 	}
 	return run, nil
-}
-
-const taskRunSelect = `SELECT run_id,task_id,instance_name,run_kind,status,agent_id,task_generation,attempt_index,review_round,COALESCE(parent_run_id,''),provider_kind,provider_account_id,selection_mode,model_profile,reasoning_effort,fast_mode,executor_backend,executor_agent_id,effective_cwd,error_code,error_message,provider_call_count,tool_call_count,input_tokens,cached_input_tokens,output_tokens,active_milliseconds,max_provider_continuations,max_tool_calls,max_active_minutes,progress_audit_interval,max_automatic_retries,max_review_rounds,queued_at_ms,started_at_ms,ended_at_ms,created_at_ms,updated_at_ms FROM task_runs`
-
-func scanTaskRun(row rowScanner) (TaskRun, error) {
-	var v TaskRun
-	var model, effort, cwd, code, message sql.NullString
-	var started, ended sql.NullInt64
-	var fast int
-	var queued, created, updated int64
-	err := row.Scan(&v.ID, &v.TaskID, &v.InstanceName, &v.Kind, &v.Status, &v.AgentID, &v.Generation, &v.AttemptIndex, &v.ReviewRound, &v.ParentRunID, &v.ProviderKind, &v.ProviderAccountID, &v.SelectionMode, &model, &effort, &fast, &v.ExecutorBackend, &v.ExecutorAgentID, &cwd, &code, &message, &v.ProviderCallCount, &v.ToolCallCount, &v.InputTokens, &v.CachedInputTokens, &v.OutputTokens, &v.ActiveMilliseconds, &v.ExecutionPolicy.MaxProviderContinuations, &v.ExecutionPolicy.MaxToolCalls, &v.ExecutionPolicy.MaxActiveMinutes, &v.ExecutionPolicy.ProgressAuditInterval, &v.ExecutionPolicy.MaxAutomaticRetries, &v.ExecutionPolicy.MaxReviewRounds, &queued, &started, &ended, &created, &updated)
-	if err != nil {
-		return v, err
-	}
-	v.ModelProfile = nullStringPointer(model)
-	v.ReasoningEffort = nullStringPointer(effort)
-	v.EffectiveCwd = nullStringPointer(cwd)
-	v.ErrorCode = nullStringPointer(code)
-	v.ErrorMessage = nullStringPointer(message)
-	v.FastMode = fast == 1
-	v.QueuedAt = fromMillis(queued)
-	v.StartedAt = nullTimePointer(started)
-	v.EndedAt = nullTimePointer(ended)
-	v.CreatedAt = fromMillis(created)
-	v.UpdatedAt = fromMillis(updated)
-	return v, nil
 }
 
 func (s *Store) TaskRunItems(ctx context.Context, runID string, first int, after *string) (TaskRunItemPage, error) {

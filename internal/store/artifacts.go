@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 var ErrArtifactNotFound = errors.New("artifact not found")
@@ -311,7 +313,7 @@ func artifactOwnerAuthorized(ctx context.Context, query rowQueryer, owner Artifa
 	return exists, nil
 }
 
-func insertArtifactVersion(ctx context.Context, tx *sql.Tx, version ArtifactVersion) error {
+func insertArtifactVersion(ctx context.Context, tx bun.Tx, version ArtifactVersion) error {
 	metadata, err := encodeArtifactMetadata(version.Metadata)
 	if err != nil {
 		return err

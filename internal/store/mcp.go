@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // MCPDefinition is one reusable non-secret transport definition.
@@ -207,7 +209,7 @@ func (s *Store) ReconcileMCPConnection(ctx context.Context, serverID, revision, 
 	return server, nil
 }
 
-func insertMCPTool(ctx context.Context, tx *sql.Tx, serverID string, tool MCPTool, now time.Time) error {
+func insertMCPTool(ctx context.Context, tx bun.Tx, serverID string, tool MCPTool, now time.Time) error {
 	if tool.ServerID != "" && tool.ServerID != serverID {
 		return errors.New("MCP tool server does not match")
 	}
@@ -258,7 +260,7 @@ func (s *Store) MCPServer(ctx context.Context, id string) (MCPServer, error) {
 	return scanMCPServer(s.db.QueryRowContext(ctx, mcpServerSelect+` WHERE s.mcp_server_id=? GROUP BY s.mcp_server_id`, id))
 }
 
-func mcpServerTx(ctx context.Context, tx *sql.Tx, id string) (MCPServer, error) {
+func mcpServerTx(ctx context.Context, tx bun.Tx, id string) (MCPServer, error) {
 	return scanMCPServer(tx.QueryRowContext(ctx, mcpServerSelect+` WHERE s.mcp_server_id=? GROUP BY s.mcp_server_id`, id))
 }
 

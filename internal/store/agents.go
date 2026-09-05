@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/uptrace/bun"
 )
 
 const (
@@ -30,9 +32,10 @@ var (
 
 // Agent is one durable Agent identity.
 type Agent struct {
-	ID          string
-	DisplayName *string
-	SystemRole  *string
+	bun.BaseModel `bun:"table:agents"`
+	ID            string `bun:"agent_id,pk"`
+	DisplayName   *string
+	SystemRole    *string
 }
 
 // AcpAgent is one configured local ACP process.
@@ -40,13 +43,13 @@ type AcpAgent struct {
 	AgentID               string
 	DisplayName           string
 	Command               string
-	Arguments             []string
+	Arguments             []string `bun:"arguments_json"`
 	Enabled               bool
 	AuthStatus            string
 	HealthStatus          string
 	ImplementationName    *string
 	ImplementationVersion *string
-	Capabilities          map[string]any
+	Capabilities          map[string]any `bun:"capabilities_json"`
 	ConnectionRevision    int64
 	LastError             *string
 }
@@ -60,33 +63,21 @@ FROM acp_agents c JOIN agents a ON a.agent_id = c.agent_id`
 
 // Agents returns all built-in and configured Agent identities.
 func (s *Store) Agents(ctx context.Context) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT agent_id, display_name, system_role FROM agents
-ORDER BY CASE system_role
-    WHEN 'primary' THEN 0 WHEN 'task_executor' THEN 1 WHEN 'task_reviewer' THEN 2 ELSE 3 END,
-    display_name IS NULL, display_name, agent_id`)
-	if err != nil {
-		return nil, fmt.Errorf("query Agents: %w", err)
-	}
-	defer rows.Close()
 	agents := make([]Agent, 0)
-	for rows.Next() {
-		agent, err := scanAgent(rows)
-		if err != nil {
-			return nil, err
-		}
-		agents = append(agents, agent)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read Agents: %w", err)
-	}
-	return agents, nil
+	err := s.db.NewSelect().Model(&agents).OrderExpr(`CASE system_role
+ WHEN 'primary' THEN 0 WHEN 'task_executor' THEN 1 WHEN 'task_reviewer' THEN 2 ELSE 3 END,
+ display_name IS NULL, display_name, agent_id`).Scan(ctx)
+	return agents, err
 }
 
 // Agent returns one Agent identity.
 func (s *Store) Agent(ctx context.Context, id string) (Agent, error) {
-	return scanAgent(s.db.QueryRowContext(ctx,
-		"SELECT agent_id, display_name, system_role FROM agents WHERE agent_id = ?", id))
+	var agent Agent
+	err := s.db.NewSelect().Model(&agent).Where("agent_id = ?", id).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Agent{}, ErrAgentNotFound
+	}
+	return agent, err
 }
 
 // UpdatePrimaryAgentDisplayName changes the primary Agent's visible name.
@@ -99,12 +90,14 @@ func (s *Store) UpdatePrimaryAgentDisplayName(
 	if displayName == "" || !utf8.ValidString(displayName) || utf8.RuneCountInString(displayName) > 128 {
 		return Agent{}, ErrInvalidAgentDisplayName
 	}
-	return scanAgent(s.db.QueryRowContext(ctx, `
-UPDATE agents
-SET display_name = ?, updated_at_ms = ?
-WHERE agent_id = ? AND system_role = 'primary'
-RETURNING agent_id, display_name, system_role`,
-		displayName, millis(now.UTC()), PrimaryAgentID))
+	var agent Agent
+	err := s.db.NewUpdate().Model(&agent).Set("display_name = ?", displayName).
+		Set("updated_at_ms = ?", millis(now.UTC())).Where("agent_id = ? AND system_role = 'primary'", PrimaryAgentID).
+		Returning("agent_id, display_name, system_role").Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Agent{}, ErrAgentNotFound
+	}
+	return agent, err
 }
 
 // CreateAcpAgent creates one custom Agent and its process configuration.
@@ -143,7 +136,7 @@ INSERT INTO acp_agents (agent_id, command, arguments_json, created_at_ms, update
 VALUES (?, ?, ?, ?, ?)`, id, command, string(encoded), stamp, stamp); err != nil {
 		return AcpAgent{}, fmt.Errorf("create ACP Agent configuration: %w", err)
 	}
-	created, err := scanAcpAgent(tx.QueryRowContext(ctx, acpAgentSelect+" WHERE a.agent_id = ?", id))
+	created, err := acpAgentTx(ctx, tx, id)
 	if err != nil {
 		return AcpAgent{}, err
 	}
@@ -155,28 +148,14 @@ VALUES (?, ?, ?, ?, ?)`, id, command, string(encoded), stamp, stamp); err != nil
 
 // AcpAgents returns configured ACP Agents in stable display order.
 func (s *Store) AcpAgents(ctx context.Context) ([]AcpAgent, error) {
-	rows, err := s.db.QueryContext(ctx, acpAgentSelect+" ORDER BY a.display_name, a.agent_id")
-	if err != nil {
-		return nil, fmt.Errorf("query ACP Agents: %w", err)
-	}
-	defer rows.Close()
 	agents := make([]AcpAgent, 0)
-	for rows.Next() {
-		agent, err := scanAcpAgent(rows)
-		if err != nil {
-			return nil, err
-		}
-		agents = append(agents, agent)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read ACP Agents: %w", err)
-	}
-	return agents, nil
+	err := s.db.NewRaw(acpAgentSelect+" ORDER BY a.display_name, a.agent_id").Scan(ctx, &agents)
+	return agents, err
 }
 
 // AcpAgent returns one configured ACP Agent.
 func (s *Store) AcpAgent(ctx context.Context, id string) (AcpAgent, error) {
-	return scanAcpAgent(s.db.QueryRowContext(ctx, acpAgentSelect+" WHERE a.agent_id = ?", id))
+	return acpAgentTx(ctx, s.db, id)
 }
 
 // UpdateAcpAgent replaces editable process configuration at one revision.
@@ -226,7 +205,7 @@ WHERE agent_id = ? AND connection_revision = ?`,
 		displayName, millis(now.UTC()), id); err != nil {
 		return AcpAgent{}, fmt.Errorf("update ACP Agent identity: %w", err)
 	}
-	updated, err := scanAcpAgent(tx.QueryRowContext(ctx, acpAgentSelect+" WHERE a.agent_id = ?", id))
+	updated, err := acpAgentTx(ctx, tx, id)
 	if err != nil {
 		return AcpAgent{}, err
 	}
@@ -338,7 +317,7 @@ WHERE agent_id = ? AND connection_revision = ?`, healthStatus, authStatus,
 	if changed != 1 {
 		return AcpAgent{}, classifyAcpRevision(ctx, tx, id)
 	}
-	updated, err := scanAcpAgent(tx.QueryRowContext(ctx, acpAgentSelect+" WHERE a.agent_id = ?", id))
+	updated, err := acpAgentTx(ctx, tx, id)
 	if err != nil {
 		return AcpAgent{}, err
 	}
@@ -446,7 +425,7 @@ WHERE agent_id = ? AND connection_revision = ?`,
 		authStatus, safeMessage, stamp, agentID, revision); err != nil {
 		return AcpAgent{}, fmt.Errorf("update ACP Agent authentication: %w", err)
 	}
-	updated, err := scanAcpAgent(tx.QueryRowContext(ctx, acpAgentSelect+" WHERE a.agent_id = ?", agentID))
+	updated, err := acpAgentTx(ctx, tx, agentID)
 	if err != nil {
 		return AcpAgent{}, err
 	}
@@ -456,54 +435,13 @@ WHERE agent_id = ? AND connection_revision = ?`,
 	return updated, nil
 }
 
-func scanAgent(row rowScanner) (Agent, error) {
-	var agent Agent
-	var displayName, systemRole sql.NullString
-	if err := row.Scan(&agent.ID, &displayName, &systemRole); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Agent{}, ErrAgentNotFound
-		}
-		return Agent{}, fmt.Errorf("scan Agent: %w", err)
-	}
-	if displayName.Valid {
-		agent.DisplayName = &displayName.String
-	}
-	if systemRole.Valid {
-		agent.SystemRole = &systemRole.String
-	}
-	return agent, nil
-}
-
-func scanAcpAgent(row rowScanner) (AcpAgent, error) {
+func acpAgentTx(ctx context.Context, db bun.IDB, id string) (AcpAgent, error) {
 	var agent AcpAgent
-	var arguments, capabilities string
-	var enabled int
-	var implementationName, implementationVersion, lastError sql.NullString
-	if err := row.Scan(&agent.AgentID, &agent.DisplayName, &agent.Command, &arguments,
-		&enabled, &agent.AuthStatus, &agent.HealthStatus, &implementationName,
-		&implementationVersion, &capabilities, &agent.ConnectionRevision, &lastError); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return AcpAgent{}, ErrAcpAgentNotFound
-		}
-		return AcpAgent{}, fmt.Errorf("scan ACP Agent: %w", err)
+	err := db.NewRaw(acpAgentSelect+" WHERE a.agent_id = ?", id).Scan(ctx, &agent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AcpAgent{}, ErrAcpAgentNotFound
 	}
-	if err := json.Unmarshal([]byte(arguments), &agent.Arguments); err != nil {
-		return AcpAgent{}, fmt.Errorf("decode ACP arguments: %w", err)
-	}
-	if err := json.Unmarshal([]byte(capabilities), &agent.Capabilities); err != nil {
-		return AcpAgent{}, fmt.Errorf("decode ACP capabilities: %w", err)
-	}
-	agent.Enabled = enabled == 1
-	if implementationName.Valid {
-		agent.ImplementationName = &implementationName.String
-	}
-	if implementationVersion.Valid {
-		agent.ImplementationVersion = &implementationVersion.String
-	}
-	if lastError.Valid {
-		agent.LastError = &lastError.String
-	}
-	return agent, nil
+	return agent, err
 }
 
 func validateAcpConfiguration(displayName, command string, arguments []string) (string, string, error) {
@@ -520,7 +458,7 @@ func validateAcpConfiguration(displayName, command string, arguments []string) (
 	return displayName, command, nil
 }
 
-func classifyAcpRevision(ctx context.Context, tx *sql.Tx, id string) error {
+func classifyAcpRevision(ctx context.Context, tx bun.Tx, id string) error {
 	var exists bool
 	if err := tx.QueryRowContext(ctx,
 		"SELECT EXISTS(SELECT 1 FROM acp_agents WHERE agent_id = ?)", id).Scan(&exists); err != nil {

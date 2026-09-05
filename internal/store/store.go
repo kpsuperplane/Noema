@@ -9,7 +9,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"sync"
+	"time"
+
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/sqlitedialect"
+	"github.com/uptrace/bun/schema"
 
 	"github.com/kpsuperplane/noema/internal/home"
 	_ "github.com/ncruces/go-sqlite3/driver"
@@ -28,7 +35,7 @@ const schemaVersion = len(migrations)
 
 // Store is one open Noema database.
 type Store struct {
-	db              *sql.DB
+	db              *bun.DB
 	workMu          sync.Mutex
 	taskScheduleMu  sync.Mutex
 	workSubscribers map[chan struct{}]struct{}
@@ -70,7 +77,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
-	store := &Store{db: db, workSubscribers: make(map[chan struct{}]struct{})}
+	orm := bun.NewDB(db, sqlitedialect.New())
+	configureMillisecondFields(orm)
+	store := &Store{db: orm, workSubscribers: make(map[chan struct{}]struct{})}
 	if err := store.initialize(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -641,7 +650,7 @@ SET status = 'failed', failure_code = 'server_restarted', updated_at_ms = CAST(s
 WHERE status = 'waiting_for_user';
 `
 
-func backfillTaskWorkEvents(ctx context.Context, tx *sql.Tx) error {
+func backfillTaskWorkEvents(ctx context.Context, tx bun.Tx) error {
 	rows, err := tx.QueryContext(ctx, "PRAGMA table_info(task_events)")
 	if err != nil {
 		return err
@@ -673,4 +682,38 @@ SELECT event_id, printf('event:%032x', event_id), 'workspace:personal', task_id,
        'correlation:migrated:' || task_id, json_object('v', 1, 'revision', task_revision), occurred_at_ms
 FROM task_events ORDER BY event_id`)
 	return err
+}
+
+// Existing SQLite timestamps remain integer milliseconds. Configure the mapped
+// models before the database is shared with callers.
+func configureMillisecondFields(db *bun.DB) {
+	for _, model := range []any{Task{}, TaskRun{}, TaskEvent{}} {
+		for _, field := range db.Dialect().Tables().Get(reflect.TypeOf(model)).Fields {
+			if field.IndirectType != reflect.TypeFor[time.Time]() {
+				continue
+			}
+			field.Scan = func(dest reflect.Value, source any) error {
+				if source == nil {
+					dest.SetZero()
+					return nil
+				}
+				ms, ok := source.(int64)
+				if !ok {
+					return fmt.Errorf("invalid millisecond timestamp: %T", source)
+				}
+				if dest.Kind() == reflect.Pointer {
+					dest.Set(reflect.New(dest.Type().Elem()))
+					dest = dest.Elem()
+				}
+				dest.Set(reflect.ValueOf(fromMillis(ms)))
+				return nil
+			}
+			field.Append = func(_ schema.QueryGen, b []byte, value reflect.Value) []byte {
+				if value.Kind() == reflect.Pointer {
+					value = value.Elem()
+				}
+				return strconv.AppendInt(b, millis(value.Interface().(time.Time)), 10)
+			}
+		}
+	}
 }

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // LiveActivityEvent identifies one ActivityKit remote event.
@@ -328,7 +330,7 @@ FROM client_task_activities WHERE client_id=?`, clientID).Scan(&value.ClientID, 
 	return &value, nil
 }
 
-func insertLiveActivityObservation(ctx context.Context, tx *sql.Tx, clientID, event, activityID string, active []byte, now time.Time) error {
+func insertLiveActivityObservation(ctx context.Context, tx bun.Tx, clientID, event, activityID string, active []byte, now time.Time) error {
 	id, err := newID("live_activity_observation")
 	if err != nil {
 		return err
@@ -537,7 +539,7 @@ WHERE client_id=? AND activity_id=?`, millis(now), millis(now), value.ClientID, 
 	return tx.Commit()
 }
 
-func finishLiveActivityTx(ctx context.Context, tx *sql.Tx, value LiveActivityDelivery, status, code, apnsID string, now time.Time) error {
+func finishLiveActivityTx(ctx context.Context, tx bun.Tx, value LiveActivityDelivery, status, code, apnsID string, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `UPDATE live_activity_deliveries SET status=?,last_error_code=NULLIF(?,''),
 apns_id=COALESCE(NULLIF(?,''),apns_id),updated_at_ms=? WHERE client_id=? AND delivery_key=? AND status='pending' AND token=?`,
 		status, code, apnsID, millis(now), value.ClientID, value.DeliveryKey, value.Token)

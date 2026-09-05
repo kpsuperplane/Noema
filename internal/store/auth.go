@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 const (
@@ -415,7 +417,7 @@ func (s *Store) DeleteExpiredBrowserSessions(ctx context.Context, now time.Time)
 
 func requireRegistrationAuthority(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	authority RegistrationAuthority,
 	digest [32]byte,
 	now time.Time,
@@ -446,7 +448,7 @@ func requireRegistrationAuthority(
 
 func requireBoundSession(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	digest [32]byte,
 	now time.Time,
 	state string,
@@ -470,7 +472,7 @@ func requireBoundSession(
 
 func requireCurrentSession(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	digest [32]byte,
 	now time.Time,
 	recent bool,
@@ -497,7 +499,7 @@ func requireCurrentSession(
 
 func insertAuthenticatedSession(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	digest [32]byte,
 	credentialID string,
 	now time.Time,
@@ -519,14 +521,14 @@ INSERT INTO browser_sessions (
 	return nil
 }
 
-func clearExpiredSessions(ctx context.Context, tx *sql.Tx, now time.Time) error {
+func clearExpiredSessions(ctx context.Context, tx bun.Tx, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM browser_sessions WHERE expires_at_ms <= ?", millis(now)); err != nil {
 		return fmt.Errorf("delete expired browser sessions: %w", err)
 	}
 	return nil
 }
 
-func requireSessionCapacity(ctx context.Context, tx *sql.Tx) error {
+func requireSessionCapacity(ctx context.Context, tx bun.Tx) error {
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM browser_sessions").Scan(&count); err != nil {
 		return fmt.Errorf("count browser sessions: %w", err)
@@ -537,7 +539,7 @@ func requireSessionCapacity(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func sessionHashes(ctx context.Context, tx *sql.Tx, query string, arguments ...any) ([][32]byte, error) {
+func sessionHashes(ctx context.Context, tx bun.Tx, query string, arguments ...any) ([][32]byte, error) {
 	rows, err := tx.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("query browser session digests: %w", err)
@@ -577,7 +579,7 @@ type nativeBrowserRequest struct {
 
 func nativeBrowserRequestForRotation(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	digest [32]byte,
 ) (nativeBrowserRequest, error) {
 	var value nativeBrowserRequest
@@ -597,7 +599,7 @@ SELECT query, csrf FROM native_oauth_browser_requests WHERE session_hash = ?`, d
 
 func restoreNativeBrowserRequest(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	digest [32]byte,
 	value nativeBrowserRequest,
 ) error {

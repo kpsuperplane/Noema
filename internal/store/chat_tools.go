@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/uptrace/bun"
 )
 
 // ConversationToolCallInput is one validated provider call for durable storage.
@@ -623,7 +625,7 @@ UPDATE conversation_items SET status = ?, updated_at_ms = ? WHERE item_id = ?`,
 	return item, nil
 }
 
-func requireActiveTurnTx(ctx context.Context, tx *sql.Tx, turn ConversationTurn, status string) error {
+func requireActiveTurnTx(ctx context.Context, tx bun.Tx, turn ConversationTurn, status string) error {
 	var current string
 	if err := tx.QueryRowContext(ctx, `
 SELECT status FROM conversation_turns WHERE turn_id = ? AND conversation_id = ?`,
@@ -636,7 +638,7 @@ SELECT status FROM conversation_turns WHERE turn_id = ? AND conversation_id = ?`
 	return nil
 }
 
-func nextConversationSequenceTx(ctx context.Context, tx *sql.Tx, conversationID string) (int64, error) {
+func nextConversationSequenceTx(ctx context.Context, tx bun.Tx, conversationID string) (int64, error) {
 	var sequence int64
 	if err := tx.QueryRowContext(ctx, `
 SELECT 1 + COALESCE(MAX(sequence_index), 0) FROM conversation_items WHERE conversation_id = ?`,
@@ -648,7 +650,7 @@ SELECT 1 + COALESCE(MAX(sequence_index), 0) FROM conversation_items WHERE conver
 
 func insertConversationOutputTx(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx bun.Tx,
 	item ConversationItem,
 ) (ConversationItem, error) {
 	payload, err := json.Marshal(item.Payload)

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/provider"
+
+	"github.com/uptrace/bun"
 )
 
 var (
@@ -265,7 +267,7 @@ func (s *Store) SaveDefaultModelPreference(ctx context.Context, value ModelAssig
 	return value, nil
 }
 
-func saveDefaultModelPreferenceTx(ctx context.Context, tx *sql.Tx, value ModelAssignment, now time.Time) error {
+func saveDefaultModelPreferenceTx(ctx context.Context, tx bun.Tx, value ModelAssignment, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO default_model_preference(preference_id,provider_kind,provider_account_id,selection_mode,model_profile,reasoning_effort,fast_mode,updated_at_ms)
 VALUES('default',?,?,?,NULLIF(?,''),NULLIF(?,''),?,?) ON CONFLICT(preference_id) DO UPDATE SET provider_kind=excluded.provider_kind,
 provider_account_id=excluded.provider_account_id,selection_mode=excluded.selection_mode,model_profile=excluded.model_profile,
@@ -309,7 +311,7 @@ COALESCE(model_id,''),created_at_ms FROM local_model_events ORDER BY cursor DESC
 	return value, nil
 }
 
-func appendLocalModelEvent(ctx context.Context, tx *sql.Tx, kind, id, model string, now time.Time) error {
+func appendLocalModelEvent(ctx context.Context, tx bun.Tx, kind, id, model string, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO local_model_events(kind,installation_id,model_id,created_at_ms) VALUES(?,NULLIF(?,''),NULLIF(?,''),?)`, kind, id, model, millis(now.UTC()))
 	return err
 }

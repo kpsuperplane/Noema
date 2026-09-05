@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/schedule"
+
+	"github.com/uptrace/bun"
 )
 
 // RecurrenceLifecycle is the durable state of recurring Task authority.
@@ -235,7 +237,7 @@ func (s *Store) SetTaskSchedule(
 	}
 	value = normalized
 	return s.taskScheduleCommand(ctx, taskID, expectedRevision, command, now,
-		func(tx *sql.Tx, task *Task) (string, string, error) {
+		func(tx bun.Tx, task *Task) (string, string, error) {
 			existing := task.ScheduledFor != nil
 			if existing != requireExisting || task.State != TaskCaptured || task.ScheduleProcessedAt != nil {
 				return "", "", ErrInvalidTransition
@@ -272,7 +274,7 @@ func (s *Store) UnscheduleTask(
 	ctx context.Context, taskID string, expectedRevision int64, command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
 	return s.taskScheduleCommand(ctx, taskID, expectedRevision, command, now,
-		func(tx *sql.Tx, task *Task) (string, string, error) {
+		func(tx bun.Tx, task *Task) (string, string, error) {
 			if task.ScheduledFor == nil || task.State != TaskCaptured || task.ScheduleProcessedAt != nil {
 				return "", "", ErrInvalidTransition
 			}
@@ -295,7 +297,7 @@ func (s *Store) RunScheduledTaskNow(
 	ctx context.Context, taskID string, expectedRevision int64, command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
 	return s.taskScheduleCommand(ctx, taskID, expectedRevision, command, now,
-		func(tx *sql.Tx, task *Task) (string, string, error) {
+		func(tx bun.Tx, task *Task) (string, string, error) {
 			if task.ScheduledFor == nil || task.ScheduleProcessedAt != nil || task.State != TaskCaptured {
 				return "", "", ErrInvalidTransition
 			}
@@ -316,7 +318,7 @@ revision = ?, updated_at_ms = ? WHERE task_id = ? AND revision = ?`, millis(proc
 
 func (s *Store) taskScheduleCommand(
 	ctx context.Context, taskID string, expectedRevision int64, command TaskCommand, now time.Time,
-	change func(*sql.Tx, *Task) (string, string, error),
+	change func(bun.Tx, *Task) (string, string, error),
 ) (TaskCommandResult, error) {
 	if !validTaskID(taskID) || expectedRevision <= 0 || validateTaskCommand(command) != nil {
 		return TaskCommandResult{}, errors.New("invalid scheduled Task command")
@@ -331,7 +333,7 @@ func (s *Store) taskScheduleCommand(
 	} else if found {
 		return replay, nil
 	}
-	task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id = ?", taskID))
+	task, err := taskTx(ctx, tx, taskID)
 	if err != nil {
 		return TaskCommandResult{}, err
 	}
@@ -365,7 +367,7 @@ func (s *Store) taskScheduleCommand(
 }
 
 func createTaskRecurrenceTx(
-	ctx context.Context, tx *sql.Tx, task *Task, value *schedule.Schedule, now time.Time,
+	ctx context.Context, tx bun.Tx, task *Task, value *schedule.Schedule, now time.Time,
 ) (string, error) {
 	if value == nil || value.Recurrence == nil {
 		return "", nil
@@ -412,7 +414,7 @@ VALUES (?, ?, 1, ?, ?, 'scheduled', 'materialized', ?, ?)`, occurrenceID, id,
 	return id, err
 }
 
-func deleteTaskRecurrenceTx(ctx context.Context, tx *sql.Tx, id string) error {
+func deleteTaskRecurrenceTx(ctx context.Context, tx bun.Tx, id string) error {
 	if id == "" {
 		return nil
 	}
@@ -490,7 +492,7 @@ func (s *Store) UpdateTaskRecurrence(
 		return TaskCommandResult{}, errors.New("empty recurrence update")
 	}
 	return s.recurrenceCommand(ctx, id, expectedRevision, command, now,
-		func(tx *sql.Tx, value *TaskRecurrence) error {
+		func(tx bun.Tx, value *TaskRecurrence) error {
 			if value.Lifecycle == RecurrenceEnded {
 				return ErrInvalidTransition
 			}
@@ -554,7 +556,7 @@ func (s *Store) SetTaskRecurrenceLifecycle(
 	command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
 	return s.recurrenceCommand(ctx, id, expectedRevision, command, now,
-		func(tx *sql.Tx, value *TaskRecurrence) error {
+		func(tx bun.Tx, value *TaskRecurrence) error {
 			valid := value.Lifecycle == RecurrenceActive && (next == RecurrencePaused || next == RecurrenceEnded) ||
 				value.Lifecycle == RecurrencePaused && (next == RecurrenceActive || next == RecurrenceEnded)
 			if !valid {
@@ -590,7 +592,7 @@ func (s *Store) SkipTaskRecurrenceNext(
 	ctx context.Context, id string, expectedRevision int64, command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
 	return s.recurrenceCommand(ctx, id, expectedRevision, command, now,
-		func(tx *sql.Tx, value *TaskRecurrence) error {
+		func(tx bun.Tx, value *TaskRecurrence) error {
 			if value.Lifecycle != RecurrenceActive || value.NextRunAt == nil {
 				return ErrInvalidTransition
 			}
@@ -660,7 +662,7 @@ func (s *Store) RunTaskRecurrenceNow(
 
 func (s *Store) recurrenceCommand(
 	ctx context.Context, id string, expectedRevision int64, command TaskCommand, now time.Time,
-	change func(*sql.Tx, *TaskRecurrence) error,
+	change func(bun.Tx, *TaskRecurrence) error,
 ) (TaskCommandResult, error) {
 	if expectedRevision <= 0 || validateTaskCommand(command) != nil {
 		return TaskCommandResult{}, errors.New("invalid recurrence command")
@@ -787,8 +789,8 @@ ORDER BY COALESCE(pending_coalesced_at_ms, next_run_at_ms), recurrence_id LIMIT 
 	return created, changed, nil
 }
 
-func processDueTaskTx(ctx context.Context, tx *sql.Tx, id string, now time.Time, recovering bool) error {
-	task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id = ?", id))
+func processDueTaskTx(ctx context.Context, tx bun.Tx, id string, now time.Time, recovering bool) error {
+	task, err := taskTx(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -820,7 +822,7 @@ revision = ?, updated_at_ms = ? WHERE task_id = ? AND revision = ?`, task.State,
 }
 
 func processDueRecurrenceTx(
-	ctx context.Context, tx *sql.Tx, id string, now time.Time, recovering bool,
+	ctx context.Context, tx bun.Tx, id string, now time.Time, recovering bool,
 ) (string, error) {
 	value, err := scanTaskRecurrence(tx.QueryRowContext(ctx, recurrenceSelect+" WHERE recurrence_id = ?", id))
 	if err != nil {
@@ -930,7 +932,7 @@ WHERE recurrence_id IS NOT NULL ORDER BY created_at_ms, task_id`)
 }
 
 func materializeOccurrenceTx(
-	ctx context.Context, tx *sql.Tx, value *TaskRecurrence, id string, due time.Time, trigger string,
+	ctx context.Context, tx bun.Tx, value *TaskRecurrence, id string, due time.Time, trigger string,
 	release bool, actor, correlation string, now time.Time,
 ) (Task, WorkEvent, error) {
 	var err error
@@ -979,7 +981,7 @@ task_id = ? WHERE recurrence_id = ? AND local_slot = ? AND resolution = 'coalesc
 }
 
 func recordOccurrenceTx(
-	ctx context.Context, tx *sql.Tx, value *TaskRecurrence, due time.Time,
+	ctx context.Context, tx bun.Tx, value *TaskRecurrence, due time.Time,
 	trigger, resolution, taskID string, now time.Time,
 ) error {
 	id, err := newID("occurrence")
@@ -1001,16 +1003,21 @@ VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?)`, id, value.ID, value.Revision,
 	return err
 }
 
-func recurrenceHasActiveTaskTx(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
+func recurrenceHasActiveTaskTx(ctx context.Context, tx bun.Tx, id string) (bool, error) {
 	var active bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE recurrence_id = ?
 AND state NOT IN ('completed', 'cancelled'))`, id).Scan(&active)
 	return active, err
 }
 
-func latestRecurrenceTaskTx(ctx context.Context, tx *sql.Tx, id string) (Task, error) {
-	return scanTask(tx.QueryRowContext(ctx, taskSelect+`
- WHERE recurrence_id = ? ORDER BY recurrence_scheduled_for_ms DESC, created_at_ms DESC LIMIT 1`, id))
+func latestRecurrenceTaskTx(ctx context.Context, tx bun.Tx, id string) (Task, error) {
+	var task Task
+	err := tx.NewSelect().Model(&task).Where("recurrence_id = ?", id).
+		Order("recurrence_scheduled_for_ms DESC", "created_at_ms DESC").Limit(1).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrTaskNotFound
+	}
+	return task, err
 }
 
 const recurrenceSelect = `SELECT recurrence_id, workspace_id, COALESCE(project_id, ''), title,
@@ -1040,7 +1047,7 @@ func scanTaskRecurrence(row rowScanner) (TaskRecurrence, error) {
 	return value, nil
 }
 
-func validateTaskProjectTx(ctx context.Context, tx *sql.Tx, id string) error {
+func validateTaskProjectTx(ctx context.Context, tx bun.Tx, id string) error {
 	if id == "" {
 		return nil
 	}
@@ -1059,7 +1066,7 @@ WHERE project_id = ? AND workspace_id = 'workspace:personal'`, id).Scan(&archive
 	return nil
 }
 
-func validateTaskExecutorTx(ctx context.Context, tx *sql.Tx, id string) (*int64, error) {
+func validateTaskExecutorTx(ctx context.Context, tx bun.Tx, id string) (*int64, error) {
 	var role sql.NullString
 	var enabled sql.NullBool
 	var revision sql.NullInt64
@@ -1193,7 +1200,7 @@ WHERE actor_id = 'actor:human:local' AND command_name = ? AND client_mutation_id
 }
 
 func storeTaskReceiptTx(
-	ctx context.Context, tx *sql.Tx, command TaskCommand, result TaskCommandResult, now time.Time,
+	ctx context.Context, tx bun.Tx, command TaskCommand, result TaskCommandResult, now time.Time,
 ) error {
 	response, err := json.Marshal(result)
 	if err != nil {

@@ -331,7 +331,6 @@ func TestMemoryMetadataCanUpdateCatalogOnlyPageWithoutContentAccess(t *testing.T
 func waitForMemoryUpdate(t *testing.T, chat *Chat, events <-chan Event) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
-	eventCount := 0
 	for {
 		select {
 		case event, open := <-events:
@@ -341,8 +340,7 @@ func waitForMemoryUpdate(t *testing.T, chat *Chat, events <-chan Event) {
 			if event.Kind != EventMemoryChanged {
 				t.Fatalf("Memory event kind = %s", event.Kind)
 			}
-			eventCount++
-			if eventCount == 2 {
+			if !chat.MemoryUpdateStatus().Active {
 				return
 			}
 		case <-deadline:

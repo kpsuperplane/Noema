@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // AcpPermissionResult is one resolved exact ACP permission request.
@@ -67,7 +69,7 @@ AND result.item_kind='tool_result' AND json_extract(result.payload_json,'$.succe
 		if err != nil {
 			return err
 		}
-		task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id=?", run.TaskID))
+		task, err := taskTx(ctx, tx, run.TaskID)
 		if err != nil {
 			return err
 		}
@@ -114,7 +116,7 @@ ORDER BY r.queued_at_ms,r.run_id LIMIT 1`).Scan(&runID)
 	if err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
-	task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id=?", run.TaskID))
+	task, err := taskTx(ctx, tx, run.TaskID)
 	if err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
@@ -143,7 +145,7 @@ WHERE run_id=? AND status='queued' AND task_generation=? AND run_id=(SELECT curr
 
 // StartTaskExecution changes one current lease to running.
 func (s *Store) StartTaskExecution(ctx context.Context, runID string, generation int64, now time.Time) error {
-	return s.taskRunTransaction(ctx, runID, generation, "leased", func(tx *sql.Tx, task *Task, run *TaskRun) error {
+	return s.taskRunTransaction(ctx, runID, generation, "leased", func(tx bun.Tx, task *Task, run *TaskRun) error {
 		changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='running',started_at_ms=COALESCE(started_at_ms,?),updated_at_ms=? WHERE run_id=? AND status='leased'`, millis(now), millis(now), run.ID)
 		if err != nil {
 			return err
@@ -168,7 +170,7 @@ func (s *Store) AppendTaskRunItems(ctx context.Context, runID string, generation
 	if len(items) == 0 && usage == (TaskRunUsage{}) {
 		return nil
 	}
-	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, _ *Task, run *TaskRun) error {
+	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx bun.Tx, _ *Task, run *TaskRun) error {
 		var next int64
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence_index)+1,0) FROM task_run_items WHERE run_id=?`, run.ID).Scan(&next); err != nil {
 			return err
@@ -303,7 +305,7 @@ func (s *Store) completeTaskResult(ctx context.Context, runID string, generation
 	if item.Kind != "tool_result" || item.ParentID == "" || !validTaskRunItem(item) {
 		return errors.New("invalid Task tool result")
 	}
-	err := s.taskRunTransaction(ctx, runID, generation, runStatus, func(tx *sql.Tx, task *Task, run *TaskRun) error {
+	err := s.taskRunTransaction(ctx, runID, generation, runStatus, func(tx bun.Tx, task *Task, run *TaskRun) error {
 		var next int64
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence_index)+1,0) FROM task_run_items WHERE run_id=?`, run.ID).Scan(&next); err != nil {
 			return err
@@ -372,7 +374,7 @@ func (s *Store) FinishTaskPlanning(ctx context.Context, runID string, generation
 	if complexity != "simple" && complexity != "medium" && complexity != "difficult" {
 		return errors.New("invalid Task complexity")
 	}
-	return s.completeTaskRun(ctx, runID, generation, "planner", now, func(tx *sql.Tx, task *Task, run TaskRun) error {
+	return s.completeTaskRun(ctx, runID, generation, "planner", now, func(tx bun.Tx, task *Task, run TaskRun) error {
 		task.ExecutionComplexity = complexity
 		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET execution_complexity=? WHERE task_id=?`, complexity, task.ID); err != nil {
 			return err
@@ -383,7 +385,7 @@ func (s *Store) FinishTaskPlanning(ctx context.Context, runID string, generation
 
 // FinishTaskExecution completes an Executor and queues review or continuation.
 func (s *Store) FinishTaskExecution(ctx context.Context, runID string, generation int64, continueRun bool, now time.Time) error {
-	return s.completeTaskRun(ctx, runID, generation, "executor", now, func(tx *sql.Tx, task *Task, run TaskRun) error {
+	return s.completeTaskRun(ctx, runID, generation, "executor", now, func(tx bun.Tx, task *Task, run TaskRun) error {
 		kind, review := "reviewer", max64(run.ReviewRound, 1)
 		if continueRun {
 			kind, review = "executor", run.ReviewRound
@@ -398,7 +400,7 @@ func (s *Store) FinishTaskReview(ctx context.Context, runID string, generation i
 	if decision != "approve" && decision != "request_changes" && decision != "needs_human" || feedback == "" || len(feedback) > 20_000 {
 		return errors.New("invalid Task review")
 	}
-	return s.completeTaskRun(ctx, runID, generation, "reviewer", now, func(tx *sql.Tx, task *Task, run TaskRun) error {
+	return s.completeTaskRun(ctx, runID, generation, "reviewer", now, func(tx bun.Tx, task *Task, run TaskRun) error {
 		switch decision {
 		case "approve":
 			task.Revision++
@@ -439,7 +441,7 @@ func (s *Store) BlockTaskExecution(ctx context.Context, runID string, generation
 			return errors.New("invalid Task gate answer")
 		}
 	}
-	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, task *Task, run *TaskRun) error {
+	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx bun.Tx, task *Task, run *TaskRun) error {
 		if run.Kind != "planner" && run.Kind != "executor" {
 			return ErrInvalidTransition
 		}
@@ -453,7 +455,7 @@ func (s *Store) FailTaskExecution(ctx context.Context, runID string, generation 
 	if message == "" {
 		message = "The provider run failed."
 	}
-	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, task *Task, run *TaskRun) error {
+	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx bun.Tx, task *Task, run *TaskRun) error {
 		_, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='failed',error_code=?,error_message=?,ended_at_ms=?,updated_at_ms=? WHERE run_id=? AND status='running'`, code, message, millis(now), millis(now), run.ID)
 		if err != nil {
 			return err
@@ -467,12 +469,12 @@ func (s *Store) FailTaskExecution(ctx context.Context, runID string, generation 
 
 // MarkTaskExecutionUncertain opens recovery after an approved effect has an uncertain result.
 func (s *Store) MarkTaskExecutionUncertain(ctx context.Context, runID string, generation int64, now time.Time) error {
-	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, task *Task, run *TaskRun) error {
+	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx bun.Tx, task *Task, run *TaskRun) error {
 		return markTaskExecutionUncertainTx(ctx, tx, task, *run, now)
 	})
 }
 
-func markTaskExecutionUncertainTx(ctx context.Context, tx *sql.Tx, task *Task, run TaskRun, now time.Time) error {
+func markTaskExecutionUncertainTx(ctx context.Context, tx bun.Tx, task *Task, run TaskRun, now time.Time) error {
 	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='failed',error_code='outcome_uncertain',
  error_message='An approved operation may have completed.',ended_at_ms=?,updated_at_ms=?
 WHERE run_id=? AND status IN ('leased','running','waiting_for_approval')`, millis(now), millis(now), run.ID)
@@ -487,8 +489,8 @@ WHERE run_id=? AND status IN ('leased','running','waiting_for_approval')`, milli
 		"unsafe_effect_uncertain", "executor", now)
 }
 
-func (s *Store) completeTaskRun(ctx context.Context, runID string, generation int64, kind string, now time.Time, next func(*sql.Tx, *Task, TaskRun) error) error {
-	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, task *Task, run *TaskRun) error {
+func (s *Store) completeTaskRun(ctx context.Context, runID string, generation int64, kind string, now time.Time, next func(bun.Tx, *Task, TaskRun) error) error {
+	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx bun.Tx, task *Task, run *TaskRun) error {
 		if run.Kind != kind {
 			return ErrInvalidTransition
 		}
@@ -506,7 +508,7 @@ func (s *Store) completeTaskRun(ctx context.Context, runID string, generation in
 	})
 }
 
-func (s *Store) taskRunTransaction(ctx context.Context, runID string, generation int64, status string, change func(*sql.Tx, *Task, *TaskRun) error) error {
+func (s *Store) taskRunTransaction(ctx context.Context, runID string, generation int64, status string, change func(bun.Tx, *Task, *TaskRun) error) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return err
@@ -516,7 +518,7 @@ func (s *Store) taskRunTransaction(ctx context.Context, runID string, generation
 	if err != nil {
 		return err
 	}
-	task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id=?", run.TaskID))
+	task, err := taskTx(ctx, tx, run.TaskID)
 	if err != nil {
 		return err
 	}
@@ -533,7 +535,7 @@ func (s *Store) taskRunTransaction(ctx context.Context, runID string, generation
 	return nil
 }
 
-func queueTaskExecutionChild(ctx context.Context, tx *sql.Tx, task *Task, parent TaskRun, kind string, attempt, review int64, now time.Time) error {
+func queueTaskExecutionChild(ctx context.Context, tx bun.Tx, task *Task, parent TaskRun, kind string, attempt, review int64, now time.Time) error {
 	run, err := insertTaskExecutionRun(ctx, tx, *task, kind, parent, attempt, review, now)
 	if err != nil {
 		return err
@@ -550,7 +552,7 @@ func queueTaskExecutionChild(ctx context.Context, tx *sql.Tx, task *Task, parent
 	return appendTaskExecutionEvent(ctx, tx, *task, run, "run.queued", map[string]any{"run_kind": kind, "parent_run_id": parent.ID}, now)
 }
 
-func insertTaskExecutionRun(ctx context.Context, tx *sql.Tx, task Task, kind string, parent TaskRun, attempt, review int64, now time.Time) (TaskRun, error) {
+func insertTaskExecutionRun(ctx context.Context, tx bun.Tx, task Task, kind string, parent TaskRun, attempt, review int64, now time.Time) (TaskRun, error) {
 	id, err := newID("run")
 	if err != nil {
 		return TaskRun{}, err
@@ -616,7 +618,7 @@ VALUES (?,?,?,?,?,'queued',?,?,?,?, ?,?,?,?,?,?, ?,?,?, ?,?,?,?,?,?, ?,?,?)`,
 	return run, err
 }
 
-func resolveAcpLaunchTx(ctx context.Context, tx *sql.Tx, task Task) (*AcpLaunch, error) {
+func resolveAcpLaunchTx(ctx context.Context, tx bun.Tx, task Task) (*AcpLaunch, error) {
 	if task.ExecutorAcpConnectionRevision == nil {
 		return nil, nil
 	}
@@ -632,7 +634,7 @@ FROM acp_agents WHERE agent_id=?`, task.ExecutorAgentID).
 	return &launch, nil
 }
 
-func insertAcpLaunchTx(ctx context.Context, tx *sql.Tx, runID string, launch AcpLaunch, now time.Time) error {
+func insertAcpLaunchTx(ctx context.Context, tx bun.Tx, runID string, launch AcpLaunch, now time.Time) error {
 	id, err := newID("run_item")
 	if err != nil {
 		return err
@@ -680,11 +682,11 @@ ORDER BY sequence_index DESC LIMIT 1`, run.ID).Scan(&session)
 	return err
 }
 
-func openTaskExecutionGate(ctx context.Context, tx *sql.Tx, task *Task, run TaskRun, kind, prompt, detail, reason, retryKind string, now time.Time) error {
+func openTaskExecutionGate(ctx context.Context, tx bun.Tx, task *Task, run TaskRun, kind, prompt, detail, reason, retryKind string, now time.Time) error {
 	return openTaskExecutionGateWithAnswers(ctx, tx, task, run, kind, prompt, detail, reason, retryKind, nil, now)
 }
 
-func openTaskExecutionGateWithAnswers(ctx context.Context, tx *sql.Tx, task *Task, run TaskRun, kind, prompt, detail, reason, retryKind string, answers []string, now time.Time) error {
+func openTaskExecutionGateWithAnswers(ctx context.Context, tx bun.Tx, task *Task, run TaskRun, kind, prompt, detail, reason, retryKind string, answers []string, now time.Time) error {
 	id, err := newID("gate")
 	if err != nil {
 		return err
@@ -718,7 +720,7 @@ WHERE task_id=? AND current_run_id=? AND generation=?`, id, task.Revision, milli
 	return appendTaskExecutionEvent(ctx, tx, *task, run, "gate.opened", map[string]any{"gate_id": id, "gate_kind": kind, "recovery_reason": reason}, now)
 }
 
-func updateCurrentTaskTx(ctx context.Context, tx *sql.Tx, task Task, expectedRunID, stage string, now time.Time) error {
+func updateCurrentTaskTx(ctx context.Context, tx bun.Tx, task Task, expectedRunID, stage string, now time.Time) error {
 	changed, err := tx.ExecContext(ctx, `UPDATE tasks SET state='running',stage_key=?,current_run_id=?,active_gate_id=NULL,revision=?,updated_at_ms=?
 WHERE task_id=? AND current_run_id=? AND generation=?`, stage, task.CurrentRunID, task.Revision, millis(now), task.ID, expectedRunID, task.Generation)
 	if err != nil {
@@ -730,7 +732,7 @@ WHERE task_id=? AND current_run_id=? AND generation=?`, stage, task.CurrentRunID
 	return nil
 }
 
-func appendTaskExecutionEvent(ctx context.Context, tx *sql.Tx, task Task, run TaskRun, kind string, details map[string]any, now time.Time) error {
+func appendTaskExecutionEvent(ctx context.Context, tx bun.Tx, task Task, run TaskRun, kind string, details map[string]any, now time.Time) error {
 	payload := map[string]any{"v": 1, "revision": task.Revision, "generation": task.Generation}
 	for key, value := range details {
 		payload[key] = value

@@ -2,8 +2,9 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+
+	"github.com/uptrace/bun"
 )
 
 // TaskExecutionPolicy contains global limits or one immutable run snapshot.
@@ -23,7 +24,7 @@ max_tool_calls,max_active_minutes,progress_audit_interval,max_automatic_retries,
 FROM task_execution_policy WHERE policy_id='default'`))
 }
 
-func taskExecutionPolicyTx(ctx context.Context, tx *sql.Tx) (TaskExecutionPolicy, error) {
+func taskExecutionPolicyTx(ctx context.Context, tx bun.Tx) (TaskExecutionPolicy, error) {
 	return scanTaskExecutionPolicy(tx.QueryRowContext(ctx, `SELECT max_provider_continuations,
 max_tool_calls,max_active_minutes,progress_audit_interval,max_automatic_retries,max_review_rounds
 FROM task_execution_policy WHERE policy_id='default'`))

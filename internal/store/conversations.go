@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 var ErrConversationNotFound = errors.New("conversation not found")
@@ -98,7 +100,7 @@ SELECT conversation_id, provider, COALESCE(cwd, ''), created_at_ms, updated_at_m
 FROM conversations WHERE conversation_id = ? AND owner_human_id = 'human:local'`, id))
 }
 
-func primaryConversationTx(ctx context.Context, tx *sql.Tx) (Conversation, error) {
+func primaryConversationTx(ctx context.Context, tx bun.Tx) (Conversation, error) {
 	return scanConversation(tx.QueryRowContext(ctx, `
 SELECT conversations.conversation_id, conversations.provider,
        COALESCE(conversations.cwd, ''), conversations.created_at_ms, conversations.updated_at_ms
@@ -121,7 +123,7 @@ func scanConversation(row rowScanner) (Conversation, error) {
 	return conversation, nil
 }
 
-func commitConversation(tx *sql.Tx, conversation Conversation) (Conversation, error) {
+func commitConversation(tx bun.Tx, conversation Conversation) (Conversation, error) {
 	if err := tx.Commit(); err != nil {
 		return Conversation{}, fmt.Errorf("commit primary conversation: %w", err)
 	}

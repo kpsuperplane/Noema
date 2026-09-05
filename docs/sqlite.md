@@ -29,6 +29,15 @@ Memory-related Noema home layout:
       memory.sqlite3
 ```
 
+## Go row mapping
+
+Bun maps Tasks, Task runs, Task events, and Agents into their existing Go types.
+It uses the existing ncruces SQLite driver and connection pool. Transactions keep
+immediate locking and exact current-run checks. Explicit SQL owns state transitions.
+
+Mapped time fields retain integer milliseconds through bounded model configuration.
+No ORM schema generation runs. Persisted schema changes still need forward migrations.
+
 ## Schema migrations
 
 The Go store uses ordered, forward-only migrations. SQLite records the current
