@@ -66,5 +66,8 @@
     "typescript-eslint": "^8.50.0",
     "vite": "^7.3.0",
     "vite-plugin-pwa": "^1.3.0"
+  },
+  "patchedDependencies": {
+    "@astryxdesign/core@0.1.9": "patches/@astryxdesign%2Fcore@0.1.9.patch"
   }
 }

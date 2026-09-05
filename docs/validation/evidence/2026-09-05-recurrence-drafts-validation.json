@@ -1,0 +1,66 @@
+{
+  "baseRevision": "5fed89935625f798eaf9d3467c802f0618a6d3ac",
+  "case": "TIME-07",
+  "result": "pass",
+  "productionChange": "A Bun patch for Astryx 0.1.9 removes text-measurement state updates during ref detachment. Disabled measurement returns inactive values.",
+  "removalCondition": "Remove the patch when an Astryx upgrade passes the recurrence dialog and text-preservation checks without it.",
+  "dependencyRuntimeNetLines": -2,
+  "goProductionChanges": 0,
+  "newComponentChecks": 1,
+  "before": {
+    "bundle": "app-CQIiTpak.js",
+    "action": "Open Edit schedule on recurrence:98d5e69ac1be8feb9524c623a1752f45",
+    "result": "Details unavailable; React error 185 from useTruncation ref updates.",
+    "diagnostic": "Suppressing those state updates in a temporary browser response allowed the dialog to open. Final verification used the built application without overrides."
+  },
+  "after": [
+    "Desktop and phone schedule dialogs open.",
+    "A stale document stays intact. Reload latest preserves the draft for an explicit save.",
+    "A stale schedule retains its entered cron expression and leaves the saved template and timing unchanged.",
+    "Ending the recurrence preserves readable content and removes editing controls after reload. The initial Task was cancelled without execution."
+  ],
+  "componentScope": "The component check covers text preservation, enabled-state changes, resizing, and rerendering. The live dialog provides the crash regression evidence.",
+  "validation": [
+    {
+      "command": "bun run check:generated",
+      "result": "pass"
+    },
+    {
+      "command": "bun run lint",
+      "result": "pass"
+    },
+    {
+      "command": "NOEMA_DEV_ASSET_DIR=/run/noema-dev/web-assets bun run build",
+      "result": "pass"
+    },
+    {
+      "command": "bun build truncation-component.jsx --jsx-runtime classic --target browser --minify --define process.env.NODE_ENV=\"production\" --outfile truncation-component.js",
+      "result": "pass"
+    },
+    {
+      "command": "node truncation-component-check.mjs",
+      "result": "pass"
+    },
+    {
+      "command": "AUDIT_RESUME=1 node recurrence-drafts.mjs",
+      "result": "pass"
+    },
+    {
+      "command": "node recurrence-cleanup.mjs",
+      "result": "pass"
+    }
+  ],
+  "driverHashes": {
+    "recurrence-drafts.mjs": "35364dea459a030875601590f7b6b6dc5c73cf06e0ed1b593d08ffc9833107fe",
+    "recurrence-cleanup.mjs": "58d1b87c63a5fe9e160cb5c18b1686078f9a98ed88dd3503242d71ded48e214c",
+    "recurrence-drafts-results.json": "8052fe564719833cd281fbb09bce824c6dfe53e320124e9506f5c694ea582165",
+    "truncation-component.jsx": "4107631c82269ddb4da558609034f431db26460a1f4803599f7b46e464d61009",
+    "truncation-component-check.mjs": "087317cb012e3518c23d9e73e0874e1acfb7cc352bffbf6850a6dfe073c626af",
+    "truncation-component-results.json": "c60ee36f0af1de76bdef3a98bcd489364d4f6846ffd24318ecc46fdbb3c8cf0a"
+  },
+  "limits": [
+    "Chromium used the local HTTPS origin. Cloudflare edge access remains outside this check.",
+    "Future recurrence execution variants remain pending under TIME-08.",
+    "The text-preservation component also passed against the original hook. It does not independently reproduce the live dialog crash."
+  ]
+}

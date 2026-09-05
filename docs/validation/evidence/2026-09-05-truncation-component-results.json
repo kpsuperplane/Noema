@@ -1,0 +1,10 @@
+{
+  "result": "pass",
+  "checks": [
+    "Unstable ref rerender has no update loop.",
+    "Disabled measurement hides stale truncation.",
+    "Reenabled measurement retains exact ordinary Unicode text.",
+    "Resize recomputes truncation without discarding full text."
+  ],
+  "errors": []
+}

@@ -390,6 +390,22 @@ The [results](evidence/2026-09-05-schedule-browser-results.json) retain exact ti
 The [validation record](evidence/2026-09-05-schedule-browser-validation.json) records scope and reused checks.
 No production change was required. TIME-02 passes for live Codex and Chromium.
 
+## Recurrence drafts and schedule dialog fix
+
+Opening the recurrence schedule dialog caused a React update loop and replaced the detail with an error.
+The Astryx 0.1.9 text-measurement hook updated state when a heading ref detached.
+A bounded Bun patch removes those updates. Disabled measurement returns inactive values.
+The [browser driver](evidence/2026-09-05-recurrence-drafts.mjs) now opens the dialog on desktop and phone without diagnostic overrides.
+Competing description drafts preserve the current template. Reloading preserves the stale draft for an explicit save.
+A competing schedule save leaves the current timing unchanged and retains the entered draft.
+The [cleanup driver](evidence/2026-09-05-recurrence-cleanup.mjs) ended the recurrence and cancelled its unstarted Task.
+The ended template remains readable after reload, with editing controls absent.
+The [results](evidence/2026-09-05-recurrence-drafts-results.json) record saved revisions and cleanup.
+The [component check](evidence/2026-09-05-truncation-component-check.mjs) verifies ordinary Unicode text, disabled measurement, resizing, and rerendering.
+Its [fixture](evidence/2026-09-05-truncation-component.jsx) uses the installed hook. The live dialog supplies the crash regression evidence.
+The [validation record](evidence/2026-09-05-recurrence-drafts-validation.json) records passing frontend checks and the patch removal condition.
+TIME-07 passes in Chromium. Future execution variants under TIME-08 remain pending.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -481,7 +497,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-04 | Not run | Controlled setup pending. | — |
 | TIME-05 | Not run | Controlled setup pending. | — |
 | TIME-06 | Partial | A manual occurrence copies the updated template. Existing Task content remains unchanged. Automatic future-slot copy remains pending. | — |
-| TIME-07 | Partial | Document-only saves now work. Stale updates preserve current text. Browser draft recovery remains pending. | — |
+| TIME-07 | Pass · Chromium | Fixed the recurrence schedule dialog crash. Competing browser drafts preserve current text and timing. The stale description survives reload for an explicit save. | — |
 | TIME-08 | Partial | Pause, resume, and skip next update schedule state. End preserves readable content and rejects edits. Future execution variants remain pending. | — |
 | TIME-09 | Partial | One manual occurrence starts with the updated document and preserves the next normal slot. Browser history remains pending. | — |
 | TIME-10 | Not run | Controlled setup pending. | — |
