@@ -128,7 +128,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Result, error)
 		}
 		return Result{}, errors.Join(err, reconcileErr)
 	}
-	document := stage.Document
+	var document home.ProjectDocument
 	if stored.Replayed {
 		if stored.Project.ID != projectID {
 			_ = home.DiscardProjectDocumentStage(s.root, projectID, command.RequestDigest)

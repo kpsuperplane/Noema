@@ -424,10 +424,6 @@ func validTaskActions(task store.Task, gate *store.TaskGate) []model.ValidTaskAc
 	}
 }
 
-func isTerminal(state store.TaskState) bool {
-	return state == store.TaskCompleted || state == store.TaskCancelled
-}
-
 func parseEventCursor(after *string) (int64, bool, error) {
 	if after == nil {
 		return 0, false, nil

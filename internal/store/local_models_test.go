@@ -104,22 +104,22 @@ func installStoreModel(
 	for range 64 {
 		digest += digestCharacter
 	}
-	value, err := database.QueueLocalModel(context.Background(), LocalModelInstallation{
+	_, err := database.QueueLocalModel(context.Background(), LocalModelInstallation{
 		ID: id, ModelID: model, Name: model, File: model + ".gguf",
 		SourceKind: "local_file", Backend: "cpu", TotalBytes: 4, CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err = database.UpdateLocalModel(context.Background(), id, "downloading", 4, 4, 0, "", "", "", "", now)
+	_, err = database.UpdateLocalModel(context.Background(), id, "downloading", 4, 4, 0, "", "", "", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err = database.UpdateLocalModel(context.Background(), id, "verifying", 4, 4, 0, "", "", "", "", now)
+	_, err = database.UpdateLocalModel(context.Background(), id, "verifying", 4, 4, 0, "", "", "", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err = database.UpdateLocalModel(
+	value, err := database.UpdateLocalModel(
 		context.Background(), id, "installed", 4, 4, 4, digest,
 		"models/blobs/"+digest+".gguf", "", "", now,
 	)

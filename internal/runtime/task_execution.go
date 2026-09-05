@@ -352,7 +352,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 					history := requestMessages[len(roleMessages):]
 					roleMessages = fresh
 					messages = joinContextMessages(roleMessages, history)
-					requestMessages, _, err = prepareModelContext(ctx, modelContextRequest{database: r.database,
+					_, _, err = prepareModelContext(ctx, modelContextRequest{database: r.database,
 						generator: contextGenerator, accountID: run.ProviderAccountID, providerKind: run.ProviderKind,
 						model: model, base: roleMessages, active: history, tools: tools,
 						hostedWeb:     run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)),

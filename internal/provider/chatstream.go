@@ -287,13 +287,7 @@ func (a *chatAccumulator) consume(
 	if len(envelope.Usage) != 0 {
 		a.usage = Usage{}
 		if usage, ok := parseChatUsage(envelope.Usage); ok {
-			a.usage = Usage{
-				InputTokens:       usage.InputTokens,
-				CachedInputTokens: usage.CachedInputTokens,
-				OutputTokens:      usage.OutputTokens,
-				TotalTokens:       usage.TotalTokens,
-				WebSearchRequests: usage.WebSearchRequests,
-			}
+			a.usage = Usage(usage)
 		}
 	}
 	if len(envelope.ReasoningDetails) != 0 {

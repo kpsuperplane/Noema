@@ -242,8 +242,7 @@ func (r *TaskExecution) ResumeAdapterAuthentication(ctx context.Context, connect
 			firstErr = errors.Join(firstErr, err)
 			continue
 		}
-		payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
-		payload, success, callErr = r.adapters.Call(ctx, binding, json.RawMessage(request.ArgumentsJSON))
+		payload, success, callErr := r.adapters.Call(ctx, binding, json.RawMessage(request.ArgumentsJSON))
 		if errors.Is(callErr, adapter.ErrAuthenticationRequired) {
 			if _, err = r.database.RetryAdapterAuthentication(ctx, request, time.Now()); err != nil {
 				firstErr = errors.Join(firstErr, err)

@@ -406,19 +406,6 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 	c.executeChatToolRounds(request, turn, assignment, generator, result, c.memoryRootContext(), 0, hostedState)
 }
 
-func (c *Chat) actionTurnHasHostedState(action store.ActionRequest) (bool, error) {
-	items, err := c.database.ConversationProviderItems(c.ctx, action.ConversationID)
-	if err != nil {
-		return false, err
-	}
-	for _, item := range items {
-		if item.TurnID == action.TurnID && storedHostedSearch(item) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func currentDownloadAction(action store.ActionRequest, conversation store.Conversation) bool {
 	var schema map[string]any
 	_ = json.Unmarshal(fileDownloadSchema, &schema)

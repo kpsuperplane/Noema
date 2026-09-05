@@ -718,7 +718,7 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 	if err := decodeExact(raw, &object); err != nil {
 		return nil, 0, "", err
 	}
-	allowed := map[string]bool{}
+	var allowed map[string]bool
 	required := []string{}
 	switch name {
 	case BrowseOpenName:

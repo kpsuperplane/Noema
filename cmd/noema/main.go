@@ -399,7 +399,7 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	case err := <-serveResult:
 		stopServers()
 		if localResult != nil {
-			_ = <-localResult
+			<-localResult
 		}
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil

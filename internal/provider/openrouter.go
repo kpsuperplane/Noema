@@ -163,13 +163,13 @@ func (s *OpenRouterService) CreateAPIKeyAccount(
 func (s *OpenRouterService) StartAuth(
 	ctx context.Context,
 	providerKind string,
-	accountID string,
+	_ string,
 	method AuthMethod,
 ) (AuthAttempt, error) {
 	if providerKind != "openrouter" {
 		return AuthAttempt{}, ErrUnsupportedProvider
 	}
-	accountID = "provider_account:openrouter:default"
+	accountID := "provider_account:openrouter:default"
 	if method != AuthOAuthPKCE {
 		return AuthAttempt{}, ErrAuthMethodMismatch
 	}

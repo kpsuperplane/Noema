@@ -116,8 +116,7 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 				firstErr = errors.Join(firstErr, err)
 				continue
 			}
-			payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
-			payload, success, decodeErr = c.adapters.Call(c.ctx, binding, json.RawMessage(request.ArgumentsJSON))
+			payload, success, decodeErr := c.adapters.Call(c.ctx, binding, json.RawMessage(request.ArgumentsJSON))
 			if errors.Is(decodeErr, adapter.ErrAuthenticationRequired) {
 				if _, err = c.database.RetryAdapterAuthentication(c.ctx, request, time.Now()); err != nil {
 					firstErr = errors.Join(firstErr, err)

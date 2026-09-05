@@ -225,6 +225,7 @@ func parseAPNSKey(value string) (*ecdsa.PrivateKey, error) {
 }
 
 func apnsFingerprint(public *ecdsa.PublicKey) string {
-	digest := sha256.Sum256(elliptic.Marshal(elliptic.P256(), public.X, public.Y))
+	encoded, _ := public.Bytes()
+	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])
 }

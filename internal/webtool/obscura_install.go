@@ -287,7 +287,7 @@ func extractObscuraArchive(archive, destination string, asset obscuraAsset) erro
 			if entry.Typeflag == tar.TypeDir && (entry.Name == "." || entry.Name == "./") {
 				continue
 			}
-			if entry.Typeflag != tar.TypeReg && entry.Typeflag != tar.TypeRegA {
+			if entry.Typeflag != tar.TypeReg {
 				return errors.New("Obscura archive entry is invalid")
 			}
 			if err := write(entry.Name, entry.Size, reader); err != nil {

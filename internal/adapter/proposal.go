@@ -83,9 +83,7 @@ func (value *operationProposal) UnmarshalJSON(raw []byte) error {
 	if err := decodeExactJSON(raw, &parsed); err != nil {
 		return err
 	}
-	*value = operationProposal{parsed.OperationID, parsed.Description, parsed.SourceDescription, parsed.Method, parsed.Path, parsed.Authorization,
-		parsed.FixedHeaders, parsed.FixedQuery, parsed.Arguments, parsed.JSONBodyTemplate, parsed.ReadOnly, parsed.Idempotent,
-		parsed.Destructive, parsed.OpenWorld, parsed.Pagination, parsed.Response}
+	*value = operationProposal(parsed)
 	return nil
 }
 

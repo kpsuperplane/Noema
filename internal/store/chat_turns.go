@@ -796,10 +796,6 @@ func ConversationAssistantStreamID(turnID string, providerRound int) string {
 	return "assistant_stream:" + turnID + ":" + phase + ":response:0"
 }
 
-func stableConversationItemID(turnID string, kind string) string {
-	return stableConversationOutputID(turnID, kind, 0, 0)
-}
-
 func stableConversationOutputID(turnID string, kind string, providerRound int, outputIndex int) string {
 	digest := sha256.Sum256([]byte(fmt.Sprintf(
 		"%s:%s:%d:%d", turnID, kind, providerRound, outputIndex,

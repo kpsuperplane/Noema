@@ -156,7 +156,7 @@ func validateMemoryChangeScope(
 func normalizeMemoryCitations(change *noemamemory.PageChange, allowed map[string]bool) error {
 	for citationIndex := range change.Citations {
 		citation := &change.Citations[citationIndex]
-		if citation.Sources == nil || len(citation.Sources) == 0 {
+		if len(citation.Sources) == 0 {
 			return fmt.Errorf("Memory page %s has an empty citation group", change.Path)
 		}
 		seen := make(map[string]bool)

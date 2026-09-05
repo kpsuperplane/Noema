@@ -165,11 +165,6 @@ type openRouterStreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-func openRouterGenerationBody(request GenerateRequest) ([]byte, error) {
-	body, _, err := prepareOpenRouterGeneration(request)
-	return body, err
-}
-
 func prepareOpenRouterGeneration(
 	request GenerateRequest,
 ) ([]byte, openRouterToolNameMap, error) {

@@ -163,8 +163,8 @@ func TestMultipleChoiceWaitReleasesStateLockAndKeepsExactResult(t *testing.T) {
 	locked := make(chan struct{})
 	go func() {
 		waiter.stateMu.Lock()
-		waiter.stateMu.Unlock()
 		close(locked)
+		waiter.stateMu.Unlock()
 	}()
 	select {
 	case <-locked:
