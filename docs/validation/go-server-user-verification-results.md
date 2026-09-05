@@ -255,6 +255,26 @@ Its [results](evidence/2026-09-05-chat-rich-visual-results.json) confirm no hori
 The [validation record](evidence/2026-09-05-chat-reconnect-validation.json) records the tested revision and driver hashes.
 No production code changed. Existing Go checks remain valid; script syntax, JSON, links, case IDs, and whitespace receive focused validation.
 
+## Live Chat choices and open free-text finding
+
+The [single-choice driver](evidence/2026-09-05-chat-choice-browser.mjs) answers one exact prompt from the browser.
+Its [results](evidence/2026-09-05-chat-choice-browser-results.json) show one stored selection, one resumed turn, and a rejected stale answer from another browser.
+The [multiple-selection driver](evidence/2026-09-05-chat-many-browser.mjs) chooses options in reverse order and submits them together.
+Its [results](evidence/2026-09-05-chat-many-browser-results.json) preserve prompt order and both selected labels. Reload retains the selection.
+
+The [free-text driver](evidence/2026-09-05-chat-choice-free-text.mjs) found an incomplete path.
+The enabled composer submits text while a choice waits. The server reports “The Chat turn could not be saved.”
+The text is not stored. A later browser option click also failed to create a selection.
+The browser cause remains unproven; this check does not establish successful browser recovery.
+The [state check](evidence/2026-09-05-choice-state.mjs) confirmed the pending prompt and submitted its exact structured answer through GraphQL.
+Its [results](evidence/2026-09-05-choice-state-results.json) preserve the before and after records.
+The [final read](evidence/2026-09-05-chat-choice-free-text-results.json) confirms the resumed answer and selection after reload.
+These results establish API recovery. CHAT-09 remains incomplete until the free-text path and browser follow-up are resolved.
+
+The [validation record](evidence/2026-09-05-chat-choice-validation.json) records the tested revision, driver hashes, source inspection, and remaining limits.
+The Rust and Go selection mutations both accept option IDs. That fact does not prove the intended ordinary-text continuation behavior.
+No production code changed. The next unit must investigate this finding before claiming CHAT-09 passes.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -299,8 +319,8 @@ A human variant remains pending even when its controlled counterpart passes.
 | CHAT-06 | Partial · live Chromium | Unicode, emoji, paragraphs, code, lists, and links survive reload and a second browser read. Native clients remain pending. | — |
 | CHAT-07 | Not run | Controlled setup pending. | — |
 | CHAT-08 | Pass · live Codex | The explicit foreground request returns its exact response in Chat and creates no Task. Other provider variants remain pending. | — |
-| CHAT-09 | Not run | Controlled setup pending. | — |
-| CHAT-10 | Not run | Controlled setup pending. | — |
+| CHAT-09 | Partial · live Codex/Chromium | Single and multiple selections resume once and survive reload. Free text is rejected while a choice waits. Browser follow-up remains under investigation. | — |
+| CHAT-10 | Pass · live Codex/Chromium | Another browser cannot resubmit an answered prompt. The original selection and turn remain unchanged. Live choice checks above. | — |
 | CHAT-11 | Not run | Controlled setup pending. | — |
 | CHAT-12 | Not run | Controlled setup pending. | — |
 | CHAT-13 | Not run | Controlled setup pending. | — |

@@ -1,0 +1,147 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "provider": "codex",
+  "conversationId": "conversation:9a8adece587d96886957b3a308c694b1",
+  "prompt": {
+    "itemId": "item:20ab9d2d13ddd492c20814e5fdb2827b",
+    "turnId": "turn:56b63a16ef27fd073ad8c5df29414159",
+    "item": {
+      "__typename": "MultipleChoicePrompt",
+      "prompt": "Migration audit choice — café 日本語 🧭",
+      "selectionMode": "PICK_ONE",
+      "options": [
+        {
+          "id": "alpha",
+          "label": "Audit Alpha"
+        },
+        {
+          "id": "beta",
+          "label": "Audit Beta"
+        }
+      ]
+    }
+  },
+  "staleErrors": [
+    "multiple-choice prompt already has a selection"
+  ],
+  "turn": [
+    {
+      "itemId": "item:f2fb52791f6321e6e7db4299af211c59",
+      "turnId": "turn:56b63a16ef27fd073ad8c5df29414159",
+      "item": {
+        "__typename": "UserText",
+        "text": "Migration audit CHAT-09/10. Use noema.present_multiple_choice to ask exactly \"Migration audit choice — café 日本語 🧭\". Use pick_one with options [{\"id\":\"alpha\",\"label\":\"Audit Alpha\"},{\"id\":\"beta\",\"label\":\"Audit Beta\"}]. Wait for my selection. After selection, reply with AUDIT_CHOICE_SELECTED followed by the selected option label. Do not create Tasks or use external services."
+      }
+    },
+    {
+      "itemId": "item:8ed664f8f164fcafa6b5108dac6ea490",
+      "turnId": "turn:56b63a16ef27fd073ad8c5df29414159",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: noema.present_multiple_choice",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:56b63a16ef27fd073ad8c5df29414159:0:0",
+            "name": "noema.present_multiple_choice",
+            "payload": {
+              "options": [
+                {
+                  "id": "alpha",
+                  "label": "Audit Alpha"
+                },
+                {
+                  "id": "beta",
+                  "label": "Audit Beta"
+                }
+              ],
+              "prompt": "Migration audit choice — café 日本語 🧭",
+              "selection_mode": "pick_one"
+            },
+            "provider_call_id": "call_1os1D3UwD3z7kZdT1JYStXiq",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8ece09fc87d1afa9f061d3a11da8",
+            "provider_name": "present_multiple_choice"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 16
+        }
+      }
+    },
+    {
+      "itemId": "item:20ab9d2d13ddd492c20814e5fdb2827b",
+      "turnId": "turn:56b63a16ef27fd073ad8c5df29414159",
+      "item": {
+        "__typename": "MultipleChoicePrompt",
+        "prompt": "Migration audit choice — café 日本語 🧭",
+        "selectionMode": "PICK_ONE",
+        "options": [
+          {
+            "id": "alpha",
+            "label": "Audit Alpha"
+          },
+          {
+            "id": "beta",
+            "label": "Audit Beta"
+          }
+        ]
+      }
+    },
+    {
+      "itemId": "item:c307dcdb41d9b4864979eb99c68f92a7",
+      "turnId": "turn:56b63a16ef27fd073ad8c5df29414159",
+      "item": {
+        "__typename": "MultipleChoiceSelection",
+        "promptItemId": "item:20ab9d2d13ddd492c20814e5fdb2827b",
+        "selectedOptions": [
+          {
+            "id": "beta",
+            "label": "Audit Beta"
+          }
+        ]
+      }
+    },
+    {
+      "itemId": "item:59b6dcb5b0e13560732e25460dda1741",
+      "turnId": "turn:56b63a16ef27fd073ad8c5df29414159",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: noema.present_multiple_choice",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:56b63a16ef27fd073ad8c5df29414159:0:0",
+            "name": "noema.present_multiple_choice",
+            "payload": {
+              "selected_options": [
+                {
+                  "id": "beta",
+                  "label": "Audit Beta"
+                }
+              ],
+              "status": "resolved"
+            },
+            "provider_call_id": "call_1os1D3UwD3z7kZdT1JYStXiq",
+            "provider_name": "present_multiple_choice",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 16
+        }
+      }
+    },
+    {
+      "itemId": "item:abd1c524fa18d608e2e9508787fae9b0",
+      "turnId": "turn:56b63a16ef27fd073ad8c5df29414159",
+      "item": {
+        "__typename": "AssistantText",
+        "text": "AUDIT_CHOICE_SELECTED Audit Beta"
+      }
+    }
+  ],
+  "selection": "pass",
+  "staleSubmission": "pass"
+}
