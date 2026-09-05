@@ -301,7 +301,7 @@ async fn start_local(
 ) -> Result<LocalRuntime, String> {
     let token = desktop_token()?;
     let mut child = Command::new(server_path)
-        .args(["--migration-spike", "--desktop-sidecar"])
+        .arg("--desktop-sidecar")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

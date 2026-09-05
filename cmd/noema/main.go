@@ -43,13 +43,12 @@ func main() {
 		os.Exit(status)
 	}
 	listen := flag.String("listen", "", "override the configured web bind address")
-	migrationSpike := flag.Bool("migration-spike", false, "allow the incomplete migration server to start")
 	desktopSidecar := flag.Bool("desktop-sidecar", false, "run as the packaged desktop child")
 	flag.Parse()
 
-	if !*migrationSpike {
-		fmt.Fprintln(os.Stderr, "the Go server is incomplete; pass -migration-spike for development")
-		os.Exit(2)
+	if err := releaseRootError(*desktopSidecar); err != nil {
+		fmt.Fprintf(os.Stderr, "Noema server failed: %v\n", err)
+		os.Exit(1)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
@@ -369,7 +368,7 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 		serveResult <- server.Serve(listener)
 	}()
 	if desktop == nil {
-		fmt.Fprintf(output, "Noema Go migration slice listening on %s\n", listener.Addr())
+		fmt.Fprintf(output, "Noema listening on %s\n", listener.Addr())
 	} else if err := json.NewEncoder(output).Encode(map[string]string{"type": "ready", "origin": authConfig.Origin}); err != nil {
 		return fmt.Errorf("write desktop ready line: %w", err)
 	}
