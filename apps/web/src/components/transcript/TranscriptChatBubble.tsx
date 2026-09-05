@@ -13,9 +13,14 @@ const styles = stylex.create({
     maxWidth: 720,
     minWidth: 0,
     alignItems: "flex-end",
+    // One gap rule replaces Astryx's default; the variable follows avatar visibility.
+    gap: "var(--chat-message-gap)",
+    "--chat-message-gap": {
+      default: "var(--spacing-2)",
+      "@container chat-transcript (width < 600px)": "var(--spacing-0)"
+    },
     "@container chat-transcript (width < 600px)": {
-      width: "100%",
-      gap: "var(--spacing-0)"
+      width: "100%"
     }
   },
   messageWithoutAvatar: {
