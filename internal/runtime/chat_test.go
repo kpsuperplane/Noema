@@ -189,7 +189,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	all := collectCompletedTurns(t, events, 1)
+	all := eventsForClient(collectCompletedTurns(t, events, 1), clientID)
 	var visibleKinds []store.ConversationItemKind
 	for _, event := range all {
 		if event.Item != nil {
