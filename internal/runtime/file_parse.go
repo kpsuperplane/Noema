@@ -66,6 +66,7 @@ type fileParseRequest struct {
 type documentConversion struct {
 	Content   string `json:"content"`
 	Converted bool   `json:"converted"`
+	Truncated bool   `json:"truncated,omitempty"`
 	ErrorCode string `json:"error,omitempty"`
 }
 
@@ -210,11 +211,19 @@ func parseOpenFile(ctx context.Context, file *os.File, displayPath string, maxCh
 	if metadata.Size() > fileParseMaximumInput {
 		return failedFileParse(displayPath, metadata.Size(), stringAddress(format), "source_too_large")
 	}
-	content, err := io.ReadAll(file)
+	content, grewPastLimit, err := readFileParseInput(file)
 	if err != nil {
 		return failedFileParse(displayPath, metadata.Size(), stringAddress(format), "read_failed")
 	}
+	if grewPastLimit {
+		return failedFileParse(
+			displayPath, max(metadata.Size(), int64(len(content))), stringAddress(format), "source_too_large",
+		)
+	}
 	mediaType, detectedFormat := documentMedia(content, format)
+	if mediaType == "" {
+		mediaType, detectedFormat = imageMediaFromExtension(format)
+	}
 	if mediaType == "" {
 		return unsupportedFileParse(displayPath, metadata.Size(), format)
 	}
@@ -227,7 +236,10 @@ func parseOpenFile(ctx context.Context, file *os.File, displayPath string, maxCh
 	if conversion.ErrorCode != "" {
 		return failedFileParse(displayPath, metadata.Size(), nil, conversion.ErrorCode)
 	}
-	parser, markdown := "anydoc", "markdown"
+	parser, contentFormat := "anydoc", "markdown"
+	if isImageMedia(mediaType) {
+		parser, contentFormat = "tesseract", "text"
+	}
 	if !conversion.Converted {
 		errorCode := "malformed"
 		return fileParseResponse{
@@ -240,9 +252,14 @@ func parseOpenFile(ctx context.Context, file *os.File, displayPath string, maxCh
 	returned := utf8.RuneCountInString(bounded)
 	return fileParseResponse{
 		Path: displayPath, SourceBytes: metadata.Size(), Status: "converted",
-		Parser: &parser, Format: &detectedFormat, ContentFormat: &markdown, Content: &bounded,
-		ReturnedChars: returned, Truncated: observed > returned,
+		Parser: &parser, Format: &detectedFormat, ContentFormat: &contentFormat, Content: &bounded,
+		ReturnedChars: returned, Truncated: conversion.Truncated || observed > returned,
 	}
+}
+
+func readFileParseInput(file *os.File) ([]byte, bool, error) {
+	content, err := io.ReadAll(io.LimitReader(file, fileParseMaximumInput+1))
+	return content, len(content) > fileParseMaximumInput, err
 }
 
 func convertDocument(ctx context.Context, content []byte, mediaType string) (documentConversion, bool) {
@@ -256,22 +273,25 @@ func convertDocument(ctx context.Context, content []byte, mediaType string) (doc
 	if err != nil {
 		return documentConversion{ErrorCode: "worker_unavailable"}, false
 	}
-	command := exec.CommandContext(ctx, executable)
+	command := exec.Command(executable)
 	command.Env = []string{
 		fileParseWorkerEnvironment + "=1",
 		fileParseMediaEnvironment + "=" + mediaType,
 	}
+	if isImageMedia(mediaType) {
+		command.Env = append(command.Env, fileParseExecutableEnvironment()...)
+	}
 	command.Stdin = bytes.NewReader(content)
 	command.Stderr = io.Discard
-	output, err := command.Output()
-	if ctx.Err() != nil {
+	output, err, timedOut := runFileParseCommand(ctx, command, fileParseMaximumCharacters*6+1_024)
+	if timedOut {
 		return documentConversion{}, true
 	}
 	if err != nil {
 		return documentConversion{ErrorCode: "worker_failed"}, false
 	}
 	var converted documentConversion
-	if len(output) > fileParseMaximumCharacters*6+1_024 || json.Unmarshal(output, &converted) != nil {
+	if json.Unmarshal(output, &converted) != nil {
 		return documentConversion{ErrorCode: "worker_failed"}, false
 	}
 	return converted, false
@@ -287,15 +307,21 @@ func RunFileParseWorkerIfRequested() (handled bool, status int) {
 		return true, 2
 	}
 	mediaType := os.Getenv(fileParseMediaEnvironment)
-	if !documents.IsDocument(mediaType) {
+	if !documents.IsDocument(mediaType) && !isImageMedia(mediaType) {
 		return true, 2
 	}
 	content, err := io.ReadAll(io.LimitReader(os.Stdin, fileParseMaximumInput+1))
 	if err != nil || len(content) > fileParseMaximumInput {
 		return true, 2
 	}
-	markdown, converted := documents.DocumentMarkdown(content, mediaType)
-	response, err := json.Marshal(documentConversion{Content: markdown, Converted: converted})
+	var conversion documentConversion
+	if isImageMedia(mediaType) {
+		conversion = convertImageOCR(content)
+	} else {
+		markdown, converted := documents.DocumentMarkdown(content, mediaType)
+		conversion = documentConversion{Content: markdown, Converted: converted}
+	}
+	response, err := json.Marshal(conversion)
 	if err != nil || len(response) > fileParseMaximumCharacters*6+1_024 {
 		return true, 2
 	}
@@ -303,6 +329,47 @@ func RunFileParseWorkerIfRequested() (handled bool, status int) {
 		return true, 2
 	}
 	return true, 0
+}
+
+func convertImageOCR(content []byte) documentConversion {
+	command := exec.Command("tesseract", "stdin", "stdout", "-l", "eng")
+	command.Env = fileParseExecutableEnvironment()
+	command.Stdin = bytes.NewReader(content)
+	command.Stderr = io.Discard
+	var output boundedCommandOutput
+	output.limit = (fileParseMaximumCharacters + 1) * utf8.UTFMax
+	command.Stdout = &output
+	if err := command.Start(); err != nil {
+		return documentConversion{ErrorCode: "ocr_unavailable"}
+	}
+	if err := command.Wait(); err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			return documentConversion{ErrorCode: "ocr_unavailable"}
+		}
+		return documentConversion{ErrorCode: "worker_failed"}
+	}
+	text, valid := boundedUTF8Text(output.bytes, output.truncated)
+	if !valid {
+		return documentConversion{ErrorCode: "worker_failed"}
+	}
+	observed := utf8.RuneCountInString(text)
+	bounded := truncateRunes(text, fileParseMaximumCharacters)
+	return documentConversion{
+		Content: bounded, Converted: true,
+		Truncated: output.truncated || observed > utf8.RuneCountInString(bounded),
+	}
+}
+
+func fileParseExecutableEnvironment() []string {
+	keys := []string{"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TESSDATA_PREFIX", "TMPDIR", "TEMP", "TMP"}
+	environment := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if value, exists := os.LookupEnv(key); exists {
+			environment = append(environment, key+"="+value)
+		}
+	}
+	return environment
 }
 
 func parseTextFile(file *os.File, path string, sourceBytes int64, format string, maxChars int) fileParseResponse {
@@ -437,6 +504,30 @@ func documentMediaFromExtension(format string) (string, string) {
 	default:
 		return "", format
 	}
+}
+
+func imageMediaFromExtension(format string) (string, string) {
+	switch format {
+	case "bmp":
+		return "image/bmp", format
+	case "gif":
+		return "image/gif", format
+	case "jpg", "jpeg":
+		return "image/jpeg", format
+	case "png":
+		return "image/png", format
+	case "tif", "tiff":
+		return "image/tiff", format
+	case "webp":
+		return "image/webp", format
+	default:
+		return "", format
+	}
+}
+
+func isImageMedia(mediaType string) bool {
+	mainType, _, _ := strings.Cut(mediaType, ";")
+	return strings.HasPrefix(strings.TrimSpace(mainType), "image/")
 }
 
 func fileFormat(path string) string {
