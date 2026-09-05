@@ -3,15 +3,13 @@
 Noema is an open-source, always-on, self-hosted personal agent operating
 system.
 
-The Rust backend is split by ownership rather than collected behind an umbrella
-crate. `noema-host` composes the application from the runtime, persistence,
-provider, memory, and capability crates; `noema-api` exposes the shared GraphQL
-schema; and `noema-server` and `noema-desktop` provide the HTTP and Tauri
-process boundaries. `apps/web` is the React product UI shared by both shells.
+The Go server owns composition, runtime, persistence, providers, capabilities,
+GraphQL, and HTTP. Rust remains for the Tauri shell, model evaluations, and the
+external Obscura worker. `apps/web` is the React UI shared by both shells.
 
 The old multi-command Noema CLI surface has been removed. For standalone local
-web development, use the `cargo dev` supervisor. It runs the `noema_web`
-GraphQL/web server watcher next to the Bun web asset watcher. Local product work
+web development, use the `cargo dev` supervisor. It runs the Go server watcher
+next to the Bun web asset watcher. Local product work
 should use that web entrypoint, the owning backend crate, the web frontend
 package, or the desktop app.
 
@@ -25,7 +23,8 @@ runs `swift build` after bridge changes.
 
 ## Requirements
 
-- Rust and Cargo
+- Go 1.26.6
+- Rust and Cargo for desktop, evaluations, and the Obscura release worker
 - Bun for frontend dependency installation and builds
 - `cargo-watch` for the combined development supervisor
 - CMake, Clang, and libclang for Obscura's stealth transport
@@ -48,13 +47,11 @@ through Bun.
 
 The first-party product API is GraphQL. The local web UI uses `/graphql` for
 queries and mutations plus `/graphql/ws` for subscriptions. The desktop app
-uses Tauri commands and events for both its embedded schema and authenticated
-HTTPS connections to a remote server.
+uses Tauri transport for its packaged Go sidecar and authenticated remote server.
 
-`noema-host` owns configuration, startup, composition, and dependency-ordered
-shutdown. During startup it uses `noema-home` to initialize `${NOEMA_HOME}`,
-composes the SQLite-backed `noema-store`, starts the native `noema-memory`
-subsystem, and assembles provider and capability implementations. SQLite lives
+`cmd/noema` owns startup, composition, and dependency-ordered shutdown.
+Packages under `internal/` own runtime, store, memory, providers, capabilities,
+GraphQL, and HTTP. SQLite lives
 at `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, durable human memory lives
 under `${NOEMA_HOME:-$HOME/.noema}/memory/human/`, its rebuildable FTS index
 lives under `system/indexes/`, and provider credential material lives under
@@ -170,7 +167,14 @@ export NOEMA_HOME="$PWD/.noema-dev"
 export NOEMA_OPENAI__API_KEY="..."
 ```
 
-General Rust validation:
+Go server validation:
+
+```bash
+CGO_ENABLED=0 go test ./cmd/... ./internal/...
+CGO_ENABLED=0 go vet ./cmd/... ./internal/...
+```
+
+Retained Rust validation:
 
 ```bash
 cargo fmt --all --check
@@ -179,36 +183,13 @@ cargo gate-lint
 cargo gate-test
 ```
 
-For the normal edit loop, use the package-scoped commands instead of the full
-workspace gate:
-
-```bash
-cargo fmt --all --check
-cargo fast                         # dev server dependency check
-cargo focused-lint && cargo focused-test
-cargo gate-lint && cargo gate-test
-```
-
-`cargo fast` is intended for frequent edits. The focused pair is the unit-level
-completion check. The gate pair is for cross-crate changes, milestone boundaries,
-and pre-handoff validation; Clippy and tests already compile the workspace, so
-the gate does not run a redundant separate `cargo check`. Cargo aliases are
-single commands, so the format check is kept as an explicit first step.
-
-These aliases keep validation artifacts in a disposable, size-bounded target
-while `cargo dev` retains its own development target. Both continue to use the
-required `sccache` compiler wrapper. The development server favors incremental
-compilation without debug information for edit latency, while validation uses
-non-incremental profiles for cache reuse. Its backend watcher coalesces short
-save bursts, and the frontend keeps GraphQL Codegen and Vite's build graph warm
-between edits. The launcher checks each target at most every six hours and
-automatically rebuilds it after it exceeds its configured budget. Use
-`cargo validate <cargo-command> [arguments]` for other focused Rust commands;
-direct Cargo invocations also use the managed validation target and
-non-incremental profiles by default.
+Use `go test` with package paths for focused server checks. Use
+`cargo validate <cargo-command> [arguments]` for focused retained Rust checks.
+The supervisor coalesces short save bursts. The frontend keeps GraphQL
+generation and Vite's build graph warm between edits.
 
 Frontend assets are built with Bun. The web build is emitted under
-`noema-server`, which validates and embeds those assets in release builds:
+`target/web-assets`. The Go release build validates and embeds those assets:
 
 ```bash
 cd apps/web
@@ -226,10 +207,10 @@ NOEMA_HOME=.noema-dev cargo dev
 ```
 
 To run the authenticated loopback server without the development asset watcher,
-use the workspace default binary:
+run the Go command:
 
 ```bash
-NOEMA_HOME=.noema-dev cargo validate run
+NOEMA_HOME=.noema-dev go run ./cmd/noema
 ```
 
 `cargo dev` sets the runtime `web.local_graphql_socket` option. It also binds
@@ -241,7 +222,7 @@ When root starts `./attach`, Cargo keeps root ownership of the build process.
 The launcher stages generated files under `/run/noema-dev` and runs only the
 Noema server as `noema-dev`. Its home is `/var/lib/noema-dev`.
 
-The supervisor uses `cargo-watch` for the Rust server and Foundation bridge.
+The supervisor watches the Go server and Foundation bridge.
 
 For frontend development against the desktop app, run the Tauri-oriented Vite
 build/watch task:
@@ -288,7 +269,7 @@ The operating system credential store keeps the origin, client identifier, and
 rotating refresh credential. Access tokens stay in memory.
 
 The desktop app keeps one active remote server. **Use local Noema** revokes the
-remote OAuth family, removes its credential, and restarts the embedded instance.
+remote OAuth family, removes its credential, and restarts the local Go sidecar.
 Noema also restarts after a successful connection to clear server-specific UI
 state.
 If remote startup fails, retry the connection or return to local mode. If the
@@ -305,6 +286,8 @@ cargo validate test -p noema-desktop
 ## Repository Layout
 
 ```text
+cmd/noema/                    Go server entrypoint and process composition
+internal/                     Go server runtime, store, API, and integrations
 apps/web/                     React UI and GraphQL operation generation
 apps/ios/                     Native SwiftUI client and Live Activity extension
 graphql/                      Generated shared GraphQL schema
@@ -313,17 +296,14 @@ crates/noema-conversations/   Conversation and transcript domain contracts
 crates/noema-artifacts/       Governed artifact contracts and filesystem service
 crates/noema-capabilities/    Provider-neutral capability and tool contracts
   adapters/                   Native HTTP adapter manifests and compiler
-  mcp/                        MCP contracts and optional local transport adapter
+  mcp/                        MCP records retained by model evaluations
 crates/noema-providers/       Provider contracts, adapters, and local GGUF models
 crates/noema-tasks/           Task, run, submission, and review domain contracts
 crates/noema-workspaces/      Workspace and project domain contracts
 crates/noema-memory/          Native Markdown memory and derived search
 crates/noema-store/           SQLite persistence and persistence read models
 crates/noema-runtime/         Governed, transport-neutral agent execution
-crates/noema-host/            Configuration, composition, startup, and shutdown
-crates/noema-api/             Transport-neutral GraphQL schema and resolvers
-crates/noema-server/          HTTP/WebSocket shell and release web-asset owner
-crates/noema-desktop/         Tauri shell using the shared host and GraphQL API
+crates/noema-desktop/         Tauri shell for local Go and remote servers
 crates/noema-dev/             Development supervisor and validation launcher
 crates/noema-model-evals/     Opt-in local-model qualification runner
 docs/                         Current contracts, active plans, and dated evidence

@@ -71,8 +71,8 @@ destinations to preserve an obsolete staged rollout.
 - Browser code never receives credential material. Provider-auth redirects and
   callbacks remain server-governed flows.
 - Tauri keeps the origin, client identifier, and rotating refresh credential
-  in the operating system credential store. Access tokens remain in Rust
-  memory. Its webview receives connection state and the validated server origin.
+  in the operating system credential store. Access tokens remain in its native
+  process. Its webview receives connection state and the validated server origin.
 
 ## Interaction contracts
 
@@ -100,7 +100,7 @@ product shell available. Transcript items, human intervention cards, detail
 rails, sidebars, and the rich Task editor fail within their local surfaces.
 Error boundaries do not replace explicit query, mutation, or connection errors.
 
-The desktop app runs one embedded local instance or one connected remote server.
+The desktop app runs one packaged Go sidecar or one connected remote server.
 A connection link carries only the validated server origin. Rust opens the
 system browser for OAuth with PKCE and recent passkey approval. Remote mode uses
 HTTPS GraphQL and authenticated `graphql-transport-ws` through Tauri IPC.

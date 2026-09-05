@@ -32,17 +32,13 @@ Memory-related Noema home layout:
 
 ## Schema migrations
 
-The database uses ordered, forward-only `rusqlite_migration` steps
-and records its current version in SQLite's `PRAGMA user_version`. Store startup
-validates the recorded version and exact schema shape before applying pending
-migrations transactionally. A database created from the final pre-migration v9
-schema is adopted in place without rewriting application rows.
+The Go store uses ordered, forward-only migrations. SQLite records the current
+version in `PRAGMA user_version`. Store startup applies pending migrations in
+one transaction and validates the final schema.
 
-The v9 baseline and every applied migration are immutable history. A schema
-change appends one migration to `store_migrations` in
-`crates/noema-store/src/schema.rs`, increments `STORE_SCHEMA_VERSION`, and adds
-focused coverage for the data or invariant at risk. Unknown, structurally
-modified, and newer schemas are rejected without mutation.
+`internal/store/store.go` owns the current version and migration order.
+`internal/store/schema_v*.go` owns each immutable migration. A schema change
+adds one file, advances the version, and tests upgrades plus fresh convergence.
 
-No SurrealDB migration path is maintained, and SQLite schemas older than or
-different from the exact v9 baseline still require an explicit reset or restore.
+The Go server uses a fresh Noema home. It does not open or convert a Rust home.
+Unknown and newer schema versions fail without mutation.

@@ -337,11 +337,10 @@ Backend field availability alone does not justify display.
 
 ## Code ownership
 
-- `crates/noema-workspaces` owns workspace and project records.
-- `crates/noema-tasks` owns Task workflow, commands, gates, runs, and events.
-- Task modules in `crates/noema-store` own persistence, transitions, leases, and reconciliation.
-- Task modules in `crates/noema-runtime` own supervised execution and Task tools.
-- Task modules in `crates/noema-api` own GraphQL projections and resolvers.
+- `internal/project` owns Project records and document rules.
+- `internal/store` owns Task persistence, commands, gates, runs, and events.
+- `internal/runtime` owns supervised execution and Task tools.
+- Task modules in `internal/graphql` own GraphQL projections and resolvers.
 - `apps/web` and `apps/ios` own client presentation from generated contracts.
 
 These boundaries do not require horizontal feature work.

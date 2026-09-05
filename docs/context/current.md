@@ -16,9 +16,9 @@ The approved server direction is a complete Go replacement. The new server
 keeps all production capabilities and uses no Rust or CGo.
 
 The Go server uses a fresh home. It does not open or convert a Rust home.
-The Rust server remains the production authority until the final cutover.
+The Go server is the production authority. Rust remains only for retained support targets.
 
-The Go evidence gate passed. The replacement now uses Go schema version 31.
+The Go evidence gate passed. The replacement now uses Go schema version 32.
 It includes authentication, onboarding, Chat, Projects, Agents, Artifacts, Task lifecycle, integrations, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.

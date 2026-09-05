@@ -38,7 +38,7 @@ growth in generated code, fixtures, or adjacent cleanup.
 
 ## Measure the patch
 
-Use the repository reporter at each milestone and before commit:
+Use the Rust reporter for retained Rust changes:
 
 ```bash
 bun run scripts/report-rust-size.ts --base HEAD
@@ -53,6 +53,10 @@ Choose the base that represents the start of the unit, usually `HEAD` for an
 uncommitted unit or the previous milestone commit for a longer slice. The
 report is a circuit breaker: if a budget fails, stop and simplify or request a
 scope decision instead of raising the limit after the fact.
+
+For Go server changes, record authored production, tests, generated GraphQL,
+and their inclusive total. Count only tracked `.go` files. Keep authored
+production and the inclusive total below the migration plan's 80-percent limits.
 
 ## Design and abstraction
 
@@ -98,7 +102,7 @@ Use table-driven tests when cases share setup and differ only in inputs and
 outcomes. Reuse the real in-memory SQLite store and the canonical deterministic
 provider fixture where practical rather than creating a fake per crate.
 
-More than ten new Rust tests requires a written risk matrix and a redundancy
+More than ten new tests requires a written risk matrix and a redundancy
 check before code is added. The main agent, not a local implementer, approves
 that expansion.
 
@@ -140,8 +144,7 @@ Do not review repeatedly until no possible critique remains.
 
 Before committing a unit:
 
-1. Run the Rust size report against the unit base and compare actuals with the
-   brief.
+1. Measure the changed language against the unit base and compare actuals with the brief.
 2. Perform a deletion pass over new helpers, fixtures, mappings, and comments.
 3. Run focused validation, then the repository validation required by
    `AGENTS.md`.

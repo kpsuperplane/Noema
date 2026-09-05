@@ -46,7 +46,9 @@
 - For architecture, memory, harness, frontend IA, or workflow work, read `docs/project.md`, `docs/context/current.md`, and the closest relevant docs first.
 - For nontrivial work, make the task mode explicit before proceeding: explore only, plan only, implement, adversarial review, or ship.
 - Before nontrivial implementation, state the observable outcome, non-goals, reuse/consolidation target, expected files, production/test code budget, planned tests with the unique risk each covers, and stop conditions. Do not edit until that brief is coherent.
-- Measure the patch with `bun run scripts/report-rust-size.ts --base <ref>` at milestone boundaries and before commit. Apply the task budget with `--max-production-net`, `--max-test-net`, and `--max-new-tests`; use `--require-net-negative` for refactors. Stop when the patch exceeds its production or test estimate by 50% or 500 lines, whichever is smaller.
+- Measure Go server patches as production, tests, generated GraphQL, and inclusive tracked lines. Keep both migration ratios below 80%.
+- For retained Rust patches, use `bun run scripts/report-rust-size.ts --base <ref>`. Apply its budget options and use `--require-net-negative` for refactors.
+- Stop when a patch exceeds its production or test estimate by 50% or 500 lines, whichever is smaller.
 - Split long work at milestone boundaries. After a major commit or completed phase, summarize durable context into `docs/context/current.md` before continuing.
 - Keep `docs/context/current.md` below 300 lines. Replace stale material instead of appending milestone history; move durable subsystem decisions to the closest authoritative document and rely on Git history for completed execution detail.
 - Make a commit after finishing each unit of work unless explicitly instructed not to.
@@ -70,14 +72,17 @@
 ## Validation
 - Never circumvent, disable, bypass, unset, or otherwise interfere with the `sccache` build cache.
 - Never modify `CARGO_BUILD_RUSTC_WRAPPER` or attempt to work around the configured Rust compiler wrapper. Doing so invalidates shared cache state, causes 15min+ builds, and can break other agents building in parallel.
-- Default Rust validation:
+- Default Go server validation:
+  - `CGO_ENABLED=0 go test ./cmd/... ./internal/...`
+  - `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`
+- Default retained Rust validation:
   - `cargo fmt --all --check`
   - `cargo check-workspace`
   - `cargo gate-lint`
   - `cargo gate-test`
 - Run focused Cargo commands through `cargo validate <cargo-command> [arguments]`, for example `cargo validate test -p noema-capability-adapters --lib`.
 - Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
-- Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new Rust tests requires a written risk and redundancy justification before implementation continues.
+- Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new tests requires a written risk and redundancy justification before implementation continues.
 - Do not test derives, getters, constructors, enum mirrors, pass-through mappings/resolvers, or mock interactions unless they enforce an external compatibility or security contract. Do not repeat the same behavior through domain, store, API, and runtime layers unless each boundary owns materially different logic.
 - Do not write tests for UI/frontend work unless explicitly requested.
 - For frontend or UI work, do not inspect with browser tools unless explicitly requested.

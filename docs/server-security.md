@@ -458,8 +458,8 @@ Sign-out clears protected private caches after server revocation.
 The operating-system account and device lock protect retained native data.
 Server revocation cannot erase private data from an offline device.
 
-The desktop Rust host owns remote credentials and transport. The packaged
-webview never receives bearer credentials or executes remote server content.
+The desktop Rust shell owns remote credentials and transport. Its local mode
+starts the packaged Go sidecar. The webview never receives bearer credentials.
 Privileged IPC validates its caller origin and command arguments.
 
 Native sign-out revokes the family before local deletion. Noema supports
@@ -590,10 +590,6 @@ edge.
 Tauri reads the installed macOS `Info.plist` during application restart.
 Public server requests do not provide this XML. Modifying the installed file
 already requires local package control, which is outside this threat model.
-
-`cargo audit` also reports `RUSTSEC-2023-0071` for `rsa 0.9.10` through
-`web-push-native`. Noema creates and loads only ES256 VAPID keys. It performs no
-RSA private-key operation, so the reported timing path is not reachable.
 
 `bun audit` reports 12 advisories in `brace-expansion`, `js-yaml`, `nanoid`,
 and `postcss`. These packages run in the web build, lint, and generation tools.

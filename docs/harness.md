@@ -17,8 +17,8 @@ Historical architecture plans live in Git history, not in the working tree.
   subscription state coordinate work but do not replace stored state.
 - Task commands change current state transactionally and append events for
   audit and invalidation; events are not a second state-reconstruction system.
-- `noema-host` composes services, `noema-runtime` executes conversations and
-  Tasks, `noema-api` owns GraphQL, and shells remain thin.
+- `cmd/noema` composes services. `internal/runtime` executes Chat and Tasks.
+  `internal/graphql` owns GraphQL, and clients remain thin.
 - Provider, MCP, native adapter, artifact, and memory boundaries keep their own
   transport and persistence contracts. A new universal abstraction requires
   multiple concrete production consumers and a net simplification.
