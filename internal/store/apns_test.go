@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-func TestNativeNotificationSchemaConvergesFromFreshV14AndV15(t *testing.T) {
-	for _, version := range []int{0, 14, 15} {
+func TestNativeNotificationSchemaConvergesFromFreshAndPriorVersions(t *testing.T) {
+	for _, version := range []int{0, 14, 15, 22} {
 		t.Run(fmt.Sprint("v", version), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "noema.sqlite3")
 			if version > 0 {
@@ -35,7 +35,8 @@ func TestNativeNotificationSchemaConvergesFromFreshV14AndV15(t *testing.T) {
 			if err := database.db.QueryRow("PRAGMA user_version").Scan(&current); err != nil || current != schemaVersion {
 				t.Fatalf("schema version = %d, %v", current, err)
 			}
-			for _, table := range []string{"task_runs", "client_notification_registrations", "apns_deliveries", "client_live_activity_registrations"} {
+			for _, table := range []string{"task_runs", "client_notification_registrations", "apns_deliveries", "client_live_activity_registrations",
+				"client_task_activities", "live_activity_deliveries", "live_activity_observations"} {
 				var count int
 				if err := database.db.QueryRow("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?", table).Scan(&count); err != nil || count != 1 {
 					t.Fatalf("table %s = %d, %v", table, count, err)
@@ -153,19 +154,23 @@ func TestLiveActivityTokensStayClientOwnedAndDisableCleanly(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 	_, refresh := seedNativeFamily(t, database, testNativeClient, "8", now.Unix())
-	activity := "live_activity:one"
-	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("push-to-start"), APNSDevelopment, []string{activity}, now); err != nil {
+	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("push-to-start"), APNSDevelopment, nil, now); err != nil {
 		t.Fatal(err)
 	}
+	state, err := database.ClientTaskActivity(ctx, testNativeClient)
+	if err != nil || state == nil || state.Lifecycle != "starting" {
+		t.Fatalf("starting activity = %#v, %v", state, err)
+	}
+	activity := state.ActivityID
 	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, testNativeClient, activity, []byte("update-token"), now); err != nil || !changed {
 		t.Fatalf("update registration = %v, %v", changed, err)
 	}
 	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("push-to-start"), APNSDevelopment, []string{activity}, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	var retained []byte
-	if err := database.db.QueryRow("SELECT update_token FROM client_live_activities WHERE client_id = ? AND activity_id = ?", testNativeClient, activity).Scan(&retained); err != nil || string(retained) != "update-token" {
-		t.Fatalf("retained update token = %q, %v", retained, err)
+	state, err = database.ClientTaskActivity(ctx, testNativeClient)
+	if err != nil || string(state.UpdateToken) != "update-token" || state.Lifecycle != "active" {
+		t.Fatalf("retained update token = %#v, %v", state, err)
 	}
 	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, testNativeClient, "live_activity:other", []byte("token"), now); err != nil || changed {
 		t.Fatalf("unobserved update registration = %v, %v", changed, err)
