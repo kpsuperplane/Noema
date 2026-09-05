@@ -1,0 +1,26 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "taskId": "task:5847613873ae4de9b0d23c337d0b51be",
+  "evidence": [
+    {
+      "filename": "fallback.svg",
+      "result": "pass",
+      "detail": "The production card opens the expected text preview or download-only fallback. Downloaded bytes remain exact."
+    },
+    {
+      "filename": "fallback.bin",
+      "result": "pass",
+      "detail": "The production card opens the expected text preview or download-only fallback. Downloaded bytes remain exact."
+    },
+    {
+      "filename": "literal.txt",
+      "result": "pass",
+      "detail": "The production card opens the expected text preview or download-only fallback. Downloaded bytes remain exact."
+    },
+    {
+      "filename": "preview.pdf",
+      "result": "pass",
+      "detail": "Exact published PDF bytes and the authorized iframe source match. Native viewer readability needs visual review."
+    }
+  ]
+}

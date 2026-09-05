@@ -661,7 +661,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func setResponsePolicy(header http.Header) {
 	header.Set("Cache-Control", "no-store")
-	header.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+	header.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 	header.Set("Permissions-Policy", "publickey-credentials-create=(self), publickey-credentials-get=(self)")
 	header.Set("Referrer-Policy", "no-referrer")
 	header.Set("X-Content-Type-Options", "nosniff")

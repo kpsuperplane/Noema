@@ -168,9 +168,33 @@ Scripts, forms, handlers, navigation, and external loading are blocked.
 Both Markdown versions retain their original bytes. Saved upload-action binding remains pending.
 The browser uses the direct HTTPS origin. Cloudflare edge behavior remains outside this evidence.
 
+The [follow-up driver](evidence/2026-09-05-artifact-followup.mjs) completed result-link downloads, version selection, and visible file-error checks.
+Its [results](evidence/2026-09-05-artifact-followup-results.json) confirm these checks on the same published Task.
+Altered, removed, and symlinked files show a load error. Restoring the original restores the preview.
+
 The [fix record](evidence/2026-09-05-artifact-card-fix.json) records the patch, checks, and visual review.
 Frontend lint and build passed on the mapper change. Generated-file checks passed with unchanged schemas and operations.
 The server reuses the passing Go test and vet results from the scheduling fix. This frontend patch changes no server inputs.
+
+The [format publication](evidence/2026-09-05-artifact-format-publish.mjs) completed another live Task with four exact [fixtures](evidence/2026-09-05-artifact-format-fixtures.json).
+The [Task result](evidence/2026-09-05-artifact-format-publish-results.json) records completed execution and review.
+The [format driver](evidence/2026-09-05-artifact-format-preview.mjs) verifies literal text, SVG and binary fallbacks, and exact downloads.
+Its [results](evidence/2026-09-05-artifact-format-preview-results.json) retain each completed assertion.
+Full Chromium displayed the PDF page with “Noema PDF audit 42.” The smaller headless browser runtime displayed a blank frame.
+The [full Chromium result](evidence/2026-09-05-artifact-pdf-browser-results.json) also verifies the bundled KaTeX font.
+The response policy now permits embedded fonts. Script sources remain restricted to the application origin.
+
+The restart exposed a second defect: document recovery treated Artifact directories as Task document directories.
+Recovery now skips valid `task_<id>` Artifact directories. It retains document-stage checks for Task directories.
+Both focused regressions failed before their fixes and passed afterward.
+The [fix record](evidence/2026-09-05-artifact-restart-fixes.json) includes source hashes, code sizes, and final Go test and vet results.
+The patch adds five net production lines and seven test lines. Both migration ratios remain below 80 percent.
+
+The [restart driver](evidence/2026-09-05-artifact-restart.mjs) uploads 40 KiB, the Task upload limit, before restart.
+The [before](evidence/2026-09-05-artifact-restart-before.json) and [after](evidence/2026-09-05-artifact-restart-after.json) records show identical bytes and delivery headers.
+The [process record](evidence/2026-09-05-artifact-restart-process.json) proves a new server process served the second download.
+The existing development supervisor restarted its server watcher. No source content changed for this restart check.
+
 
 ## Case results
 
@@ -358,15 +382,15 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-10 | Not run | Controlled setup pending. | — |
 | CALC-01 | Pass · controlled Linux | Budget, percentage, structured JSON, nulls, and Unicode match independent values. | — |
 | CALC-02 | Pass · controlled Linux | Unbounded Lua and file, process, environment, and network access fail within 15 seconds each. | — |
-| ART-01 | Partial | Local uploads preserve ownership and bytes. Completed publication now opens from the Task transcript. Result-link browser action remains pending. | Live Artifact checks above. |
+| ART-01 | Pass | Reopened the completed result and downloaded its published file. Owner, media type, filename, size, and exact bytes match. | Live Artifact checks above. |
 | ART-02 | Partial | External URL and conversation owner remain exact through GraphQL. Visible Chat reference remains pending. | Live Artifact checks above. |
-| ART-03 | Partial | Two published versions download with distinct original bytes. Saved upload-action binding remains pending. | Live Artifact checks above. |
-| ART-04 | Partial | Markdown and text transport preserve content. Raster preview bytes match. Rendered formats, PDF, and spreadsheet variants remain pending. | Live Artifact checks above. |
+| ART-03 | Partial | Two versions download with distinct original bytes. The browser selector renders each version. Saved upload-action binding remains pending. | Live Artifact checks above. |
+| ART-04 | Partial | Markdown, literal text, and PDF render. Raster preview bytes match. Raster rendering and spreadsheet variants remain pending. | Live Artifact checks above. |
 | ART-05 | Pass | Live HTML preview preserves visible content and blocks active behavior at desktop and phone widths. | Live Artifact checks above. |
-| ART-06 | Partial | SVG and binary inline requests return 415. Downloads work. Browser fallback remains pending. | Live Artifact checks above. |
-| ART-07 | Partial | Changed, missing, and symlink files fail delivery. Restored original bytes download. Browser error state remains pending. | Live Artifact checks above. |
+| ART-06 | Pass | SVG and binary show Preview unavailable, expose no inline frame, and retain exact browser downloads. | Live Artifact checks above. |
+| ART-07 | Pass | Changed, missing, and symlink files fail delivery and show a preview load error. Restoring original bytes restores the preview. | Live Artifact checks above. |
 | ART-08 | Pass | Same URL returns 401 before login, 200 after passkey login, and 401 after logout. Authorized responses use no-store. | Live Artifact checks above. |
-| ART-09 | Not run | Controlled setup pending. | — |
+| ART-09 | Pass | A 40 KiB binary retains exact bytes, filename, media type, length, and private caching across a verified server restart. | Live Artifact checks above. |
 | NOTE-01 | Not run | Controlled setup pending. | Not run |
 | NOTE-02 | Not run | Controlled setup pending. | Not run |
 | NOTE-03 | Not run | Controlled setup pending. | Not run |

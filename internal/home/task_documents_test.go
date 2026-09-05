@@ -42,6 +42,9 @@ func TestTaskDocumentStageReconciliationDiscardsStaleCommit(t *testing.T) {
 	if _, err := CommitTaskDocumentStage(root, newer); err != nil {
 		t.Fatal(err)
 	}
+	if err := root.MkdirAll("tasks/task_00000000000000000000000000000001/artifacts", 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := ReconcileTaskDocumentStages(root, 1, func(id, digest string) (string, bool, error) {
 		return stale.Document.Digest, id == taskID && digest == request, nil
 	}); err != nil {

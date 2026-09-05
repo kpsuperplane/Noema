@@ -220,6 +220,11 @@ func ReconcileTaskDocumentStages(root *os.Root, limit int, receipt func(string, 
 			if !entry.IsDir() || entry.Name() == pendingRootName {
 				continue
 			}
+			if artifactTask, ok := strings.CutPrefix(entry.Name(), "task_"); ok {
+				if _, err := taskName("task:" + artifactTask); err == nil {
+					continue
+				}
+			}
 			taskID := "task:" + entry.Name()
 			if _, err := taskName(taskID); err != nil {
 				return err

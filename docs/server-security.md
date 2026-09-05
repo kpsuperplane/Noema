@@ -402,6 +402,7 @@ only rebuildable image data under `${NOEMA_HOME}/system/cache/favicons/`.
 Browser responses use a restrictive CSP, `frame-ancestors 'none'`,
 `base-uri 'none'`, `form-action 'self'`, `nosniff`, no-referrer policy, and a
 minimal Permissions Policy.
+The application permits bundled fonts from its origin and data URLs.
 
 ## 9. Native Client OAuth
 
