@@ -143,8 +143,7 @@ Before committing a unit:
 1. Run the Rust size report against the unit base and compare actuals with the
    brief.
 2. Perform a deletion pass over new helpers, fixtures, mappings, and comments.
-3. Run focused validation, then the repository validation required by
-   `AGENTS.md`.
+3. Apply the [validation rules](../../AGENTS.md#validation) for the changed files. Reuse successful checks whose inputs remain unchanged.
 4. Report production/test deltas, tests added or removed, and any remaining
    budget exception.
 

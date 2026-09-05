@@ -267,9 +267,8 @@ slice or a net-negative reduction.
 - Product decisions remain open for integration substrates, full-parity clients,
   task roles, and secondary vertical systems.
 
-## Validation defaults
+## Validation
 
-- Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`,
-  and `cargo gate-test`. Use `cargo validate` for focused commands.
-- Web: run `bun run lint` and `bun run build` from `apps/web`.
-- Run unit tests only unless smoke or fixture tests are explicitly requested.
+Follow [AGENTS.md](../../AGENTS.md#validation) for check scope, commands, retries, and result reuse.
+Use focused checks during implementation. The integrating agent owns broad validation for each completed server or native code unit.
+Commits, pushes, and report edits do not invalidate successful checks with unchanged inputs.
