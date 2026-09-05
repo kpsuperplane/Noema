@@ -21,7 +21,7 @@ The Rust server remains the production authority until the final cutover.
 The Go evidence gate passed. The replacement now uses Go schema version 24.
 It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task lifecycle, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
-Primary Chat supports durable recovery and bounded `task.inspect`, `file.parse`, and Memory tool loops.
+Primary Chat supports durable recovery, all six Project tools, and bounded `task.inspect`, `file.parse`, and Memory tool loops.
 It reviews exact `file.download` calls, pauses for decisions, and resumes from known or uncertain outcomes.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
 Native Memory owns bounded reads, search, citations, hierarchy, model updates, crash-safe publication, checkpoints, and root prompt context.
