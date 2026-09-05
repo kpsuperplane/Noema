@@ -16,8 +16,7 @@ Go replaces all Noema-owned Rust server code. The server does not compile or
 link Rust or CGo.
 
 Current external executables remain valid integration boundaries. These
-executables include Chrome, Obscura, `llama-server`, document tools, and the
-Apple Foundation bridge.
+executables include Chrome, Obscura, `llama-server`, and document tools.
 
 The migration keeps all current production capabilities. Small client changes
 are valid when product behavior stays stable.
@@ -74,7 +73,7 @@ The source migration includes:
 - Chat streaming, transcripts, continuation, context, tools, choices, and A2UI;
 - Task capture, scheduling, recurrences, roles, gates, retries, and recovery;
 - Projects, Agents, Artifacts, Memory, audit events, and notifications;
-- OpenAI, OpenRouter, Codex, Apple Foundation Models, and local GGUF models;
+- OpenAI, OpenRouter, Codex, and local GGUF models;
 - MCP, ACP, HTTP adapters, adapter OAuth, direct credentials, and Lua 5.4;
 - search, fetch, downloads, document parsing, OCR, and browser routes;
 - Playwright, Kernel, and installable Obscura browser providers;
@@ -84,8 +83,7 @@ The source migration includes:
 Rust server packages and the unused Rust MCP transport are removed. Rust
 remains only in supported client and tooling targets outside the server.
 
-The desktop packages the Go server as its sidecar. macOS packages the Swift
-Apple Foundation bridge beside that server.
+The desktop packages the Go server as its sidecar.
 
 Linux amd64 and arm64, macOS amd64 and arm64, and Windows amd64 release builds
 use `CGO_ENABLED=0`.
@@ -197,8 +195,7 @@ After branch publication, GitHub must run native jobs on `macos-15` and
 `windows-2022`. The workflow also runs `ubuntu-22.04`.
 
 Native acceptance must cover the platform filesystem behavior, SQLite WAL
-test, desktop packaging, process startup, and shutdown. macOS must also cover
-the Apple Foundation bridge.
+test, desktop packaging, process startup, and shutdown.
 
 Live hosted-provider and external-integration acceptance needs configured
 credentials. Record any unavailable or waived case before release.
@@ -212,13 +209,12 @@ Source implementation is complete. Release acceptance remains open until:
 1. The five public Obscura assets and checksum files are available anonymously.
 2. Native Linux, macOS, and Windows jobs pass after branch publication.
 3. The packaged desktop starts and stops its Go sidecar on each desktop platform.
-4. The macOS package starts the Apple Foundation bridge.
-5. The final integrated Linux suite passes, including race detection.
-6. Credential-backed provider and integration acceptance passes or has an explicit waiver.
-7. Each final release artifact has a complete notice set. It covers Go modules,
+4. The final integrated Linux suite passes, including race detection.
+5. Credential-backed provider and integration acceptance passes or has an explicit waiver.
+6. Each final release artifact has a complete notice set. It covers Go modules,
    the Go toolchain, Noema, web and font assets, MPL source availability, and
    packaged native content.
-8. Both Go size ratios remain below 80 percent at the release commit.
+7. Both Go size ratios remain below 80 percent at the release commit.
 
 These are release evidence gates. They are not missing server source features.
 

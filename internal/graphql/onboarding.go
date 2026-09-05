@@ -18,6 +18,9 @@ func (r *Resolver) onboardingStatus(ctx context.Context) (*model.OnboardingStatu
 		Steps: []*model.OnboardingStep{localModelOnboardingStep(false)},
 	}
 	assignments, err := r.Store.HostedModelAssignments(ctx)
+	if errors.Is(err, store.ErrInvalidModelAssignments) {
+		return status, nil
+	}
 	if err != nil || len(assignments) == 0 {
 		return status, err
 	}

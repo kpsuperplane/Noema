@@ -48,18 +48,18 @@ var (
 
 // TaskExecution runs current built-in provider Task runs from durable wakeups.
 type TaskExecution struct {
-	database                                     *store.Store
-	mcp                                          *noemamcp.Service
-	adapters                                     *adapter.Service
-	artifacts                                    *artifact.Service
-	root                                         *os.Root
-	web                                          *webtool.Service
-	errors                                       *diagnostics.Writer
-	openRouter, codex, openAI, foundation, local provider.Generator
-	ctx                                          context.Context
-	cancel                                       context.CancelFunc
-	done                                         chan struct{}
-	closeOnce                                    sync.Once
+	database                         *store.Store
+	mcp                              *noemamcp.Service
+	adapters                         *adapter.Service
+	artifacts                        *artifact.Service
+	root                             *os.Root
+	web                              *webtool.Service
+	errors                           *diagnostics.Writer
+	openRouter, codex, openAI, local provider.Generator
+	ctx                              context.Context
+	cancel                           context.CancelFunc
+	done                             chan struct{}
+	closeOnce                        sync.Once
 }
 
 // NewTaskExecution starts the event-driven built-in Task worker.
@@ -77,7 +77,6 @@ func NewTaskExecution(
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
 	var artifactService *artifact.Service
-	var foundationGenerator *provider.FoundationGenerator
 	var localModels *localmodel.Service
 	var webTools *webtool.Service
 	var errorLog *diagnostics.Writer
@@ -89,8 +88,6 @@ func NewTaskExecution(
 			adapterService = value
 		case *artifact.Service:
 			artifactService = value
-		case *provider.FoundationGenerator:
-			foundationGenerator = value
 		case *localmodel.Service:
 			localModels = value
 		case *webtool.Service:
@@ -108,7 +105,7 @@ func NewTaskExecution(
 		}
 	}
 	runtime := &TaskExecution{
-		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, foundation: foundationGenerator, local: localModels,
+		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, local: localModels,
 		mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools, errors: errorLog,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 	}
@@ -1581,11 +1578,6 @@ func (r *TaskExecution) generator(kind string) (provider.Generator, error) {
 		return r.codex, nil
 	case "openai":
 		return r.openAI, nil
-	case "foundation_local":
-		if r.foundation != nil {
-			return r.foundation, nil
-		}
-		return nil, errors.New("Apple Foundation Models is unavailable")
 	case "local_models":
 		if r.local != nil {
 			return r.local, nil

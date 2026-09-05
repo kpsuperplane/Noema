@@ -139,7 +139,6 @@ type Chat struct {
 	openRouter provider.Generator
 	codex      provider.Generator
 	openAI     provider.Generator
-	foundation provider.Generator
 	local      provider.Generator
 	home       *os.Root
 	memory     *noemamemory.Store
@@ -227,7 +226,6 @@ func NewChat(
 	ctx, cancel := context.WithCancel(context.Background())
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
-	var chatFoundation *provider.FoundationGenerator
 	var localModels *localmodel.Service
 	var webTools *webtool.Service
 	var errorLog *diagnostics.Writer
@@ -237,8 +235,6 @@ func NewChat(
 			mcpService = value
 		case *adapter.Service:
 			adapterService = value
-		case *provider.FoundationGenerator:
-			chatFoundation = value
 		case *localmodel.Service:
 			localModels = value
 		case *webtool.Service:
@@ -249,7 +245,7 @@ func NewChat(
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, openAI: openAI, foundation: chatFoundation, local: localModels, home: homeRoot,
+		openRouter: openRouter, codex: codex, openAI: openAI, local: localModels, home: homeRoot,
 		memory: memoryStore, mcp: mcpService, adapters: adapterService, web: webTools, errors: errorLog,
 		projects: project.New(database, homeRoot),
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
@@ -645,11 +641,6 @@ func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
 		return c.codex, nil
 	case "openai":
 		return c.openAI, nil
-	case "foundation_local":
-		if c.foundation != nil {
-			return c.foundation, nil
-		}
-		return nil, errors.New("Apple Foundation Models is unavailable")
 	case "local_models":
 		if c.local != nil {
 			return c.local, nil
@@ -803,10 +794,6 @@ func maxOutputTokens() *uint32 {
 }
 
 func maxOutputTokensFor(providerKind string) *uint32 {
-	if providerKind == "foundation_local" {
-		value := uint32(512)
-		return &value
-	}
 	if providerKind == "local_models" {
 		value := uint32(1024)
 		return &value

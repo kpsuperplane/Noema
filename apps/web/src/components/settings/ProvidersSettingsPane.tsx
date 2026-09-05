@@ -369,11 +369,6 @@ function ProviderAccountDetail({
         <SettingsListItem label="Status" description={providerStatusLabel(account.status)} />
         <SettingsListItem label="Default account" description={account.isDefault ? "Yes" : "No"} />
       </SettingsList>
-      {account.providerKind === "foundation_local" ? (
-        <SettingsSectionInset divided>
-          <p {...stylex.props(styles.mutedText)}>Apple model support is managed by this machine. Agent model choices remain in Agents.</p>
-        </SettingsSectionInset>
-      ) : null}
     </SettingsSection>
     <SettingsSection title="Capabilities" titleId="provider-capabilities">
       {capabilities.length > 0 ? <SettingsList density="balanced" hasDividers>

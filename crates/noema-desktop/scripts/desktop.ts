@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 
 import {
-  prepareFoundationBridge,
   prepareGoServer,
   prepareLocalRuntime
 } from "./prepare-local-runtime";
@@ -12,9 +11,6 @@ if (mode !== "build" && mode !== "dev") {
 }
 
 await prepareGoServer();
-if (mode === "build") {
-  await prepareFoundationBridge();
-}
 await prepareLocalRuntime();
 const webRoot = resolve(import.meta.dir, "../../../apps/web");
 const frontend = Bun.spawn(["bun", "run", mode === "build" ? "build:tauri" : "dev:tauri"], {

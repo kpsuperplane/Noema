@@ -324,9 +324,6 @@ func (r *Resolver) currentModelAccount(ctx context.Context, accountID string) (p
 	if err != nil {
 		return provider.Account{}, err
 	}
-	if account.ProviderKind == "foundation_local" && account.Status != provider.StatusAuthenticated && r.Foundation != nil {
-		return r.Foundation.RefreshAccount(ctx, time.Now())
-	}
 	if account.ProviderKind == "local_models" {
 		profiles, profileErr := r.localModelProfiles(ctx, true)
 		if profileErr != nil {

@@ -27,7 +27,6 @@ type AccountPersistence interface {
 	ActiveProviderAccounts(context.Context) ([]Account, error)
 	CreateProviderAccount(context.Context, Account) (Account, error)
 	UpdateProviderCredential(context.Context, string, uint64, AuthMethod, bool, AccountMetadata, time.Time) (Account, error)
-	UpdateFoundationAvailability(context.Context, AccountStatus, string, string, time.Time) error
 	DeleteProviderAccount(context.Context, string) (bool, error)
 }
 

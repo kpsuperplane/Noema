@@ -2,7 +2,9 @@ package graphql
 
 import (
 	"context"
+	"database/sql"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -247,5 +249,21 @@ mutation Confirm($input: ConfirmOnboardingModelSelectionsInput!) {
 	if len(confirmed.Errors) != 0 ||
 		confirmed.Data["confirmOnboardingModelSelections"].(map[string]any)["isUserOnboarded"] != true {
 		t.Fatalf("OpenAI confirmation = %#v, errors = %#v", confirmed.Data, confirmed.Errors)
+	}
+}
+
+func TestRemovedModelSelectionReturnsToSetup(t *testing.T) {
+	resolver := readyAgentTestResolver(t)
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(resolver.home.Name(), "noema.sqlite3")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("DELETE FROM hosted_model_assignments WHERE role='simple_tasks'"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := resolver.onboardingStatus(t.Context())
+	if err != nil || status.IsUserOnboarded {
+		t.Fatalf("partial model setup = %#v, %v", status, err)
 	}
 }

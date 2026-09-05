@@ -193,43 +193,6 @@ WHERE provider_account_id = ?`, id))
 	return updated, nil
 }
 
-// UpdateFoundationAvailability records the local Apple model readiness probe.
-func (s *Store) UpdateFoundationAvailability(
-	ctx context.Context,
-	status provider.AccountStatus,
-	errorCode string,
-	errorMessage string,
-	now time.Time,
-) error {
-	if status != provider.StatusAuthenticated && status != provider.StatusUnavailable {
-		return errors.New("Foundation Models availability status is invalid")
-	}
-	window := uint32(4096)
-	profiles, _ := json.Marshal([]provider.ModelProfile{{
-		ID: "default", Label: "Default on-device", ContextWindowTokens: &window,
-	}})
-	result, err := s.db.ExecContext(ctx, `
-UPDATE provider_accounts
-SET status=?, last_checked_at_ms=?,
-    last_authenticated_at_ms=CASE WHEN ? THEN ? ELSE last_authenticated_at_ms END,
-    last_error_code=NULLIF(?, ''), last_error_message=NULLIF(?, ''),
-    metadata_json=json_set(metadata_json, '$.profiles', json(?)), updated_at_ms=?
-WHERE provider_account_id='provider_account:foundation_local:default'`,
-		status, millis(now.UTC()), status == provider.StatusAuthenticated, millis(now.UTC()),
-		errorCode, errorMessage, string(profiles), millis(now.UTC()))
-	if err != nil {
-		return fmt.Errorf("update Foundation Models availability: %w", err)
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("inspect Foundation Models availability: %w", err)
-	}
-	if changed != 1 {
-		return provider.ErrAccountNotFound
-	}
-	return nil
-}
-
 // MarkProviderAuthenticationFailed records a remote rejection only for the attempted credential revision.
 func (s *Store) MarkProviderAuthenticationFailed(ctx context.Context, id string, revision uint64, now time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE provider_accounts SET status='unauthenticated',

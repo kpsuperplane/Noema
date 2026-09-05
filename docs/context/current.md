@@ -7,14 +7,14 @@ Durable contracts belong in subsystem documents. Git owns completed history.
 
 The human authorized all seven Go cleanup items. ORMs are permitted.
 The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
-One migration registry drives fresh creation and upgrades at version 32.
+One migration registry drives fresh creation and upgrades at version 33.
 Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 `go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
 CI checks generated Go and web files. The Rust launcher is removed.
 The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
 Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
 Cargo now builds only the Tauri desktop shell.
-The Swift bridge is `bridges/apple-foundation`; Go owns the shared llama.cpp release manifest.
+Apple Foundation Models and its Swift bridge are removed. Setup fills missing model roles and preserves other selections.
 Supporting flows now share the approved card, avatar, and existing theme.
 See `docs/plans/2026-09-04-supporting-ui/implementation.md` for implementation and validation.
 
@@ -30,11 +30,11 @@ The Go server source replacement is complete. The server links no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Go server is the production authority. Rust remains only for retained support targets.
 
-The Go evidence gate passed. The replacement now uses Go schema version 32.
+The Go evidence gate passed. The replacement now uses Go schema version 33.
 It includes authentication, onboarding, Chat, Projects, Agents, Artifacts, Task lifecycle, integrations, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
-Apple Foundation Models uses one bounded Swift bridge process for each Chat turn or Task run.
+Migration 33 removes Apple model accounts and selections. Historical conversation and Task records remain intact.
 Primary Chat supports durable recovery, context admission, compaction checkpoints, A2UI, and bounded tool loops.
 It reviews exact `file.download` calls, pauses for decisions, and resumes from known or uncertain outcomes.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
@@ -284,7 +284,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
-- Go owns schema version 32, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
+- Go owns schema version 33, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
 - Desktop launches a Go sidecar. The former Rust backend and evaluation dependency closure are removed.
 - Obscura uses upstream releases without Cargo. Native Windows WAL stress remains a cutover gate.
 

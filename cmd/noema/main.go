@@ -229,13 +229,6 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	if err != nil {
 		return err
 	}
-	foundationGenerator, err := provider.NewFoundationGenerator(providerAccounts)
-	if err != nil {
-		return err
-	}
-	if _, err := foundationGenerator.RefreshAccount(ctx, time.Now()); err != nil {
-		return err
-	}
 	runtimeRoot := ""
 	if desktop != nil {
 		runtimeRoot = desktop.RuntimeRoot
@@ -252,7 +245,7 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	}()
 	webTools, err := webtool.New(taskStore, providerAccounts, map[string]provider.Generator{
 		"openrouter": openRouterGenerator, "codex": codexGenerator, "openai": openAIGenerator,
-		"foundation_local": foundationGenerator, "local_models": localModels,
+		"local_models": localModels,
 	}, artifacts, paths.Root(), os.Getenv("NOEMA_OBSCURA_WORKER_PATH"), authConfig.BrowserMaxSessions, authConfig.BrowserMaxOldSpaceMB)
 	if err != nil {
 		return err
@@ -260,7 +253,7 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	defer webTools.Close()
 	chatRuntime, err := noemaruntime.NewChat(
 		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
-		mcpService, adapterService, foundationGenerator, localModels, webTools, errorLog,
+		mcpService, adapterService, localModels, webTools, errorLog,
 	)
 	if err != nil {
 		return err
@@ -270,7 +263,7 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
 		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
-		mcpService, adapterService, artifacts, foundationGenerator, localModels, webTools, errorLog,
+		mcpService, adapterService, artifacts, localModels, webTools, errorLog,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)
@@ -334,7 +327,6 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 		mcpService,
 	)
 	resolver.TaskExecution = taskExecution
-	resolver.SetFoundation(foundationGenerator)
 	resolver.SetLocalModels(localModels)
 	resolver.SetAdapters(adapterService)
 	resolver.WebTools = webTools

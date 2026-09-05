@@ -21,8 +21,7 @@ NOEMA_HOME=.noema-dev go run ./cmd/noema-dev
 ```
 
 `go run ./cmd/noema-dev` currently requires Unix because it always enables the private Unix
-GraphQL socket. On macOS, it also watches the Foundation bridge package and
-runs `swift build` after bridge changes.
+GraphQL socket.
 
 ## Requirements
 
@@ -33,13 +32,11 @@ runs `swift build` after bridge changes.
 - Tesseract OCR and `prlimit` for printed English text in raster images
 - A Unix host for `go run ./cmd/noema-dev`
 - For macOS desktop builds: Xcode and its command-line tools
-- For Apple Foundation Models: macOS 26 and Swift 6
 - One supported chat provider:
   - OpenAI Platform for `provider: openai`
   - OpenRouter for `provider: openrouter`
   - Codex for `provider: codex`
   - Local GGUF models for `provider: local_models`
-  - Apple Foundation Models for `provider: foundation_local`
 
 OpenAI uses `NOEMA_OPENAI__API_KEY`. On a fresh home, this key completes the
 OpenAI provider and model setup. OpenRouter and Codex credentials use provider
@@ -212,7 +209,7 @@ When root starts `./attach`, Go keeps root ownership of the build process.
 The launcher stages generated files under `/run/noema-dev` and runs only the
 Noema server as `noema-dev`. Its home is `/var/lib/noema-dev`.
 
-The supervisor watches the Go server and Foundation bridge.
+The supervisor watches the Go server.
 
 For frontend development against the desktop app, run the Tauri-oriented Vite
 build/watch task:
@@ -282,7 +279,6 @@ apps/web/                     React UI and GraphQL operation generation
 apps/ios/                     Native SwiftUI client and Live Activity extension
 graphql/                      Generated shared GraphQL schema
 crates/noema-desktop/         Tauri shell for local Go and remote servers
-bridges/apple-foundation/    Swift bridge for Apple Foundation Models
 cmd/noema-dev/                Go development supervisor
 cmd/noema-model-evals/        Go model qualification runner
 docs/                         Current contracts, active plans, and dated evidence

@@ -85,7 +85,7 @@ func HostedModelRoles() []HostedModelRole {
 	return append([]HostedModelRole(nil), hostedModelRoles...)
 }
 
-// ConfirmHostedModelAssignments stores one complete assignment set.
+// ConfirmHostedModelAssignments fills missing roles without replacing current selections.
 // A successful concurrent caller wins. Later complete calls return false.
 func (s *Store) ConfirmHostedModelAssignments(
 	ctx context.Context,
@@ -113,15 +113,21 @@ WHERE provider_account_id = ?`, providerAccountID))
 	if err := validateAssignmentSet(providerAccountID, account.ProviderKind, assignments); err != nil {
 		return false, err
 	}
-	var existing int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM hosted_model_assignments").Scan(&existing); err != nil {
+	var existing, reviewers, hosted int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*),
+    COUNT(CASE WHEN role='action_reviewer' THEN 1 END),
+    COUNT(CASE WHEN provider_kind<>'local_models' THEN 1 END)
+FROM hosted_model_assignments`).Scan(&existing, &reviewers, &hosted); err != nil {
 		return false, fmt.Errorf("count hosted model assignments: %w", err)
+	}
+	if account.ProviderKind == "local_models" {
+		if reviewers == 0 && hosted > 0 {
+			return false, fmt.Errorf("%w: select a hosted provider to restore the missing action reviewer", ErrInvalidModelAssignments)
+		}
+		existing -= reviewers
 	}
 	if existing == len(assignments) {
 		return false, nil
-	}
-	if existing != 0 {
-		return false, fmt.Errorf("%w: stored assignments are incomplete", ErrInvalidModelAssignments)
 	}
 	for _, assignment := range assignments {
 		if assignment.ProviderKind != account.ProviderKind ||
@@ -139,7 +145,8 @@ WHERE provider_account_id = ?`, providerAccountID))
 INSERT INTO hosted_model_assignments (
     role, provider_kind, provider_account_id, selection_mode,
     model_profile, reasoning_effort, fast_mode
-) VALUES (?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?)`,
+) VALUES (?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?)
+ON CONFLICT(role) DO NOTHING`,
 			assignment.Role, assignment.ProviderKind, assignment.ProviderAccountID,
 			assignment.SelectionMode, assignment.ModelProfile, assignment.ReasoningEffort,
 			assignment.FastMode,
@@ -389,5 +396,5 @@ func validReasoningEffort(effort ModelReasoningEffort) bool {
 
 func isHostedModelProvider(kind string) bool {
 	return kind == "codex" || kind == "openai" || kind == "openrouter" ||
-		kind == "foundation_local" || kind == "local_models"
+		kind == "local_models"
 }

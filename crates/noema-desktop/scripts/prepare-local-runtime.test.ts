@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -146,68 +145,5 @@ describe("Go server target mapper", () => {
     expect(() => goTarget("riscv64-unknown-linux-gnu")).toThrow(
       "No Go server target is available for riscv64-unknown-linux-gnu."
     );
-  });
-});
-
-describe("Foundation bridge staging", () => {
-  test.each([
-    ["darwin", "arm64", "arm64"],
-    ["darwin", "amd64", "x86_64"]
-  ])("stages the %s/%s bridge beside the server", (goos, goarch, swiftArch) => {
-    withSyntheticPackagedRoot((root) => {
-      const fakeBin = join(root, "bin");
-      const swiftBin = join(root, "swift-output");
-      const stage = join(root, "stage");
-      mkdirSync(fakeBin, { recursive: true });
-      mkdirSync(swiftBin, { recursive: true });
-      writeFileSync(join(swiftBin, "noema-foundation-bridge"), "bridge");
-      const swift = join(fakeBin, "swift");
-      writeFileSync(swift, `#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "$FAKE_SWIFT_LOG"
-if [[ " $* " == *" --show-bin-path "* ]]; then printf '%s\\n' "$FAKE_SWIFT_BIN"; fi
-`);
-      chmodSync(swift, 0o755);
-
-      const result = Bun.spawnSync(
-        [
-          resolve(import.meta.dir, "../../../scripts/build-foundation-bridge"),
-          goos,
-          goarch,
-          stage
-        ],
-        {
-          env: {
-            ...process.env,
-            PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
-            FAKE_SWIFT_BIN: swiftBin,
-            FAKE_SWIFT_LOG: join(root, "swift.log")
-          }
-        }
-      );
-
-      expect(result.exitCode).toBe(0);
-      expect(readFileSync(join(stage, "noema-foundation-bridge"), "utf8")).toBe("bridge");
-      expect(readFileSync(join(root, "swift.log"), "utf8")).toContain(`--arch ${swiftArch}`);
-    });
-  });
-
-  test.each(["linux", "windows"])("skips Swift for %s", (goos) => {
-    withSyntheticPackagedRoot((root) => {
-      const stage = join(root, "stage");
-      mkdirSync(stage);
-      writeFileSync(join(stage, "noema-foundation-bridge"), "stale");
-      const result = Bun.spawnSync(
-        [
-          resolve(import.meta.dir, "../../../scripts/build-foundation-bridge"),
-          goos,
-          "amd64",
-          stage
-        ],
-        { env: { ...process.env, PATH: "/usr/bin:/bin" } }
-      );
-
-      expect(result.exitCode).toBe(0);
-      expect(existsSync(join(stage, "noema-foundation-bridge"))).toBe(false);
-    });
   });
 });

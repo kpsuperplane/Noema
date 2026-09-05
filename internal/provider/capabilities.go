@@ -28,7 +28,7 @@ func Capabilities(account Account) []Capability {
 	}
 
 	switch account.ProviderKind {
-	case "openai", "codex", "openrouter", "foundation_local":
+	case "openai", "codex", "openrouter":
 		return modelCapabilities(status, "hosted_provider", "model_provider_prompt")
 	case "local_models":
 		return modelCapabilities(status, "first_party", "local_inference")

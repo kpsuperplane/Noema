@@ -36,15 +36,6 @@ type ModelRecommendation struct {
 
 // ModelRecommendations returns shipped choices in stable workload order.
 func ModelRecommendations(providerKind string) []ModelRecommendation {
-	if providerKind == "foundation_local" {
-		recommendations := make([]ModelRecommendation, 0, len(modelUseCases))
-		for _, useCase := range modelUseCases {
-			recommendations = append(recommendations, ModelRecommendation{
-				UseCase: useCase, ModelProfile: "default",
-			})
-		}
-		return recommendations
-	}
 	var primaryProfile, routineProfile, difficultProfile string
 	var primaryEffort string
 	switch providerKind {

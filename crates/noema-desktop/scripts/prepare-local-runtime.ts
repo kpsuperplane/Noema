@@ -64,30 +64,6 @@ export async function prepareGoServer(options: PrepareLocalRuntimeOptions = {}) 
   if (target.goos !== "windows") {
     chmodSync(destination, 0o755);
   }
-  if (target.goos !== "darwin") {
-    rmSync(join(desktopRoot, "binaries", "noema-foundation-bridge"), { force: true });
-  }
-}
-
-export async function prepareFoundationBridge(options: PrepareLocalRuntimeOptions = {}) {
-  const targetTriple = options.targetTriple ?? requestedTargetTriple();
-  const target = goTarget(targetTriple);
-  if (target.goos !== "darwin") {
-    return;
-  }
-  const buildBridge = Bun.spawn([
-    join(workspaceRoot, "scripts/build-foundation-bridge"),
-    target.goos,
-    target.goarch,
-    join(desktopRoot, "binaries")
-  ], {
-    cwd: workspaceRoot,
-    stdout: "inherit",
-    stderr: "inherit"
-  });
-  if (await buildBridge.exited !== 0) {
-    throw new Error(`Could not build the Foundation Models bridge for ${targetTriple}.`);
-  }
 }
 
 export function goTarget(targetTriple: string) {

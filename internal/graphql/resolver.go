@@ -32,7 +32,6 @@ type Resolver struct {
 	Auth             *auth.Server
 	home             *os.Root
 	ProviderAccounts *provider.AccountService
-	Foundation       *provider.FoundationGenerator
 	LocalModels      *localmodel.Service
 	OpenRouter       *provider.OpenRouterService
 	Chat             *runtime.Chat
@@ -95,9 +94,6 @@ func NewResolver(
 
 // SetAdapters adds the credential-free HTTP adapter authority.
 func (r *Resolver) SetAdapters(service *adapter.Service) { r.Adapters = service }
-
-// SetFoundation adds the local Apple model account checker.
-func (r *Resolver) SetFoundation(service *provider.FoundationGenerator) { r.Foundation = service }
 
 // SetLocalModels adds the local GGUF model authority.
 func (r *Resolver) SetLocalModels(service *localmodel.Service) { r.LocalModels = service }

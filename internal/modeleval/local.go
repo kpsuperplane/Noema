@@ -334,7 +334,7 @@ func localWorker(ctx context.Context, args []string) error {
 	}()
 	for _, ec := range runtime.EvaluationCases(roles()) {
 		callCtx, cancel := context.WithTimeout(ctx, time.Duration(c.Suite.GenerationTimeoutSeconds)*time.Second)
-		result, err := runtime.RunEvaluationCase(callCtx, s, "foundation_local", provider.GenerateRequest{Model: value.ModelID}, ec.ID, uint32(c.Suite.ContextWindowTokens))
+		result, err := runtime.RunEvaluationCase(callCtx, s, "local_models", provider.GenerateRequest{Model: value.ModelID}, ec.ID, uint32(c.Suite.ContextWindowTokens))
 		cancel()
 		if err != nil {
 			report.RuntimeError = err.Error()

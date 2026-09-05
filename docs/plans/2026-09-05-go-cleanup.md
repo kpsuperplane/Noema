@@ -89,7 +89,7 @@ Preserve browser actions and the Tauri desktop capability.
   Cargo metadata checked all former features, binaries, and support targets.
   The Go CDP adapter preserves browser actions, URL policy, protocol bounds, and action outcomes.
   Go owns browser sessions and process orchestration.
-  The Swift bridge moved to `bridges/apple-foundation`.
+  Apple Foundation Models and its Swift bridge were removed at the human's request.
   Go and desktop packaging share `internal/localmodel/runtime-assets.json`.
   The Rust reduction removes 186,509 lines, including former evaluation support.
 
@@ -120,3 +120,25 @@ The inclusive total is 183,636 lines. Both migration ratios remain below 80 perc
 Validation passed: all Go unit tests and vet; browser script syntax; Rust format, workspace check, lint, and 10 desktop unit tests.
 The downloaded Linux archive matched its pinned digest and contained both expected executables.
 Live browser and fixture tests did not run.
+
+## Apple model removal
+
+The human requested removal of Apple Foundation Models and its Swift bridge.
+The provider, native protocol, availability checks, recommendations, and settings note are removed.
+Desktop packaging and the development watcher no longer build Swift helper code.
+Migration 33 removes the provider account and its current model selections.
+Other model selections and historical conversation and Task records remain intact.
+Local-model evaluation reports now name `local_models` as their provider.
+The estimate permits 100 added production lines and 120 test lines, with a net code reduction.
+The migration test covers existing-version upgrades, fresh-schema convergence, other providers, and historical records.
+Setup fills missing roles and preserves current selections from other providers.
+If hosted selections lack an action reviewer, local setup explains that a hosted provider must restore that role.
+The setup status test checks that incomplete selections return users to setup.
+
+Go production changes by -885 lines. Go tests change by -145 lines.
+Two Go test declarations replace five removed declarations. Four obsolete packaging tests are removed.
+Go totals are 78,206 production lines, 24,926 test lines, and 79,612 generated GraphQL lines.
+The inclusive total is 182,744 lines. Both migration ratios remain below 80 percent.
+Validation passed: Go unit tests and vet; 18 desktop packaging tests; web generated-file checks, lint, and build.
+One Memory event test failed during validation, then passed five repeat runs and the full suite.
+No live provider calls or browser inspection ran.

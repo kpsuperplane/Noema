@@ -33,7 +33,7 @@ func proposal(root, dir string, verify bool) error {
 	}
 	rankings := rank(r)
 	var body strings.Builder
-	body.WriteString("func ModelRecommendations(providerKind string) []ModelRecommendation {\nif providerKind == \"foundation_local\" {\nvar result []ModelRecommendation\nfor _, useCase := range modelUseCases { result = append(result, ModelRecommendation{UseCase: useCase, ModelProfile: \"default\"}) }; return result\n}\nswitch providerKind {\n")
+	body.WriteString("func ModelRecommendations(providerKind string) []ModelRecommendation {\nswitch providerKind {\n")
 	var summary strings.Builder
 	fmt.Fprintf(&summary, "# Model recommendation proposal\n\nDecision: %s.\n\nApply the patch after evidence review.\n\n", r.RunID)
 	for _, kind := range []string{"codex", "openai", "openrouter"} {
