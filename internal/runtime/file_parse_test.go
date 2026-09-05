@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -68,35 +70,6 @@ func TestFileParseRoutesMediaAndEnforcesBounds(t *testing.T) {
 			t.Fatalf("%s media = %q, want %q", extension, got, want)
 		}
 	}
-	compoundFile, err := os.CreateTemp(t.TempDir(), "*.bin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	compoundWriter := cfb.NewWriterV3(compoundFile)
-	stream, err := compoundWriter.CreateStream("PowerPoint Document")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = stream.Write([]byte("records")); err != nil {
-		t.Fatal(err)
-	}
-	if err = stream.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err = compoundWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err = compoundFile.Close(); err != nil {
-		t.Fatal(err)
-	}
-	compoundContent, err := os.ReadFile(compoundFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if media, format := documentMedia(compoundContent, "bin"); media != documents.MediaPPT || format != "ppt" {
-		t.Fatalf("detected PPT media = %q, format = %q", media, format)
-	}
-
 	cwd := t.TempDir()
 	text := strings.Repeat("é", fileParseMinimumCharacters+2)
 	if err := os.WriteFile(filepath.Join(cwd, "data.csv"), []byte(text), 0o600); err != nil {
@@ -131,6 +104,67 @@ func TestFileParseRoutesMediaAndEnforcesBounds(t *testing.T) {
 	result, err = parseConversationFile(context.Background(), cwd, json.RawMessage(`{"path":"large.pdf"}`))
 	if err != nil || result.Status != "failed" || result.Error == nil || *result.Error != "source_too_large" {
 		t.Fatalf("large document parse = %#v, %v", result, err)
+	}
+}
+
+func TestDocumentMediaPrefersContentOverLegacyExtension(t *testing.T) {
+	var pptx bytes.Buffer
+	zipWriter := zip.NewWriter(&pptx)
+	part, err := zipWriter.Create("ppt/presentation.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = part.Write([]byte("<presentation/>")); err != nil {
+		t.Fatal(err)
+	}
+	if err = zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if media, format := documentMedia(pptx.Bytes(), "ppt"); media != documents.MediaPPTX || format != "pptx" {
+		t.Fatalf("PPTX named .ppt = %q, format = %q", media, format)
+	}
+
+	compound := func(streamName string) []byte {
+		t.Helper()
+		file, createError := os.CreateTemp(t.TempDir(), "*.ppt")
+		if createError != nil {
+			t.Fatal(createError)
+		}
+		writer := cfb.NewWriterV3(file)
+		stream, createError := writer.CreateStream(streamName)
+		if createError == nil {
+			_, createError = stream.Write([]byte("content"))
+		}
+		if createError == nil {
+			createError = stream.Close()
+		}
+		if createError == nil {
+			createError = writer.Close()
+		}
+		if closeError := file.Close(); createError == nil {
+			createError = closeError
+		}
+		if createError != nil {
+			t.Fatal(createError)
+		}
+		content, readError := os.ReadFile(file.Name())
+		if readError != nil {
+			t.Fatal(readError)
+		}
+		return content
+	}
+	for _, test := range []struct {
+		stream, mediaType, format string
+	}{
+		{"WordDocument", documents.MediaDOC, "doc"},
+		{"PowerPoint Document", documents.MediaPPT, "ppt"},
+		{"Workbook", documents.MediaXLS, "excel"},
+		{"Book", documents.MediaXLS, "excel"},
+	} {
+		media, format := documentMedia(compound(test.stream), "ppt")
+		if media != test.mediaType || format != test.format {
+			t.Fatalf("%s CFB named .ppt = %q, format = %q", test.stream, media, format)
+		}
 	}
 }
 
