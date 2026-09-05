@@ -127,11 +127,9 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 	if activeItems != 0 {
 		return nil, errors.New("conversation tool call is already running")
 	}
-	var parentID string
-	if err := tx.QueryRowContext(ctx, `
-SELECT item_id FROM conversation_items
-WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID); err != nil {
-		return nil, fmt.Errorf("find conversation user item: %w", err)
+	parentID, err := conversationTurnParentTx(ctx, tx, turn)
+	if err != nil {
+		return nil, err
 	}
 	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
 	if err != nil {

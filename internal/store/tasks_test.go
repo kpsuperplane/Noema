@@ -255,9 +255,9 @@ func openTestStore(t *testing.T) *Store {
 func schemaAtVersion(version int) string {
 	parts := []string{
 		strings.TrimSuffix(schemaSQL, schemaV2SQL+schemaV3SQL+schemaV4SQL+schemaV5SQL+
-			schemaV6SQL+schemaV7SQL+schemaV8SQL+schemaV9SQL+schemaV10SQL+schemaV11SQL+schemaV12SQL+schemaV13SQL+schemaV14SQL+schemaV15SQL+schemaV16SQL+schemaV17SQL),
+			schemaV6SQL+schemaV7SQL+schemaV8SQL+schemaV9SQL+schemaV10SQL+schemaV11SQL+schemaV12SQL+schemaV13SQL+schemaV14SQL+schemaV15SQL+schemaV16SQL+schemaV17SQL+schemaV18SQL),
 		schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL,
-		schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL,
+		schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL, schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL,
 	}
 	return strings.Join(parts[:version], "")
 }
