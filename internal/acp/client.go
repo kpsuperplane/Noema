@@ -234,9 +234,7 @@ func (s *session) exchange(ctx context.Context, id int, method string, params an
 		return err
 	}
 	message = append(message, '\n')
-	if _, err := await(ctx, func() (struct{}, error) {
-		return struct{}{}, writeMessage(s.stdin, message)
-	}); err != nil {
+	if err := s.write(ctx, message); err != nil {
 		return err
 	}
 	for {

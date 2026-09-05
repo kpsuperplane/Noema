@@ -1,14 +1,19 @@
 package runtime
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -479,6 +484,293 @@ func TestTaskExecutionValidatesTaskDocumentsBeforePublication(t *testing.T) {
 		json.RawMessage(`{"path":"TASK.md","max_chars":4000}`), true)
 	if !success || !strings.Contains(string(parsed), "Keep Task documents consistent.") {
 		t.Fatalf("Task file parse = %s, %t", parsed, success)
+	}
+}
+
+func TestACPTaskExecutionUsesRootedWorkspaceExactPermissionAndClientEvidence(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptFile := filepath.Join(t.TempDir(), "attempt")
+	agent, err := database.CreateAcpAgent(context.Background(), "Runtime ACP", executable,
+		[]string{"-test.run=^TestTaskACPAgentProcess$", "--", "NOEMA_TASK_ACP_AGENT", attemptFile}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := store.NewTaskID()
+	task, err := database.CreateTask(context.Background(), id, "ACP runtime", "correlation:acp:create", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = home.CreatePendingTaskDocument(chat.home, id, "Complete the ACP work."); err != nil {
+		t.Fatal(err)
+	}
+	if err = home.CommitTaskDocument(chat.home, id); err != nil {
+		t.Fatal(err)
+	}
+	taskResult, err := database.UpdateInboxTask(context.Background(), id, task.Revision, task.Generation,
+		store.TaskUpdate{ExecutorAgentID: &agent.AgentID}, runtimeTaskCommand("update_task", id), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := database.QueueTask(context.Background(), id, taskResult.Task.Revision, task.Generation,
+		runtimeTaskCommand("queue_task", "acp:"+id), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roleCalls := map[string]int{}
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		role := taskRequestRole(request.Tools)
+		roleCalls[role]++
+		if role == "planner" {
+			if roleCalls[role] == 1 {
+				return taskToolResult("acp-plan-write", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Task\n\nRun the selected ACP Executor.\n"}), nil
+			}
+			return taskToolResult("acp-plan-finish", taskFinishPlanning, map[string]any{"complexity": "simple"}), nil
+		}
+		return taskToolResult("acp-review", taskFinishReview, map[string]any{"decision": "approve", "feedback": "ACP completed the exact Task.", "notify_human": true}), nil
+	})
+	runtime, err := NewTaskExecution(context.Background(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	waiting := waitRuntimeTask(t, database, queued.Task.ID, func(value store.Task) bool { return value.StageKey == "waiting" })
+	gate, err := database.TaskGate(context.Background(), waiting.ActiveGateID)
+	if err != nil || gate.Kind != "approval" {
+		t.Fatalf("ACP gate = %#v, %v", gate, err)
+	}
+	approved := "approved"
+	if _, err = database.ResolveTaskGate(context.Background(), waiting.ID, gate.ID, waiting.Revision, waiting.Generation,
+		"Allow this exact operation.", "answer", &approved, runtimeTaskCommand("answer_task", gate.ID), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	completed := waitRuntimeTask(t, database, waiting.ID, func(value store.Task) bool { return value.StageKey == "done" })
+	if completed.State != store.TaskCompleted || roleCalls["executor"] != 0 {
+		t.Fatalf("completed Task = %#v, provider roles = %#v", completed, roleCalls)
+	}
+	runs, err := database.TaskRuns(context.Background(), waiting.ID, 10)
+	if err != nil || len(runs) != 4 {
+		t.Fatalf("ACP runs = %#v, %v", runs, err)
+	}
+	acpRuns := 0
+	for _, run := range runs {
+		if run.Kind == "executor" {
+			acpRuns++
+			if run.ExecutorBackend != "acp" || run.AcpLaunch == nil || run.AcpSessionID == nil || *run.AcpSessionID != "session:runtime" {
+				t.Fatalf("ACP run evidence = %#v", run)
+			}
+		}
+	}
+	if acpRuns != 2 {
+		t.Fatalf("ACP Executor count = %d", acpRuns)
+	}
+	result, err := home.ReadTaskFile(chat.home, waiting.ID, "RESULT.md")
+	if err != nil || result != "ACP result.\n" {
+		t.Fatalf("ACP result = %q, %v", result, err)
+	}
+	items, _ := database.TaskRunReplayItems(context.Background(), runs[1].ID)
+	foundUpdate, foundUse := false, false
+	for _, item := range items {
+		foundUpdate = foundUpdate || item.Content != nil && *item.Content == "Working through ACP"
+		foundUse = foundUse || item.CorrelationID != nil && strings.HasPrefix(*item.CorrelationID, "acp:permission-used:")
+	}
+	if !foundUpdate || !foundUse {
+		t.Fatalf("ACP activity is incomplete: %#v", items)
+	}
+}
+
+func TestACPTaskExecutionReplaysRecordedTerminalWithoutRelaunch(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 15, 0, 0, 0, time.UTC)
+	agent, err := database.CreateAcpAgent(ctx, "Unavailable ACP", filepath.Join(t.TempDir(), "must-not-run"), nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := store.NewTaskID()
+	task, err := database.CreateTask(ctx, id, "Replay ACP terminal", "correlation:acp:replay:create", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = home.CreatePendingTaskDocument(chat.home, id, "Complete once."); err != nil {
+		t.Fatal(err)
+	}
+	if err = home.CommitTaskDocument(chat.home, id); err != nil {
+		t.Fatal(err)
+	}
+	if err = home.WriteTaskFile(chat.home, id, "RESULT.md", "Completed once.\n"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := database.UpdateInboxTask(ctx, id, task.Revision, task.Generation,
+		store.TaskUpdate{ExecutorAgentID: &agent.AgentID}, runtimeTaskCommand("update_task", "acp-replay"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.QueueTask(ctx, id, updated.Task.Revision, updated.Task.Generation,
+		runtimeTaskCommand("queue_task", "acp-replay"), now); err != nil {
+		t.Fatal(err)
+	}
+	_, planner, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found {
+		t.Fatalf("claim Planner = %#v, %t, %v", planner, found, err)
+	}
+	if err = database.StartTaskExecution(ctx, planner.ID, planner.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", now); err != nil {
+		t.Fatal(err)
+	}
+	_, executor, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found || executor.ExecutorBackend != "acp" {
+		t.Fatalf("claim ACP Executor = %#v, %t, %v", executor, found, err)
+	}
+	if err = database.StartTaskExecution(ctx, executor.ID, executor.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecordAcpPermissionUse(ctx, executor.ID, executor.Generation, "completed-effect", now); err != nil {
+		t.Fatal(err)
+	}
+	call := store.TaskRunItemInput{Kind: "tool_call", Status: "running", CorrelationID: "acp:terminal",
+		Payload: map[string]any{"name": taskFinishExecution, "arguments": json.RawMessage(`{}`), "provider_name": "acp"}}
+	if err = database.AppendTaskRunItems(ctx, executor.ID, executor.Generation, []store.TaskRunItemInput{call}, store.TaskRunUsage{ToolCalls: 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(ctx, executor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := store.TaskRunItemInput{Kind: "tool_result", Status: "completed", ParentID: items[len(items)-1].ID,
+		Payload: map[string]any{"name": taskFinishExecution, "arguments": json.RawMessage(`{}`), "result": json.RawMessage(`{"finished":true}`), "success": true, "provider_name": "acp"}}
+	if err = database.AppendTaskRunItems(ctx, executor.ID, executor.Generation, []store.TaskRunItemInput{result}, store.TaskRunUsage{}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecoverTaskExecutions(ctx, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	recoveredTask, recoveredRun, found, err := database.ClaimTaskExecution(ctx, now.Add(2*time.Second))
+	if err != nil || !found || recoveredRun.ID != executor.ID {
+		t.Fatalf("recovered ACP Executor = %#v, %t, %v", recoveredRun, found, err)
+	}
+	runtime := &TaskExecution{database: database, root: chat.home}
+	runtime.execute(ctx, recoveredTask, recoveredRun)
+	current, err := database.Task(ctx, id)
+	if err != nil || current.CurrentRunID == executor.ID || current.StageKey != "queue" {
+		t.Fatalf("replayed ACP terminal Task = %#v, %v", current, err)
+	}
+	runs, err := database.TaskRuns(ctx, id, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentKind, executorStatus := "", ""
+	for _, run := range runs {
+		if run.ID == current.CurrentRunID {
+			currentKind = run.Kind
+		}
+		if run.ID == executor.ID {
+			executorStatus = run.Status
+		}
+	}
+	if currentKind != "reviewer" || executorStatus != "completed" {
+		t.Fatalf("replayed ACP lineage = current %q, Executor %q", currentKind, executorStatus)
+	}
+}
+
+func TestTaskACPAgentProcess(t *testing.T) {
+	marker := -1
+	for index, argument := range os.Args {
+		if argument == "NOEMA_TASK_ACP_AGENT" {
+			marker = index
+			break
+		}
+	}
+	if marker < 0 {
+		return
+	}
+	attemptFile := os.Args[marker+1]
+	attempt := 1
+	if data, err := os.ReadFile(attemptFile); err == nil {
+		attempt, _ = strconv.Atoi(string(data))
+		attempt++
+	}
+	if err := os.WriteFile(attemptFile, []byte(strconv.Itoa(attempt)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(os.Stdin)
+	read := func() map[string]any {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		var value map[string]any
+		if json.Unmarshal(line, &value) != nil {
+			t.Fatalf("ACP request = %s", line)
+		}
+		return value
+	}
+	respond := func(id any, result any) {
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request := read()
+	respond(request["id"], map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}, "authMethods": []any{}})
+	request = read()
+	params := request["params"].(map[string]any)
+	cwd := params["cwd"].(string)
+	servers := params["mcpServers"].([]any)
+	server := servers[0].(map[string]any)
+	environment := map[string]string{}
+	for _, item := range server["env"].([]any) {
+		value := item.(map[string]any)
+		environment[value["name"].(string)] = value["value"].(string)
+	}
+	respond(request["id"], map[string]any{"sessionId": "session:runtime"})
+	request = read()
+	if request["method"] != "session/prompt" || filepath.Base(cwd) == "" {
+		t.Fatalf("ACP prompt or cwd = %#v, %q", request, cwd)
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{
+		"sessionId": "session:runtime", "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "Working through ACP"}},
+	}})
+	permission := map[string]any{"sessionId": "session:runtime", "toolCall": map[string]any{"toolCallId": "tool:runtime", "title": "Change one external record"},
+		"options": []any{map[string]any{"optionId": "allow:runtime", "name": "Allow once", "kind": "allow_once"}}}
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"jsonrpc": "2.0", "id": 88, "method": "session/request_permission", "params": permission})
+	decision := read()
+	selected := strings.Contains(fmt.Sprint(decision["result"]), "selected")
+	if attempt == 1 {
+		if selected {
+			t.Fatal("first ACP permission was selected")
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
+	if !selected {
+		t.Fatal("approved ACP permission was not selected")
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"jsonrpc": "2.0", "id": 89, "method": "session/request_permission", "params": permission})
+	if repeated := read(); strings.Contains(fmt.Sprint(repeated["result"]), "selected") {
+		t.Fatal("ACP approval was used more than once")
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "TASK.md"), []byte("# Task\n\nACP work is complete.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "RESULT.md"), []byte("ACP result.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := net.Dial("tcp", environment["NOEMA_ACP_TASK_BRIDGE_ADDR"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(map[string]any{"token": environment["NOEMA_ACP_TASK_TOKEN"], "tool": "task.finish_execution", "arguments": map[string]any{}})
+	_, _ = connection.Write(append(encoded, '\n'))
+	_, _ = bufio.NewReader(connection).ReadBytes('\n')
+	_ = connection.Close()
+	for {
+		time.Sleep(time.Hour)
 	}
 }
 

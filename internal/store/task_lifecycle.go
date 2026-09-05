@@ -31,12 +31,21 @@ type TaskRun struct {
 	FastMode                                        bool
 	ExecutorBackend, ExecutorAgentID                string
 	EffectiveCwd                                    *string
+	AcpLaunch                                       *AcpLaunch
+	AcpSessionID                                    *string
 	ErrorCode, ErrorMessage                         *string
 	ProviderCallCount, ToolCallCount                int64
 	InputTokens, CachedInputTokens, OutputTokens    int64
 	ActiveMilliseconds                              int64
 	QueuedAt, CreatedAt, UpdatedAt                  time.Time
 	StartedAt, EndedAt                              *time.Time
+}
+
+// AcpLaunch is the immutable process selection saved with one ACP Executor run.
+type AcpLaunch struct {
+	ConnectionRevision int64    `json:"connection_revision"`
+	Command            string   `json:"command"`
+	Arguments          []string `json:"arguments"`
 }
 
 // TaskGate is one durable human gate.
@@ -447,13 +456,25 @@ func insertQueuedTaskRun(ctx context.Context, tx *sql.Tx, task Task, kind string
 		attempt, review, parentID = parent.AttemptIndex+1, parent.ReviewRound, parent.ID
 	}
 	backend := "provider"
-	if task.ExecutorAcpConnectionRevision != nil {
+	var acpLaunch *AcpLaunch
+	if kind == "executor" && task.ExecutorAcpConnectionRevision != nil {
 		backend = "acp"
+		acpLaunch, err = resolveAcpLaunchTx(ctx, tx, task)
+		if err != nil {
+			return TaskRun{}, err
+		}
+	}
+	effectiveCwd := cloneString(task.CwdOverride)
+	if kind == "executor" {
+		effectiveCwd, err = taskRunEffectiveCwdTx(ctx, tx, task)
+		if err != nil {
+			return TaskRun{}, err
+		}
 	}
 	run := TaskRun{ID: id, TaskID: task.ID, InstanceName: "Task " + strings.ToUpper(kind[:1]) + kind[1:], Kind: kind,
 		Status: "queued", AgentID: task.ExecutorAgentID, Generation: task.Generation, AttemptIndex: attempt,
 		ReviewRound: review, ParentRunID: parentID, SelectionMode: "provider_default", ExecutorBackend: backend,
-		ExecutorAgentID: task.ExecutorAgentID, EffectiveCwd: cloneString(task.CwdOverride), QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+		ExecutorAgentID: task.ExecutorAgentID, EffectiveCwd: effectiveCwd, QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	if backend == "provider" {
 		role := HostedModelTaskReviewer
 		if kind != "reviewer" {
@@ -482,7 +503,25 @@ VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?)`, run.I
 		run.InstanceName, run.Kind, run.AgentID, run.AttemptIndex, run.ReviewRound, run.ParentRunID,
 		run.ProviderKind, run.ProviderAccountID, run.SelectionMode, nullableString(run.ModelProfile), nullableString(run.ReasoningEffort), run.FastMode,
 		run.ExecutorBackend, run.ExecutorAgentID, nullableString(run.EffectiveCwd), millis(now), millis(now), millis(now))
+	if err == nil && acpLaunch != nil {
+		run.AcpLaunch = acpLaunch
+		err = insertAcpLaunchTx(ctx, tx, run.ID, *acpLaunch, now)
+	}
 	return run, err
+}
+
+func taskRunEffectiveCwdTx(ctx context.Context, tx *sql.Tx, task Task) (*string, error) {
+	if task.CwdOverride != nil {
+		return cloneString(task.CwdOverride), nil
+	}
+	if task.ProjectID == "" {
+		return nil, nil
+	}
+	var folder sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT folder FROM projects WHERE project_id=?`, task.ProjectID).Scan(&folder); err != nil {
+		return nil, err
+	}
+	return nullStringPointer(folder), nil
 }
 
 func insertTaskMessage(ctx context.Context, tx *sql.Tx, task Task, gateID, kind, body string, approval *string, now time.Time) (string, error) {
@@ -623,16 +662,28 @@ func (s *Store) TaskRuns(ctx context.Context, taskID string, limit int) ([]TaskR
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	values := []TaskRun{}
 	for rows.Next() {
 		value, err := scanTaskRun(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		values = append(values, value)
 	}
-	return values, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for index := range values {
+		if err := hydrateAcpRun(ctx, s.db, &values[index]); err != nil {
+			return nil, err
+		}
+	}
+	return values, nil
 }
 func (s *Store) TaskMessages(ctx context.Context, taskID string, limit int) ([]TaskMessage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT message_id,task_id,task_generation,gate_id,message_kind,body_markdown,approval_decision,author_actor_id,created_at_ms FROM task_messages WHERE task_id=? ORDER BY created_at_ms DESC,message_id DESC LIMIT ?`, taskID, limit)
@@ -683,7 +734,14 @@ func taskGateTx(ctx context.Context, q interface {
 func taskRunTx(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, id string) (TaskRun, error) {
-	return scanTaskRun(q.QueryRowContext(ctx, taskRunSelect+" WHERE run_id=?", id))
+	run, err := scanTaskRun(q.QueryRowContext(ctx, taskRunSelect+" WHERE run_id=?", id))
+	if err != nil {
+		return TaskRun{}, err
+	}
+	if err := hydrateAcpRun(ctx, q, &run); err != nil {
+		return TaskRun{}, err
+	}
+	return run, nil
 }
 
 const taskRunSelect = `SELECT run_id,task_id,instance_name,run_kind,status,agent_id,task_generation,attempt_index,review_round,COALESCE(parent_run_id,''),provider_kind,provider_account_id,selection_mode,model_profile,reasoning_effort,fast_mode,executor_backend,executor_agent_id,effective_cwd,error_code,error_message,provider_call_count,tool_call_count,input_tokens,cached_input_tokens,output_tokens,active_milliseconds,queued_at_ms,started_at_ms,ended_at_ms,created_at_ms,updated_at_ms FROM task_runs`
@@ -727,7 +785,7 @@ func (s *Store) TaskRunItems(ctx context.Context, runID string, first int, after
 			return TaskRunItemPage{}, ErrInvalidCursor
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms FROM task_run_items WHERE run_id=? AND sequence_index<? ORDER BY sequence_index DESC LIMIT ?`, runID, before, first+1)
+	rows, err := s.db.QueryContext(ctx, `SELECT item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms FROM task_run_items WHERE run_id=? AND COALESCE(json_type(payload_json,'$.acp_launch'),'')<>'object' AND sequence_index<? ORDER BY sequence_index DESC LIMIT ?`, runID, before, first+1)
 	if err != nil {
 		return TaskRunItemPage{}, err
 	}
