@@ -216,6 +216,30 @@ The [visual driver](evidence/2026-09-05-task-edit-visual.mjs) opens the existing
 The [validation record](evidence/2026-09-05-task-browser-validation.json) records those widths, driver hashes, tested revision, and reused Go checks.
 This unit changes no production code. Script syntax, JSON, evidence links, case IDs, and Git whitespace passed focused checks.
 
+## Live Task views, Projects, and Chat capture
+
+The [Task view driver](evidence/2026-09-05-task-views-browser.mjs) checks personal, Project, Scheduled, and terminal views.
+Its [results](evidence/2026-09-05-task-views-browser-results.json) confirm selection and actions for Inbox, scheduled, completed, and cancelled Tasks.
+Both temporary view Tasks were cancelled after the check.
+
+The [Project driver](evidence/2026-09-05-project-browser.mjs) uses two browsers for competing edits, archive, and reopen.
+Its [results](evidence/2026-09-05-project-browser-results.json) confirm exact persistence, retained drafts, readable archived content, and restored editing.
+The [visual driver](evidence/2026-09-05-project-visual.mjs) opens the source editor at desktop and phone widths.
+The source and editing controls remain visible without horizontal clipping. The Project remains open.
+
+The [Chat driver](evidence/2026-09-05-chat-task-project.mjs) captures an exact Unicode request in the existing Project.
+Its [results](evidence/2026-09-05-chat-task-project-results.json) contain this synthetic turn and its eight paired tool calls and results.
+The new Task remains in Inbox with no runs. One visible Chat reference opens the correct request.
+Project inspection includes the existing cancelled Task. Other model providers remain pending.
+An earlier ambiguous prompt included trailing instructions in its request. The passing check uses explicit JSON values.
+
+The live check found an API defect: Task detail omitted its stored conversation source.
+The existing field now receives that source. Manual captures still return no conversation source.
+The [validation record](evidence/2026-09-05-task-source-validation.json) records source hashes, focused regression results, broad Go checks, and code sizes.
+The regression failed before the fix and passed after it. Full Go tests and vet passed on the final source.
+Those results remain valid after these documentation changes. The patch changes one production line and adds 27 test lines.
+Both migration ratios remain below 80 percent. These browser checks use the live HTTPS origin; Cloudflare Access remains outside their scope.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -253,7 +277,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | SETUP-09 | Not run | Controlled setup pending. | — |
 | SETUP-10 | Not run | Controlled setup pending. | — |
 | CHAT-01 | Partial | Controlled OpenAI-compatible HTTPS transport saves an answer and restores it after reload. Other providers and transcript count assertions remain pending. | — |
-| CHAT-02 | Not run | Controlled setup pending. | — |
+| CHAT-02 | Partial · live Codex | Eight tool calls have eight matching successful results. The final answer matches stored Project and Task state. Other providers remain pending. | Live Chat capture checks above. |
 | CHAT-03 | Not run | Controlled setup pending. | — |
 | CHAT-04 | Not run | Controlled setup pending. | — |
 | CHAT-05 | Not run | Controlled setup pending. | — |
@@ -275,13 +299,13 @@ A human variant remains pending even when its controlled counterpart passes.
 | MODEL-06 | Not run | Controlled setup pending. | — |
 | MODEL-07 | Not run | Controlled setup pending. | — |
 | MODEL-08 | Not run | Controlled setup pending. | — |
-| TASK-01 | Not run | Controlled setup pending. | — |
+| TASK-01 | Pass · live Chromium | Chat captures one exact Inbox request in the existing Project. The Task keeps its conversation source and opens from Chat. | Live Chat capture checks above. |
 | TASK-02 | Pass · live Linux/Chromium | Add to Inbox preserves the exact request without execution. Run Now starts a Task that completes through review. | — |
 | TASK-03 | Pass · live Chromium | Browser title and exact Unicode Markdown edits survive reload. Renaming preserves the allocated directory. | Live Task editing checks above. |
 | TASK-04 | Pass · two live browser contexts | A competing save preserves the stale local draft and accepted server content. Acknowledgement and cancel do not overwrite either silently. | Live Task editing checks above. |
 | TASK-05 | Partial | Source/rich switching, cancel, stale acknowledgement, and rich-editor load failure preserve source editing. Parser-specific failure remains pending. | Live Task editing checks above. |
 | TASK-06 | Pass · live Chromium | Starting work invalidates the held edit and disables saving. Active and completed documents remain readable; completed editing controls are absent. | Live Task editing checks above. |
-| TASK-07 | Not run | Controlled setup pending. | — |
+| TASK-07 | Pass · live Chromium | Personal, Project, Scheduled, and terminal filters show the expected records. Selection and available actions match Task state. | Live Task view checks above. |
 | TASK-08 | Pass · live Chromium | Reopen selects the result. Request, review, support Markdown, and literal text remain distinct. Transcript navigation reaches the Planner start. | Live Task editing checks above. |
 | TASK-09 | Pass · live Chromium | Completion opens the result. A later request selection remains selected across Transcript and Workspace navigation. | Live Task editing checks above. |
 | TASK-10 | Partial | A repeated capture returns the original Task identity. Lost responses for other commands remain pending. | — |
@@ -314,10 +338,10 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-11 | Partial | Fixed duplicate fall-back previews. Spring and fall preview assertions pass. Actual scheduled transition checks remain pending. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
 | PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
-| PROJECT-02 | Partial | Competing Project saves reject stale content. The current document survives reload and restore. Browser draft recovery remains pending. | — |
+| PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. | Live Project checks above. |
 | PROJECT-03 | Not run | Controlled setup pending. | — |
-| PROJECT-04 | Partial | Live archive preserves readable context and denies edits. Reopen permits a new saved edit. Browser controls remain pending. | — |
-| PROJECT-05 | Not run | Controlled setup pending. | — |
+| PROJECT-04 | Pass · live Chromium | Archive preserves readable context and removes editing controls in both browsers. Reopen restores editing with the same content. | Live Project checks above. |
+| PROJECT-05 | Pass · live Codex | Chat reads the existing Project and lists its Tasks, including cancelled work. It captures a request without duplicating the Project. | Live Chat capture checks above. |
 | AGENT-01 | Not run | Controlled setup pending. | — |
 | AGENT-02 | Not run | Controlled setup pending. | — |
 | AGENT-03 | Not run | Controlled setup pending. | — |

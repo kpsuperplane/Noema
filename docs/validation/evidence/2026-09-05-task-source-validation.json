@@ -1,0 +1,59 @@
+{
+  "base": "893bf2be3b138a5ef4968ce0f337a0325baff65c",
+  "sourceHashes": {
+    "internal/graphql/task.go": "c96fc176b90b200bdb1d20fd9b39cc2962200c9ea9efedcac89281c6fe73809c",
+    "internal/graphql/task_lifecycle_test.go": "9fd68ac938b08902610b084d46f69d684884d148b25714a5d432f943919b9dc3"
+  },
+  "patch": {
+    "productionNet": 0,
+    "testNet": 27,
+    "generatedChanges": 0,
+    "schemaChanges": 0
+  },
+  "regressionBeforeFix": "The API omitted the stored conversation source for a Task captured from Chat.",
+  "validation": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/graphql -run 'TestTaskDetailPreservesConversationOrigin|TestTaskLifecyclePublishesDocumentsAndReadModels'",
+      "result": "pass",
+      "logSha256": "e01d525967b6ffa36e08bb989312442caff968b8e03db81a3b8b7f870991f322",
+      "reuse": "Final source files match the recorded hashes. Documentation changes do not invalidate these checks."
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "logSha256": "a4568633fa1b31f5d4307116442d10c9336cff25a6bff8a8ac522be830c285ca",
+      "reuse": "Final source files match the recorded hashes. Documentation changes do not invalidate these checks."
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "reuse": "Final source files match the recorded hashes. Documentation changes do not invalidate these checks."
+    }
+  ],
+  "lines": {
+    "production": 78244,
+    "tests": 25116,
+    "generated": 79612
+  },
+  "inclusiveLines": 182972,
+  "productionRatioPercent": 44.97,
+  "inclusiveRatioPercent": 76.29,
+  "visualReview": {
+    "widths": [
+      1280,
+      390
+    ],
+    "result": "Project source and editing controls remain visible without horizontal clipping."
+  },
+  "driverHashes": {
+    "task-views-browser.mjs": "06c8a7be6cff0a45fd4e5c82a616d24cc37d9f66616c6c9dbb479db2ee448714",
+    "task-views-browser-results.json": "58718f46c2be6d5e9bcf136aca586e09a2ded843bab42294283ae1c628f1f6e0",
+    "project-browser.mjs": "fa1d848619479aeaab37564c133c553d3f569682abdf7177bfe52c086174bdc7",
+    "project-browser-results.json": "3f88b2b0c504730ee825f513e31fc0d3071c8ed9b0f7eafab26a8aa9f8f1703e",
+    "chat-task-project.mjs": "c89b947bc2eefdaf8a0964ce537f636bbbb63a99645ac9ba2262388bbac95af6",
+    "chat-task-project-results.json": "a5337dc5af569d80cb5eb9696e7f9876d213e9f7035f3ee2f334fcda24c1e511",
+    "project-visual.mjs": "38994ceae132d8740ed49bf1caa181b09403c994f4e7c5a05fa1c7affb869b49"
+  },
+  "lineClassification": "Generated GraphQL includes generated.go and model/models_gen.go. Resolver implementations count as production."
+}

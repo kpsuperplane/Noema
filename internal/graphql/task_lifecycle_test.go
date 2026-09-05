@@ -20,6 +20,9 @@ func TestTaskLifecyclePublishesDocumentsAndReadModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if captured.Task.Source.ConversationID != nil {
+		t.Fatal("manual capture must not invent a conversation source")
+	}
 	id, digest := captured.Task.TaskID, captured.Task.TaskDocumentDigest
 	updated, err := r.updateInboxTask(ctx, model.UpdateInboxTaskInput{
 		TaskID: id, ExpectedRevision: 1, ExpectedGeneration: 1, Title: stringAddress("Ready"),
@@ -72,6 +75,30 @@ func TestTaskLifecyclePublishesDocumentsAndReadModels(t *testing.T) {
 	actions := validTaskActions(store.Task{StageKey: "waiting"}, &store.TaskGate{Kind: "approval"})
 	if len(actions) != 2 || actions[0] != model.ValidTaskActionAnswer || actions[1] != model.ValidTaskActionCancel {
 		t.Fatalf("approval actions = %#v", actions)
+	}
+}
+
+func TestTaskDetailPreservesConversationOrigin(t *testing.T) {
+	r := readyAgentTestResolver(t)
+	ctx := context.Background()
+	id := "task:00000000000000000000000000000001"
+	if _, err := home.CreatePendingTaskDocument(r.home, id, "Chat request"); err != nil {
+		t.Fatal(err)
+	}
+	command, err := newTaskCommand("capture_task", "conversation-source", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := store.TaskCreateOptions{Source: store.ArtifactSource{ConversationID: "conversation:audit"}}
+	if _, err := r.Store.CreateTaskWithOptions(ctx, id, "From Chat", command, options, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(r.home, id); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := r.task(ctx, id)
+	if err != nil || detail.Source.ConversationID == nil || *detail.Source.ConversationID != options.Source.ConversationID {
+		t.Fatalf("Task conversation source was not preserved: %#v, %v", detail, err)
 	}
 }
 

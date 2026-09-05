@@ -122,7 +122,7 @@ func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDet
 		EffectiveCwdSource:       "default",
 		CreatedAt:                task.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:                task.UpdatedAt.Format(time.RFC3339Nano),
-		Source:                   &model.TaskSource{},
+		Source:                   &model.TaskSource{ConversationID: stringPointer(task.Source.ConversationID)},
 		Messages:                 []*model.TaskMessage{},
 		Runs:                     []*model.TaskRun{},
 		ContributorInstanceNames: []string{},
