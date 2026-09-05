@@ -603,7 +603,7 @@ The Artifact authority unit uses Go schema version 11. It includes:
 
 Spreadsheet preview conversion supports XLS, XLSX, and ODS.
 
-### Native Memory read unit
+### Native Memory unit
 
 The first native Memory unit includes:
 
@@ -613,8 +613,11 @@ The first native Memory unit includes:
 - staged page publication and startup recovery;
 - rooted atomic replacement on Linux, macOS, and Windows.
 
-Lexical search, exact page reads, root prompt context, model tools, and durable replay now use Go authorities.
-Update events, preference writes, and consolidation remain later units.
+Lexical search, exact page reads, root prompt context, model tools, durable replay, and update events now use Go authorities.
+Manual updates and the assigned Memory model use the current GraphQL contract.
+Consolidation checks citations and editable page scope before one atomic publication and checkpoint update.
+A replaceable 70-percent pending-source threshold schedules one automatic primary Chat update.
+Chat context compaction remains a later unit and will replace that temporary trigger.
 
 ### Bounded document conversion units
 
