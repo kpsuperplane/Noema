@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -23,9 +24,10 @@ var (
   "required":["query"],
   "additionalProperties":false
 }`)
+	connectMCPServiceSchema = json.RawMessage(`{"type":"object","properties":{"service_url":{"type":"string","maxLength":4096}},"required":["service_url"],"additionalProperties":false}`)
 )
 
-func chatTools() []provider.GenerationTool {
+func localChatTools() []provider.GenerationTool {
 	return []provider.GenerationTool{
 		fileParseTool(),
 		taskInspectTool(),
@@ -44,9 +46,37 @@ func chatTools() []provider.GenerationTool {
 	}
 }
 
-func supportsChatTool(name string) bool {
+func supportsLocalChatTool(name string) bool {
 	return name == luaRunName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
+}
+
+func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error) {
+	result := localChatTools()
+	if c.mcp == nil {
+		return result, nil
+	}
+	result = append(result, provider.GenerationTool{Name: noemamcp.ConnectServiceToolName,
+		Description: "Connect an MCP service only from its official public server card.", InputSchema: connectMCPServiceSchema})
+	bindings, err := c.mcp.Bindings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return append(result, noemamcp.GenerationTools(bindings)...), nil
+}
+
+func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
+	if supportsLocalChatTool(name) {
+		return true
+	}
+	if name == noemamcp.ConnectServiceToolName {
+		return c.mcp != nil
+	}
+	if c.mcp == nil {
+		return false
+	}
+	_, err := c.mcp.Binding(ctx, name)
+	return err == nil
 }
 
 func (c *Chat) executeChatTool(
@@ -66,9 +96,38 @@ func (c *Chat) executeChatTool(
 		return c.readMemoryPage(arguments)
 	case noemamemory.SearchToolName:
 		return c.searchMemory(arguments)
+	case noemamcp.ConnectServiceToolName:
+		return c.connectMCPService(ctx, arguments)
 	default:
 		return toolFailure("invalid_input", "tool is unavailable"), false
 	}
+}
+
+func (c *Chat) connectMCPService(ctx context.Context, arguments json.RawMessage) (json.RawMessage, bool) {
+	var input struct {
+		ServiceURL string `json:"service_url"`
+	}
+	if c.mcp == nil || decodeToolArguments(arguments, &input) != nil || input.ServiceURL == "" || len(input.ServiceURL) > 4096 {
+		return toolFailure("invalid_input", "MCP service URL is invalid"), false
+	}
+	result := c.mcp.ConnectService(ctx, input.ServiceURL)
+	payload := map[string]any{"status": result.Status, "service_url": result.ServiceURL}
+	if result.DisplayName != "" {
+		payload["server_card_url"], payload["display_name"] = result.CardURL, result.DisplayName
+		payload["description"], payload["endpoint_url"] = result.Description, result.EndpointURL
+		payload["setup_result"] = map[string]any{"setup_status": result.Setup.Status,
+			"discovered_tool_count": result.Setup.Discovered, "server": setupServerValue(result.Setup.Server)}
+	}
+	encoded, _ := json.Marshal(payload)
+	return encoded, true
+}
+
+func setupServerValue(server *store.MCPServer) any {
+	if server == nil {
+		return nil
+	}
+	return map[string]any{"mcp_server_id": server.ID, "connection_revision": server.ConnectionRevision,
+		"policy_revision": server.PolicyRevision, "tool_count": server.ToolCount}
 }
 
 func (c *Chat) readMemoryPage(arguments json.RawMessage) (json.RawMessage, bool) {

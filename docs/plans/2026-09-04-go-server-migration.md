@@ -299,7 +299,11 @@ Download into a bounded temporary file under `NOEMA_HOME`. Verify the pinned siz
 Reject archive traversal, unexpected files, links, and oversized content. Publish the executable through an atomic rename.
 Keep the prior browser binding when installation fails. Reuse a verified installation without network access.
 Pin one Obscura version per Noema release. Do not resolve `latest` during installation or update silently.
-Run Obscura as a bounded child process. Use its stdio MCP server behind Noema's fixed browser policy and tool contract.
+Do not install the unmodified Obscura v0.1.11 release. It lacks bounded screenshots, structured snapshots, trusted interactions, typed failures, and atomic navigation outcomes.
+Build and publish a pinned Noema-specific Obscura artifact for Linux amd64 and arm64, macOS amd64 and arm64, and Windows amd64.
+The private artifact must expose one versioned Noema command tool. It must preserve the existing browser contract without exposing selectors, JavaScript, cookies, or storage.
+Run one bounded stdio process per browser owner. Terminate its complete process tree on close, expiry, removal, owner change, protocol failure, or an uncertain dispatched command.
+Treat the artifact as a release prerequisite. Do not implement the production installer until approved artifacts exist for all five targets.
 
 Browser fingerprints and document formatting can differ. Preserve the supported
 actions, bounded outputs, security checks, and main content.

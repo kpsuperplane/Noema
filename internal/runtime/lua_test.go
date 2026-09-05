@@ -34,7 +34,7 @@ func TestLuaRunsStandardSyntaxForChatAndTaskRoles(t *testing.T) {
 	if string(mustJSON(payload)) != string(mustJSON(want)) {
 		t.Fatalf("Lua result = %#v", payload)
 	}
-	if !supportsChatTool(luaRunName) {
+	if !supportsLocalChatTool(luaRunName) {
 		t.Fatal("primary Chat does not support code.run_lua")
 	}
 	for _, role := range []string{"planner", "executor", "reviewer"} {

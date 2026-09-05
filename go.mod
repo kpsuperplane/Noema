@@ -14,12 +14,14 @@ require (
 	github.com/go-oauth2/oauth2/v4 v4.6.0
 	github.com/go-webauthn/webauthn v0.18.0
 	github.com/goccy/go-yaml v1.19.2
+	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/ncruces/go-sqlite3 v0.35.4
 	github.com/rivo/uniseg v0.4.7
 	github.com/vektah/gqlparser/v2 v2.5.37
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/net v0.58.0
+	golang.org/x/oauth2 v0.35.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/text v0.41.0
 )
@@ -31,7 +33,6 @@ require (
 	github.com/go-webauthn/x v0.3.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/ncruces/go-sqlite3-wasm/v5 v5.0.35304 // indirect
@@ -48,7 +49,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/mod v0.40.0 // indirect
-	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect

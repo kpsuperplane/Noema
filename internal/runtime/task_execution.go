@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -45,6 +46,7 @@ var (
 // TaskExecution runs current built-in provider Task runs from durable wakeups.
 type TaskExecution struct {
 	database                  *store.Store
+	mcp                       *noemamcp.Service
 	root                      *os.Root
 	openRouter, codex, openAI provider.Generator
 	ctx                       context.Context
@@ -59,14 +61,49 @@ func NewTaskExecution(
 	database *store.Store,
 	openRouter, codex, openAI provider.Generator,
 	root *os.Root,
+	mcpServices ...*noemamcp.Service,
 ) (*TaskExecution, error) {
 	if database == nil || openRouter == nil || codex == nil || openAI == nil || root == nil {
 		return nil, errors.New("Task execution dependencies are required")
 	}
 	ctx, cancel := context.WithCancel(parent)
+	var mcpService *noemamcp.Service
+	if len(mcpServices) != 0 {
+		mcpService = mcpServices[0]
+	}
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI,
+		mcp: mcpService,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
+	}
+	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
+	if err == nil {
+		for _, action := range actions {
+			call, loadErr := runtime.taskActionCall(ctx, action)
+			payload, _ := json.Marshal(actionResultPayload(action))
+			if loadErr != nil || runtime.completeTaskMCPResult(ctx, action, call, payload, action.State == store.ActionSucceeded) != nil {
+				err = errors.New("recover Task action result")
+				break
+			}
+		}
+	}
+	if err == nil {
+		var requests []store.MCPAuthRequest
+		requests, err = database.RecoverTaskMCPAuthRequests(ctx)
+		for _, request := range requests {
+			call, loadErr := runtime.taskAuthCall(ctx, request)
+			payload := toolFailure("outcome_uncertain", "MCP tool outcome is uncertain after restart")
+			action := store.ActionRequest{TaskID: request.TaskID, RunID: request.RunID, TaskGeneration: request.TaskGeneration,
+				CapabilityName: request.CapabilityName, AuthorizationContext: map[string]any{"provider_call_id": request.ProviderCallID, "provider_name": request.ProviderName}}
+			if loadErr != nil || runtime.completeTaskMCPResult(ctx, action, call, payload, false) != nil {
+				err = errors.New("recover Task authentication result")
+				break
+			}
+		}
+	}
+	if err != nil {
+		cancel()
+		return nil, err
 	}
 	if err := database.RecoverTaskExecutions(ctx, time.Now()); err != nil {
 		cancel()
@@ -178,10 +215,11 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	toolCount := int(run.ToolCallCount)
 	for round := int(run.ProviderCallCount); round < taskProviderLimit && ctx.Err() == nil; round++ {
 		started := time.Now()
+		tools, bindings := r.taskExecutionTools(ctx, run.Kind)
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
 			AccountID: run.ProviderAccountID, Model: model, Messages: messages,
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
-			Tools: taskExecutionTools(run.Kind), ToolTransport: provider.ToolTransportNative,
+			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
 			HostedWebSearch: hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative), FastMode: run.FastMode,
 		}, func(provider.StreamEvent) {})
@@ -228,6 +266,28 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			return
 		}
 		callItem := stored[len(stored)-1]
+		if binding, ok := bindings[call.Name]; ok {
+			payload, success, paused, mcpErr := r.prepareTaskMCP(ctx, task, run, callItem, binding, call.Payload)
+			if mcpErr != nil {
+				r.failRun(ctx, run, "mcp_action_unavailable", false)
+				return
+			}
+			if paused {
+				return
+			}
+			status := "completed"
+			if !success {
+				status = "failed"
+			}
+			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
+				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
+				return
+			}
+			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
+			messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+			continue
+		}
 		payload, success, terminal, taskWrite := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
 		wroteTask = wroteTask || taskWrite
 		status := "completed"
@@ -342,6 +402,29 @@ func taskExecutionTools(kind string) []provider.GenerationTool {
 			provider.GenerationTool{Name: taskFinishReview, Description: "Submit the exact review decision.", InputSchema: taskReviewSchema})
 	}
 	return files
+}
+
+func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]provider.GenerationTool, map[string]noemamcp.Binding) {
+	tools := taskExecutionTools(kind)
+	bindings := make(map[string]noemamcp.Binding)
+	if r.mcp == nil || kind == "planner" {
+		return tools, bindings
+	}
+	values, err := r.mcp.Bindings(ctx)
+	if err != nil {
+		return tools, bindings
+	}
+	for _, binding := range values {
+		if kind == "reviewer" && !binding.Behavior.ReadOnly {
+			continue
+		}
+		if kind == "executor" && !binding.Behavior.ReadOnly && binding.ReviewRoute == "" {
+			binding.ReviewRoute = store.ActionLLMReview
+		}
+		bindings[binding.Name] = binding
+		tools = append(tools, provider.GenerationTool{Name: binding.Name, Description: binding.Description, InputSchema: binding.InputSchema})
+	}
+	return tools, bindings
 }
 
 func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, run store.TaskRun, name string, raw json.RawMessage, wroteTask bool) (json.RawMessage, bool, bool, bool) {
