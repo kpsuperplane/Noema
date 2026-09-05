@@ -74,6 +74,7 @@ func New(database *store.Store, accounts *provider.AccountService, generators ma
 	return &Service{database: database, accounts: accounts, artifacts: artifacts, generators: generators, browserPath: path,
 		obscuraHome:        homeRoot,
 		browserMaxSessions: maxSessions, browserOldSpaceMB: oldSpaceMB, browsers: make(map[string]*browserSession), endpoints: map[string]string{
+			"obscura":           obscuraReleaseURL,
 			"duckduckgo_public": "https://html.duckduckgo.com/html/", "exa": "https://api.exa.ai",
 			"tinyfish_search": "https://api.search.tinyfish.ai", "tinyfish_fetch": "https://api.fetch.tinyfish.ai",
 			"firecrawl": "https://api.firecrawl.dev/v2",

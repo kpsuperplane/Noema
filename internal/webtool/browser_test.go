@@ -3,10 +3,15 @@ package webtool
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +91,30 @@ func TestBrowserWorkerProtocolPolicyAndLifecycle(t *testing.T) {
 	if !service.BrowserAvailable(ctx) {
 		t.Fatal("browser is unavailable")
 	}
+	service.browserPath = ""
+	if !service.BrowserAvailable(ctx) {
+		t.Fatal("installable default browser is unavailable")
+	}
+	asset, _ := obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
+	archive := obscuraTestArchive(t, asset, nil)
+	digest := sha256.Sum256(archive)
+	requests := 0
+	release := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		if filepath.Base(request.URL.Path) == asset.archive+".sha256" {
+			fmt.Fprintf(writer, "%s  %s\n", hex.EncodeToString(digest[:]), asset.archive)
+			return
+		}
+		_, _ = writer.Write(archive)
+	}))
+	service.endpoints["obscura"] = release.URL
+	result := service.ExecuteBrowser(ctx, "conversation:auto-install", BrowseOpenName,
+		json.RawMessage(`{"url":"https://1.1.1.1/start"}`), "test:auto-install")
+	release.Close()
+	if result.Success || requests != 2 || installedObscuraPath(service.obscuraHome, asset) == "" {
+		t.Fatalf("default installation = success %t, requests %d", result.Success, requests)
+	}
+	service.browserPath = executable
 
 	opened := service.ExecuteBrowser(ctx, "conversation:one", BrowseOpenName,
 		json.RawMessage(`{"url":"https://1.1.1.1/start"}`), "test:open")

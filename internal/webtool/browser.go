@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -191,7 +192,14 @@ func BrowserModelPayload(payload json.RawMessage) json.RawMessage {
 
 func (s *Service) BrowserAvailable(ctx context.Context) bool {
 	route, _, err := s.browserRoute(ctx)
-	return err == nil && len(route) != 0 && s.browserProviderAvailable(route[0])
+	if err != nil || len(route) == 0 || !route[0].IsActive || !hasCapability(route[0], browseCapability) {
+		return false
+	}
+	if route[0].ProviderKind == "obscura" {
+		_, err = obscuraAssetFor(runtime.GOOS, runtime.GOARCH)
+		return err == nil
+	}
+	return route[0].ProviderKind == kernelProvider
 }
 
 func (s *Service) BrowserAuthority(ctx context.Context, owner, name string, raw json.RawMessage) (BrowserAuthority, error) {
@@ -333,6 +341,11 @@ func (s *Service) ExecuteBrowser(ctx context.Context, owner, name string, raw js
 		s.removeBrowser(owner)
 		return browserFailure("route_unavailable", "browser provider route is unavailable", false)
 	}
+	if name == BrowseOpenName && route[0].ProviderKind == "obscura" && s.obscuraWorkerPath() == "" {
+		if err := s.PrepareObscura(ctx); err != nil {
+			return browserFailure("unavailable", "browser provider is unavailable", false)
+		}
+	}
 
 	s.browserMu.Lock()
 	session := s.browsers[owner]
@@ -382,6 +395,11 @@ func (s *Service) ExecuteBrowser(ctx context.Context, owner, name string, raw js
 			return browserFailure("no_later_provider", "no later browser provider is configured", false)
 		}
 		next := route[session.routePosition+1]
+		if next.ProviderKind == "obscura" && s.obscuraWorkerPath() == "" {
+			if err := s.PrepareObscura(ctx); err != nil {
+				return browserFailure("unavailable", "next browser provider is unavailable", false)
+			}
+		}
 		if !s.browserProviderAvailable(next) {
 			return browserFailure("unavailable", "next browser provider is unavailable", false)
 		}

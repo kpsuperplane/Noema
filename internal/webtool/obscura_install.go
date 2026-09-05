@@ -58,7 +58,7 @@ func (s *Service) PrepareObscura(ctx context.Context) error {
 	if s.browserPath != "" {
 		return nil
 	}
-	return installObscura(ctx, s.obscuraHome, obscuraReleaseURL, &http.Client{Timeout: 5 * time.Minute})
+	return installObscura(ctx, s.obscuraHome, s.endpoints["obscura"], &http.Client{Timeout: 5 * time.Minute})
 }
 
 func installObscura(ctx context.Context, home, releaseURL string, client *http.Client) error {
