@@ -47,15 +47,16 @@ type WorkEvent struct {
 
 // ProjectCommand identifies one repeat-safe Project command.
 type ProjectCommand struct {
-	ActorID, Name, ClientMutationID, RequestDigest string
+	ActorID, Name, ClientMutationID, RequestDigest, CorrelationID string
 }
 
 // ProjectResult is one committed or replayed Project command result.
 type ProjectResult struct {
-	Project        Project
-	Event          WorkEvent
-	DocumentDigest string
-	Replayed       bool
+	Project         Project
+	Event           WorkEvent
+	DocumentDigest  string
+	DocumentAdopted bool
+	Replayed        bool
 }
 
 // ProjectChanges contains optional Project metadata replacements.
@@ -116,7 +117,7 @@ WHERE actor_id = ? AND command_name = ? AND client_mutation_id = ?`,
 // CreateProject stores one active Project, event, and command receipt.
 func (s *Store) CreateProject(
 	ctx context.Context, id, workspaceID, name, description string, folder *string,
-	documentDigest string, command ProjectCommand, now time.Time,
+	documentDigest string, documentAdopted bool, command ProjectCommand, now time.Time,
 ) (ProjectResult, error) {
 	if !validProjectID(id) || workspaceID != "workspace:personal" || !validProjectDigest(documentDigest) {
 		return ProjectResult{}, errors.New("invalid Project target")
@@ -142,7 +143,8 @@ VALUES (?, ?, ?, ?, ?, 1, ?, ?)`, project.ID, project.WorkspaceID, project.Name,
 		event, err := insertWorkEvent(ctx, tx, project.WorkspaceID, project.ID, "", "", 1,
 			"project.created", command.ActorID, nil, projectCorrelation(command),
 			map[string]any{"v": 1, "revision": int64(1)}, project.UpdatedAt)
-		return ProjectResult{Project: project, Event: event, DocumentDigest: documentDigest}, err
+		return ProjectResult{Project: project, Event: event, DocumentDigest: documentDigest,
+			DocumentAdopted: documentAdopted}, err
 	})
 }
 
@@ -596,6 +598,9 @@ func scanWorkEvent(row rowScanner) (WorkEvent, error) {
 }
 
 func projectCorrelation(command ProjectCommand) string {
+	if strings.HasPrefix(command.CorrelationID, "correlation:") {
+		return command.CorrelationID
+	}
 	return "correlation:graphql:" + command.ClientMutationID
 }
 

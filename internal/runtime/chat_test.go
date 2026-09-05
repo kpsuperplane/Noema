@@ -127,7 +127,8 @@ func TestChatSerializesDetachedTurnsAndPublishesOrderedEvents(t *testing.T) {
 		t.Fatalf("stored transcript = %#v", page.Items)
 	}
 	messages := firstRequest["messages"].([]any)
-	if !strings.Contains(messages[1].(map[string]any)["content"].(string), "America/Los_Angeles") ||
+	encodedMessages, _ := json.Marshal(messages)
+	if !strings.Contains(string(encodedMessages), "America/Los_Angeles") ||
 		messages[len(messages)-1].(map[string]any)["content"] != "first" ||
 		firstRequest["max_completion_tokens"] != float64(8192) {
 		t.Fatalf("provider messages = %#v", messages)
@@ -206,7 +207,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
-	if !ok || len(tools) != 9 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+	if !ok || len(tools) != 15 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
 	}
 	toolNames := make(map[string]bool)
@@ -223,7 +224,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		!toolNames["read_memory_page"] || !toolNames["search_memory"] || !toolNames["hosted_web_search"] {
 		t.Fatalf("advertised tools = %#v", toolNames)
 	}
-	if len(firstContinuation["tools"].([]any)) != 9 || len(secondContinuation["tools"].([]any)) != 9 {
+	if len(firstContinuation["tools"].([]any)) != 15 || len(secondContinuation["tools"].([]any)) != 15 {
 		t.Fatal("normal continuations did not retain the Chat tools")
 	}
 	messages := firstContinuation["messages"].([]any)
@@ -330,7 +331,7 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 		}
 	}
 	firstRequest, secondRequest := <-requests, <-requests
-	if len(firstRequest["tools"].([]any)) != 9 {
+	if len(firstRequest["tools"].([]any)) != 15 {
 		t.Fatalf("hosted web tools = %#v", firstRequest["tools"])
 	}
 	var replayedSearches int
@@ -418,6 +419,7 @@ func TestMemoryToolsEnforceInputRulesAndSelectPages(t *testing.T) {
 	} {
 		payload, success := chat.executeChatTool(
 			context.Background(), store.Conversation{}, test.tool, json.RawMessage(test.arguments),
+			"", "",
 		)
 		if success || !bytes.Contains(payload, []byte(`"code":"invalid_input"`)) {
 			t.Fatalf("%s = %s, %t", test.name, payload, success)
@@ -476,7 +478,7 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if len(requests) != 3 || len(requests[0].Tools) != 8 ||
+	if len(requests) != 3 || len(requests[0].Tools) != 14 ||
 		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" ||
 		requests[0].Tools[4].Name != fileDownloadName {
 		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
@@ -600,7 +602,9 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		incrementalResult = incrementalResult ||
 			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
 	}
-	if replayedCall || !incrementalResult || len(requests[1].Messages) != 1 {
+	if replayedCall || !incrementalResult || len(requests[1].Messages) != 2 ||
+		requests[1].Messages[1].Role != "developer" ||
+		!strings.Contains(requests[1].Messages[1].Content, "Active Project catalog:") {
 		t.Fatalf("Codex incremental continuation = call %t, result %t, messages %#v",
 			replayedCall, incrementalResult, requests[1].Messages)
 	}
@@ -654,8 +658,10 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		2, "", "", "resp_openai", true, incremental, nil,
 	)
 	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
-		len(openAIRequest.Messages) != 1 || openAIRequest.Messages[0].ToolResult == nil ||
-		openAIRequest.Messages[0].ToolResult.ProviderCallID != "call_openai" {
+		len(openAIRequest.Messages) != 2 || openAIRequest.Messages[0].ToolResult == nil ||
+		openAIRequest.Messages[0].ToolResult.ProviderCallID != "call_openai" ||
+		openAIRequest.Messages[1].Role != "developer" ||
+		!strings.Contains(openAIRequest.Messages[1].Content, "Active Project catalog:") {
 		t.Fatalf("OpenAI incremental continuation = %#v, %v", openAIRequest, err)
 	}
 	for _, providerKind := range []string{"codex", "openai"} {

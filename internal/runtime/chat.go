@@ -15,6 +15,7 @@ import (
 
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
+	"github.com/kpsuperplane/noema/internal/project"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -137,6 +138,7 @@ type Chat struct {
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
 	adapters   *adapter.Service
+	projects   *project.Service
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
@@ -220,8 +222,10 @@ func NewChat(
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService, adapters: adapterService,
-		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
+		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot,
+		memory: memoryStore, mcp: mcpService, adapters: adapterService,
+		projects: project.New(database, homeRoot),
+		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
 		choices:          make(chan choiceResolution, turnQueueLimit),
 		done:             make(chan struct{}),
@@ -243,6 +247,9 @@ func NewChat(
 	go chat.run()
 	return chat, nil
 }
+
+// Projects returns the Project authority used by primary Chat.
+func (c *Chat) Projects() *project.Service { return c.projects }
 
 // SendTurn validates and queues one turn without binding execution to the request context.
 func (c *Chat) SendTurn(ctx context.Context, input SendTurnInput) (TurnAccepted, error) {
@@ -461,13 +468,18 @@ func (c *Chat) execute(request queuedTurn) {
 	}
 	memoryContext := c.memoryRootContext()
 	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative)
+	projectContext, err := c.projectContext(c.ctx)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
 	environment, err := c.modelEnvironment(c.ctx, request.conversation, request.location, time.Now())
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
 	}
 	providerMessages = append(
-		developerMessages(environment, memoryContext, hostedWeb),
+		developerMessages(environment, memoryContext, projectContext, hostedWeb),
 		providerMessages...,
 	)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"

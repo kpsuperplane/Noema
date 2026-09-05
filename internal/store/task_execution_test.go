@@ -200,7 +200,7 @@ func TestTaskRunEffectiveCwdPrecedence(t *testing.T) {
 	projectID, _ := NewProjectID()
 	projectFolder := t.TempDir()
 	if _, err := database.CreateProject(ctx, projectID, "workspace:personal", "ACP workspace", "", &projectFolder,
-		testProjectDigest("# Project\n"), testProjectCommand("project.create", "acp-cwd", "acp-cwd"), now); err != nil {
+		testProjectDigest("# Project\n"), false, testProjectCommand("project.create", "acp-cwd", "acp-cwd"), now); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := database.db.BeginTx(ctx, nil)
