@@ -118,3 +118,11 @@ Production and inclusive migration ratios remain below 80 percent.
 
 Production application must preserve revision checks, available-action restrictions, and stale-draft recovery through the existing task commands.
 The gallery keeps edits within the selected mock; it does not implement a task store or server persistence.
+
+## Task model enablement removal
+
+- Removed the enabled state and enable switches from task-model mocks.
+- The implementation plan removes this capability from configuration and model selection.
+- Model, reasoning, and Fast controls remain available.
+- The gallery build passed. Reviewed desktop and phone widths with ten selectors and five Fast switches.
+- No enable switches, horizontal overflow, or browser page errors occurred.

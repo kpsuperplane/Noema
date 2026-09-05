@@ -114,10 +114,12 @@ The cropped mock shows the unstarted state, not a replacement for completed task
 The empty ACP group also separates agent models from task models.
 
 **Suggestion:** Give the chosen model enough width to show its name.
-Keep model, reasoning, Fast, and task-model enablement visible in each row.
+Keep model, reasoning, and Fast visible in each row.
 Hide the Model and Reasoning labels. Keep accessible names that identify each model group.
 Use a compact group with aligned controls. On phones, give the model selector its own full-width line.
-Keep a visible Off state for disabled task models.
+Remove the ability to enable or disable task models.
+When implementing, remove the enabled field, its controls, and its use in model selection through the existing configuration authority.
+Preserve model choices and availability checks. A configured model still needs a working provider.
 Keep agent models and task models adjacent. Put external agent setup after them on the same page.
 Retain direct saving for inline choices. Use one local saving, saved, or error state at the affected row.
 

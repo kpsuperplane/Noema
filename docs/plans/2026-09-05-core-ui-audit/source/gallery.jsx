@@ -172,11 +172,11 @@ function Notifications({notice}){
 }
 function Agents({notice}){
  const [choices,setChoices]=useState({});
- const row=(name,model,task=false)=>{
-  const value={model,reason:'Medium',fast:false,enabled:true,...choices[name]};
+ const row=(name,model)=>{
+  const value={model,reason:'Medium',fast:false,...choices[name]};
   const change=patch=>{setChoices(current=>({...current,[name]:{...value,...patch}}));notice(`${name} settings saved in this mock.`)};
   return <SettingsListItem key={name} label={<VStack gap={2} className="model-row">
-   <HStack align="center" justify="between" gap={2}><strong>{name}</strong>{task?<Switch label={value.enabled?'Enabled':'Off'} aria-label={`${name} enabled`} value={value.enabled} onChange={enabled=>change({enabled})}/>:null}</HStack>
+   <strong>{name}</strong>
    <HStack gap={3} className="model-fields" align="end">
     <Selector label="Model" isLabelHidden aria-label={`${name} model`} size="sm" options={['GPT-5.6-Terra','GPT-5.6-Sol','GPT-5.6-Luna']} value={value.model} onChange={model=>change({model})}/>
     <Selector label="Reasoning" isLabelHidden aria-label={`${name} reasoning`} size="sm" options={['Low','Medium','High','XHigh']} value={value.reason} onChange={reason=>change({reason})}/>
@@ -186,7 +186,7 @@ function Agents({notice}){
  };
  return <VStack className="single-settings" gap={4}><h2 className="document-title">Agents</h2>
   <SettingsSection title="Agent models" titleId="agent-models"><SettingsList hasDividers density="balanced">{row('Momo','GPT-5.6-Terra')}{row('Task reviewer','GPT-5.6-Luna')}</SettingsList></SettingsSection>
-  <SettingsSection title="Task models" titleId="task-models"><SettingsList hasDividers density="balanced">{row('Simple tasks','GPT-5.6-Luna',true)}{row('Medium tasks','GPT-5.6-Luna',true)}{row('High complexity tasks','GPT-5.6-Sol',true)}</SettingsList></SettingsSection>
+  <SettingsSection title="Task models" titleId="task-models"><SettingsList hasDividers density="balanced">{row('Simple tasks','GPT-5.6-Luna')}{row('Medium tasks','GPT-5.6-Luna')}{row('High complexity tasks','GPT-5.6-Sol')}</SettingsList></SettingsSection>
   <HStack className="compact-section" gap={3} justify="between" align="center" wrap="wrap"><VStack gap={1}><h3>External task agents (ACP)</h3><p className="small muted">Connect a local agent that can carry out tasks.</p></VStack><B variant="secondary" onClick={()=>notice('Agent setup is outside this layout mock.')}>Add ACP agent</B></HStack>
  </VStack>
 }
