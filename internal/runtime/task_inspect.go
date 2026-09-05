@@ -498,6 +498,7 @@ func (c *Chat) persistChatToolRound(
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem,
 	})
+	c.publishMemoryChanged()
 	return toolPayload, success, nil
 }
 
@@ -769,6 +770,7 @@ func (c *Chat) finishGeneratedTurn(
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item,
 	})
+	c.publishMemoryChanged()
 	c.publish(Event{
 		Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle,
 	})
@@ -776,6 +778,7 @@ func (c *Chat) finishGeneratedTurn(
 		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
 	})
+	c.maybeScheduleMemoryUpdate(turn.ConversationID)
 }
 
 func generationCitations(result provider.GenerationResult) []store.ProviderCitation {
