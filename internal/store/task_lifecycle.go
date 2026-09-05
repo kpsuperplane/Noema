@@ -464,10 +464,17 @@ func insertQueuedTaskRun(ctx context.Context, tx *sql.Tx, task Task, kind string
 			return TaskRun{}, err
 		}
 	}
+	effectiveCwd := cloneString(task.CwdOverride)
+	if kind == "executor" {
+		effectiveCwd, err = taskRunEffectiveCwdTx(ctx, tx, task)
+		if err != nil {
+			return TaskRun{}, err
+		}
+	}
 	run := TaskRun{ID: id, TaskID: task.ID, InstanceName: "Task " + strings.ToUpper(kind[:1]) + kind[1:], Kind: kind,
 		Status: "queued", AgentID: task.ExecutorAgentID, Generation: task.Generation, AttemptIndex: attempt,
 		ReviewRound: review, ParentRunID: parentID, SelectionMode: "provider_default", ExecutorBackend: backend,
-		ExecutorAgentID: task.ExecutorAgentID, EffectiveCwd: cloneString(task.CwdOverride), QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+		ExecutorAgentID: task.ExecutorAgentID, EffectiveCwd: effectiveCwd, QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	if backend == "provider" {
 		role := HostedModelTaskReviewer
 		if kind != "reviewer" {
@@ -501,6 +508,20 @@ VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?)`, run.I
 		err = insertAcpLaunchTx(ctx, tx, run.ID, *acpLaunch, now)
 	}
 	return run, err
+}
+
+func taskRunEffectiveCwdTx(ctx context.Context, tx *sql.Tx, task Task) (*string, error) {
+	if task.CwdOverride != nil {
+		return cloneString(task.CwdOverride), nil
+	}
+	if task.ProjectID == "" {
+		return nil, nil
+	}
+	var folder sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT folder FROM projects WHERE project_id=?`, task.ProjectID).Scan(&folder); err != nil {
+		return nil, err
+	}
+	return nullStringPointer(folder), nil
 }
 
 func insertTaskMessage(ctx context.Context, tx *sql.Tx, task Task, gateID, kind, body string, approval *string, now time.Time) (string, error) {

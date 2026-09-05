@@ -460,6 +460,102 @@ func TestACPTaskExecutionUsesRootedWorkspaceExactPermissionAndClientEvidence(t *
 	}
 }
 
+func TestACPTaskExecutionReplaysRecordedTerminalWithoutRelaunch(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 15, 0, 0, 0, time.UTC)
+	agent, err := database.CreateAcpAgent(ctx, "Unavailable ACP", filepath.Join(t.TempDir(), "must-not-run"), nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := store.NewTaskID()
+	task, err := database.CreateTask(ctx, id, "Replay ACP terminal", "correlation:acp:replay:create", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = home.CreatePendingTaskDocument(chat.home, id, "Complete once."); err != nil {
+		t.Fatal(err)
+	}
+	if err = home.CommitTaskDocument(chat.home, id); err != nil {
+		t.Fatal(err)
+	}
+	if err = home.WriteTaskFile(chat.home, id, "RESULT.md", "Completed once.\n"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := database.UpdateInboxTask(ctx, id, task.Revision, task.Generation,
+		store.TaskUpdate{ExecutorAgentID: &agent.AgentID}, runtimeTaskCommand("update_task", "acp-replay"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.QueueTask(ctx, id, updated.Task.Revision, updated.Task.Generation,
+		runtimeTaskCommand("queue_task", "acp-replay"), now); err != nil {
+		t.Fatal(err)
+	}
+	_, planner, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found {
+		t.Fatalf("claim Planner = %#v, %t, %v", planner, found, err)
+	}
+	if err = database.StartTaskExecution(ctx, planner.ID, planner.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", now); err != nil {
+		t.Fatal(err)
+	}
+	_, executor, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found || executor.ExecutorBackend != "acp" {
+		t.Fatalf("claim ACP Executor = %#v, %t, %v", executor, found, err)
+	}
+	if err = database.StartTaskExecution(ctx, executor.ID, executor.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecordAcpPermissionUse(ctx, executor.ID, executor.Generation, "completed-effect", now); err != nil {
+		t.Fatal(err)
+	}
+	call := store.TaskRunItemInput{Kind: "tool_call", Status: "running", CorrelationID: "acp:terminal",
+		Payload: map[string]any{"name": taskFinishExecution, "arguments": json.RawMessage(`{}`), "provider_name": "acp"}}
+	if err = database.AppendTaskRunItems(ctx, executor.ID, executor.Generation, []store.TaskRunItemInput{call}, store.TaskRunUsage{ToolCalls: 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(ctx, executor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := store.TaskRunItemInput{Kind: "tool_result", Status: "completed", ParentID: items[len(items)-1].ID,
+		Payload: map[string]any{"name": taskFinishExecution, "arguments": json.RawMessage(`{}`), "result": json.RawMessage(`{"finished":true}`), "success": true, "provider_name": "acp"}}
+	if err = database.AppendTaskRunItems(ctx, executor.ID, executor.Generation, []store.TaskRunItemInput{result}, store.TaskRunUsage{}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.RecoverTaskExecutions(ctx, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	recoveredTask, recoveredRun, found, err := database.ClaimTaskExecution(ctx, now.Add(2*time.Second))
+	if err != nil || !found || recoveredRun.ID != executor.ID {
+		t.Fatalf("recovered ACP Executor = %#v, %t, %v", recoveredRun, found, err)
+	}
+	runtime := &TaskExecution{database: database, root: chat.home}
+	runtime.execute(ctx, recoveredTask, recoveredRun)
+	current, err := database.Task(ctx, id)
+	if err != nil || current.CurrentRunID == executor.ID || current.StageKey != "queue" {
+		t.Fatalf("replayed ACP terminal Task = %#v, %v", current, err)
+	}
+	runs, err := database.TaskRuns(ctx, id, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentKind, executorStatus := "", ""
+	for _, run := range runs {
+		if run.ID == current.CurrentRunID {
+			currentKind = run.Kind
+		}
+		if run.ID == executor.ID {
+			executorStatus = run.Status
+		}
+	}
+	if currentKind != "reviewer" || executorStatus != "completed" {
+		t.Fatalf("replayed ACP lineage = current %q, Executor %q", currentKind, executorStatus)
+	}
+}
+
 func TestTaskACPAgentProcess(t *testing.T) {
 	marker := -1
 	for index, argument := range os.Args {
@@ -526,7 +622,9 @@ func TestTaskACPAgentProcess(t *testing.T) {
 		if selected {
 			t.Fatal("first ACP permission was selected")
 		}
-		select {}
+		for {
+			time.Sleep(time.Hour)
+		}
 	}
 	if !selected {
 		t.Fatal("approved ACP permission was not selected")
@@ -549,7 +647,9 @@ func TestTaskACPAgentProcess(t *testing.T) {
 	_, _ = connection.Write(append(encoded, '\n'))
 	_, _ = bufio.NewReader(connection).ReadBytes('\n')
 	_ = connection.Close()
-	select {}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func createQueuedRuntimeTask(t *testing.T, database *store.Store, root *os.Root, content string) store.Task {

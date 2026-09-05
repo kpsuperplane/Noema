@@ -113,7 +113,7 @@ func Execute(ctx context.Context, request ExecutorRequest) (terminal TerminalCal
 			return TerminalCall{}, err
 		}
 	}
-	if err := session.send(rpcRequest{JSONRPC: "2.0", ID: 3, Method: "session/prompt", Params: map[string]any{
+	if err := session.send(ctx, rpcRequest{JSONRPC: "2.0", ID: 3, Method: "session/prompt", Params: map[string]any{
 		"sessionId": created.SessionID,
 		"prompt":    []any{map[string]string{"type": "text", "text": request.Prompt}},
 	}}); err != nil {
@@ -132,13 +132,16 @@ func promptLoop(ctx context.Context, session *session, bridge *terminalBridge, s
 		}()
 		select {
 		case <-ctx.Done():
-			_ = session.sendNotification("session/cancel", map[string]string{"sessionId": sessionID})
+			_ = session.sendNotification(ctx, "session/cancel", map[string]string{"sessionId": sessionID})
 			if approvedEffect {
 				return TerminalCall{}, ErrOutcomeUncertain
 			}
 			return TerminalCall{}, ctx.Err()
 		case terminal := <-bridge.result:
 			if terminal.err != nil {
+				if approvedEffect {
+					return TerminalCall{}, ErrOutcomeUncertain
+				}
 				return TerminalCall{}, ErrExecutionFailed
 			}
 			return terminal.call, nil
@@ -151,6 +154,9 @@ func promptLoop(ctx context.Context, session *session, bridge *terminalBridge, s
 			}
 			var message executorEnvelope
 			if json.Unmarshal(result.value, &message) != nil || message.JSONRPC != "2.0" {
+				if approvedEffect {
+					return TerminalCall{}, ErrOutcomeUncertain
+				}
 				return TerminalCall{}, ErrExecutionFailed
 			}
 			if message.Method == "session/update" && len(message.ID) == 0 {
@@ -160,11 +166,14 @@ func promptLoop(ctx context.Context, session *session, bridge *terminalBridge, s
 				continue
 			}
 			if message.Method == "session/request_permission" && len(message.ID) != 0 {
-				pending, selected, err := answerPermission(session, message, request.Permission)
+				pending, selected, err := answerPermission(ctx, session, message, request.Permission)
+				approvedEffect = approvedEffect || selected
 				if err != nil {
+					if approvedEffect {
+						return TerminalCall{}, ErrOutcomeUncertain
+					}
 					return TerminalCall{}, err
 				}
-				approvedEffect = approvedEffect || selected
 				if pending {
 					return TerminalCall{}, ErrPermissionPending
 				}
@@ -180,10 +189,10 @@ func promptLoop(ctx context.Context, session *session, bridge *terminalBridge, s
 	}
 }
 
-func answerPermission(session *session, message executorEnvelope, decide func(PermissionRequest) (PermissionDecision, error)) (bool, bool, error) {
+func answerPermission(ctx context.Context, session *session, message executorEnvelope, decide func(PermissionRequest) (PermissionDecision, error)) (bool, bool, error) {
 	var request PermissionRequest
 	if json.Unmarshal(message.Params, &request) != nil || request.SessionID == "" || decide == nil {
-		return false, false, session.sendRawResponse(message.ID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}})
+		return false, false, session.sendRawResponse(ctx, message.ID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}})
 	}
 	decision, err := decide(request)
 	if err != nil {
@@ -193,29 +202,30 @@ func answerPermission(session *session, message executorEnvelope, decide func(Pe
 	if decision.OptionID != "" {
 		outcome = map[string]any{"outcome": "selected", "optionId": decision.OptionID}
 	}
-	if err := session.sendRawResponse(message.ID, map[string]any{"outcome": outcome}); err != nil {
-		return false, false, ErrExecutionFailed
+	selected := decision.OptionID != ""
+	if err := session.sendRawResponse(ctx, message.ID, map[string]any{"outcome": outcome}); err != nil {
+		return false, selected, ErrExecutionFailed
 	}
-	return decision.Pending, decision.OptionID != "", nil
+	return decision.Pending, selected, nil
 }
 
-func (s *session) send(request rpcRequest) error {
+func (s *session) send(ctx context.Context, request rpcRequest) error {
 	message, err := json.Marshal(request)
 	if err != nil {
 		return err
 	}
-	return writeMessage(s.stdin, append(message, '\n'))
+	return s.write(ctx, append(message, '\n'))
 }
 
-func (s *session) sendNotification(method string, params any) error {
+func (s *session) sendNotification(ctx context.Context, method string, params any) error {
 	message, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
 	if err != nil {
 		return err
 	}
-	return writeMessage(s.stdin, append(message, '\n'))
+	return s.write(ctx, append(message, '\n'))
 }
 
-func (s *session) sendRawResponse(id json.RawMessage, result any) error {
+func (s *session) sendRawResponse(ctx context.Context, id json.RawMessage, result any) error {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return err
@@ -224,7 +234,14 @@ func (s *session) sendRawResponse(id json.RawMessage, result any) error {
 	message = append(message, []byte(`,"result":`)...)
 	message = append(message, resultJSON...)
 	message = append(message, '}', '\n')
-	return writeMessage(s.stdin, message)
+	return s.write(ctx, message)
+}
+
+func (s *session) write(ctx context.Context, message []byte) error {
+	_, err := await(ctx, func() (struct{}, error) {
+		return struct{}{}, writeMessage(s.stdin, message)
+	})
+	return err
 }
 
 func isRPCID(raw json.RawMessage, want int) bool {

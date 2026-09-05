@@ -44,7 +44,10 @@ func (s *Store) RecoverTaskExecutions(ctx context.Context, now time.Time) error 
 	rows, err := tx.QueryContext(ctx, `SELECT r.run_id FROM task_runs r JOIN tasks t ON t.current_run_id=r.run_id
 WHERE r.status IN ('leased','running') AND r.executor_backend='acp' AND r.task_generation=t.generation
 AND EXISTS(SELECT 1 FROM task_run_items i WHERE i.run_id=r.run_id AND i.correlation_id LIKE 'acp:permission-used:%'
-AND json_type(i.payload_json,'$.permission_fingerprint')='text')`)
+AND json_type(i.payload_json,'$.permission_fingerprint')='text')
+AND NOT EXISTS(SELECT 1 FROM task_run_items call JOIN task_run_items result ON result.parent_item_id=call.item_id
+WHERE call.run_id=r.run_id AND call.item_kind='tool_call' AND call.correlation_id='acp:terminal'
+AND result.item_kind='tool_result' AND json_extract(result.payload_json,'$.success')=1)`)
 	if err != nil {
 		return err
 	}
@@ -474,10 +477,17 @@ func insertTaskExecutionRun(ctx context.Context, tx *sql.Tx, task Task, kind str
 	if err != nil {
 		return TaskRun{}, err
 	}
+	effectiveCwd := cloneString(task.CwdOverride)
+	if kind == "executor" {
+		effectiveCwd, err = taskRunEffectiveCwdTx(ctx, tx, task)
+		if err != nil {
+			return TaskRun{}, err
+		}
+	}
 	run := TaskRun{ID: id, TaskID: task.ID, InstanceName: "Task " + strings.ToUpper(kind[:1]) + kind[1:], Kind: kind,
 		Status: "queued", AgentID: task.ExecutorAgentID, Generation: task.Generation, AttemptIndex: attempt, ReviewRound: review,
 		ParentRunID: parent.ID, SelectionMode: "provider_default", ExecutorBackend: "provider", ExecutorAgentID: task.ExecutorAgentID,
-		EffectiveCwd: cloneString(task.CwdOverride), QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+		EffectiveCwd: effectiveCwd, QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	var acpLaunch *AcpLaunch
 	if kind == "executor" && task.ExecutorAcpConnectionRevision != nil {
 		run.ExecutorBackend = "acp"

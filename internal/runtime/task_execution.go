@@ -275,12 +275,23 @@ func (r *TaskExecution) executeACP(ctx context.Context, task store.Task, run sto
 		r.failRun(ctx, run, "configuration_unavailable", false)
 		return
 	}
+	items, err := r.database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil {
+		r.failRun(ctx, run, "task_replay_unavailable", false)
+		return
+	}
+	if r.replayACPTerminal(ctx, run, items) {
+		return
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		r.failRun(ctx, run, "configuration_unavailable", false)
 		return
 	}
 	workspace := filepath.Join(r.root.Name(), "tasks", strings.TrimPrefix(task.ID, "task:"))
+	if run.EffectiveCwd != nil {
+		workspace = *run.EffectiveCwd
+	}
 	promptParts := make([]string, 0, len(messages))
 	for _, message := range messages {
 		promptParts = append(promptParts, message.Content)
@@ -352,6 +363,37 @@ func (r *TaskExecution) executeACP(ctx context.Context, task store.Task, run sto
 	if err := r.finishTaskTerminal(ctx, run, terminal.Name, terminal.Arguments); err != nil && !errors.Is(err, store.ErrStaleRun) {
 		r.failRun(ctx, run, "task_transition_failed", false)
 	}
+}
+
+func (r *TaskExecution) replayACPTerminal(ctx context.Context, run store.TaskRun, items []store.TaskRunItem) bool {
+	for _, call := range items {
+		if call.Kind != "tool_call" || call.CorrelationID == nil || *call.CorrelationID != "acp:terminal" {
+			continue
+		}
+		name, _ := call.Payload["name"].(string)
+		arguments, err := json.Marshal(call.Payload["arguments"])
+		if err != nil || !taskTerminalTool(name) {
+			r.failRun(ctx, run, "task_replay_invalid", false)
+			return true
+		}
+		for _, result := range items {
+			if result.Kind != "tool_result" || result.ParentID == nil || *result.ParentID != call.ID {
+				continue
+			}
+			success, _ := result.Payload["success"].(bool)
+			if !success {
+				r.failRun(ctx, run, "acp_terminal_invalid", false)
+				return true
+			}
+			if err := r.finishTaskTerminal(ctx, run, name, arguments); err != nil && !errors.Is(err, store.ErrStaleRun) {
+				r.failRun(ctx, run, "task_transition_failed", false)
+			}
+			return true
+		}
+		_ = r.database.MarkTaskExecutionUncertain(ctx, run.ID, run.Generation, time.Now())
+		return true
+	}
+	return false
 }
 
 func (r *TaskExecution) resolveAcpPermission(ctx context.Context, task store.Task, run store.TaskRun, request acp.PermissionRequest) (acp.PermissionDecision, error) {

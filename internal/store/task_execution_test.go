@@ -65,8 +65,9 @@ func TestACPTaskRunCapturesLaunchAndRecovers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	override := t.TempDir()
 	updated, err := database.UpdateInboxTask(context.Background(), id, task.Revision, task.Generation,
-		TaskUpdate{ExecutorAgentID: &agent.AgentID}, testTaskLifecycleCommand("update_task", "acp"), now)
+		TaskUpdate{ExecutorAgentID: &agent.AgentID, CwdOverride: &override, SetCwd: true}, testTaskLifecycleCommand("update_task", "acp"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,8 @@ func TestACPTaskRunCapturesLaunchAndRecovers(t *testing.T) {
 	}
 	_, executor, found, err := database.ClaimTaskExecution(context.Background(), now)
 	if err != nil || !found || executor.ExecutorBackend != "acp" || executor.AcpLaunch == nil ||
-		executor.AcpLaunch.Command != "second-command" || executor.AcpLaunch.ConnectionRevision != 2 || len(executor.AcpLaunch.Arguments) != 0 {
+		executor.AcpLaunch.Command != "second-command" || executor.AcpLaunch.ConnectionRevision != 2 || len(executor.AcpLaunch.Arguments) != 0 ||
+		executor.EffectiveCwd == nil || *executor.EffectiveCwd != override {
 		t.Fatalf("ACP launch = %#v, %t, %v", executor, found, err)
 	}
 	if err = database.StartTaskExecution(context.Background(), executor.ID, 1, now); err != nil {
@@ -128,4 +130,42 @@ func TestACPTaskRunCapturesLaunchAndRecovers(t *testing.T) {
 	if _, _, found, err = database.ClaimTaskExecution(context.Background(), now.Add(5*time.Second)); err != nil || found {
 		t.Fatalf("uncertain ACP run was reclaimed: %t, %v", found, err)
 	}
+}
+
+func TestTaskRunEffectiveCwdPrecedence(t *testing.T) {
+	database := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 14, 0, 0, 0, time.UTC)
+	projectID, _ := NewProjectID()
+	projectFolder := t.TempDir()
+	if _, err := database.CreateProject(ctx, projectID, "workspace:personal", "ACP workspace", "", &projectFolder,
+		testProjectDigest("# Project\n"), testProjectCommand("project.create", "acp-cwd", "acp-cwd"), now); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := database.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	override := t.TempDir()
+	for _, test := range []struct {
+		name string
+		task Task
+		want *string
+	}{
+		{name: "override", task: Task{ProjectID: projectID, CwdOverride: &override}, want: &override},
+		{name: "project", task: Task{ProjectID: projectID}, want: &projectFolder},
+		{name: "default", task: Task{}, want: nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := taskRunEffectiveCwdTx(ctx, tx, test.task)
+			if err != nil || !equalOptionalString(got, test.want) {
+				t.Fatalf("effective CWD = %v, want %v: %v", got, test.want, err)
+			}
+		})
+	}
+}
+
+func equalOptionalString(left, right *string) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }

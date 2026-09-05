@@ -61,6 +61,31 @@ func TestExecutorCancellationStopsDescendants(t *testing.T) {
 	}
 }
 
+func TestExecutorCancellationStopsBlockedPromptWrite(t *testing.T) {
+	command := executorHelperCommand(t, "stalled_prompt", "", "")
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := Execute(ctx, ExecutorRequest{
+		Command: command, Cwd: t.TempDir(), Prompt: strings.Repeat("x", 512<<10), HelperPath: command.Path,
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked prompt cancellation error = %v", err)
+	}
+}
+
+func TestExecutorProtocolFailureAfterApprovalIsUncertain(t *testing.T) {
+	command := executorHelperCommand(t, "malformed_after_approval", "", "")
+	_, err := Execute(context.Background(), ExecutorRequest{
+		Command: command, Cwd: t.TempDir(), Prompt: "current Task", HelperPath: command.Path,
+		Permission: func(PermissionRequest) (PermissionDecision, error) {
+			return PermissionDecision{OptionID: "allow:once"}, nil
+		},
+	})
+	if !errors.Is(err, ErrOutcomeUncertain) {
+		t.Fatalf("post-approval protocol error = %v", err)
+	}
+}
+
 func TestTaskMCPListsAndForwardsOnlyTerminalTools(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -202,6 +227,11 @@ func TestACPExecutorHelperProcess(t *testing.T) {
 		environment[value.Name] = value.Value
 	}
 	writeExecutorResponse(t, request.ID, map[string]any{"sessionId": "session:test"})
+	if mode == "stalled_prompt" {
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	request = readExecutorRequest(t, reader)
 	if request.Method != "session/prompt" || !bytes.Contains(request.Params, []byte("current Task")) && mode != "hang" {
 		t.Fatalf("prompt = %s", request.Params)
@@ -212,7 +242,9 @@ func TestACPExecutorHelperProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = process.Release()
-		select {}
+		for {
+			time.Sleep(time.Hour)
+		}
 	}
 	writeExecutorNotification(t, "session/update", map[string]any{"sessionId": "session:test", "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "Working"}}})
 	writeExecutorRequest(t, 88, "session/request_permission", map[string]any{
@@ -222,6 +254,12 @@ func TestACPExecutorHelperProcess(t *testing.T) {
 	permission := readExecutorRequest(t, reader)
 	if permission.ID != 88 || !bytes.Contains(permission.Result, []byte(`"selected"`)) {
 		t.Fatalf("permission response = %#v", permission)
+	}
+	if mode == "malformed_after_approval" {
+		_, _ = fmt.Fprintln(os.Stdout, "not-json")
+		for {
+			time.Sleep(time.Hour)
+		}
 	}
 	arguments := map[string]any{}
 	if terminal == "task.report_blocked" {
@@ -235,7 +273,9 @@ func TestACPExecutorHelperProcess(t *testing.T) {
 	encoded, _ := json.Marshal(map[string]any{"token": environment[terminalTokenEnvironment], "tool": terminal, "arguments": arguments})
 	_, _ = connection.Write(append(encoded, '\n'))
 	_, _ = bufio.NewReader(connection).ReadBytes('\n')
-	select {}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 type executorHelperMessage struct {
