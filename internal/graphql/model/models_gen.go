@@ -1760,7 +1760,7 @@ type ProviderInteractionActionInput struct {
 	// Optional resolved event context.
 	Context map[string]any `json:"context,omitempty"`
 	// Synchronized data model only when the surface requests it.
-	DataModel map[string]any `json:"dataModel,omitempty"`
+	DataModel JSONValue `json:"dataModel,omitempty"`
 	// Frontend-generated id for optimistic UI correlation.
 	ClientMessageID *string `json:"clientMessageId,omitempty"`
 }

@@ -87,7 +87,7 @@ func (r *Resolver) sendA2UIAction(
 	}
 	accepted, err := r.Chat.SendA2UIAction(ctx, input.ConversationID, input.InteractionID,
 		input.ExpectedRevision, input.SurfaceID, input.SourceComponentID, input.ActionName,
-		input.Context, input.DataModel, input.ClientMessageID)
+		input.Context, input.DataModel.Value, input.ClientMessageID)
 	if err != nil {
 		return nil, err
 	}

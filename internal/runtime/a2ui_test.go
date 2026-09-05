@@ -64,6 +64,14 @@ func TestA2UIValidationReducesPinnedCatalogAndRejectsUnsafeOrUnboundedInput(t *t
 	if bindings["choice"] != "second" {
 		t.Fatalf("array binding = %#v", bindings)
 	}
+	contextValue, ok := resolveA2UIActionContext(map[string]any{"path": "/literal"}, map[string]any{"literal": "bound"})
+	if !ok || contextValue["path"] != "/literal" {
+		t.Fatalf("outer action context = %#v, %t", contextValue, ok)
+	}
+	if value := resolveA2UIBindings(map[string]any{"path": "/items/01"},
+		map[string]any{"items": []any{"first", "second"}}); value != nil {
+		t.Fatalf("noncanonical array binding = %#v", value)
+	}
 }
 
 func TestChatA2UIActionPausesValidatesAndResumesExactPrivateInput(t *testing.T) {

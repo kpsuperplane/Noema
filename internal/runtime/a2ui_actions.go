@@ -16,7 +16,8 @@ type a2uiResolution struct {
 	ctx                                                               context.Context
 	conversationID, interactionID, surfaceID, sourceComponentID, name string
 	expectedRevision                                                  int
-	context, dataModel                                                map[string]any
+	context                                                           map[string]any
+	dataModel                                                         any
 	clientMessageID                                                   *string
 	reply                                                             chan error
 }
@@ -24,14 +25,14 @@ type a2uiResolution struct {
 // SendA2UIAction validates and queues one exact A2UI action.
 func (c *Chat) SendA2UIAction(ctx context.Context, conversationID, interactionID string,
 	expectedRevision int, surfaceID, sourceComponentID, name string,
-	actionContext, dataModel map[string]any, clientMessageID *string,
+	actionContext map[string]any, dataModel any, clientMessageID *string,
 ) (TurnAccepted, error) {
 	if _, err := c.database.Conversation(ctx, conversationID); err != nil {
 		return TurnAccepted{}, err
 	}
 	request := a2uiResolution{ctx: ctx, conversationID: conversationID, interactionID: interactionID,
 		expectedRevision: expectedRevision, surfaceID: surfaceID, sourceComponentID: sourceComponentID,
-		name: name, context: cloneOptionalJSONObject(actionContext), dataModel: cloneOptionalJSONObject(dataModel),
+		name: name, context: cloneA2UIJSON(actionContext), dataModel: cloneA2UIJSON(dataModel),
 		clientMessageID: cloneOptionalString(clientMessageID), reply: make(chan error, 1)}
 	c.stateMu.RLock()
 	if c.closed {
@@ -63,12 +64,9 @@ func (c *Chat) SendA2UIAction(ctx context.Context, conversationID, interactionID
 		return TurnAccepted{ConversationID: conversationID, ClientMessageID: request.clientMessageID}, nil
 	}
 }
-func cloneOptionalJSONObject(value map[string]any) map[string]any {
-	if value == nil {
-		return nil
-	}
+func cloneA2UIJSON[T any](value T) T {
 	encoded, _ := json.Marshal(value)
-	var cloned map[string]any
+	var cloned T
 	_ = json.Unmarshal(encoded, &cloned)
 	return cloned
 }
@@ -125,7 +123,11 @@ func (c *Chat) resolveA2UI(request a2uiResolution) {
 	if request.dataModel != nil {
 		surface.DataModel = request.dataModel
 	}
-	resolvedContext := resolveA2UIBindings(declared.Context, surface.DataModel)
+	resolvedContext, ok := resolveA2UIActionContext(declared.Context, surface.DataModel)
+	if !ok {
+		request.reply <- errors.New("stored A2UI action context is invalid")
+		return
+	}
 	if !reflect.DeepEqual(request.context, resolvedContext) {
 		request.reply <- errors.New("A2UI action context does not match the declared action")
 		return
@@ -134,7 +136,7 @@ func (c *Chat) resolveA2UI(request a2uiResolution) {
 	encodedSurface, _ := json.Marshal(surface)
 	var storedSurface map[string]any
 	_ = json.Unmarshal(encodedSurface, &storedSurface)
-	settled := cloneOptionalJSONObject(projection)
+	settled := cloneA2UIJSON(projection)
 	settledSurfaces, _ := settled["surfaces"].(map[string]any)
 	settledSurfaces[surfaceKey] = storedSurface
 	settled["interaction_revision"] = request.expectedRevision + 1
@@ -167,6 +169,21 @@ func boundedA2UIJSON(value any) bool {
 	return err == nil && len(encoded) <= a2uiActionJSONLimit
 }
 
+func resolveA2UIActionContext(value, dataModel any) (map[string]any, bool) {
+	if value == nil {
+		return nil, true
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	result := make(map[string]any, len(object))
+	for key, child := range object {
+		result[key] = resolveA2UIBindings(child, dataModel)
+	}
+	return result, true
+}
+
 func resolveA2UIBindings(value, dataModel any) any {
 	object, ok := value.(map[string]any)
 	if ok && len(object) == 1 {
@@ -182,7 +199,7 @@ func resolveA2UIBindings(value, dataModel any) any {
 					current, ok = next[part]
 				case []any:
 					index, err := strconv.Atoi(part)
-					ok = err == nil && index >= 0 && index < len(next)
+					ok = err == nil && index >= 0 && strconv.Itoa(index) == part && index < len(next)
 					if ok {
 						current = next[index]
 					}

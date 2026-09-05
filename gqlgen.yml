@@ -19,3 +19,7 @@ models:
   JSON:
     model:
       - github.com/99designs/gqlgen/graphql.Map
+  ProviderInteractionActionInput:
+    fields:
+      dataModel:
+        type: github.com/kpsuperplane/noema/internal/graphql/model.JSONValue

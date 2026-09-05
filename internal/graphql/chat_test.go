@@ -325,6 +325,18 @@ func TestConversationA2UISurfacePreservesClientContract(t *testing.T) {
 	}
 }
 
+func TestA2UIActionInputPreservesArrayDataModel(t *testing.T) {
+	input, err := new(executionContext).unmarshalInputProviderInteractionActionInput(context.Background(), map[string]any{
+		"conversationId": "conversation:test", "interactionId": "interaction:test", "expectedRevision": 1,
+		"surfaceId": "main", "sourceComponentId": "submit", "actionName": "submit",
+		"dataModel": []any{"first", map[string]any{"private": "kept"}},
+	})
+	modelValue, ok := input.DataModel.Value.([]any)
+	if err != nil || !ok || len(modelValue) != 2 || modelValue[1].(map[string]any)["private"] != "kept" {
+		t.Fatalf("A2UI action data model = %#v, %v", input.DataModel.Value, err)
+	}
+}
+
 func openChatTestResolver(t *testing.T) *Resolver {
 	t.Helper()
 	resolver := openProviderTestResolver(t)
