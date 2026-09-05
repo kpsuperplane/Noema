@@ -61,17 +61,52 @@ The replacement must:
 
 Record the exact baseline again when implementation starts.
 
-The 2026-09-04 baseline contains:
+The migration baseline contains:
 
 - 15 production Rust packages in the server closure;
-- approximately 231,606 raw Rust lines, including tests;
-- 1,135 Rust test functions;
+- 173,990 production Rust lines;
+- 65,836 Rust test lines;
+- 239,826 total Rust lines;
+- 1,191 Rust test functions;
 - 60 active direct external crates;
 - approximately 707 current-platform dependency nodes;
 - GraphQL clients generated from `graphql/schema.graphql`;
 - separate development and validation Cargo caches;
 - disabled incremental compilation for development and tests;
 - an embedded Obscura dependency with V8 and BoringSSL.
+
+Use commit `a007a4fa984f0d2eaeb2c101337dbbe7881d9379` as the Rust size baseline.
+The current size script classifies inline Rust test modules separately.
+
+### Migration size gate
+
+Keep authored Go production code below 80% of Rust production code.
+The hard production limit is 139,192 lines.
+
+Keep all checked-in Go code below 80% of all checked-in Rust code.
+This conservative total includes Go tests and generated GraphQL code.
+The hard total limit is 191,860 lines.
+
+Report authored production, tests, generated code, and the inclusive total separately.
+Do not use generated code to hide authored growth.
+
+At commit `461ec78415bb75001f626dfb9a52f035c0bcc832`, the Go counts are:
+
+| Class | Lines | Rust comparison |
+| --- | ---: | ---: |
+| Authored production | 53,715 | 30.9% of Rust production |
+| Tests | 18,257 | Separate evidence cost |
+| Generated GraphQL | 79,602 | Separate generated cost |
+| Inclusive total | 151,574 | 63.2% of all Rust code |
+
+Measure this gate before each migration-unit merge and before cutover.
+If authored production reaches 70%, stop and run a reduction review.
+If either hard limit fails, stop the migration until the port becomes smaller.
+
+Each protection must address a named current failure, threat, or external contract.
+Do not preserve Rust safeguards that only served the old home or removed architecture.
+Do not add multi-process or distributed-system behavior without a current production boundary.
+Prefer one authoritative local transaction or rooted operation over coordination infrastructure.
 
 ### Required production capabilities
 
