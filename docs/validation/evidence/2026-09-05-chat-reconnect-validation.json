@@ -1,0 +1,22 @@
+{
+  "testedRevision": "0c3de0a4290a318fef37bab3a20ff90ed554d125",
+  "productionChanges": 0,
+  "newUnitTests": 0,
+  "driverHashes": {
+    "chat-reconnect-browser.mjs": "009d503b1393287618548bbd52e956c5bf3270dafcc94d883e6558c0cf14c0b4",
+    "chat-reconnect-browser-results.json": "cbebc929f92a9e029d2984e6b7e2019ac17c3db56cba4b9541af35e3477779d4",
+    "chat-rich-visual.mjs": "f647137b0124ad1ed0592acb96d2cb7941f3b7c807c1eaeb2ce2af6b774cb00d",
+    "chat-rich-visual-results.json": "09cb1dc7a7fce6eea069a4abf6551ded56e3ebeab182806547dafacd8e7b82cd"
+  },
+  "checks": [
+    "The live browser driver passed.",
+    "The visual driver passed at 1280 and 390 pixels.",
+    "Expanded messages expose the final line without horizontal page overflow."
+  ],
+  "limits": [
+    "Only Codex and Chromium were tested.",
+    "The disconnect dropped a text delta. Tool-result disconnect remains pending.",
+    "Cloudflare Access was outside the direct HTTPS origin route."
+  ],
+  "validationReuse": "No production inputs changed. Full Go tests and vet from task-source-validation.json remain valid."
+}

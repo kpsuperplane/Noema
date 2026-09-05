@@ -1,0 +1,65 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "provider": "codex",
+  "transport": "Direct HTTPS origin",
+  "cases": [
+    {
+      "id": "CHAT-01",
+      "result": "pass",
+      "turn": [
+        {
+          "itemId": "item:703219069b72e643b5b3edb3aaa41340",
+          "turnId": "turn:1425245dbeb98c19ffc63497ab18847a",
+          "item": {
+            "__typename": "UserText",
+            "text": "Migration audit CHAT-01 persistence. Reply with exactly AUDIT_CHAT_SIMPLE_42 and no other text."
+          }
+        },
+        {
+          "itemId": "item:3e37c310ea187dca0feb5536277f9e0c",
+          "turnId": "turn:1425245dbeb98c19ffc63497ab18847a",
+          "item": {
+            "__typename": "AssistantText",
+            "text": "AUDIT_CHAT_SIMPLE_42"
+          }
+        }
+      ]
+    },
+    {
+      "id": "CHAT-03",
+      "result": "pass",
+      "scope": "Live Codex text streaming; tool-result disconnect remains pending.",
+      "connections": 4,
+      "deltaCount": 420,
+      "turn": [
+        {
+          "itemId": "item:d54a73d71954bf141d5e2c57dd19267b",
+          "turnId": "turn:9cb65b2dedc758a7dbf55a2999fc0bd2",
+          "item": {
+            "__typename": "UserText",
+            "text": "Migration audit CHAT-03/06/08. Complete this response here in foreground Chat. Do not create or run any Task. Do not use tools or access external services. Return only the exact Markdown string from this JSON value, without enclosing fences:\n{\"markdown\":\"# Reconnect audit\\n\\nCafé 日本語 🧭 remain intact.\\n\\n- First audit item\\n- Second audit item\\n\\n```js\\nconst audit = \\\"café 日本語 🧭\\\";\\nconsole.log(audit);\\n```\\n\\n[Audit link](https://example.com/noema-audit?q=42)\\n\\nAudit line 1: preserve order and exact content.\\n\\nAudit line 2: preserve order and exact content.\\n\\nAudit line 3: preserve order and exact content.\\n\\nAudit line 4: preserve order and exact content.\\n\\nAudit line 5: preserve order and exact content.\\n\\nAudit line 6: preserve order and exact content.\\n\\nAudit line 7: preserve order and exact content.\\n\\nAudit line 8: preserve order and exact content.\\n\\nAudit line 9: preserve order and exact content.\\n\\nAudit line 10: preserve order and exact content.\\n\\nAudit line 11: preserve order and exact content.\\n\\nAudit line 12: preserve order and exact content.\\n\\nAudit line 13: preserve order and exact content.\\n\\nAudit line 14: preserve order and exact content.\\n\\nAudit line 15: preserve order and exact content.\\n\\nAUDIT_RECONNECT_COMPLETE_42\"}"
+          }
+        },
+        {
+          "itemId": "item:eeeef7d29a1813ee89fd95e77c35bf94",
+          "turnId": "turn:9cb65b2dedc758a7dbf55a2999fc0bd2",
+          "item": {
+            "__typename": "AssistantText",
+            "text": "# Reconnect audit\n\nCafé 日本語 🧭 remain intact.\n\n- First audit item\n- Second audit item\n\n```js\nconst audit = \"café 日本語 🧭\";\nconsole.log(audit);\n```\n\n[Audit link](https://example.com/noema-audit?q=42)\n\nAudit line 1: preserve order and exact content.\n\nAudit line 2: preserve order and exact content.\n\nAudit line 3: preserve order and exact content.\n\nAudit line 4: preserve order and exact content.\n\nAudit line 5: preserve order and exact content.\n\nAudit line 6: preserve order and exact content.\n\nAudit line 7: preserve order and exact content.\n\nAudit line 8: preserve order and exact content.\n\nAudit line 9: preserve order and exact content.\n\nAudit line 10: preserve order and exact content.\n\nAudit line 11: preserve order and exact content.\n\nAudit line 12: preserve order and exact content.\n\nAudit line 13: preserve order and exact content.\n\nAudit line 14: preserve order and exact content.\n\nAudit line 15: preserve order and exact content.\n\nAUDIT_RECONNECT_COMPLETE_42"
+          }
+        }
+      ]
+    },
+    {
+      "id": "CHAT-06",
+      "result": "pass",
+      "scope": "Two Chromium contexts, including phone width; native clients remain pending."
+    },
+    {
+      "id": "CHAT-08",
+      "result": "pass",
+      "scope": "Foreground text request creates no Task."
+    }
+  ],
+  "droppedDelta": true
+}

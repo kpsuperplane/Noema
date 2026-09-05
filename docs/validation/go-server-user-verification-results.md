@@ -240,6 +240,21 @@ The regression failed before the fix and passed after it. Full Go tests and vet 
 Those results remain valid after these documentation changes. The patch changes one production line and adds 27 test lines.
 Both migration ratios remain below 80 percent. These browser checks use the live HTTPS origin; Cloudflare Access remains outside their scope.
 
+## Live Chat persistence and reconnect
+
+The [Chat driver](evidence/2026-09-05-chat-reconnect-browser.mjs) sends one simple request and one exact rich Markdown request.
+Its [results](evidence/2026-09-05-chat-reconnect-browser-results.json) contain only these synthetic turns.
+The first turn retains one human message and one assistant response after reload.
+During the second response, the driver drops a text delta and closes the browser WebSocket.
+The client reconnects and recovers the exact response without duplicate saved messages. A tool-result disconnect remains pending.
+
+Code, lists, links, Unicode, and emoji remain intact after reload and in a second browser at phone width.
+The foreground request creates no Task. This evidence covers Codex and Chromium, not the remaining provider and client matrix.
+The [visual driver](evidence/2026-09-05-chat-rich-visual.mjs) opens and expands the saved response at desktop and phone widths.
+Its [results](evidence/2026-09-05-chat-rich-visual-results.json) confirm no horizontal page overflow. The final response line remains reachable.
+The [validation record](evidence/2026-09-05-chat-reconnect-validation.json) records the tested revision and driver hashes.
+No production code changed. Existing Go checks remain valid; script syntax, JSON, links, case IDs, and whitespace receive focused validation.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -276,14 +291,14 @@ A human variant remains pending even when its controlled counterpart passes.
 | SETUP-08 | Not run | Controlled setup pending. | — |
 | SETUP-09 | Not run | Controlled setup pending. | — |
 | SETUP-10 | Not run | Controlled setup pending. | — |
-| CHAT-01 | Partial | Controlled OpenAI-compatible HTTPS transport saves an answer and restores it after reload. Other providers and transcript count assertions remain pending. | — |
-| CHAT-02 | Partial · live Codex | Eight tool calls have eight matching successful results. The final answer matches stored Project and Task state. Other providers remain pending. | Live Chat capture checks above. |
-| CHAT-03 | Not run | Controlled setup pending. | — |
+| CHAT-01 | Pass · live Codex/Chromium | One exact human message and one assistant response remain in order after reload. Other providers remain pending. | — |
+| CHAT-02 | Partial · live Codex | Eight tool calls have eight matching successful results. The final answer matches stored Project and Task state. Other providers remain pending. Live Chat capture checks above. | — |
+| CHAT-03 | Partial · live Codex/Chromium | A dropped text delta and closed WebSocket recover to one exact response. Tool-result disconnect remains pending. | — |
 | CHAT-04 | Not run | Controlled setup pending. | — |
 | CHAT-05 | Not run | Controlled setup pending. | — |
-| CHAT-06 | Partial | Controlled provider text preserves Unicode, emoji, paragraphs, and an exact URL through reload. Rich text and cross-client variants remain pending. | — |
+| CHAT-06 | Partial · live Chromium | Unicode, emoji, paragraphs, code, lists, and links survive reload and a second browser read. Native clients remain pending. | — |
 | CHAT-07 | Not run | Controlled setup pending. | — |
-| CHAT-08 | Not run | Controlled setup pending. | — |
+| CHAT-08 | Pass · live Codex | The explicit foreground request returns its exact response in Chat and creates no Task. Other provider variants remain pending. | — |
 | CHAT-09 | Not run | Controlled setup pending. | — |
 | CHAT-10 | Not run | Controlled setup pending. | — |
 | CHAT-11 | Not run | Controlled setup pending. | — |
@@ -299,15 +314,15 @@ A human variant remains pending even when its controlled counterpart passes.
 | MODEL-06 | Not run | Controlled setup pending. | — |
 | MODEL-07 | Not run | Controlled setup pending. | — |
 | MODEL-08 | Not run | Controlled setup pending. | — |
-| TASK-01 | Pass · live Chromium | Chat captures one exact Inbox request in the existing Project. The Task keeps its conversation source and opens from Chat. | Live Chat capture checks above. |
+| TASK-01 | Pass · live Chromium | Chat captures one exact Inbox request in the existing Project. The Task keeps its conversation source and opens from Chat. Live Chat capture checks above. | — |
 | TASK-02 | Pass · live Linux/Chromium | Add to Inbox preserves the exact request without execution. Run Now starts a Task that completes through review. | — |
-| TASK-03 | Pass · live Chromium | Browser title and exact Unicode Markdown edits survive reload. Renaming preserves the allocated directory. | Live Task editing checks above. |
-| TASK-04 | Pass · two live browser contexts | A competing save preserves the stale local draft and accepted server content. Acknowledgement and cancel do not overwrite either silently. | Live Task editing checks above. |
-| TASK-05 | Partial | Source/rich switching, cancel, stale acknowledgement, and rich-editor load failure preserve source editing. Parser-specific failure remains pending. | Live Task editing checks above. |
-| TASK-06 | Pass · live Chromium | Starting work invalidates the held edit and disables saving. Active and completed documents remain readable; completed editing controls are absent. | Live Task editing checks above. |
-| TASK-07 | Pass · live Chromium | Personal, Project, Scheduled, and terminal filters show the expected records. Selection and available actions match Task state. | Live Task view checks above. |
-| TASK-08 | Pass · live Chromium | Reopen selects the result. Request, review, support Markdown, and literal text remain distinct. Transcript navigation reaches the Planner start. | Live Task editing checks above. |
-| TASK-09 | Pass · live Chromium | Completion opens the result. A later request selection remains selected across Transcript and Workspace navigation. | Live Task editing checks above. |
+| TASK-03 | Pass · live Chromium | Browser title and exact Unicode Markdown edits survive reload. Renaming preserves the allocated directory. Live Task editing checks above. | — |
+| TASK-04 | Pass · two live browser contexts | A competing save preserves the stale local draft and accepted server content. Acknowledgement and cancel do not overwrite either silently. Live Task editing checks above. | — |
+| TASK-05 | Partial | Source/rich switching, cancel, stale acknowledgement, and rich-editor load failure preserve source editing. Parser-specific failure remains pending. Live Task editing checks above. | — |
+| TASK-06 | Pass · live Chromium | Starting work invalidates the held edit and disables saving. Active and completed documents remain readable; completed editing controls are absent. Live Task editing checks above. | — |
+| TASK-07 | Pass · live Chromium | Personal, Project, Scheduled, and terminal filters show the expected records. Selection and available actions match Task state. Live Task view checks above. | — |
+| TASK-08 | Pass · live Chromium | Reopen selects the result. Request, review, support Markdown, and literal text remain distinct. Transcript navigation reaches the Planner start. Live Task editing checks above. | — |
+| TASK-09 | Pass · live Chromium | Completion opens the result. A later request selection remains selected across Transcript and Workspace navigation. Live Task editing checks above. | — |
 | TASK-10 | Partial | A repeated capture returns the original Task identity. Lost responses for other commands remain pending. | — |
 | TASK-11 | Pass · Linux | Equal Unicode titles create distinct Task directories. Exact old and new documents remain intact. | — |
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
@@ -338,10 +353,10 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-11 | Partial | Fixed duplicate fall-back previews. Spring and fall preview assertions pass. Actual scheduled transition checks remain pending. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |
 | PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
-| PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. | Live Project checks above. |
+| PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. Live Project checks above. | — |
 | PROJECT-03 | Not run | Controlled setup pending. | — |
-| PROJECT-04 | Pass · live Chromium | Archive preserves readable context and removes editing controls in both browsers. Reopen restores editing with the same content. | Live Project checks above. |
-| PROJECT-05 | Pass · live Codex | Chat reads the existing Project and lists its Tasks, including cancelled work. It captures a request without duplicating the Project. | Live Chat capture checks above. |
+| PROJECT-04 | Pass · live Chromium | Archive preserves readable context and removes editing controls in both browsers. Reopen restores editing with the same content. Live Project checks above. | — |
+| PROJECT-05 | Pass · live Codex | Chat reads the existing Project and lists its Tasks, including cancelled work. It captures a request without duplicating the Project. Live Chat capture checks above. | — |
 | AGENT-01 | Not run | Controlled setup pending. | — |
 | AGENT-02 | Not run | Controlled setup pending. | — |
 | AGENT-03 | Not run | Controlled setup pending. | — |
@@ -426,15 +441,15 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-10 | Not run | Controlled setup pending. | — |
 | CALC-01 | Pass · controlled Linux | Budget, percentage, structured JSON, nulls, and Unicode match independent values. | — |
 | CALC-02 | Pass · controlled Linux | Unbounded Lua and file, process, environment, and network access fail within 15 seconds each. | — |
-| ART-01 | Pass | Reopened the completed result and downloaded its published file. Owner, media type, filename, size, and exact bytes match. | Live Artifact checks above. |
-| ART-02 | Partial | External URL and conversation owner remain exact through GraphQL. Visible Chat reference remains pending. | Live Artifact checks above. |
-| ART-03 | Partial | Two versions download with distinct original bytes. The browser selector renders each version. Saved upload-action binding remains pending. | Live Artifact checks above. |
-| ART-04 | Partial | Markdown, literal text, and PDF render. Raster preview bytes match. Raster rendering and spreadsheet variants remain pending. | Live Artifact checks above. |
-| ART-05 | Pass | Live HTML preview preserves visible content and blocks active behavior at desktop and phone widths. | Live Artifact checks above. |
-| ART-06 | Pass | SVG and binary show Preview unavailable, expose no inline frame, and retain exact browser downloads. | Live Artifact checks above. |
-| ART-07 | Pass | Changed, missing, and symlink files fail delivery and show a preview load error. Restoring original bytes restores the preview. | Live Artifact checks above. |
-| ART-08 | Pass | Same URL returns 401 before login, 200 after passkey login, and 401 after logout. Authorized responses use no-store. | Live Artifact checks above. |
-| ART-09 | Pass | A 40 KiB binary retains exact bytes, filename, media type, length, and private caching across a verified server restart. | Live Artifact checks above. |
+| ART-01 | Pass | Reopened the completed result and downloaded its published file. Owner, media type, filename, size, and exact bytes match. Live Artifact checks above. | — |
+| ART-02 | Partial | External URL and conversation owner remain exact through GraphQL. Visible Chat reference remains pending. Live Artifact checks above. | — |
+| ART-03 | Partial | Two versions download with distinct original bytes. The browser selector renders each version. Saved upload-action binding remains pending. Live Artifact checks above. | — |
+| ART-04 | Partial | Markdown, literal text, and PDF render. Raster preview bytes match. Raster rendering and spreadsheet variants remain pending. Live Artifact checks above. | — |
+| ART-05 | Pass | Live HTML preview preserves visible content and blocks active behavior at desktop and phone widths. Live Artifact checks above. | — |
+| ART-06 | Pass | SVG and binary show Preview unavailable, expose no inline frame, and retain exact browser downloads. Live Artifact checks above. | — |
+| ART-07 | Pass | Changed, missing, and symlink files fail delivery and show a preview load error. Restoring original bytes restores the preview. Live Artifact checks above. | — |
+| ART-08 | Pass | Same URL returns 401 before login, 200 after passkey login, and 401 after logout. Authorized responses use no-store. Live Artifact checks above. | — |
+| ART-09 | Pass | A 40 KiB binary retains exact bytes, filename, media type, length, and private caching across a verified server restart. Live Artifact checks above. | — |
 | NOTE-01 | Not run | Controlled setup pending. | Not run |
 | NOTE-02 | Not run | Controlled setup pending. | Not run |
 | NOTE-03 | Not run | Controlled setup pending. | Not run |
