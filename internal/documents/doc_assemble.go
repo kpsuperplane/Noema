@@ -193,23 +193,28 @@ func (t *docTableState) finishRow(tap *docTap) {
 		t.row = nil
 	}
 }
-func (t *docTableState) flush(blocks *[]docBlock) {
+func (t *docTableState) flush(blocks *[]docBlock) error {
 	if len(t.cells) > 0 {
 		t.cell(t.cells)
 		t.cells = nil
 	}
 	t.finishRow(nil)
 	if len(t.rows) == 0 {
-		return
+		return nil
 	}
 	header := 0
 	if t.rows[0].tap != nil && t.rows[0].tap.header {
 		header = 1
 	}
-	*blocks = append(*blocks, docBlock{kind: 't', level: header, table: docTableGrid(t.rows)})
+	grid, err := docTableGrid(t.rows)
+	if err != nil {
+		return err
+	}
+	*blocks = append(*blocks, docBlock{kind: 't', level: header, table: grid})
 	t.rows = nil
+	return nil
 }
-func docTableGrid(rows []docRow) [][]docCell {
+func docTableGrid(rows []docRow) ([][]docCell, error) {
 	var edges []int
 	for _, row := range rows {
 		if row.tap != nil {
@@ -225,13 +230,21 @@ func docTableGrid(rows []docRow) [][]docCell {
 			clusters = append(clusters, edge)
 		}
 	}
+	width := len(clusters)
+	for _, row := range rows {
+		width = max(width, len(row.cells))
+	}
+	if width > 0 && len(rows) > 65_536/width {
+		return nil, errInvalidDocument
+	}
 	grid := make([][]docCell, len(rows))
 	active := map[[2]int]bool{}
 	for r, row := range rows {
-		line := make([]docCell, max(len(clusters), len(row.cells)))
+		line := make([]docCell, width)
 		col := 0
 		next := map[[2]int]bool{}
-		for source, blocks := range row.cells {
+		for source := 0; source < len(row.cells); source++ {
+			blocks := append([]docBlock(nil), row.cells[source]...)
 			right := col + 1
 			if row.tap != nil && source+1 < len(row.tap.boundaries) {
 				right = sort.SearchInts(clusters, int(row.tap.boundaries[source+1])-10) + 1
@@ -244,10 +257,19 @@ func docTableGrid(rows []docRow) [][]docCell {
 			if row.tap != nil && source < len(row.tap.cells) {
 				tc = row.tap.cells[source]
 			}
+			if tc.hfirst {
+				for source+1 < len(row.cells) && source+1 < len(row.tap.cells) && row.tap.cells[source+1].hcont {
+					source++
+					blocks = append(blocks, row.cells[source]...)
+					if source+1 < len(row.tap.boundaries) {
+						right = sort.SearchInts(clusters, int(row.tap.boundaries[source+1])-10) + 1
+					}
+				}
+			}
 			key := [2]int{col, right}
-			line[col] = docCell(renderDOCBlocks(blocks, nil))
+			line[col] = blocks
 			if tc.vcont && active[key] {
-				line[col] = ""
+				line[col] = nil
 				next[key] = true
 			} else if tc.vfirst {
 				next[key] = true
@@ -257,7 +279,7 @@ func docTableGrid(rows []docRow) [][]docCell {
 		grid[r] = line
 		active = next
 	}
-	return grid
+	return grid, nil
 }
 
 func (p *docParser) blocks(lo, hi int) ([]docBlock, error) {
@@ -309,7 +331,9 @@ func (p *docParser) blocks(lo, hi int) ([]docBlock, error) {
 					p.emitCell(istd, in, &table.cells, &cellStyled)
 				}
 			} else {
-				table.flush(&blocks)
+				if err := table.flush(&blocks); err != nil {
+					return nil, err
+				}
 				p.emitParagraph(istd, pap, in, &blocks, &lists, &styled, flushLists)
 			}
 		case '\u000b':
@@ -336,7 +360,9 @@ func (p *docParser) blocks(lo, hi int) ([]docBlock, error) {
 	}
 	in := para.finish()
 	cellStyled.flush(&table.cells)
-	table.flush(&blocks)
+	if err := table.flush(&blocks); err != nil {
+		return nil, err
+	}
 	if !docInlinesEmpty(in) {
 		styled.flush(&blocks)
 		flushLists()
@@ -527,21 +553,30 @@ func renderDOCDocument(blocks []docBlock, notes []docNote) string {
 		}
 	}
 	numbers := map[string]int{}
-	for _, block := range blocks {
-		sets := [][]docInline{block.inlines}
-		for _, entry := range block.list {
-			sets = append(sets, entry.inlines)
-		}
-		for _, inlines := range sets {
-			for _, inline := range inlines {
-				if _, ok := valid[inline.note]; ok && inline.note != "" {
-					if _, seen := numbers[inline.note]; !seen {
-						numbers[inline.note] = len(numbers) + 1
+	var scan func([]docBlock)
+	scan = func(blocks []docBlock) {
+		for _, block := range blocks {
+			sets := [][]docInline{block.inlines}
+			for _, entry := range block.list {
+				sets = append(sets, entry.inlines)
+			}
+			for _, inlines := range sets {
+				for _, inline := range inlines {
+					if _, ok := valid[inline.note]; ok && inline.note != "" {
+						if _, seen := numbers[inline.note]; !seen {
+							numbers[inline.note] = len(numbers) + 1
+						}
 					}
+				}
+			}
+			for _, row := range block.table {
+				for _, cell := range row {
+					scan(cell)
 				}
 			}
 		}
 	}
+	scan(blocks)
 	for _, note := range notes {
 		if _, ok := valid[note.id]; ok {
 			if _, seen := numbers[note.id]; !seen {
@@ -598,7 +633,7 @@ func renderDOCBlocks(blocks []docBlock, notes map[string]int) string {
 		case 'l':
 			rendered = renderDOCList(block.list, notes)
 		case 't':
-			rendered = renderDOCTable(block.table, block.level > 0)
+			rendered = renderDOCTable(block.table, block.level > 0, notes)
 		}
 		if rendered != "" {
 			parts = append(parts, rendered)
@@ -607,7 +642,7 @@ func renderDOCBlocks(blocks []docBlock, notes map[string]int) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func renderDOCTable(rows [][]docCell, header bool) string {
+func renderDOCTable(rows [][]docCell, header bool, notes map[string]int) string {
 	if len(rows) == 0 {
 		return ""
 	}
@@ -624,7 +659,7 @@ func renderDOCTable(rows [][]docCell, header bool) string {
 		for i := 0; i < width; i++ {
 			b.WriteByte(' ')
 			if i < len(row) {
-				b.WriteString(strings.ReplaceAll(string(row[i]), "|", "\\|"))
+				b.WriteString(renderDOCCell(row[i], notes))
 			}
 			b.WriteString(" |")
 		}
@@ -636,13 +671,35 @@ func renderDOCTable(rows [][]docCell, header bool) string {
 		result[0] = line(rows[0])
 		start = 1
 	}
-	delimiter := make([]docCell, width)
-	for i := range delimiter {
-		delimiter[i] = "---"
-	}
-	result = append(result, line(delimiter))
+	result = append(result, "|"+strings.Repeat(" --- |", width))
 	for _, row := range rows[start:] {
 		result = append(result, line(row))
 	}
 	return strings.Join(result, "\n")
+}
+
+func renderDOCCell(blocks []docBlock, notes map[string]int) string {
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		var text string
+		switch block.kind {
+		case 'p':
+			text = renderDOCInlines(block.inlines, true, notes)
+		case 'h':
+			text = "**" + renderDOCInlines(block.inlines, true, notes) + "**"
+		case 'l':
+			text = renderDOCList(block.list, notes)
+		case 'q':
+			text = renderDOCInlines(block.inlines, true, notes)
+		case 'c':
+			text = "`" + strings.ReplaceAll(block.code, "`", "\\`") + "`"
+		case 't':
+			text = renderDOCTable(block.table, block.level > 0, notes)
+		}
+		text = strings.TrimSpace(strings.ReplaceAll(text, "\n", "<br>"))
+		if text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.ReplaceAll(strings.Join(parts, "<br>"), "|", "\\|")
 }

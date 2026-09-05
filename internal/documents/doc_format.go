@@ -31,7 +31,7 @@ type docTap struct {
 	cells      []docTapCell
 	header     bool
 }
-type docTapCell struct{ vfirst, vcont bool }
+type docTapCell struct{ hfirst, hcont, vfirst, vcont bool }
 type docRunProps struct {
 	chpx []byte
 	istd uint16
@@ -248,6 +248,9 @@ func parseDOCTap(v []byte) *docTap {
 			break
 		}
 		f := u16(v, o)
+		horz := f & 3
+		t.cells[i].hcont = horz == 1
+		t.cells[i].hfirst = horz >= 2
 		vert := (f >> 5) & 3
 		t.cells[i].vcont = vert == 1
 		t.cells[i].vfirst = vert == 3
@@ -348,42 +351,50 @@ func parseDOCStyles(word, table []byte) docStyles {
 			raw[uint16(i)] = x
 		}
 	}
-	resolving := map[uint16]bool{}
-	var resolve func(uint16, int) docResolvedStyle
-	resolve = func(id uint16, depth int) docResolvedStyle {
-		if x, ok := out.m[id]; ok {
-			return x
-		}
-		if depth >= 256 || resolving[id] {
-			return docResolvedStyle{}
-		}
-		r, ok := raw[id]
-		if !ok {
-			return docResolvedStyle{}
-		}
-		resolving[id] = true
-		base := docResolvedStyle{}
-		if r.base != 0xfff && r.base != id {
-			base = resolve(r.base, depth+1)
-		}
-		delete(resolving, id)
-		if r.paragraph && len(r.papx) >= 2 {
-			var d docPap
-			applyDOCPap(r.papx[2:], nil, &d, 0)
-			base.pap = base.pap.over(d)
-		}
-		base.chp = applyDOCChpx(r.chpx, base.chp, base.chp)
-		if r.heading > 0 {
-			base.heading = r.heading
-		}
-		if r.block != 0 {
-			base.block = r.block
-		}
-		out.m[id] = base
-		return base
-	}
+	return resolveDOCStyles(raw)
+}
+func resolveDOCStyles(raw map[uint16]docRawStyle) docStyles {
+	out := docStyles{m: map[uint16]docResolvedStyle{}}
 	for id := range raw {
-		resolve(id, 0)
+		if _, ok := out.m[id]; ok {
+			continue
+		}
+		chain := []uint16{}
+		seen := map[uint16]bool{}
+		cursor := id
+		base := docResolvedStyle{}
+		for len(chain) <= len(raw) {
+			if x, ok := out.m[cursor]; ok {
+				base = x
+				break
+			}
+			r, ok := raw[cursor]
+			if !ok || seen[cursor] {
+				break
+			}
+			seen[cursor] = true
+			chain = append(chain, cursor)
+			if r.base == 0xfff || r.base == cursor {
+				break
+			}
+			cursor = r.base
+		}
+		for i := len(chain) - 1; i >= 0; i-- {
+			r := raw[chain[i]]
+			if r.paragraph && len(r.papx) >= 2 {
+				var d docPap
+				applyDOCPap(r.papx[2:], nil, &d, 0)
+				base.pap = base.pap.over(d)
+			}
+			base.chp = applyDOCChpx(r.chpx, base.chp, base.chp)
+			if r.heading > 0 {
+				base.heading = r.heading
+			}
+			if r.block != 0 {
+				base.block = r.block
+			}
+			out.m[chain[i]] = base
+		}
 	}
 	return out
 }

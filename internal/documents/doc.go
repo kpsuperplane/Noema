@@ -49,7 +49,7 @@ type docBlock struct {
 	list    []docListEntry
 	table   [][]docCell
 }
-type docCell string
+type docCell []docBlock
 type docNote struct {
 	id     string
 	blocks []docBlock
@@ -124,10 +124,17 @@ func parseDOC(input []byte) (string, error) {
 		return "", err
 	}
 	notes := make([]docNote, 0)
+	work := docWorkBudget(len(blocks))
+	if !work.add(len(noteRanges)) {
+		return "", errInvalidDocument
+	}
 	for _, nr := range noteRanges {
 		if nr.lo < nr.hi {
 			b, e := p.blocks(nr.lo, nr.hi)
 			if e == nil {
+				if !work.add(len(b)) {
+					return "", errInvalidDocument
+				}
 				notes = append(notes, docNote{nr.id, b})
 			}
 		}
@@ -135,6 +142,16 @@ func parseDOC(input []byte) (string, error) {
 	var output markdownDocument
 	output.append(renderDOCDocument(blocks, notes))
 	return output.String(), nil
+}
+
+type docWorkBudget int
+
+func (b *docWorkBudget) add(n int) bool {
+	if n < 0 || int(*b) > maxDocumentBlocks-n {
+		return false
+	}
+	*b += docWorkBudget(n)
+	return true
 }
 func readDOCStream(r *cfb.Reader, name string) ([]byte, error) {
 	s, err := r.OpenStream(name)
