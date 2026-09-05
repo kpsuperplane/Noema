@@ -56,14 +56,31 @@ func TestBuiltinMetadataAndDeletionProtection(t *testing.T) {
 	if len(accounts) != 8 || accounts[0].ProviderKind != "codex" || accounts[5].ProviderKind != "local_models" {
 		t.Fatalf("initial built-ins = %#v", accounts)
 	}
-	var openAI provider.Account
+	var openAI, foundation provider.Account
 	for _, account := range accounts {
 		if account.ProviderKind == "openai" {
 			openAI = account
 		}
+		if account.ProviderKind == "foundation_local" {
+			foundation = account
+		}
 	}
 	if openAI.AuthMethod != provider.AuthExternalManual {
 		t.Fatalf("OpenAI auth method = %q", openAI.AuthMethod)
+	}
+	if profiles, err := foundation.Metadata.ModelProfiles(); err != nil || len(profiles) != 1 || profiles[0].ID != "default" {
+		t.Fatalf("Foundation Models profiles = %#v, %v", profiles, err)
+	}
+	checkedAt := time.Now().Add(time.Second)
+	if err := database.UpdateFoundationAvailability(
+		ctx, provider.StatusUnavailable, "unsupported_platform", "macOS is required", checkedAt,
+	); err != nil {
+		t.Fatal(err)
+	}
+	foundation, err = database.ProviderAccount(ctx, foundation.ID)
+	if err != nil || foundation.Status != provider.StatusUnavailable ||
+		foundation.LastErrorCode != "unsupported_platform" || foundation.LastCheckedAt == nil {
+		t.Fatalf("Foundation Models availability = %#v, %v", foundation, err)
 	}
 	if _, err := database.DeleteProviderAccount(ctx, accounts[0].ID); !errors.Is(err, provider.ErrProtectedAccount) {
 		t.Fatalf("built-in delete error = %v", err)

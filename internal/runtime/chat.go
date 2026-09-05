@@ -134,6 +134,7 @@ type Chat struct {
 	openRouter provider.Generator
 	codex      provider.Generator
 	openAI     provider.Generator
+	foundation provider.Generator
 	home       *os.Root
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
@@ -218,17 +219,20 @@ func NewChat(
 	ctx, cancel := context.WithCancel(context.Background())
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
+	var chatFoundation *provider.FoundationGenerator
 	for _, service := range services {
 		switch value := service.(type) {
 		case *noemamcp.Service:
 			mcpService = value
 		case *adapter.Service:
 			adapterService = value
+		case *provider.FoundationGenerator:
+			chatFoundation = value
 		}
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot,
+		openRouter: openRouter, codex: codex, openAI: openAI, foundation: chatFoundation, home: homeRoot,
 		memory: memoryStore, mcp: mcpService, adapters: adapterService,
 		projects: project.New(database, homeRoot),
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
@@ -571,6 +575,11 @@ func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
 		return c.codex, nil
 	case "openai":
 		return c.openAI, nil
+	case "foundation_local":
+		if c.foundation != nil {
+			return c.foundation, nil
+		}
+		return nil, errors.New("Apple Foundation Models is unavailable")
 	default:
 		return nil, errors.New("primary Chat provider is unsupported")
 	}

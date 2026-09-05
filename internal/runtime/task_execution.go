@@ -49,15 +49,15 @@ var (
 
 // TaskExecution runs current built-in provider Task runs from durable wakeups.
 type TaskExecution struct {
-	database                  *store.Store
-	mcp                       *noemamcp.Service
-	adapters                  *adapter.Service
-	root                      *os.Root
-	openRouter, codex, openAI provider.Generator
-	ctx                       context.Context
-	cancel                    context.CancelFunc
-	done                      chan struct{}
-	closeOnce                 sync.Once
+	database                              *store.Store
+	mcp                                   *noemamcp.Service
+	adapters                              *adapter.Service
+	root                                  *os.Root
+	openRouter, codex, openAI, foundation provider.Generator
+	ctx                                   context.Context
+	cancel                                context.CancelFunc
+	done                                  chan struct{}
+	closeOnce                             sync.Once
 }
 
 // NewTaskExecution starts the event-driven built-in Task worker.
@@ -74,16 +74,19 @@ func NewTaskExecution(
 	ctx, cancel := context.WithCancel(parent)
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
+	var foundationGenerator *provider.FoundationGenerator
 	for _, service := range services {
 		switch value := service.(type) {
 		case *noemamcp.Service:
 			mcpService = value
 		case *adapter.Service:
 			adapterService = value
+		case *provider.FoundationGenerator:
+			foundationGenerator = value
 		}
 	}
 	runtime := &TaskExecution{
-		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI,
+		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, foundation: foundationGenerator,
 		mcp: mcpService, adapters: adapterService,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 	}
@@ -1107,6 +1110,11 @@ func (r *TaskExecution) generator(kind string) (provider.Generator, error) {
 		return r.codex, nil
 	case "openai":
 		return r.openAI, nil
+	case "foundation_local":
+		if r.foundation != nil {
+			return r.foundation, nil
+		}
+		return nil, errors.New("Apple Foundation Models is unavailable")
 	default:
 		return nil, fmt.Errorf("Task provider %q is unavailable", kind)
 	}

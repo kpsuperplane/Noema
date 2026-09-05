@@ -177,8 +177,11 @@ func BuiltinAccounts(now time.Time) []Account {
 func InitialBuiltinAccounts(now time.Time) []Account {
 	now = now.UTC()
 	accounts := BuiltinAccounts(now)[:2]
+	foundation := builtinNoAuthAccount("foundation_local", "default", "Apple Foundation Models", StatusUnknown, now)
+	profiles, _ := json.Marshal([]ModelProfile{{ID: "default", Label: "Default on-device"}})
+	foundation.Metadata["profiles"] = profiles
 	return append(accounts,
-		builtinNoAuthAccount("foundation_local", "default", "Apple Foundation Models", StatusUnknown, now),
+		foundation,
 		builtinNoAuthAccount("local_models", "default", "Local models", StatusUnknown, now),
 		builtinNoAuthAccount("duckduckgo_public", "system", "DuckDuckGo public search", StatusAuthenticated, now),
 		builtinNoAuthAccount("direct_http", "system", "Direct HTTP web fetch", StatusAuthenticated, now),

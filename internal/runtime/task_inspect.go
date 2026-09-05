@@ -840,15 +840,17 @@ func (c *Chat) generateChatToolContinuation(
 	replayMessages := messages
 	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
 	continuingResponse := responseContinuation && previousResponseID != ""
+	_, sessionActive := generator.(provider.GenerationSession)
+	continuingSession := sessionActive && previousResponseID != ""
 	var sessionReplay []provider.GenerationMessage
-	if _, ok := generator.(provider.GenerationSession); ok && continuingResponse {
+	if continuingSession {
 		sessionReplay = replayMessages
 	}
 	if responseContinuation && previousResponseID == "" && hostedState {
 		return provider.GenerationResult{}, false,
 			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
 	}
-	if continuingResponse {
+	if continuingResponse || continuingSession {
 		messages = []provider.GenerationMessage{incremental}
 		if requestProjectContext != "" {
 			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})

@@ -150,8 +150,25 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	foundationGenerator, err := provider.NewFoundationGenerator(providerAccounts)
+	if err != nil {
+		return err
+	}
+	foundationStatus := provider.StatusAuthenticated
+	var foundationCode, foundationMessage string
+	if availabilityErr := foundationGenerator.CheckAvailability(ctx); availabilityErr != nil {
+		foundationStatus = provider.StatusUnavailable
+		foundationCode = provider.FoundationErrorCode(availabilityErr)
+		foundationMessage = availabilityErr.Error()
+	}
+	if err := taskStore.UpdateFoundationAvailability(
+		ctx, foundationStatus, foundationCode, foundationMessage, time.Now(),
+	); err != nil {
+		return err
+	}
 	chatRuntime, err := noemaruntime.NewChat(
-		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory, mcpService, adapterService,
+		taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, nativeMemory,
+		mcpService, adapterService, foundationGenerator,
 	)
 	if err != nil {
 		return err
@@ -160,7 +177,8 @@ func run(ctx context.Context, address string, output *os.File) error {
 	defer chatRuntime.Close()
 	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
-		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, mcpService, adapterService,
+		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
+		mcpService, adapterService, foundationGenerator,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)
