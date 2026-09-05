@@ -83,6 +83,11 @@ func (p Paths) Open() (*os.Root, error) {
 	if p.root == "" {
 		return nil, errors.New("home is not resolved")
 	}
+	if _, err := os.Lstat(filepath.Join(p.root, "db", "noema.sqlite3")); err == nil {
+		return nil, errors.New("Rust-created NOEMA_HOME is unsupported")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect NOEMA_HOME: %w", err)
+	}
 	if err := os.MkdirAll(p.root, 0o700); err != nil {
 		return nil, fmt.Errorf("create Noema home: %w", err)
 	}

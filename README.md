@@ -52,7 +52,7 @@ uses Tauri transport for its packaged Go sidecar and authenticated remote server
 `cmd/noema` owns startup, composition, and dependency-ordered shutdown.
 Packages under `internal/` own runtime, store, memory, providers, capabilities,
 GraphQL, and HTTP. SQLite lives
-at `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, durable human memory lives
+at `${NOEMA_HOME:-$HOME/.noema}/noema.sqlite3`, durable human memory lives
 under `${NOEMA_HOME:-$HOME/.noema}/memory/human/`, its rebuildable FTS index
 lives under `system/indexes/`, and provider credential material lives under
 `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.

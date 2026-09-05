@@ -44,7 +44,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   Secrets never enter model context or ordinary persistence. Authorized private
   information and ordinary technical values remain intact.
 - `${NOEMA_HOME:-$HOME/.noema}` is the durable home. SQLite at
-  `db/noema.sqlite3` owns stored structured state and is server-only. Schema
+  `noema.sqlite3` owns stored structured state and is server-only. Schema
   changes append immutable forward-only migrations.
 - Native Markdown under `memory/human/` owns durable human memory. SQLite FTS is
   rebuildable. Version-two pages contain claim-level evidence groups.

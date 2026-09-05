@@ -45,8 +45,7 @@ Noema directory is `~/.noema`. `NOEMA_HOME` can select another directory.
 ~/.noema/
   config.yaml
 
-  db/
-    noema.sqlite3         # Noema-owned structured state
+  noema.sqlite3           # Noema-owned structured state
 
   run/
     capability-auth/      # protected exact arguments for active auth pauses
