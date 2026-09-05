@@ -139,7 +139,7 @@ Milestone 5 now keeps one explicit product boundary.
 
 - [Server authentication](../server-security.md) defines the single built-in human.
 - [Action governance](../harness/action-governance.md) defines exact review, destinations, approvals, and execution rechecks.
-- [Task authorization](../../crates/noema-api/src/graphql/tasks/resolvers/support.rs) limits current product operations to the local owner.
+- [Task GraphQL authority](../../internal/graphql/task.go) limits current product operations to the authenticated personal workspace.
 - [Milestone 2 acceptance](personal-assistant-milestone-2-acceptance.md) proves Project-backed changing obligations and exact reviewer response tracking.
 - [Milestone 3 acceptance](personal-assistant-milestone-3-acceptance.md) proves private clinical briefs, calculations, packets, uploads, and receipts.
 - [Milestone 4 browser acceptance](personal-assistant-milestone-4-browser-acceptance.md) proves reviewed portal transactions and unknown-outcome recovery.
