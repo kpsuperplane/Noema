@@ -279,20 +279,10 @@ internal/                     Go server runtime, store, API, and integrations
 apps/web/                     React UI and GraphQL operation generation
 apps/ios/                     Native SwiftUI client and Live Activity extension
 graphql/                      Generated shared GraphQL schema
-crates/noema-home/            Home layout, initialization, safe paths, diagnostics
-crates/noema-conversations/   Conversation and transcript domain contracts
-crates/noema-artifacts/       Governed artifact contracts and filesystem service
-crates/noema-capabilities/    Provider-neutral capability and tool contracts
-  adapters/                   Native HTTP adapter manifests and compiler
-  mcp/                        MCP records retained by model evaluations
-crates/noema-providers/       Provider contracts, adapters, and local GGUF models
-crates/noema-tasks/           Task, run, submission, and review domain contracts
-crates/noema-workspaces/      Workspace and project domain contracts
-crates/noema-memory/          Native Markdown memory and derived search
-crates/noema-store/           SQLite persistence and persistence read models
-crates/noema-runtime/         Governed, transport-neutral agent execution
 crates/noema-desktop/         Tauri shell for local Go and remote servers
+crates/noema-obscura-worker/  Process-isolated browser worker
+bridges/apple-foundation/    Swift bridge for Apple Foundation Models
 cmd/noema-dev/                Go development supervisor
-crates/noema-model-evals/     Opt-in local-model qualification runner
+cmd/noema-model-evals/        Go model qualification runner
 docs/                         Current contracts, active plans, and dated evidence
 ```

@@ -13,7 +13,8 @@ Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 CI checks generated Go and web files. The Rust launcher is removed.
 The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
 Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
-Next: extract the Obscura worker and remove the former Rust evaluation closure.
+Cargo now builds only Tauri and the standalone Obscura worker.
+The Swift bridge is `bridges/apple-foundation`; Go owns the shared llama.cpp release manifest.
 Supporting flows now share the approved card, avatar, and existing theme.
 See `docs/plans/2026-09-04-supporting-ui/implementation.md` for implementation and validation.
 
@@ -270,8 +271,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - All 14 Milestone 5 tasks now pass current controlled main paths.
   Follow-up records closed the four partial paths and ten missing lifecycle checks.
 - The Milestone 5 evidence record is `docs/validation/personal-assistant-milestone-5-audit.md`.
-- The six uncertain Build cases reached reviewer-approved terminal success.
-  Task 96 passed. Tasks 46, 47, 48, 51, and 94 now have Extend gaps.
 - The 100-task roadmap now records 80 Verified, 16 Extend, and 4 Build tasks.
   The remaining 20 tasks need complete operational main paths.
 - The consolidated follow-up evidence is `docs/validation/personal-assistant-remaining-acceptance-2026-08-31.md`.
@@ -286,7 +285,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   signing profiles.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
 - Go owns schema version 32, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
-- Desktop launches a Go sidecar. Rust server crates and the unused Rust MCP transport are gone.
+- Desktop launches a Go sidecar. The former Rust backend and evaluation dependency closure are removed.
 - Obscura auto-installs pinned v0.1.0 assets after publication. Native Windows WAL stress remains a cutover gate.
 
 ## Validation defaults

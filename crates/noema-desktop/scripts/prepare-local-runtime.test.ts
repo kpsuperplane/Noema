@@ -22,7 +22,7 @@ import {
 
 const manifestPath = resolve(
   import.meta.dir,
-  "../../noema-providers/resources/local-models/runtime-assets.json"
+  "../../../internal/localmodel/runtime-assets.json"
 );
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as RuntimeManifest;
 

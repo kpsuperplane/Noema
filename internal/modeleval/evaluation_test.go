@@ -3,6 +3,7 @@ package modeleval
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -158,8 +159,45 @@ func TestProposalRejectsIncompleteEvidence(t *testing.T) {
 		t.Fatal(e)
 	}
 	r := perfectReport(t)
+	one := 1
+	plan.Suite.DecisionRepetitions = &one
+	plan.EstimatedMaxCostUSD, e = estimate(plan.Suite, plan.Policies, plan.Candidates)
+	if e != nil {
+		t.Fatal(e)
+	}
+	plan.SpendCeilingUSD = plan.EstimatedMaxCostUSD
+	plan.ContentFingerprint = plan.hash()
+	r.DecisionFingerprint = reportFingerprint(plan.Suite, p, cs)
+	if e = writeJSON(filepath.Join(dir, "plan.json"), plan, false); e != nil {
+		t.Fatal(e)
+	}
+	if e = writeJSON(filepath.Join(dir, "report.json"), r, false); e != nil {
+		t.Fatal(e)
+	}
+	root := t.TempDir()
+	source, e := os.ReadFile("../provider/recommendations.go")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.MkdirAll(filepath.Join(root, "internal/provider"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(root, "internal/provider/recommendations.go"), source, 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e = proposal(root, dir, false); e != nil {
+		t.Fatal(e)
+	}
+	command := exec.Command("git", "apply", "--check", filepath.Join(dir, "recommendations.patch"))
+	command.Dir = root
+	if out, e := command.CombinedOutput(); e != nil {
+		t.Fatalf("patch: %s: %v", out, e)
+	}
+	if e = os.Remove(filepath.Join(dir, "recommendations.patch")); e != nil {
+		t.Fatal(e)
+	}
 	r.Entries = nil
-	if e = writeJSON(filepath.Join(dir, "report.json"), r, true); e != nil {
+	if e = writeJSON(filepath.Join(dir, "report.json"), r, false); e != nil {
 		t.Fatal(e)
 	}
 	if proposal("../..", dir, false) == nil {

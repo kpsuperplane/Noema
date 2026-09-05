@@ -289,9 +289,10 @@ func localWorker(ctx context.Context, args []string) error {
 		report.RuntimeError = e.Error()
 		return writeJSON(c.ReportPath, report, false)
 	}
-	pid, backend, release := s.RuntimeProcess()
+	pid, backend, release, commit := s.RuntimeProcess()
 	report.Backend = backend
 	report.LlamaCppRelease = release
+	report.LlamaCppCommit = commit
 	proc, e := process.NewProcess(int32(pid))
 	if e != nil {
 		return e

@@ -261,7 +261,7 @@ func TestRuntimeAssetsKeepRequiredAliasesAndUsePinnedRequest(t *testing.T) {
 		URL: archiveServer.URL, SHA256: hex.EncodeToString(archiveSum[:]), Size: int64(len(archiveBody)),
 	}}
 	defer func() { runtimeAssets = previousAssets }()
-	runtimeDirectory := filepath.Join(home, "system", "tools", "llama.cpp", llamaRelease, runtime.GOOS+"/"+runtime.GOARCH, "cpu")
+	runtimeDirectory := filepath.Join(home, "system", "tools", "llama.cpp", runtimeManifest.ReleaseTag, runtime.GOOS+"/"+runtime.GOARCH, "cpu")
 	if err = os.MkdirAll(runtimeDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}

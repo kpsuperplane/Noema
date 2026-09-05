@@ -730,11 +730,11 @@ func (s *Service) checkpointCacheMiB(ctx context.Context) int {
 var _ provider.Generator = (*Service)(nil)
 
 // RuntimeProcess identifies the production runtime for resource qualification.
-func (s *Service) RuntimeProcess() (pid int, backend, release string) {
+func (s *Service) RuntimeProcess() (pid int, backend, release, commit string) {
 	s.runtimeMu.Lock()
 	defer s.runtimeMu.Unlock()
 	if s.runtime.command != nil && s.runtime.command.Process != nil {
 		pid = s.runtime.command.Process.Pid
 	}
-	return pid, s.runtime.backend, llamaRelease
+	return pid, s.runtime.backend, runtimeManifest.ReleaseTag, runtimeManifest.Commit
 }

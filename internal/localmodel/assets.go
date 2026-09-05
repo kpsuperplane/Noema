@@ -5,6 +5,8 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +17,18 @@ import (
 	"strings"
 )
 
-const llamaRelease = "b10015"
+//go:embed runtime-assets.json
+var runtimeManifestJSON []byte
+
+var runtimeManifest = func() struct {
+	ReleaseTag string `json:"release_tag"`
+	Commit     string `json:"commit"`
+} { var manifest struct {
+	ReleaseTag string `json:"release_tag"`
+	Commit     string `json:"commit"`
+}; if err := json.Unmarshal(runtimeManifestJSON, &manifest); err != nil {
+	panic(err)
+}; return manifest }()
 
 type runtimeAsset struct {
 	Target  string
@@ -102,7 +115,7 @@ func (s *Service) ensureRuntimeAssets(ctx context.Context, backend string) (stri
 		return "", err
 	}
 
-	directory := filepath.Join(s.home, "system", "tools", "llama.cpp", llamaRelease, target, backend)
+	directory := filepath.Join(s.home, "system", "tools", "llama.cpp", runtimeManifest.ReleaseTag, target, backend)
 	path := filepath.Join(directory, executable)
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 		return path, nil

@@ -109,7 +109,7 @@ const desktopRoot = resolve(import.meta.dir, "..");
 const workspaceRoot = resolve(desktopRoot, "../..");
 const manifestPath = resolve(
   desktopRoot,
-  "../noema-providers/resources/local-models/runtime-assets.json"
+  "../../internal/localmodel/runtime-assets.json"
 );
 const runtimeRoot = resolve(desktopRoot, "binaries/runtime");
 const cacheRoot = resolve(workspaceRoot, "target/noema-local-runtime-cache");

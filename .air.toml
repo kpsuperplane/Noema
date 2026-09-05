@@ -18,9 +18,9 @@ poll = false
 
 [[build.rules]]
 name = "foundation"
-include_dir = ["crates/noema-providers/apple-foundation-bridge/Sources"]
-include_file = ["crates/noema-providers/apple-foundation-bridge/Package.swift"]
-cmd = 'if [ "$(uname -s)" = Darwin ]; then swift build --package-path crates/noema-providers/apple-foundation-bridge; fi'
+include_dir = ["bridges/apple-foundation/Sources"]
+include_file = ["bridges/apple-foundation/Package.swift"]
+cmd = 'if [ "$(uname -s)" = Darwin ]; then swift build --package-path bridges/apple-foundation; fi'
 delay = 1000
 
 [misc]

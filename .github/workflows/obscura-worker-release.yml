@@ -89,7 +89,7 @@ jobs:
       - name: Build worker
         run: >-
           cargo build --locked --release --target-dir target --target ${{ matrix.target }}
-          -p noema-providers --features adapters --bin noema-obscura-worker
+          -p noema-obscura-worker
 
       - name: Check worker handshake
         run: |

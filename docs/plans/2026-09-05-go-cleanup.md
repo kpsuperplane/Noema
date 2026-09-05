@@ -84,3 +84,19 @@ Do not remove the browser worker or Tauri desktop capability.
   Local runs preserve verified imports, isolated workers, resource probes, and reports.
   Interrupted billed requests require a new plan before another attempt.
   No paid model calls or weight downloads ran during implementation.
+
+- Rust now contains only the desktop and standalone Obscura worker.
+  Cargo metadata checked all former features, binaries, and support targets.
+  The worker preserves execution, URL policy, protocol bounds, and diagnostics.
+  Go owns browser sessions and process orchestration.
+  The Swift bridge moved to `bridges/apple-foundation`.
+  Go and desktop packaging share `internal/localmodel/runtime-assets.json`.
+  The Rust reduction removes 186,509 lines, including former evaluation support.
+
+- Final validation passed: Go unit tests, vet, static analysis, native packaging tests,
+  Rust format, workspace check, lint, and 18 Rust unit tests.
+  The optional browser fixture compiled; it did not run.
+  The vulnerability scan found no affected calls in the Go application.
+  Go counts: production 78,875; tests 24,926; generated GraphQL 79,612; inclusive 183,413.
+  Both migration ratios remain below 80 percent.
+  All seven cleanup items are complete. No release was published or pushed.

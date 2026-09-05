@@ -128,7 +128,7 @@ func discoverFoundationBridge() (string, string) {
 		}
 	}
 	_, source, _, _ := runtime.Caller(0)
-	packagePath := filepath.Clean(filepath.Join(filepath.Dir(source), "../../crates/noema-providers/apple-foundation-bridge"))
+	packagePath := filepath.Clean(filepath.Join(filepath.Dir(source), "../../bridges/apple-foundation"))
 	development := filepath.Join(packagePath, ".build/debug/noema-foundation-bridge")
 	if _, err := os.Stat(filepath.Join(packagePath, "Package.swift")); err == nil {
 		return development, packagePath
