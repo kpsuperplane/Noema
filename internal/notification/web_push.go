@@ -43,15 +43,16 @@ const (
 
 // Service owns one installation's Web Push signing key and visibility leases.
 type Service struct {
-	database *store.Store
-	paths    home.Paths
-	origin   string
-	keys     *webpush.VAPIDKeys
-	apns     *http.Client
-	visible  map[string]int
-	clients  map[string]int
-	mu       sync.Mutex
-	wake     chan struct{}
+	database     *store.Store
+	paths        home.Paths
+	origin       string
+	keys         *webpush.VAPIDKeys
+	apns         *http.Client
+	visible      map[string]int
+	clients      map[string]int
+	taskSequence int64
+	mu           sync.Mutex
+	wake         chan struct{}
 }
 
 type vapidFile struct {
@@ -189,8 +190,9 @@ func (s *Service) QueueTaskAttention(
 // Run projects primary Chat final answers and delivers due notifications.
 func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 	defer s.apns.CloseIdleConnections()
+	work := s.database.SubscribeWork(ctx)
 	for {
-		projectionErr := s.reconcilePrimary(ctx)
+		projectionErr := errors.Join(s.reconcilePrimary(ctx), s.reconcileTasks(ctx))
 		var deliveryErr error
 		if s.Available() {
 			deliveryErr = s.drain(ctx)
@@ -224,10 +226,74 @@ func (s *Service) Run(ctx context.Context, events <-chan runtime.Event) {
 			if !ok {
 				events = nil
 			}
+		case <-work:
+			stopTimer(timer)
 		case <-s.wake:
 			stopTimer(timer)
 		case <-timer.C:
 		}
+	}
+}
+
+func (s *Service) reconcileTasks(ctx context.Context) error {
+	for {
+		events, err := s.database.WorkEvents(ctx, "workspace:personal", s.taskSequence, 100)
+		if err != nil {
+			return err
+		}
+		if len(events) == 0 {
+			return nil
+		}
+		for _, event := range events {
+			switch event.Kind {
+			case "gate.opened":
+				gateID, _ := event.Payload["gate_id"].(string)
+				task, taskErr := s.database.Task(ctx, event.TaskID)
+				if taskErr != nil {
+					return taskErr
+				}
+				if task.StageKey == "waiting" && task.ActiveGateID == gateID && task.Generation == taskEventGeneration(event) {
+					gate, gateErr := s.database.TaskGate(ctx, gateID)
+					if gateErr != nil {
+						return gateErr
+					}
+					if err := s.QueueTaskAttention(ctx, "task-gate:"+gate.ID, task.Title, gate.Prompt, task.ID, "/tasks/"+task.ID); err != nil {
+						return err
+					}
+				}
+			case "task.completed":
+				notify, _ := event.Payload["notify_human"].(bool)
+				if notify {
+					task, taskErr := s.database.Task(ctx, event.TaskID)
+					if taskErr != nil {
+						return taskErr
+					}
+					if task.StageKey == "done" && task.Generation == taskEventGeneration(event) {
+						key := fmt.Sprintf("task-complete:%s:%d", task.ID, task.Generation)
+						if err := s.QueueTaskAttention(ctx, key, task.Title, "Task completed.", task.ID, "/tasks/"+task.ID); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			s.taskSequence = event.ID
+		}
+		if len(events) < 100 {
+			return nil
+		}
+	}
+}
+
+func taskEventGeneration(event store.WorkEvent) int64 {
+	switch value := event.Payload["generation"].(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	default:
+		return 0
 	}
 }
 

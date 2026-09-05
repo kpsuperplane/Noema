@@ -27,21 +27,9 @@ type TaskFileEntry struct {
 
 // ReadTaskFile reads one bounded UTF-8 file from the Task directory.
 func ReadTaskFile(root *os.Root, taskID, supplied string) (string, error) {
-	path, err := normalizeTaskFilePath(supplied, false)
+	file, err := OpenTaskFile(root, taskID, supplied)
 	if err != nil {
 		return "", err
-	}
-	task, err := openTaskDocumentRoot(root, taskID)
-	if err != nil {
-		return "", err
-	}
-	defer task.Close()
-	if err := checkTaskFilePath(task, path, false); err != nil {
-		return "", err
-	}
-	file, err := task.Open(path)
-	if err != nil {
-		return "", errors.New("Task file is unavailable")
 	}
 	defer file.Close()
 	info, err := file.Stat()
@@ -53,6 +41,30 @@ func ReadTaskFile(root *os.Root, taskID, supplied string) (string, error) {
 		return "", errors.New("Task file is not bounded UTF-8")
 	}
 	return string(data), nil
+}
+
+// OpenTaskFile opens one regular file through the Task path boundary.
+func OpenTaskFile(root *os.Root, taskID, supplied string) (*os.File, error) {
+	path, err := normalizeTaskFilePath(supplied, false)
+	if err != nil {
+		return nil, err
+	}
+	task, err := openTaskDocumentRoot(root, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer task.Close()
+	if _, err := task.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("Task file is unavailable: %w", err)
+	}
+	if err := checkTaskFilePath(task, path, false); err != nil {
+		return nil, err
+	}
+	file, err := task.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("Task file is unavailable: %w", err)
+	}
+	return file, nil
 }
 
 // WriteTaskFile atomically replaces one bounded UTF-8 file in the Task directory.
