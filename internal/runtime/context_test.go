@@ -82,6 +82,10 @@ func TestPrepareModelContextCompactsOnceAndDisablesTools(t *testing.T) {
 	if len(recent) != 4 || recent[0].Role != "hosted_web_search" || recent[2].Role != "assistant" || recent[3].Role != "tool" {
 		t.Fatalf("recent provider round = %#v", recent)
 	}
+	completedRound, activeRound := splitActiveHistory(recent, recent[3:])
+	if len(completedRound) != 0 || len(activeRound) != 4 || activeRound[0].Role != "hosted_web_search" {
+		t.Fatalf("active provider round = completed %#v, active %#v", completedRound, activeRound)
+	}
 }
 
 func TestPrepareModelContextRejectsHardOverflowWithoutHistory(t *testing.T) {

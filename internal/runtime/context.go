@@ -263,6 +263,7 @@ func splitActiveHistory(history, incremental []provider.GenerationMessage) (
 	if start > 0 && history[start].Role == "tool" && len(history[start-1].ToolCalls) != 0 {
 		start--
 	}
+	start = completeContextStart(history, start)
 	return history[:start], history[start:]
 }
 
