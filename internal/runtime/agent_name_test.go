@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -26,10 +28,19 @@ func TestAgentNameArgumentsUseUnicodeAndRejectInvalidObjects(t *testing.T) {
 			t.Fatalf("invalid arguments accepted: %s", raw)
 		}
 	}
+	invalidUTF8 := json.RawMessage([]byte{'{', '"', 'n', 'a', 'm', 'e', '"', ':', '"', 0xff, '"', '}'})
+	if _, err := parseAgentNameArguments(invalidUTF8); err == nil {
+		t.Fatal("invalid UTF-8 Agent name arguments were accepted")
+	}
 }
 
 func TestChatUpdatesOnlyPrimaryAgentAndReplaysQuotedIdentity(t *testing.T) {
 	original, database, conversation := chatFixture(t)
+	if _, err := database.UpdatePrimaryAgentDisplayName(
+		context.Background(), string([]byte{0xff}), time.Now(),
+	); !errors.Is(err, store.ErrInvalidAgentDisplayName) {
+		t.Fatalf("invalid UTF-8 stored name error = %v", err)
+	}
 	if err := original.Close(); err != nil {
 		t.Fatal(err)
 	}

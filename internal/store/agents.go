@@ -96,7 +96,7 @@ func (s *Store) UpdatePrimaryAgentDisplayName(
 	now time.Time,
 ) (Agent, error) {
 	displayName = strings.TrimSpace(displayName)
-	if displayName == "" || utf8.RuneCountInString(displayName) > 128 {
+	if displayName == "" || !utf8.ValidString(displayName) || utf8.RuneCountInString(displayName) > 128 {
 		return Agent{}, ErrInvalidAgentDisplayName
 	}
 	return scanAgent(s.db.QueryRowContext(ctx, `

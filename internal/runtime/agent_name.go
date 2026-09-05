@@ -36,6 +36,9 @@ func updateOwnNameTool() provider.GenerationTool {
 }
 
 func parseAgentNameArguments(raw json.RawMessage) (string, error) {
+	if !utf8.Valid(raw) {
+		return "", errors.New("arguments must use valid UTF-8")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	token, err := decoder.Token()
 	if err != nil || token != json.Delim('{') {
