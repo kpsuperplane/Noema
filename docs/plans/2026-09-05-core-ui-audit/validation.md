@@ -143,3 +143,31 @@ The gallery keeps edits within the selected mock; it does not implement a task s
 - Increasing pane height from 545px to 800px increased editor height by 255px at both widths.
 - Action rows retained their bottom spacing. No horizontal overflow or browser page errors occurred.
 - The gallery build passed. Product UI source remains unchanged.
+
+## Actual shell and task continuity
+
+- Re-inspected the live app through the private socket at 1440 × 900 and 390 × 900.
+- Compared Tasks, New task, Agents, and Providers with the production shell source.
+- All ten mocks now import AppShell. Task and provider panes use the existing responsive layout components.
+- Settings reuse the production page track and section header. Iframe viewports apply the real media-query breakpoints.
+- Removed separate Task and Recurring task header rows. The close control shares the actual task title row.
+- Checked all ten views at both widths. No page errors or horizontal page overflow remained.
+- Checked mobile navigation reveal, primary navigation, provider selection, drawer closure, and gallery hash synchronization.
+- Checked cancel dismissal and submission within the mock. No cancellation reason field was added.
+- Checked rich and source editors with Advanced open. Capture fills the remaining pane height at both widths.
+- At 900 pixels tall, the rich editor measured 610 pixels on desktop and 587 pixels on phone.
+- The capture actions remained 16 pixels above the detail body's bottom edge.
+- Added a gallery-only Inbox, Queued, and Running state control for the same mounted task.
+- Measured the shared sticky header and action-bar bounds before and after both state changes.
+- Both regions retained identical bounds at both widths. Edited titles and instructions survived the transitions.
+- Removed the Progress box. Task options and scheduling scroll beneath the title, close control, and view tabs.
+- Reduced header top padding to 12 pixels and its internal gap to 4 pixels.
+- Both desktop titles begin at y=65. The detail header remained fixed during a 350-pixel scroll at both widths.
+- Task and provider close controls use the production rail's 28-pixel Button treatment.
+- Both close buttons matched their list action's vertical center exactly. Provider details also retain a compact sticky title row.
+- Checked Workspace and Transcript selection in the running sample.
+- The running transcript is sample prose. Full run rendering and very wide TaskBody composition remain production implementation concerns.
+- Browser request inspection recorded no GraphQL calls from the sample task views.
+- The shell uses an in-memory project response. Unsupported project changes fail locally; no server transport is configured.
+- Rebuilt the static gallery with its Vite build script. The bundle-size warning remains advisory for this static gallery.
+- No production UI files or UI tests were added or changed. Live task data was not modified.

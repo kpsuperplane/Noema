@@ -15,7 +15,7 @@ Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
 Cargo now builds only the Tauri desktop shell.
 Apple Foundation Models and its Swift bridge are removed. Setup fills missing model roles and preserves other selections.
 Supporting flows share the approved card, avatar, and theme; see `docs/plans/2026-09-04-supporting-ui/implementation.md`.
-Core UI mocks remain proposals; see `docs/plans/2026-09-05-core-ui-audit/README.md`. Task mocks reuse capture editor fields; retain the floating bar, inline options, visible schedule settings, and existing task cards.
+Core UI mocks remain proposals; see `docs/plans/2026-09-05-core-ui-audit/README.md`. All ten mocks use the actual AppShell and responsive panes in iframe viewports. Task mocks retain shared editors, floating controls, inline options, and task cards. A compact title/close/tabs header persists across Inbox, Queued, and Running.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.

@@ -8,12 +8,34 @@ The main opportunity is clearer task states and more consistent controls within 
 ## Open the mocks
 
 [Open the running gallery](http://localhost:8766/#inbox).
-Use the numbered links to inspect ten proposals. Select **Phone width** to narrow the surface.
+Use the numbered links to inspect ten proposals. Select **Phone width** to use a separate phone viewport.
 At phone screen widths, the gallery uses the available width automatically.
 
 The gallery includes Inbox details, recurring details, scheduling, provider settings, notifications,
 inline advanced settings, start/cancel dialog copy, task capture, and agent model settings.
 Buttons and fields use Astryx. List choices and settings groups reuse the current Noema components.
+All ten previews now import the production AppShell, including its primary navigation, sidebar, and mobile navigation reveal.
+Task views use MasterDetailLayout and TasksToolbar. Providers use SettingsManagementLayout.
+Agent and notification pages use ShellPageLayout, ShellPageTrack, and ShellSectionHeader.
+Each preview runs in an iframe. Its media queries, dialogs, and drawers use that preview's actual viewport.
+Desktop previews are 800 pixels tall. Phone previews are 844 pixels tall.
+
+Existing task details begin with the task title and close control. Omit separate “Task” and “Recurring task” header rows.
+New task keeps its existing capture header. Its instructions fill the remaining height inside the real pane or drawer.
+Use **Preview task state** above Inbox or Task options to compare Inbox, Queued, and Running.
+This gallery control changes the same mounted task. Start task also moves the sample into Queued.
+The sticky header contains only the title, close control, and Workspace/Transcript tabs across all three states.
+Task options and scheduling belong to the scrolling Workspace body. Execution status appears in the floating bar.
+There is no separate Progress box. Switching state preserves the selected tab.
+Task and provider title rows use the same 28-pixel close control as the production detail rail.
+Their close controls align with New task and Add provider. Task headers retain a 4-pixel title-to-tabs gap.
+Provider account details and connection status sit below the sticky title row.
+Dialog studies open over the task surface. Dismiss them to inspect the surrounding shell, then use the preview button to reopen them.
+On phones, close a task detail to inspect the underlying list and navigation. Select a provider to open its detail drawer.
+
+Shell navigation links connect the task and settings studies. Other destinations display a local scope message.
+The shell reads an empty sample project list through an in-memory Apollo link. The gallery installs no server transport.
+Project changes fail locally with a scope message. No product queries or mutations reach the development server.
 
 If the preview server has stopped, run this command from the repository root:
 
@@ -221,6 +243,19 @@ Do not turn capture into a multi-step form.
 
 Reuse TaskBody, TaskContextCard, TaskActions, and TaskScheduleSummary as the existing foundations.
 Inbox and recurrence views should share title, timing, instruction editing, advanced settings, and floating-bar composition.
+Keep one task detail mounted as its state changes from Inbox to Queued and Running.
+Use one title and close-control row across these states. Do not add a second generic task header when execution begins.
+Preserve the selected task, project, agent, open drawer, and scroll position.
+Flush pending edits before starting. Keep saved title and instructions when the first run arrives.
+Keep the title, close control, and Workspace/Transcript tabs in one shared sticky header, including before a task starts.
+Keep task options and scheduling in the scrolling Workspace body. Do not add a separate Progress box.
+Update status and available controls inside the existing floating bar.
+Keep the current TaskBody Workspace and Transcript content below that shared header.
+Preserve the current wide-pane behavior and selected view during live updates.
+Keep TaskBody, TaskContextCard, and server-provided available actions as implementation authorities.
+The gallery demonstrates the constrained task pane. Its transcript contains sample prose, not a complete run renderer.
+Active sample tasks show read-only instructions and options. Production edit availability must follow server state.
+A recurring template remains a template when it creates a run. Opening that run is a separate task navigation.
 Keep the bar's existing docking, status, accessibility, and response behavior when applying these proposals.
 Preserve its compact status on the left and icon controls on the right.
 Place Advanced settings before Run history so a long history cannot push the controls out of reach.
