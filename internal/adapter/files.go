@@ -22,8 +22,9 @@ const (
 )
 
 type provenance struct {
-	SourceReference string   `json:"source_reference"`
-	Replaces        []string `json:"replaces_semantic_digests,omitempty"`
+	SourceReference     string   `json:"source_reference"`
+	Replaces            []string `json:"replaces_semantic_digests,omitempty"`
+	AffectedConnections []string `json:"affected_connection_ids,omitempty"`
 }
 
 type fileAuthority struct{ root *os.Root }
@@ -44,7 +45,48 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 	if err := authority.recoverStages("adapters/connections"); err != nil {
 		return nil, err
 	}
+	if err := authority.recoverConnectionReplacements(); err != nil {
+		return nil, err
+	}
 	return authority, nil
+}
+
+func (f *fileAuthority) recoverConnectionReplacements() error {
+	entries, err := readBoundedEntries(f.root, "adapters/connections", connectionLimit)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !validConnectionID(entry.Name()) {
+			continue
+		}
+		directory, openErr := f.root.OpenRoot("adapters/connections/" + entry.Name())
+		if openErr != nil {
+			continue
+		}
+		children, readErr := readBoundedEntries(directory, ".", 64)
+		changed := false
+		if readErr == nil {
+			for _, child := range children {
+				name := child.Name()
+				if strings.HasPrefix(name, ".connection-") && strings.HasSuffix(name, ".json") && child.Type().IsRegular() {
+					if removeErr := directory.Remove(name); removeErr != nil {
+						_ = directory.Close()
+						return errors.New("adapter connection recovery failed")
+					}
+					changed = true
+				}
+			}
+		}
+		if changed {
+			readErr = home.SyncRootDirectory(directory, ".")
+		}
+		_ = directory.Close()
+		if readErr != nil {
+			return errors.New("adapter connection recovery failed")
+		}
+	}
+	return nil
 }
 
 func (f *fileAuthority) recoverStages(path string) error {
@@ -67,7 +109,7 @@ func (f *fileAuthority) recoverStages(path string) error {
 	return nil
 }
 
-func (f *fileAuthority) installDefinition(manifest Manifest, sourceReference string, replaces []string) (Definition, error) {
+func (f *fileAuthority) installDefinition(manifest Manifest, sourceReference string, replaces, affected []string) (Definition, error) {
 	definition, err := Compile(manifest)
 	if err != nil {
 		return Definition{}, err
@@ -77,7 +119,8 @@ func (f *fileAuthority) installDefinition(manifest Manifest, sourceReference str
 		return Definition{}, errors.New("adapter manifest is invalid")
 	}
 	sort.Strings(replaces)
-	metadataRaw, err := json.Marshal(provenance{SourceReference: sourceReference, Replaces: replaces})
+	sort.Strings(affected)
+	metadataRaw, err := json.Marshal(provenance{SourceReference: sourceReference, Replaces: replaces, AffectedConnections: affected})
 	if err != nil || len(metadataRaw) > 64<<10 {
 		return Definition{}, errors.New("adapter provenance is invalid")
 	}
@@ -222,8 +265,14 @@ func (f *fileAuthority) loadDefinition(digest string) (Definition, error) {
 			return Definition{}, errors.New("adapter definition lineage is invalid")
 		}
 	}
+	for index, id := range metadata.AffectedConnections {
+		if !validConnectionID(id) || index > 0 && metadata.AffectedConnections[index-1] >= id {
+			return Definition{}, errors.New("adapter definition transition is invalid")
+		}
+	}
 	definition.SourceReference = metadata.SourceReference
 	definition.Replaces = append([]string(nil), metadata.Replaces...)
+	definition.AffectedConnections = append([]string(nil), metadata.AffectedConnections...)
 	return definition, nil
 }
 
@@ -335,7 +384,13 @@ func (f *fileAuthority) quarantine(kind, id string) error {
 	if kind != "definitions" && kind != "connections" {
 		return errors.New("adapter quarantine kind is invalid")
 	}
-	return f.root.Rename("adapters/"+kind+"/"+id, "adapters/quarantine/"+kind+"/"+id+"-"+randomHex())
+	if err := f.root.Rename("adapters/"+kind+"/"+id, "adapters/quarantine/"+kind+"/"+id+"-"+randomHex()); err != nil {
+		return err
+	}
+	if err := home.SyncRootDirectory(f.root, "adapters/"+kind); err != nil {
+		return err
+	}
+	return home.SyncRootDirectory(f.root, "adapters/quarantine/"+kind)
 }
 
 func exactFiles(root *os.Root, expected []string) error {

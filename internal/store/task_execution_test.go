@@ -49,6 +49,67 @@ func TestTaskExecutionRecoveryAndCurrentRunTransitions(t *testing.T) {
 	}
 }
 
+func TestTaskInterventionUncertainResultOpensRecovery(t *testing.T) {
+	database := openTestStore(t)
+	account := createReadyModelAccount(t, database)
+	if _, err := database.ConfirmHostedModelAssignments(context.Background(), account.ID, testModelAssignments(account, "model-a")); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 12, 30, 0, 0, time.UTC)
+	id, _ := NewTaskID()
+	if _, err := database.CreateTask(ctx, id, "Uncertain adapter", "correlation:adapter:create", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.QueueTask(ctx, id, 1, 1, testTaskLifecycleCommand("queue_task", "adapter"), now); err != nil {
+		t.Fatal(err)
+	}
+	_, planner, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found {
+		t.Fatalf("claim planner = %#v, %t, %v", planner, found, err)
+	}
+	if err = database.StartTaskExecution(ctx, planner.ID, planner.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", now); err != nil {
+		t.Fatal(err)
+	}
+	_, run, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found || run.Kind != "executor" {
+		t.Fatalf("claim executor = %#v, %t, %v", run, found, err)
+	}
+	if err = database.StartTaskExecution(ctx, run.ID, run.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{
+		Kind: "tool_call", Status: "running", Round: 1, Payload: map[string]any{"name": "example.write"},
+	}}, TaskRunUsage{ToolCalls: 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("run items = %#v, %v", items, err)
+	}
+	call := items[len(items)-1]
+	if err = database.SuspendTaskExecution(ctx, run.ID, run.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.CompleteTaskIntervention(ctx, run.ID, run.Generation, TaskRunItemInput{
+		Kind: "tool_result", Status: "failed", Round: 1, ParentID: call.ID,
+		Payload: map[string]any{"name": "example.write", "result": map[string]any{"error": "outcome_uncertain"}, "success": false},
+	}, true, now); err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.Task(ctx, id)
+	if err != nil || task.StageKey != "waiting" || task.ActiveGateID == "" {
+		t.Fatalf("Task recovery = %#v, %v", task, err)
+	}
+	gate, err := database.TaskGate(ctx, task.ActiveGateID)
+	if err != nil || gate.RecoveryReason == nil || *gate.RecoveryReason != "unsafe_effect_uncertain" {
+		t.Fatalf("recovery gate = %#v, %v", gate, err)
+	}
+}
+
 func TestACPTaskRunCapturesLaunchAndRecovers(t *testing.T) {
 	database := openTestStore(t)
 	account := createReadyModelAccount(t, database)

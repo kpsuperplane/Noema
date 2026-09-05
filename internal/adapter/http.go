@@ -18,7 +18,10 @@ import (
 	"github.com/kpsuperplane/noema/internal/script"
 )
 
-var errOutcomeUncertain = errors.New("adapter request outcome is uncertain")
+var (
+	errOutcomeUncertain = errors.New("adapter request outcome is uncertain")
+	errResponseInvalid  = errors.New("adapter response is invalid")
+)
 
 type encodedRequest struct {
 	method, rawURL string
@@ -259,6 +262,9 @@ func executeHTTP(ctx context.Context, request encodedRequest, retry bool) (httpR
 			return response, nil
 		}
 		last = err
+		if errors.Is(err, errResponseInvalid) || errors.Is(err, context.Canceled) {
+			return httpResponse{}, err
+		}
 		if !errors.Is(err, context.DeadlineExceeded) && request.method != "GET" {
 			return httpResponse{}, err
 		}
@@ -267,7 +273,9 @@ func executeHTTP(ctx context.Context, request encodedRequest, retry bool) (httpR
 }
 
 func executeHTTPOnce(ctx context.Context, request encodedRequest) (httpResponse, error) {
-	checked, err := netpolicy.CheckURL(ctx, request.rawURL)
+	resolveContext, cancelResolve := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelResolve()
+	checked, err := netpolicy.CheckURL(resolveContext, request.rawURL)
 	if err != nil || checked.URL.Scheme != "https" || checked.URL.User != nil {
 		return httpResponse{}, errors.New("adapter target is unavailable")
 	}
@@ -309,13 +317,13 @@ func executeHTTPOnce(ctx context.Context, request encodedRequest) (httpResponse,
 		}
 	}
 	if headerBytes > 64<<10 {
-		return httpResponse{}, errors.New("adapter response headers are too large")
+		return httpResponse{}, errResponseInvalid
 	}
 	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && strings.ToLower(strings.TrimSpace(encoding)) != "identity" {
-		return httpResponse{}, errors.New("adapter response encoding is unsupported")
+		return httpResponse{}, errResponseInvalid
 	}
 	if response.ContentLength > 1<<20 {
-		return httpResponse{}, errors.New("adapter response is too large")
+		return httpResponse{}, errResponseInvalid
 	}
 	bodyRaw, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil {
@@ -325,7 +333,7 @@ func executeHTTPOnce(ctx context.Context, request encodedRequest) (httpResponse,
 		return httpResponse{}, errors.New("adapter response could not be read")
 	}
 	if len(bodyRaw) > 1<<20 {
-		return httpResponse{}, errors.New("adapter response is too large")
+		return httpResponse{}, errResponseInvalid
 	}
 	contentType := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0]))
 	return httpResponse{status: response.StatusCode, contentType: contentType, body: bodyRaw}, nil

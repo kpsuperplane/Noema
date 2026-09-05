@@ -546,6 +546,19 @@ func (c *Chat) failTurn(input SendTurnInput, turn store.ConversationTurn, cause 
 	})
 }
 
+func (c *Chat) failUncertainTurn(input SendTurnInput, turn store.ConversationTurn) error {
+	item, err := c.database.FailConversationTurn(c.ctx, turn, "The adapter outcome is uncertain. Check the external result before retrying to avoid a duplicate operation.", time.Now())
+	if err != nil {
+		return err
+	}
+	c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusError})
+	c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item})
+	c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID})
+	return nil
+}
+
 func (c *Chat) cancelTurn(input SendTurnInput, turn store.ConversationTurn) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownSaveTimeout)
 	defer cancel()

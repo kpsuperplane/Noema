@@ -309,7 +309,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				r.failRun(ctx, run, "adapter_action_unavailable", false)
 				return
 			}
-			if paused {
+			if paused && payload == nil {
 				return
 			}
 			status := "completed"
@@ -318,6 +318,12 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			}
 			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
 				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			if paused {
+				if err := r.database.CompleteTaskUncertainResult(ctx, run.ID, run.Generation, resultInput, time.Now()); err != nil && !errors.Is(err, store.ErrStaleRun) {
+					r.failRun(ctx, run, "task_transition_failed", false)
+				}
+				return
+			}
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
@@ -644,6 +650,9 @@ func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]
 		}
 	}
 	if r.adapters != nil {
+		if kind == "executor" {
+			tools = append(tools, r.adapters.SetupTools()...)
+		}
 		values, err := r.adapters.Bindings()
 		if err == nil {
 			for _, binding := range values {
@@ -669,6 +678,12 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		return toolFailure("unsupported_tool", "Tool is unavailable for this Task role"), false, false, false
 	}
 	switch name {
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
+		if r.adapters == nil || run.Kind != "executor" {
+			return toolFailure("unavailable", "Adapter setup is unavailable"), false, false, false
+		}
+		payload, success := r.adapters.ExecuteSetup(name, raw)
+		return payload, success, false, false
 	case luaRunName:
 		payload, success := executeLuaTool(ctx, raw)
 		return payload, success, false, false
@@ -819,6 +834,8 @@ func taskToolAllowed(kind, name string) bool {
 	case taskInspectName:
 		return kind == "executor" || kind == "reviewer"
 	case taskFinishExecution, taskContinueExecution:
+		return kind == "executor"
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
 		return kind == "executor"
 	case taskFinishPlanning:
 		return kind == "planner"

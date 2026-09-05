@@ -109,12 +109,13 @@ type OutputSchema struct {
 
 // Definition is one checked filesystem definition.
 type Definition struct {
-	Manifest        Manifest
-	SourceReference string
-	SemanticDigest  string
-	Operations      []CompiledOperation
-	Replaces        []string
-	Superseded      bool
+	Manifest            Manifest
+	SourceReference     string
+	SemanticDigest      string
+	Operations          []CompiledOperation
+	Replaces            []string
+	AffectedConnections []string
+	Superseded          bool
 }
 
 type CompiledOperation struct {
@@ -176,5 +177,6 @@ type ServiceSnapshot struct {
 
 type Cursor struct {
 	Reference, ConnectionID, SemanticDigest, OperationID, OperationDigest, ArgumentsDigest, Token string
+	ConnectionRevision                                                                            int
 	ExpiresAt                                                                                     time.Time
 }

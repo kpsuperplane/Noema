@@ -58,6 +58,17 @@ func (r *Resolver) pendingHumanInterventions(
 		return nil, err
 	}
 	result = append(result, setups...)
+	if conversationID != nil && taskID == nil && r.Adapters != nil {
+		definitions, definitionErr := r.adapterDefinitions(ctx)
+		if definitionErr != nil {
+			return nil, definitionErr
+		}
+		for _, definition := range definitions {
+			if !definition.Reviewed && !definition.Superseded {
+				result = append(result, definition)
+			}
+		}
+	}
 	return result, nil
 }
 

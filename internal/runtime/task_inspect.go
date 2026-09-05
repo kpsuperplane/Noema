@@ -626,6 +626,9 @@ func (c *Chat) persistChatToolRound(
 			return nil, false, false, err
 		}
 		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID, ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem})
+		if adapterOutcomeUncertain(payload) {
+			return payload, false, true, c.failUncertainTurn(request.input, turn)
+		}
 		return payload, success, false, nil
 	}
 	toolPayload, success := c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload)
@@ -642,6 +645,9 @@ func (c *Chat) persistChatToolRound(
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem,
 	})
+	if success && call.Name == adapter.ProposeDefinitionTool {
+		c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
+	}
 	c.publishMemoryChanged()
 	return toolPayload, success, false, nil
 }

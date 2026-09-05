@@ -291,6 +291,13 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	if err != nil {
 		return action, err
 	}
+	if action.State == store.ActionOutcomeUncertain {
+		turn, _, turnErr := c.database.ActionConversationCall(c.ctx, action)
+		if turnErr != nil {
+			return action, turnErr
+		}
+		return action, c.failUncertainTurn(SendTurnInput{ConversationID: action.ConversationID}, turn)
+	}
 	c.continueAfterAction(action, resultItem)
 	return action, nil
 }

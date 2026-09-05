@@ -12,6 +12,13 @@ import (
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
+func adapterOutcomeUncertain(payload json.RawMessage) bool {
+	var value struct {
+		Code string `json:"code"`
+	}
+	return json.Unmarshal(payload, &value) == nil && value.Code == "outcome_uncertain"
+}
+
 func (c *Chat) prepareAdapterAction(conversation store.Conversation, turn store.ConversationTurn, call store.ConversationItem,
 	assignment store.ModelAssignment, round int, responseID string, hostedState bool, binding adapter.Binding, arguments json.RawMessage) (json.RawMessage, bool, *store.ConversationItem, error) {
 	if binding.ReviewRoute == "" {
@@ -48,6 +55,9 @@ func (c *Chat) prepareAdapterAction(conversation store.Conversation, turn store.
 
 func (c *Chat) callAdapter(binding adapter.Binding, arguments json.RawMessage) (json.RawMessage, bool, *store.ConversationItem, error) {
 	payload, success, err := c.adapters.Call(c.ctx, binding, arguments)
+	if errors.Is(err, adapter.ErrOutcomeUncertain) {
+		return toolFailure("outcome_uncertain", "Adapter call outcome is uncertain"), false, nil, nil
+	}
 	if err != nil {
 		return toolFailure("adapter_call_failed", "Adapter call failed"), false, nil, nil
 	}
@@ -80,6 +90,7 @@ func (c *Chat) executeReviewedAdapter(action store.ActionRequest) (json.RawMessa
 	}
 	if errors.Is(callErr, adapter.ErrOutcomeUncertain) {
 		state, failure = store.ActionOutcomeUncertain, "outcome_uncertain"
+		payload = toolFailure("outcome_uncertain", "Adapter call outcome is uncertain")
 	}
 	if !success && callErr == nil {
 		state, failure = store.ActionFailed, "remote_tool_failed"
@@ -95,6 +106,9 @@ func (r *TaskExecution) prepareTaskAdapter(ctx context.Context, task store.Task,
 	}
 	if binding.ReviewRoute == "" {
 		payload, success, err := r.adapters.Call(ctx, binding, arguments)
+		if errors.Is(err, adapter.ErrOutcomeUncertain) {
+			return toolFailure("outcome_uncertain", "Adapter call outcome is uncertain"), false, true, nil
+		}
 		if err != nil {
 			return toolFailure("adapter_call_failed", "Adapter call failed"), false, false, nil
 		}
@@ -144,10 +158,11 @@ func (r *TaskExecution) executeTaskAdapterAction(ctx context.Context, action sto
 	}
 	if errors.Is(callErr, adapter.ErrOutcomeUncertain) {
 		state, failure = store.ActionOutcomeUncertain, "outcome_uncertain"
+		payload = toolFailure("outcome_uncertain", "Adapter call outcome is uncertain")
 	}
 	if !success && callErr == nil {
 		state, failure = store.ActionFailed, "remote_tool_failed"
 	}
 	_, err = r.database.FinishActionRequest(ctx, claimed.ID, claimed.Revision, state, payload, failure, time.Now())
-	return payload, state == store.ActionSucceeded, false, err
+	return payload, state == store.ActionSucceeded, state == store.ActionOutcomeUncertain, err
 }

@@ -300,7 +300,7 @@ func validatePagination(operation *Operation) error {
 		return errors.New("pagination query conflicts")
 	}
 	if pagination.PageSize != nil {
-		if !validID(pagination.PageSize.RequestArgument) || pagination.PageSize.Value < 1 || pagination.PageSize.Value > 10000 ||
+		if !validID(pagination.PageSize.RequestArgument) || pagination.PageSize.Value < 1 || pagination.PageSize.Value > 1000 ||
 			pagination.PageSize.RequestArgument == pagination.RequestArgument || operation.FixedQuery[pagination.PageSize.RequestArgument] != "" {
 			return errors.New("pagination page size is invalid")
 		}
@@ -324,7 +324,7 @@ func validateResponse(response *Response, paginated bool) error {
 		}
 	}
 	if response.Transform != nil && (response.Transform.Language != "lua" || len(response.Transform.Source) == 0 || len(response.Transform.Source) > 32<<10 ||
-		strings.IndexFunc(response.Transform.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) >= 0) {
+		strings.IndexFunc(response.Transform.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) >= 0 || script.ValidateFunction(response.Transform.Source) != nil) {
 		return errors.New("response transform is invalid")
 	}
 	if !validateOutputSchema(response.OutputSchema, 0, new(int)) {
@@ -334,7 +334,8 @@ func validateResponse(response *Response, paginated bool) error {
 	if !ok || maximum > modelResultLimit {
 		return errors.New("response schema is too large")
 	}
-	if paginated && (response.Transform == nil || response.OutputSchema.Type != "object" || response.OutputSchema.Properties["continuation"].Type != "") {
+	_, reserved := response.OutputSchema.Properties["continuation"]
+	if reserved || paginated && (response.Transform == nil || response.OutputSchema.Type != "object" || maximum > modelResultLimit-320) {
 		return errors.New("paginated response is invalid")
 	}
 	return nil
@@ -392,7 +393,10 @@ func maximumOutputBytes(schema OutputSchema) (int, bool) {
 			return 0, false
 		}
 		size, ok := maximumOutputBytes(*schema.Items)
-		return 2 + *schema.MaxItems*(size+1), ok
+		if !ok || *schema.MaxItems < 0 || size+1 > 0 && *schema.MaxItems > (math.MaxInt-2)/(size+1) {
+			return 0, false
+		}
+		return 2 + *schema.MaxItems*(size+1), true
 	case "string":
 		if schema.MaxBytes == nil || *schema.MaxBytes > math.MaxInt/6 {
 			return 0, false

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/arnodel/golua/lib/base"
@@ -61,6 +62,25 @@ func Run(source string, input any) (any, error) {
 // RunFunction executes source which returns one function, then calls it with input.
 func RunFunction(source string, input any) (any, error) {
 	return run(source, input, true)
+}
+
+// ValidateFunction checks one bounded Lua function chunk without executing it.
+func ValidateFunction(source string) error {
+	if strings.TrimSpace(source) == "" || len(source) > MaximumSourceBytes || utf8.RuneCountInString(source) > MaximumSourceChars ||
+		!strings.HasPrefix(strings.TrimLeftFunc(source, unicode.IsSpace), "return function(") {
+		return errors.New("Lua function source is invalid")
+	}
+	_, err := lua.DoInContext(func(runtime *lua.Runtime) error {
+		sandbox := luaSandbox{runtime: runtime, tables: make(map[*lua.Table]luaTableDescription), null: &struct{}{}}
+		if err := sandbox.load(); err != nil {
+			return err
+		}
+		_, err := runtime.CompileAndLoadLuaChunk("validated_function", []byte(source), lua.TableValue(runtime.GlobalEnv()))
+		return err
+	}, lua.RuntimeContextDef{
+		HardLimits: lua.RuntimeResources{Cpu: luaCPULimit, Memory: luaMemoryLimit, Millis: luaTimeLimitMillis}, RequiredFlags: lua.ComplyMemSafe | lua.ComplyCpuSafe | lua.ComplyTimeSafe | lua.ComplyIoSafe,
+	}, io.Discard)
+	return err
 }
 
 func run(source string, input any, callReturned bool) (any, error) {

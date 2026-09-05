@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/script"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -149,10 +150,20 @@ func (s *Service) propose(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	replaces := []string(nil)
+	affected := []string(nil)
 	if input.BaseSemanticDigest != "" {
 		replaces = []string{input.BaseSemanticDigest}
+		connections, listErr := s.files.connections()
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, connection := range connections {
+			if connection.SemanticDigest == input.BaseSemanticDigest {
+				affected = append(affected, connection.ConnectionID)
+			}
+		}
 	}
-	definition, err = s.files.installDefinition(manifest, input.SourceReference, replaces)
+	definition, err = s.files.installDefinition(manifest, input.SourceReference, replaces, affected)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +189,9 @@ func (s *Service) Approve(ctx context.Context, digest string) (Definition, error
 		if value.SemanticDigest == digest && value.Superseded {
 			for _, candidate := range all {
 				if candidate.Manifest.Reviewed && !candidate.Superseded && candidate.Manifest.DefinitionID == pending.Manifest.DefinitionID && candidate.Manifest.DefinitionRevision == pending.Manifest.DefinitionRevision {
+					if err = s.adoptConnections(candidate); err != nil {
+						return Definition{}, err
+					}
 					if err = s.ensureConnection(candidate); err != nil {
 						return Definition{}, err
 					}
@@ -187,10 +201,17 @@ func (s *Service) Approve(ctx context.Context, digest string) (Definition, error
 			return Definition{}, errors.New("adapter definition review is stale")
 		}
 	}
+	currentAffected, err := s.affectedConnectionIDs(pending.Replaces)
+	if err != nil || strings.Join(currentAffected, "\x00") != strings.Join(pending.AffectedConnections, "\x00") {
+		return Definition{}, errors.New("adapter definition transition changed")
+	}
 	manifest := pending.Manifest
 	manifest.Reviewed = true
-	reviewed, err := s.files.installDefinition(manifest, pending.SourceReference, pending.Replaces)
+	reviewed, err := s.files.installDefinition(manifest, pending.SourceReference, pending.Replaces, pending.AffectedConnections)
 	if err != nil {
+		return Definition{}, err
+	}
+	if err = s.adoptConnections(reviewed); err != nil {
 		return Definition{}, err
 	}
 	if err = s.ensureConnection(reviewed); err != nil {
@@ -200,6 +221,96 @@ func (s *Service) Approve(ctx context.Context, digest string) (Definition, error
 		return Definition{}, err
 	}
 	return reviewed, nil
+}
+
+func (s *Service) affectedConnectionIDs(replaces []string) ([]string, error) {
+	wanted := make(map[string]bool, len(replaces))
+	for _, digest := range replaces {
+		wanted[digest] = true
+	}
+	connections, err := s.files.connections()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0)
+	for _, connection := range connections {
+		if wanted[connection.SemanticDigest] {
+			result = append(result, connection.ConnectionID)
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func (s *Service) adoptConnections(replacement Definition) error {
+	wanted := make(map[string]bool, len(replacement.Replaces))
+	for _, digest := range replacement.Replaces {
+		wanted[digest] = true
+	}
+	connections, err := s.files.connections()
+	if err != nil {
+		return err
+	}
+	newOperations := make(map[string]CompiledOperation, len(replacement.Operations))
+	for _, operation := range replacement.Operations {
+		newOperations[operation.OperationID] = operation
+	}
+	for _, connection := range connections {
+		if !wanted[connection.SemanticDigest] {
+			continue
+		}
+		current, loadErr := s.files.loadDefinition(connection.SemanticDigest)
+		if loadErr != nil {
+			return loadErr
+		}
+		oldOperations := make(map[string]CompiledOperation, len(current.Operations))
+		for _, operation := range current.Operations {
+			oldOperations[operation.OperationID] = operation
+		}
+		allowed := connection.AllowedOperations[:0]
+		for _, id := range connection.AllowedOperations {
+			if _, exists := newOperations[id]; exists {
+				allowed = append(allowed, id)
+			}
+		}
+		connection.AllowedOperations = allowed
+		before := len(connection.Overrides)
+		for id, override := range connection.Overrides {
+			oldOperation, oldOK := oldOperations[id]
+			newOperation, newOK := newOperations[id]
+			if !oldOK || !newOK || !sameOperationContract(oldOperation, newOperation) {
+				delete(connection.Overrides, id)
+				continue
+			}
+			override.SourceRevision = newOperation.Digest
+			connection.Overrides[id] = override
+		}
+		connection.SemanticDigest = replacement.SemanticDigest
+		connection.ConnectionRevision++
+		if before != len(connection.Overrides) || len(connection.Overrides) != 0 {
+			connection.PolicyRevision++
+		}
+		if _, err = s.files.replaceConnection(connection); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sameOperationContract(left, right CompiledOperation) bool {
+	left.Description, left.SourceDescription = "", ""
+	right.Description, right.SourceDescription = "", ""
+	for index := range left.Arguments {
+		left.Arguments[index].Description = ""
+	}
+	for index := range right.Arguments {
+		right.Arguments[index].Description = ""
+	}
+	left.Digest, right.Digest = "", ""
+	left.InputSchema, right.InputSchema = nil, nil
+	leftRaw, leftErr := normalizedJSON(left.Operation)
+	rightRaw, rightErr := normalizedJSON(right.Operation)
+	return leftErr == nil && rightErr == nil && string(leftRaw) == string(rightRaw)
 }
 
 func (s *Service) ensureConnection(definition Definition) error {
@@ -410,6 +521,9 @@ func (s *Service) ChangeTool(ctx context.Context, id, revision, tool, source str
 	if override.PolicyRevision != expected {
 		return OperationOverride{}, errors.New("adapter operation policy changed")
 	}
+	if connection.Overrides == nil {
+		connection.Overrides = make(map[string]OperationOverride)
+	}
 	if reset {
 		override.Behavior = nil
 		override.Enabled = true
@@ -564,19 +678,22 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	digest := argumentsDigest(arguments)
 	if reference != "" {
 		cursor, _ := s.loadCursor(reference)
-		if cursor.ConnectionID != current.ConnectionID || cursor.SemanticDigest != current.SemanticDigest || cursor.OperationDigest != current.OperationDigest || cursor.ArgumentsDigest != digest || time.Now().After(cursor.ExpiresAt) {
+		if cursor.ConnectionID != current.ConnectionID || cursor.ConnectionRevision != current.ConnectionRevision || cursor.SemanticDigest != current.SemanticDigest || cursor.OperationID != current.OperationID || cursor.OperationDigest != current.OperationDigest || cursor.ArgumentsDigest != digest || time.Now().After(cursor.ExpiresAt) {
 			return nil, false, errors.New("adapter continuation is stale")
 		}
 	}
-	response, err := executeHTTP(ctx, request, operation.Retry == "transport_safe_read")
+	response, err := executeHTTP(ctx, request, operation.Retry == "transport_safe_read" && current.Behavior.RepeatSafe)
 	if errors.Is(err, errOutcomeUncertain) {
 		return nil, false, ErrOutcomeUncertain
 	}
 	if err != nil {
+		if errors.Is(err, errResponseInvalid) && !current.Behavior.ReadOnly {
+			return nil, false, ErrOutcomeUncertain
+		}
 		return nil, false, err
 	}
 	if response.status < 200 || response.status >= 300 {
-		if response.status >= 500 && !operation.Behavior.ReadOnly {
+		if (response.status >= 500 || response.status >= 300 && response.status < 400) && !current.Behavior.ReadOnly {
 			return nil, false, ErrOutcomeUncertain
 		}
 		return responseFailure(response), false, nil
@@ -585,18 +702,24 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	if operation.Pagination.Kind == "response_token" {
 		value, parseErr := script.DecodeJSON(response.body)
 		if parseErr != nil {
+			if !current.Behavior.ReadOnly {
+				return nil, false, ErrOutcomeUncertain
+			}
 			return nil, false, errors.New("adapter paginated response is invalid")
 		}
 		var ok bool
 		nextToken, ok = removePointer(value, operation.Pagination.ResponsePointer)
 		if !ok {
+			if !current.Behavior.ReadOnly {
+				return nil, false, ErrOutcomeUncertain
+			}
 			return nil, false, errors.New("adapter pagination token is invalid")
 		}
 		response.body, _ = script.MarshalJSON(value)
 	}
 	result, err := decodeResponse(response, operation.Response)
 	if err != nil {
-		if !operation.Behavior.ReadOnly {
+		if !current.Behavior.ReadOnly {
 			return nil, false, ErrOutcomeUncertain
 		}
 		return failure("response_transform_failed", err.Error()), false, nil
@@ -607,14 +730,16 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			return nil, false, errors.New("adapter pagination result is invalid")
 		}
 		if nextToken != "" {
-			next := Cursor{Reference: randomHex(), ConnectionID: current.ConnectionID, SemanticDigest: current.SemanticDigest, OperationID: current.OperationID, OperationDigest: current.OperationDigest, ArgumentsDigest: digest, Token: nextToken, ExpiresAt: time.Now().Add(time.Hour)}
+			next := Cursor{Reference: randomHex(), ConnectionID: current.ConnectionID, ConnectionRevision: current.ConnectionRevision, SemanticDigest: current.SemanticDigest, OperationID: current.OperationID, OperationDigest: current.OperationDigest, ArgumentsDigest: digest, Token: nextToken, ExpiresAt: time.Now().Add(time.Hour)}
 			if err = s.putCursor(next); err != nil {
 				return nil, false, err
 			}
 			object["continuation"] = next.Reference
 		}
 		if reference != "" {
-			_ = s.retireCursor(reference)
+			if err = s.retireCursor(reference); err != nil {
+				return nil, false, err
+			}
 		}
 	}
 	payload, err := wrapResult(sanitizeOutput(result))
@@ -689,7 +814,10 @@ func (s *Service) putCursor(value Cursor) error {
 	if err != nil || len(raw) > 16<<10 {
 		return errors.New("adapter cursor is invalid")
 	}
-	return writeNewFile(s.files.root, "adapters/cursors/"+value.Reference+".json", raw)
+	if err := writeNewFile(s.files.root, "adapters/cursors/"+value.Reference+".json", raw); err != nil {
+		return err
+	}
+	return home.SyncRootDirectory(s.files.root, "adapters/cursors")
 }
 func (s *Service) loadCursor(reference string) (Cursor, error) {
 	if !validConnectionID(reference) {
@@ -713,5 +841,8 @@ func (s *Service) retireCursor(reference string) error {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return home.SyncRootDirectory(s.files.root, "adapters/cursors")
 }

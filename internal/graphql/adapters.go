@@ -2,6 +2,8 @@ package graphql
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -23,6 +25,7 @@ func (r *Resolver) requireAdapters(ctx context.Context) (*adapter.Service, error
 func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot) *model.AdapterDefinition {
 	manifest, _ := json.Marshal(value.Manifest)
 	transition := &model.AdapterDefinitionTransition{AddedOperations: []string{}, ChangedOperations: []string{}, RemovedOperations: []string{}}
+	transition.AffectedConnections = len(value.AffectedConnections)
 	previous := map[string]string{}
 	for _, digest := range value.Replaces {
 		for _, prior := range snapshot.Definitions {
@@ -30,11 +33,6 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 				for _, operation := range prior.Operations {
 					previous[operation.OperationID] = operation.Digest
 				}
-			}
-		}
-		for _, connection := range snapshot.Connections {
-			if connection.SemanticDigest == digest {
-				transition.AffectedConnections++
 			}
 		}
 	}
@@ -65,9 +63,9 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 		}
 		var transform *model.AdapterResponseTransform
 		if operation.Response.Transform != nil {
-			digest := operation.Digest
+			digest := sha256.Sum256([]byte(operation.Response.Transform.Source))
 			out, _ := json.Marshal(operation.Response.OutputSchema)
-			transform = &model.AdapterResponseTransform{Language: "lua", SourceDigest: digest, Source: operation.Response.Transform.Source,
+			transform = &model.AdapterResponseTransform{Language: "lua", SourceDigest: hex.EncodeToString(digest[:]), Source: operation.Response.Transform.Source,
 				AcceptedContentTypes: operation.Response.AcceptedContentTypes, OutputSchemaJSON: string(out)}
 		}
 		readOnly, repeatSafe, destructive, openWorld := operation.Behavior.ReadOnly, operation.Behavior.RepeatSafe, operation.Behavior.Destructive, operation.Behavior.OpenWorld

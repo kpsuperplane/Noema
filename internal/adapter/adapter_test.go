@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -40,6 +41,21 @@ func TestCompileEnforcesClosedCredentialFreeLuaContract(t *testing.T) {
 	manifest.Operations[0].Response.Transform.Language = "lua"
 	if _, err := Compile(manifest); err != nil {
 		t.Fatalf("Lua transform = %v", err)
+	}
+	manifest.Operations[0].Response.Transform.Source = "return function("
+	if _, err := Compile(manifest); err == nil {
+		t.Fatal("invalid Lua transform compiled")
+	}
+	manifest = testManifest()
+	manifest.Operations[0].Pagination = Pagination{Kind: "response_token", ResponsePointer: "/next", RequestArgument: "cursor", PageSize: &PageSize{RequestArgument: "limit", Value: 1001}}
+	if _, err := Compile(manifest); err == nil {
+		t.Fatal("oversized pagination page compiled")
+	}
+	manifest = testManifest()
+	reservedLimit := 16
+	manifest.Operations[0].Response.OutputSchema.Properties["continuation"] = OutputSchema{Type: "string", MaxBytes: &reservedLimit}
+	if _, err := Compile(manifest); err == nil {
+		t.Fatal("reserved continuation output compiled")
 	}
 	raw, _ := json.Marshal(testManifest())
 	raw = []byte(strings.Replace(string(raw), `"schema_version":9`, `"schema_version":9,"schema_version":9`, 1))
@@ -143,7 +159,7 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 	}
 	interrupted := pending.Manifest
 	interrupted.Reviewed = true
-	if _, err = service.files.installDefinition(interrupted, pending.SourceReference, pending.Replaces); err != nil {
+	if _, err = service.files.installDefinition(interrupted, pending.SourceReference, pending.Replaces, pending.AffectedConnections); err != nil {
 		t.Fatal(err)
 	}
 	reviewed, err := service.Approve(context.Background(), proposed.SemanticDigest)
@@ -155,14 +171,33 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 		t.Fatalf("connections = %d", len(snapshot.Connections))
 	}
 	connection := snapshot.Connections[0]
-	if _, err = service.SaveConnectionPolicy(context.Background(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask"); err != nil {
+	if connection, err = service.SaveConnectionPolicy(context.Background(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask"); err != nil {
 		t.Fatal(err)
 	}
+	overridden := store.ActionBehavior{Destructive: true, OpenWorld: true}
+	if _, err = service.ChangeTool(context.Background(), connection.ConnectionID, "2", reviewed.Operations[0].OperationID, reviewed.Operations[0].Digest, 1, nil, &overridden, false); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection = snapshot.Connections[0]
 	bindings, err := service.Bindings()
 	if err != nil || len(bindings) != 1 || bindings[0].SemanticDigest != reviewed.SemanticDigest {
 		t.Fatalf("bindings = %#v, %v", bindings, err)
 	}
 	if err = root.Mkdir("adapters/connections/.staging-dead", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	crashFile, err := root.OpenFile("adapters/connections/"+connection.ConnectionID+"/.connection-dead.json", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = crashFile.WriteString("incomplete"); err != nil {
+		t.Fatal(err)
+	}
+	if err = crashFile.Close(); err != nil {
 		t.Fatal(err)
 	}
 	restarted, err := NewService(root, database)
@@ -172,6 +207,9 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 	if _, err = root.Lstat("adapters/connections/.staging-dead"); !os.IsNotExist(err) {
 		t.Fatalf("staging recovery = %v", err)
 	}
+	if _, err = root.Lstat("adapters/connections/" + connection.ConnectionID + "/.connection-dead.json"); !os.IsNotExist(err) {
+		t.Fatalf("replacement recovery = %v", err)
+	}
 	bindings, err = restarted.Bindings()
 	if err != nil || len(bindings) != 1 {
 		t.Fatalf("recovered bindings = %#v, %v", bindings, err)
@@ -179,5 +217,47 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 	definitions, connections, err := database.AdapterIndexCounts(context.Background())
 	if err != nil || definitions != 2 || connections != 1 {
 		t.Fatalf("index = %d, %d, %v", definitions, connections, err)
+	}
+	cursor := Cursor{Reference: randomHex(), ConnectionID: connection.ConnectionID, ConnectionRevision: connection.ConnectionRevision,
+		SemanticDigest: reviewed.SemanticDigest, OperationID: reviewed.Operations[0].OperationID, OperationDigest: reviewed.Operations[0].Digest,
+		ArgumentsDigest: strings.Repeat("a", 64), Token: "ordinary-token", ExpiresAt: time.Now().Add(time.Hour)}
+	if err = restarted.putCursor(cursor); err != nil {
+		t.Fatal(err)
+	}
+	loadedCursor, err := restarted.loadCursor(cursor.Reference)
+	if err != nil || loadedCursor.ConnectionRevision != connection.ConnectionRevision || loadedCursor.Token != "ordinary-token" {
+		t.Fatalf("cursor = %#v, %v", loadedCursor, err)
+	}
+	if err = restarted.retireCursor(cursor.Reference); err != nil {
+		t.Fatal(err)
+	}
+	revisionArguments := append([]Argument(nil), operation.Arguments...)
+	revisionArguments[0].Description = "Current record identifier."
+	revision := map[string]any{
+		"source_reference":     "https://docs.example.com/api/v2",
+		"base_semantic_digest": reviewed.SemanticDigest,
+		"revision":             map[string]any{"definition_revision": "2026-09-06"},
+		"upsert_operations": []any{map[string]any{"operation_id": "lookup", "description": "Look up one current record.", "method": "GET", "path": "/v1/items/{id}", "authorization": map[string]any{"kind": "none"}, "arguments": revisionArguments,
+			"read_only": true, "idempotent": true, "destructive": false, "open_world": true, "response": response}},
+	}
+	raw, _ = json.Marshal(revision)
+	result, ok = restarted.ExecuteSetup(ProposeDefinitionTool, raw)
+	if !ok || json.Unmarshal(result, &proposed) != nil {
+		t.Fatalf("revision proposal = %s", result)
+	}
+	pending, err = restarted.files.loadDefinition(proposed.SemanticDigest)
+	if err != nil || len(pending.AffectedConnections) != 1 || pending.AffectedConnections[0] != connection.ConnectionID {
+		t.Fatalf("revision transition = %#v, %v", pending.AffectedConnections, err)
+	}
+	reviewed, err = restarted.Approve(context.Background(), proposed.SemanticDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = restarted.Snapshot()
+	if err != nil || len(snapshot.Connections) != 1 || snapshot.Connections[0].ConnectionID != connection.ConnectionID ||
+		snapshot.Connections[0].SemanticDigest != reviewed.SemanticDigest || snapshot.Connections[0].ConnectionRevision != connection.ConnectionRevision+1 ||
+		snapshot.Connections[0].DataSharingPolicy != "allow_automatically" || snapshot.Connections[0].UnsafeActionPolicy != "always_ask" ||
+		snapshot.Connections[0].Overrides["lookup"].Behavior == nil || *snapshot.Connections[0].Overrides["lookup"].Behavior != overridden {
+		t.Fatalf("adopted connection = %#v, %v", snapshot.Connections, err)
 	}
 }
