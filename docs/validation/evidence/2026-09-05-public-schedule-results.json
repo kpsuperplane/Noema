@@ -1,0 +1,54 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "transport": "Development socket",
+  "evidence": [
+    {
+      "id": "TIME-11-preview",
+      "result": "pass",
+      "detail": "Spring preview skips the missing minute. Fall preview returns the repeated local minute once.",
+      "spring": {
+        "resolvedStart": "2027-03-13T07:30:00Z",
+        "occurrences": [
+          "2027-03-13T07:30:00Z",
+          "2027-03-15T06:30:00Z",
+          "2027-03-16T06:30:00Z",
+          "2027-03-17T06:30:00Z",
+          "2027-03-18T06:30:00Z"
+        ]
+      },
+      "fall": {
+        "resolvedStart": "2026-11-01T05:30:00Z",
+        "occurrences": [
+          "2026-11-01T05:30:00Z",
+          "2026-11-02T06:30:00Z",
+          "2026-11-03T06:30:00Z",
+          "2026-11-04T06:30:00Z",
+          "2026-11-05T06:30:00Z"
+        ]
+      }
+    },
+    {
+      "id": "TIME-01-before-due",
+      "result": "pass",
+      "detail": "The future Task remains in Inbox without a run.",
+      "taskId": "task:9c44a59a796e7ff5cede1f9d56c16c56",
+      "scheduledFor": "2026-09-05T20:20:08.170Z"
+    }
+  ],
+  "dueTask": {
+    "taskId": "task:9c44a59a796e7ff5cede1f9d56c16c56",
+    "title": "Migration audit — due-time execution",
+    "revision": 1,
+    "generation": 1,
+    "taskDocument": "# Scheduling audit\n\nPut the exact text scheduling audit complete in RESULT.md. Do not use external services.",
+    "stage": {
+      "key": "inbox"
+    },
+    "schedule": {
+      "scheduledFor": "2026-09-05T20:20:08Z",
+      "timeZone": "UTC",
+      "recurrenceId": null
+    },
+    "runs": []
+  }
+}

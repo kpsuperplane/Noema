@@ -129,9 +129,27 @@ The live preview now skips the missing spring minute and lists the repeated fall
 The patch adds five net production lines and 15 regression-test lines. Generated GraphQL is unchanged.
 Authored and inclusive Go totals remain below the migration limits: 78,209 and 182,846 lines.
 
-A separate live check found that Run now leaves its scheduled Task in Inbox.
-The scheduler marks schedules released, but the Task worker only claims queued runs.
-The execution handoff remains under repair. This case is not a pass.
+The live Run now check found a missing handoff from schedule release to the Planner queue.
+The scheduler now calls the existing queue operation after occurrence documents are ready.
+The [released Task results](evidence/2026-09-05-released-task-results.json) confirm that both previously stuck audit Tasks completed with one Planner run each.
+A second defect rejected document-only recurrence updates. The GraphQL handler now passes the existing document-change flag.
+
+The [fix record](evidence/2026-09-05-scheduling-fixes.json) records source hashes, focused checks, broad validation, and code sizes.
+Both focused regressions passed. Broad Go test and vet checks passed on the combined patch.
+The patch adds 30 production lines and 57 net test lines. Generated GraphQL and database schemas are unchanged.
+Both migration ratios remain below 80 percent.
+
+The [fresh deadline driver](evidence/2026-09-05-public-due-check.mjs) uses the live HTTPS origin and a Task event subscription.
+Its [results](evidence/2026-09-05-public-due-results.json) confirm no run before the deadline, one Planner run afterward, and a completed result.
+The Task entered the queue at 20:27:44.005 UTC for its 20:27:44 UTC deadline.
+
+The [initial schedule driver](evidence/2026-09-05-public-schedule-check.mjs) retains the failed handoff assertion and its earlier setup.
+Its [saved results](evidence/2026-09-05-public-schedule-results.json) cover the completed preview and pre-deadline checks.
+The [recurrence driver](evidence/2026-09-05-public-recurrence-check.mjs) confirmed document-only saves and stale-save rejection after the fix.
+It then paused, resumed, and skipped a slot. A manual run was correctly denied while the original occurrence remained pending.
+The [continuation](evidence/2026-09-05-public-recurrence-finish-check.mjs) cancelled that audit occurrence before requesting a manual run.
+Its [results](evidence/2026-09-05-public-recurrence-finish-results.json) confirm the updated template copy, unchanged original document, preserved normal cadence, and immutable ended template.
+These scripts preserve this audit sequence. They are not an order-independent test framework.
 
 ## Case results
 
@@ -218,15 +236,15 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-13 | Not run | Controlled setup pending. | — |
 | RUN-14 | Not run | Controlled setup pending. | — |
 | RUN-15 | Not run | Controlled setup pending. | — |
-| TIME-01 | Not run | Controlled setup pending. | — |
-| TIME-02 | Fail | Reschedule and unschedule work. Run now releases timing but does not queue execution. Fix in progress. | — |
+| TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
+| TIME-02 | Partial | Fixed released schedules that never entered the queue. Reschedule, unschedule, and early execution pass through commands. Browser controls remain pending. | — |
 | TIME-03 | Not run | Controlled setup pending. | — |
 | TIME-04 | Not run | Controlled setup pending. | — |
 | TIME-05 | Not run | Controlled setup pending. | — |
-| TIME-06 | Not run | Controlled setup pending. | — |
-| TIME-07 | Not run | Controlled setup pending. | — |
-| TIME-08 | Not run | Controlled setup pending. | — |
-| TIME-09 | Not run | Controlled setup pending. | — |
+| TIME-06 | Partial | A manual occurrence copies the updated template. Existing Task content remains unchanged. Automatic future-slot copy remains pending. | — |
+| TIME-07 | Partial | Document-only saves now work. Stale updates preserve current text. Browser draft recovery remains pending. | — |
+| TIME-08 | Partial | Pause, resume, and skip next update schedule state. End preserves readable content and rejects edits. Future execution variants remain pending. | — |
+| TIME-09 | Partial | One manual occurrence starts with the updated document and preserves the next normal slot. Browser history remains pending. | — |
 | TIME-10 | Not run | Controlled setup pending. | — |
 | TIME-11 | Partial | Fixed duplicate fall-back previews. Spring and fall preview assertions pass. Actual scheduled transition checks remain pending. | — |
 | TIME-12 | Not run | Controlled setup pending. | — |

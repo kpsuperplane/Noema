@@ -510,6 +510,9 @@ func taskScheduleLoop(ctx context.Context, root *os.Root, database *store.Store,
 		if err == nil && changed {
 			database.NotifyWork()
 		}
+		if err == nil {
+			err = database.QueueReleasedTaskSchedules(ctx, time.Now())
+		}
 		var deadline *time.Time
 		if err == nil {
 			deadline, err = database.NextTaskScheduleDeadline(ctx)

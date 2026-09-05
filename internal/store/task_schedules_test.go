@@ -9,6 +9,64 @@ import (
 	"github.com/kpsuperplane/noema/internal/schedule"
 )
 
+func TestReleasedSchedulesEnterExecutionQueueOnce(t *testing.T) {
+	database := openTestStore(t)
+	ctx, now := t.Context(), time.Now().UTC()
+	account := createReadyModelAccount(t, database)
+	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]string)
+	for _, name := range []string{"inbox", "future", "due", "manual"} {
+		id, _ := NewTaskID()
+		ids[name] = id
+		created, err := database.CreateTaskWithOptions(ctx, id, name, testTaskCommand(name), TaskCreateOptions{}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "inbox" {
+			continue
+		}
+		instant := now.Add(time.Hour)
+		if name == "due" {
+			instant = now.Add(-time.Second)
+		}
+		scheduled, err := database.SetTaskSchedule(ctx, id, created.Task.Revision,
+			schedule.Schedule{ScheduledFor: instant, TimeZone: "UTC", MissedRunPolicy: schedule.MissedRunOnce},
+			false, testTaskCommand("schedule-"+name), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "manual" {
+			if _, err := database.RunScheduledTaskNow(ctx, id, scheduled.Task.Revision, testTaskCommand("run-now"), now); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, _, err := database.ProcessDueTaskSchedules(ctx, now, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Repeating the handoff covers wakeups and recovery after a committed queue.
+	for range 2 {
+		if err := database.QueueReleasedTaskSchedules(ctx, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, id := range ids {
+		runs, err := database.TaskRuns(ctx, id, 10)
+		want := 0
+		if name == "due" || name == "manual" {
+			want = 1
+		}
+		if err != nil || len(runs) != want {
+			t.Fatalf("%s runs = %#v, %v", name, runs, err)
+		}
+		if want == 1 && (runs[0].Kind != "planner" || runs[0].Status != "queued") {
+			t.Fatalf("%s run = %#v", name, runs[0])
+		}
+	}
+}
+
 func TestScheduledTaskCommandsAndRecurrenceLifecycle(t *testing.T) {
 	database := openTestStore(t)
 	ctx := context.Background()

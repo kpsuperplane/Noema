@@ -40,9 +40,8 @@ func TestTaskScheduleGraphQLCommandsAndRecurrenceAuthority(t *testing.T) {
 		t.Fatalf("recurrence = %#v, %v", recurrence, err)
 	}
 	nextDocument := "# Changed\n"
-	title := "Changed"
 	updated, err := resolver.updateTaskRecurrence(ctx, model.UpdateTaskRecurrenceInput{
-		RecurrenceID: recurrenceID, ExpectedRevision: 1, Title: &title, TaskDocument: &nextDocument,
+		RecurrenceID: recurrenceID, ExpectedRevision: 1, TaskDocument: &nextDocument,
 		ExpectedTaskDocumentDigest: &recurrence.TaskDocumentDigest, ClientMutationID: "update"})
 	if err != nil || updated.ClientMutationID != "update" {
 		t.Fatalf("updated recurrence = %#v, %v", updated, err)
@@ -94,7 +93,7 @@ func TestTaskScheduleGraphQLCommandsAndRecurrenceAuthority(t *testing.T) {
 		t.Fatalf("replayed manual occurrence = %#v, %v", replayedManual, err)
 	}
 	listed, err := resolver.taskRecurrences(ctx, personalWorkspaceID, nil, nil)
-	if err != nil || len(listed) != 1 || listed[0].Title != title {
+	if err != nil || len(listed) != 1 || listed[0].Title != created.Task.Title {
 		t.Fatalf("listed recurrences = %#v, %v", listed, err)
 	}
 	oneTime, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID,

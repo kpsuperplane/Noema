@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -707,6 +708,31 @@ func (s *Store) recurrenceCommand(
 		return TaskCommandResult{}, err
 	}
 	return result, nil
+}
+
+// QueueReleasedTaskSchedules queues released Tasks after their documents are ready.
+func (s *Store) QueueReleasedTaskSchedules(ctx context.Context, now time.Time) error {
+	var tasks []Task
+	if err := s.db.NewSelect().Model(&tasks).
+		Where("state = ?", TaskCaptured).
+		Where("schedule_processed_at_ms IS NOT NULL").
+		Order("created_at_ms", "task_id").Scan(ctx); err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		key := fmt.Sprintf("schedule:%s:%d:%d", task.ID, task.Generation, task.Revision)
+		digest := sha256.Sum256([]byte(key))
+		command := TaskCommand{Name: "queue_task", ClientMutationID: key,
+			RequestDigest: hex.EncodeToString(digest[:]), CorrelationID: "correlation:" + key}
+		if _, err := s.QueueTask(ctx, task.ID, task.Revision, task.Generation, command, now); err != nil {
+			if errors.Is(err, ErrStaleRevision) {
+				continue
+			}
+			return err
+		}
+		s.NotifyWork()
+	}
+	return nil
 }
 
 // NextTaskScheduleDeadline returns the first unprocessed schedule deadline.

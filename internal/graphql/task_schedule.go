@@ -218,6 +218,7 @@ func (r *Resolver) updateTaskRecurrence(
 			return nil, taskScheduleError(err)
 		}
 		documentChanged = true
+		changes.DocumentChanged = true
 	}
 	result, err := r.Store.UpdateTaskRecurrence(ctx, input.RecurrenceID,
 		int64(input.ExpectedRevision), changes, command, time.Now())

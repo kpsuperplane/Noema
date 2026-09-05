@@ -1,0 +1,12 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "transport": "Development socket",
+  "evidence": [
+    {
+      "id": "TIME-07-server",
+      "result": "pass",
+      "detail": "A stale recurrence update fails and preserves current template text. Browser draft recovery remains pending.",
+      "recurrenceId": "recurrence:53d79f6551403902dace4f9600c75cc4"
+    }
+  ]
+}

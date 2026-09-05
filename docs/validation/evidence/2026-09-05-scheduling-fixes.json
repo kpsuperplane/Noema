@@ -1,0 +1,39 @@
+{
+  "base_commit": "18f2977f",
+  "source_overrides": {
+    "cmd/noema/main.go": "a28af905cd28e1094b913b29f98896c4cbe4f9b75820b2fd57666a1e0c432f5c",
+    "internal/store/task_schedules.go": "549fae67ac94d156c46b8c1dfb83647b56da9877b27bac95140ac980d5738a48",
+    "internal/graphql/task_schedule.go": "f1bedd253463bb7cb116b4b1a2a842bf335ad3158ab9df733243128613d1ac6d"
+  },
+  "validation": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/store -run TestReleasedSchedulesEnterExecutionQueueOnce",
+      "result": "pass"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/graphql -run TestTaskScheduleGraphQLCommandsAndRecurrenceAuthority",
+      "result": "pass"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass"
+    }
+  ],
+  "lines": {
+    "production": 78239,
+    "tests": 25082,
+    "generated": 79612
+  },
+  "inclusive_lines": 182933,
+  "production_ratio_percent": 44.97,
+  "inclusive_ratio_percent": 76.28,
+  "patch": {
+    "production_added": 30,
+    "test_net": 57,
+    "generated_changes": 0
+  }
+}
