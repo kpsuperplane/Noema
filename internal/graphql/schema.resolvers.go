@@ -855,7 +855,7 @@ func (r *subscriptionRootResolver) TaskEvents(ctx context.Context, taskID string
 
 // TaskRuntimeEvents is the resolver for the taskRuntimeEvents field.
 func (r *subscriptionRootResolver) TaskRuntimeEvents(ctx context.Context, taskID string) (<-chan *model.GraphqlTaskRuntimeEvent, error) {
-	panic(fmt.Errorf("not implemented: TaskRuntimeEvents - taskRuntimeEvents"))
+	return r.taskRuntimeEvents(ctx, taskID)
 }
 
 // MutationRoot returns MutationRootResolver implementation.

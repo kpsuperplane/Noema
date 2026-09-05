@@ -502,6 +502,70 @@ func (r *Resolver) taskEvents(
 	return channel, nil
 }
 
+type taskRunItemHead struct {
+	runID     string
+	itemID    string
+	updatedAt time.Time
+}
+
+func (r *Resolver) taskRuntimeItemHead(ctx context.Context, taskID string) (taskRunItemHead, error) {
+	task, err := r.Store.Task(ctx, taskID)
+	if err != nil {
+		return taskRunItemHead{}, err
+	}
+	if task.CurrentRunID == "" {
+		return taskRunItemHead{}, nil
+	}
+	page, err := r.Store.TaskRunItems(ctx, task.CurrentRunID, 1, nil)
+	if err != nil || len(page.Items) == 0 {
+		return taskRunItemHead{runID: task.CurrentRunID}, err
+	}
+	head := page.Items[0]
+	return taskRunItemHead{runID: task.CurrentRunID, itemID: head.ID, updatedAt: head.UpdatedAt}, nil
+}
+
+func (r *Resolver) taskRuntimeEvents(ctx context.Context, taskID string) (<-chan *model.GraphqlTaskRuntimeEvent, error) {
+	if r.Store == nil {
+		return nil, errors.New("GraphQL Task store is unavailable")
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	wake := r.Store.SubscribeWork(streamCtx)
+	head, err := r.taskRuntimeItemHead(ctx, taskID)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	channel := make(chan *model.GraphqlTaskRuntimeEvent, 16)
+	go func() {
+		defer cancel()
+		defer close(channel)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, open := <-wake:
+				if !open {
+					return
+				}
+			}
+			next, err := r.taskRuntimeItemHead(ctx, taskID)
+			if err != nil {
+				return
+			}
+			if next != head && next.itemID != "" {
+				runID := next.runID
+				select {
+				case channel <- &model.GraphqlTaskRuntimeEvent{TaskID: taskID, RunID: &runID}:
+				case <-ctx.Done():
+					return
+				}
+			}
+			head = next
+		}
+	}()
+	return channel, nil
+}
+
 func workEventModel(event store.WorkEvent, task *model.TaskSummary) *model.TasksEvent {
 	cursor, _ := store.EncodeWorkEventCursor(event.ID)
 	result := &model.TasksEvent{
