@@ -411,14 +411,16 @@ func (c *Chat) executeChatToolRounds(
 	generator provider.Generator,
 	initial provider.GenerationResult,
 	memoryContext string,
+	initialProviderRound int,
+	initialHostedState bool,
 ) {
 	result := initial
 	usage := provider.Usage{}
 	progress := toolProgress{
 		argumentCounts: make(map[string]int), results: make(map[string]struct{}),
 	}
-	hostedState := false
-	for providerRound := 0; ; providerRound++ {
+	hostedState := initialHostedState
+	for providerRound := initialProviderRound; ; providerRound++ {
 		if err := addProviderUsage(&usage, result.Usage); err != nil {
 			c.failTurn(request.input, turn, err)
 			return
@@ -492,10 +494,13 @@ func (c *Chat) persistChatToolRound(
 	hostedState bool,
 ) (json.RawMessage, bool, bool, error) {
 	var mcpBinding *noemamcp.Binding
+	var multipleChoice *multipleChoiceArguments
 	if call.Name == fileDownloadName {
 		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
 			return nil, false, false, errors.New("file.download arguments are invalid")
 		}
+	} else if call.Name == presentMultipleChoiceName {
+		multipleChoice, _ = parseMultipleChoiceArguments(call.Payload)
 	} else if call.Name != noemamcp.ConnectServiceToolName && !supportsLocalChatTool(call.Name) {
 		if c.mcp == nil {
 			return nil, false, false, errors.New("MCP tool is unavailable")
@@ -518,6 +523,7 @@ func (c *Chat) persistChatToolRound(
 			ProviderCallID: call.ProviderCallID,
 			ProviderName:   call.ProviderName, Name: call.Name, Arguments: call.Payload,
 		},
+		MultipleChoice: storedMultipleChoiceInput(multipleChoice, assignment, generation.ID, hostedState),
 	}, time.Now())
 	if err != nil {
 		return nil, false, false, err
@@ -537,6 +543,12 @@ func (c *Chat) persistChatToolRound(
 	}
 	if callItem.ID == "" {
 		return nil, false, false, errors.New("stored tool call is unavailable")
+	}
+	if multipleChoice != nil {
+		c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
+		c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})
+		return nil, false, true, nil
 	}
 	if call.Name == fileDownloadName {
 		payload, success, approval, err := c.prepareFileDownloadAction(

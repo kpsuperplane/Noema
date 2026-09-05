@@ -647,9 +647,10 @@ func (s *Store) ConversationAuthorizationContext(ctx context.Context, conversati
 	rows, err := s.db.QueryContext(ctx, `
 SELECT item_id, kind, content_text FROM conversation_items
 WHERE conversation_id = ? AND deleted_at_ms IS NULL AND status = 'completed'
-  AND content_text IS NOT NULL AND kind IN ('user_text','assistant_text')
+  AND content_text IS NOT NULL AND kind IN ('user_text','assistant_text','multiple_choice_selection')
   AND sequence_index <= (SELECT sequence_index FROM conversation_items
-    WHERE conversation_id = ? AND turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1)
+    WHERE conversation_id = ? AND turn_id = ? AND kind IN ('user_text','multiple_choice_selection')
+    ORDER BY sequence_index DESC LIMIT 1)
 ORDER BY sequence_index DESC LIMIT 7`, conversationID, conversationID, turnID)
 	if err != nil {
 		return nil, err
@@ -662,7 +663,7 @@ ORDER BY sequence_index DESC LIMIT 7`, conversationID, conversationID, turnID)
 			return nil, err
 		}
 		role := "assistant"
-		if kind == "user_text" {
+		if kind == "user_text" || kind == "multiple_choice_selection" {
 			role = "human"
 		}
 		messages = append(messages, map[string]any{"item_id": id, "role": role, "text": text})

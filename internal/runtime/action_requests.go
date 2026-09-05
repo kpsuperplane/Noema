@@ -364,7 +364,7 @@ func (c *Chat) continueAfterAction(action store.ActionRequest, trigger store.Con
 		c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
 		return
 	}
-	c.executeChatToolRounds(request, turn, assignment, generator, result, c.memoryRootContext())
+	c.executeChatToolRounds(request, turn, assignment, generator, result, c.memoryRootContext(), 0, hostedState)
 }
 
 func (c *Chat) actionTurnHasHostedState(action store.ActionRequest) (bool, error) {

@@ -404,7 +404,7 @@ func TestChatFileParseStoresAndReplaysResult(t *testing.T) {
 	}
 	collectCompletedTurns(t, events, 1)
 	initial := <-requests
-	if len(initial.Tools) != 7 || initial.Tools[0].Name != fileParseName ||
+	if len(initial.Tools) != 8 || initial.Tools[0].Name != fileParseName ||
 		initial.Tools[0].Description != fileParseTool().Description ||
 		string(initial.Tools[0].InputSchema) != string(fileParseSchema) {
 		t.Fatalf("advertised file.parse tool = %#v", initial.Tools)

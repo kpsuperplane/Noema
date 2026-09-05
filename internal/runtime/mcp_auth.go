@@ -180,6 +180,6 @@ func (c *Chat) finishMCPAuthCallWithAssignment(request store.MCPAuthRequest, pay
 	if len(result.ToolCalls) != 1 || !c.supportsChatTool(c.ctx, result.ToolCalls[0].Name) {
 		return errors.New("provider returned an unsupported tool sequence")
 	}
-	c.executeChatToolRounds(queued, continuation, assignment, generator, result, c.memoryRootContext())
+	c.executeChatToolRounds(queued, continuation, assignment, generator, result, c.memoryRootContext(), request.ProviderRound+1, hostedState)
 	return nil
 }

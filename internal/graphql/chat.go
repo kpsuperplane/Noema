@@ -64,6 +64,21 @@ func (r *Resolver) sendConversationTurn(
 	}, nil
 }
 
+func (r *Resolver) sendMultipleChoiceSelection(
+	ctx context.Context, input model.SendMultipleChoiceSelectionInput,
+) (*model.TurnAccepted, error) {
+	if r.Chat == nil {
+		return nil, errors.New("Chat runtime is unavailable")
+	}
+	accepted, err := r.Chat.SendMultipleChoiceSelection(
+		ctx, input.ConversationID, input.PromptItemID, input.SelectedOptionIds, input.ClientMessageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &model.TurnAccepted{ConversationID: accepted.ConversationID, ClientMessageID: accepted.ClientMessageID}, nil
+}
+
 func (r *Resolver) conversationEvents(
 	ctx context.Context,
 	conversationID string,
@@ -196,6 +211,34 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		return model.UserText{Text: item.ContentText}, nil
 	case store.ConversationAssistantText:
 		return model.AssistantText{Text: item.ContentText}, nil
+	case store.ConversationMultipleChoicePrompt:
+		options, err := multipleChoiceOptionsModel(item.Payload["options"])
+		if err != nil {
+			return nil, err
+		}
+		mode, err := multipleChoiceModeModel(item.Payload["selection_mode"])
+		if err != nil {
+			return nil, err
+		}
+		prompt, _ := item.Payload["prompt"].(string)
+		if prompt == "" {
+			return nil, errors.New("stored multiple-choice prompt is invalid")
+		}
+		return model.MultipleChoicePrompt{Prompt: prompt, SelectionMode: mode, Options: options}, nil
+	case store.ConversationMultipleChoiceSelection:
+		options, err := multipleChoiceOptionsModel(item.Payload["selected_options"])
+		if err != nil {
+			return nil, err
+		}
+		mode, err := multipleChoiceModeModel(item.Payload["selection_mode"])
+		if err != nil {
+			return nil, err
+		}
+		promptID, _ := item.Payload["prompt_item_id"].(string)
+		if promptID == "" {
+			return nil, errors.New("stored multiple-choice selection is invalid")
+		}
+		return model.MultipleChoiceSelection{PromptItemID: promptID, SelectionMode: mode, SelectedOptions: options}, nil
 	case store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
 		id, _ := item.Payload["id"].(string)
 		kind, _ := item.Payload["activity_kind"].(string)
@@ -223,6 +266,47 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 	default:
 		return nil, fmt.Errorf("conversation item kind %q is unsupported", item.Kind)
 	}
+}
+
+func multipleChoiceModeModel(value any) (model.MultipleChoiceSelectionMode, error) {
+	switch value {
+	case "pick_one":
+		return model.MultipleChoiceSelectionModePickOne, nil
+	case "pick_many":
+		return model.MultipleChoiceSelectionModePickMany, nil
+	default:
+		return "", errors.New("stored multiple-choice mode is invalid")
+	}
+}
+
+func multipleChoiceOptionsModel(value any) ([]*model.MultipleChoiceOption, error) {
+	var values []any
+	switch typed := value.(type) {
+	case []any:
+		values = typed
+	case []map[string]any:
+		values = make([]any, len(typed))
+		for index := range typed {
+			values[index] = typed[index]
+		}
+	}
+	if len(values) == 0 {
+		return nil, errors.New("stored multiple-choice options are invalid")
+	}
+	options := make([]*model.MultipleChoiceOption, 0, len(values))
+	for _, value := range values {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			return nil, errors.New("stored multiple-choice option is invalid")
+		}
+		id, _ := entry["id"].(string)
+		label, _ := entry["label"].(string)
+		if id == "" || label == "" {
+			return nil, errors.New("stored multiple-choice option is invalid")
+		}
+		options = append(options, &model.MultipleChoiceOption{ID: id, Label: label})
+	}
+	return options, nil
 }
 
 func activityStatusModel(status string) (model.TurnActivityStatus, error) {

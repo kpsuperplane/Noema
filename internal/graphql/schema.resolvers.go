@@ -403,7 +403,7 @@ func (r *mutationRootResolver) SendConversationTurn(ctx context.Context, input m
 
 // SendMultipleChoiceSelection is the resolver for the sendMultipleChoiceSelection field.
 func (r *mutationRootResolver) SendMultipleChoiceSelection(ctx context.Context, input model.SendMultipleChoiceSelectionInput) (*model.TurnAccepted, error) {
-	panic(fmt.Errorf("not implemented: SendMultipleChoiceSelection - sendMultipleChoiceSelection"))
+	return r.sendMultipleChoiceSelection(ctx, input)
 }
 
 // SendA2UIAction is the resolver for the sendA2UIAction field.
