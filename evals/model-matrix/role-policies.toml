@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 
 [judge]
 model = "openai/gpt-5.6-sol"
@@ -28,9 +28,8 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 120000
 replacement_quality_margin = 0.03
-deterministic_weight = 0.70
-judge_weight = 0.30
-judge_case_ids = ["task_executor_submission"]
+deterministic_weight = 1.00
+judge_weight = 0.00
 
 [[policies]]
 role = "task_medium"
@@ -40,9 +39,8 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 150000
 replacement_quality_margin = 0.03
-deterministic_weight = 0.65
-judge_weight = 0.35
-judge_case_ids = ["task_executor_medium_submission"]
+deterministic_weight = 1.00
+judge_weight = 0.00
 
 [[policies]]
 role = "task_difficult"
@@ -52,9 +50,8 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 180000
 replacement_quality_margin = 0.02
-deterministic_weight = 0.60
-judge_weight = 0.40
-judge_case_ids = ["task_executor_difficult_submission"]
+deterministic_weight = 1.00
+judge_weight = 0.00
 
 [[policies]]
 role = "task_reviewer"

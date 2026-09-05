@@ -37,6 +37,7 @@ type runtimeProcess struct {
 	cancel   context.CancelFunc
 	endpoint string
 	modelID  string
+	backend  string
 	stderr   *lineHistory
 }
 
@@ -156,6 +157,7 @@ func (s *Service) startRuntimeCandidate(
 	s.runtime.cancel = cancel
 	s.runtime.endpoint = endpoint
 	s.runtime.modelID = installation.ModelID
+	s.runtime.backend = backend
 	s.runtime.stderr = history
 	s.runtimeMu.Unlock()
 	go s.waitForRuntime(command)
@@ -726,3 +728,13 @@ func (s *Service) checkpointCacheMiB(ctx context.Context) int {
 }
 
 var _ provider.Generator = (*Service)(nil)
+
+// RuntimeProcess identifies the production runtime for resource qualification.
+func (s *Service) RuntimeProcess() (pid int, backend, release string) {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+	if s.runtime.command != nil && s.runtime.command.Process != nil {
+		pid = s.runtime.command.Process.Pid
+	}
+	return pid, s.runtime.backend, llamaRelease
+}

@@ -12,6 +12,8 @@ Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 `go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
 CI checks generated Go and web files. The Rust launcher is removed.
 The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
+Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
+Next: extract the Obscura worker and remove the former Rust evaluation closure.
 Supporting flows now share the approved card, avatar, and existing theme.
 See `docs/plans/2026-09-04-supporting-ui/implementation.md` for implementation and validation.
 
@@ -282,8 +284,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
-- Authored Go production uses 76,679 lines, or 44.07% of the Rust baseline.
-  The inclusive Go total uses 180,449 lines, or 75.24% of the Rust baseline.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
 - Go owns schema version 32, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
 - Desktop launches a Go sidecar. Rust server crates and the unused Rust MCP transport are gone.

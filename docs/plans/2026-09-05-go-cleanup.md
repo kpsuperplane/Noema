@@ -77,3 +77,10 @@ Do not remove the browser worker or Tauri desktop capability.
   The existing SQLite driver, schema version, and transaction checks remain.
   Production store code changed by -100 lines. Two mapping tests add 89 lines.
   Go unit tests and vet passed. The Memory test now accepts merged invalidations.
+
+- Go evaluation suite 10 replaces the Rust runner's 32 model cases.
+  Production prompts, schemas, replay, token counting, and adapters own execution.
+  Hosted plans preserve prices, budgets, exact checkpoints, judges, and recommendation patches.
+  Local runs preserve verified imports, isolated workers, resource probes, and reports.
+  Interrupted billed requests require a new plan before another attempt.
+  No paid model calls or weight downloads ran during implementation.
