@@ -103,7 +103,7 @@ func newKernelTestFixture(t *testing.T, endpoint string, obscuraFirst bool) kern
 	if err := database.SaveBrowserProviderRoute(t.Context(), route, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	artifacts, err := artifact.New(root, database)
+	artifacts, err := artifact.New(root, database, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
