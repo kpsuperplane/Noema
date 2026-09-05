@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/acp"
+	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/home"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -50,6 +51,7 @@ var (
 type TaskExecution struct {
 	database                  *store.Store
 	mcp                       *noemamcp.Service
+	adapters                  *adapter.Service
 	root                      *os.Root
 	openRouter, codex, openAI provider.Generator
 	ctx                       context.Context
@@ -64,19 +66,25 @@ func NewTaskExecution(
 	database *store.Store,
 	openRouter, codex, openAI provider.Generator,
 	root *os.Root,
-	mcpServices ...*noemamcp.Service,
+	services ...any,
 ) (*TaskExecution, error) {
 	if database == nil || openRouter == nil || codex == nil || openAI == nil || root == nil {
 		return nil, errors.New("Task execution dependencies are required")
 	}
 	ctx, cancel := context.WithCancel(parent)
 	var mcpService *noemamcp.Service
-	if len(mcpServices) != 0 {
-		mcpService = mcpServices[0]
+	var adapterService *adapter.Service
+	for _, service := range services {
+		switch value := service.(type) {
+		case *noemamcp.Service:
+			mcpService = value
+		case *adapter.Service:
+			adapterService = value
+		}
 	}
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI,
-		mcp: mcpService,
+		mcp: mcpService, adapters: adapterService,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 	}
 	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
@@ -222,7 +230,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	toolCount := int(run.ToolCallCount)
 	for round := int(run.ProviderCallCount); round < taskProviderLimit && ctx.Err() == nil; round++ {
 		started := time.Now()
-		tools, bindings := r.taskExecutionTools(ctx, run.Kind)
+		tools, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
 			AccountID: run.ProviderAccountID, Model: model, Messages: messages,
 			ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
@@ -288,6 +296,34 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			}
 			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
 				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
+				return
+			}
+			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
+			messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}})
+			continue
+		}
+		if binding, ok := adapterBindings[call.Name]; ok {
+			payload, success, paused, actionErr := r.prepareTaskAdapter(ctx, task, run, callItem, binding, call.Payload)
+			if actionErr != nil {
+				r.failRun(ctx, run, "adapter_action_unavailable", false)
+				return
+			}
+			if paused && payload == nil {
+				return
+			}
+			status := "completed"
+			if !success {
+				status = "failed"
+			}
+			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
+				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			if paused {
+				if err := r.database.CompleteTaskUncertainResult(ctx, run.ID, run.Generation, resultInput, time.Now()); err != nil && !errors.Is(err, store.ErrStaleRun) {
+					r.failRun(ctx, run, "task_transition_failed", false)
+				}
+				return
+			}
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
@@ -591,27 +627,47 @@ func taskExecutionTools(kind string) []provider.GenerationTool {
 	return files
 }
 
-func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]provider.GenerationTool, map[string]noemamcp.Binding) {
+func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]provider.GenerationTool, map[string]noemamcp.Binding, map[string]adapter.Binding) {
 	tools := taskExecutionTools(kind)
 	bindings := make(map[string]noemamcp.Binding)
-	if r.mcp == nil || kind == "planner" {
-		return tools, bindings
+	adapterBindings := make(map[string]adapter.Binding)
+	if kind == "planner" {
+		return tools, bindings, adapterBindings
 	}
-	values, err := r.mcp.Bindings(ctx)
-	if err != nil {
-		return tools, bindings
-	}
-	for _, binding := range values {
-		if kind == "reviewer" && !binding.Behavior.ReadOnly {
-			continue
+	if r.mcp != nil {
+		values, err := r.mcp.Bindings(ctx)
+		if err == nil {
+			for _, binding := range values {
+				if kind == "reviewer" && !binding.Behavior.ReadOnly {
+					continue
+				}
+				if kind == "executor" && !binding.Behavior.ReadOnly && binding.ReviewRoute == "" {
+					binding.ReviewRoute = store.ActionLLMReview
+				}
+				bindings[binding.Name] = binding
+				tools = append(tools, provider.GenerationTool{Name: binding.Name, Description: binding.Description, InputSchema: binding.InputSchema})
+			}
 		}
-		if kind == "executor" && !binding.Behavior.ReadOnly && binding.ReviewRoute == "" {
-			binding.ReviewRoute = store.ActionLLMReview
-		}
-		bindings[binding.Name] = binding
-		tools = append(tools, provider.GenerationTool{Name: binding.Name, Description: binding.Description, InputSchema: binding.InputSchema})
 	}
-	return tools, bindings
+	if r.adapters != nil {
+		if kind == "executor" {
+			tools = append(tools, r.adapters.SetupTools()...)
+		}
+		values, err := r.adapters.Bindings()
+		if err == nil {
+			for _, binding := range values {
+				if kind == "reviewer" && !binding.Behavior.ReadOnly {
+					continue
+				}
+				if kind == "executor" && !binding.Behavior.ReadOnly && binding.ReviewRoute == "" {
+					binding.ReviewRoute = store.ActionLLMReview
+				}
+				adapterBindings[binding.Name] = binding
+				tools = append(tools, provider.GenerationTool{Name: binding.Name, Description: binding.Description, InputSchema: binding.InputSchema})
+			}
+		}
+	}
+	return tools, bindings, adapterBindings
 }
 
 func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, run store.TaskRun, name string, raw json.RawMessage, wroteTask bool) (json.RawMessage, bool, bool, bool) {
@@ -622,6 +678,12 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		return toolFailure("unsupported_tool", "Tool is unavailable for this Task role"), false, false, false
 	}
 	switch name {
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
+		if r.adapters == nil || run.Kind != "executor" {
+			return toolFailure("unavailable", "Adapter setup is unavailable"), false, false, false
+		}
+		payload, success := r.adapters.ExecuteSetup(name, raw)
+		return payload, success, false, false
 	case luaRunName:
 		payload, success := executeLuaTool(ctx, raw)
 		return payload, success, false, false
@@ -772,6 +834,8 @@ func taskToolAllowed(kind, name string) bool {
 	case taskInspectName:
 		return kind == "executor" || kind == "reviewer"
 	case taskFinishExecution, taskContinueExecution:
+		return kind == "executor"
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
 		return kind == "executor"
 	case taskFinishPlanning:
 		return kind == "planner"

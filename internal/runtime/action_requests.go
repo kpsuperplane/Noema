@@ -260,7 +260,9 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	}
 	c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: action.ConversationID})
 	if action.State == store.ActionExecutable {
-		if strings.HasPrefix(action.CapabilityName, "mcp.") {
+		if action.AuthorizationContext["adapter_binding"] != nil {
+			_, _, _, err = c.executeReviewedAdapter(action)
+		} else if strings.HasPrefix(action.CapabilityName, "mcp.") {
 			var notice *store.ConversationItem
 			_, _, notice, err = c.executeReviewedMCP(action)
 			if err == nil && notice != nil {
@@ -288,6 +290,13 @@ func (c *Chat) resolveActionRequest(request actionResolution) (store.ActionReque
 	resultItem, err := c.appendActionResult(action)
 	if err != nil {
 		return action, err
+	}
+	if action.State == store.ActionOutcomeUncertain {
+		turn, _, turnErr := c.database.ActionConversationCall(c.ctx, action)
+		if turnErr != nil {
+			return action, turnErr
+		}
+		return action, c.failUncertainTurn(SendTurnInput{ConversationID: action.ConversationID}, turn)
 	}
 	c.continueAfterAction(action, resultItem)
 	return action, nil

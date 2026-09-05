@@ -3,9 +3,14 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
 func runLuaToolForTest(t *testing.T, source, input string) (map[string]any, bool) {
@@ -48,6 +53,64 @@ func TestLuaRunsStandardSyntaxForChatAndTaskRoles(t *testing.T) {
 		if !found {
 			t.Fatalf("%s catalog omits code.run_lua", role)
 		}
+	}
+}
+
+func TestTaskExecutorExposesAdapterDefinitionTools(t *testing.T) {
+	directory := t.TempDir()
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	database, err := store.Open(context.Background(), filepath.Join(directory, "noema.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	service, err := adapter.NewService(root, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := &TaskExecution{adapters: service}
+	for _, role := range []string{"planner", "executor", "reviewer"} {
+		tools, _, _ := execution.taskExecutionTools(context.Background(), role)
+		found := map[string]bool{}
+		for _, tool := range tools {
+			found[tool.Name] = true
+		}
+		want := role == "executor"
+		if found[adapter.DefinitionTemplateTool] != want || found[adapter.ProposeDefinitionTool] != want {
+			t.Fatalf("%s adapter definition tools = %#v", role, found)
+		}
+	}
+}
+
+func TestAdapterOutcomeUncertainPayloadIsTerminal(t *testing.T) {
+	if !adapterOutcomeUncertain(toolFailure("outcome_uncertain", "Adapter call outcome is uncertain")) {
+		t.Fatal("uncertain adapter result was treated as an ordinary tool failure")
+	}
+	if adapterOutcomeUncertain(toolFailure("adapter_call_failed", "Adapter call failed")) {
+		t.Fatal("ordinary adapter failure was treated as uncertain")
+	}
+}
+
+func TestAdapterOutcomeUncertainFailsTheActiveChatTurn(t *testing.T) {
+	chat, database, conversation := chatFixture(t)
+	turn, _, err := database.BeginConversationTurn(context.Background(), conversation.ID, "Submit once.", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = chat.failUncertainTurn(SendTurnInput{ConversationID: conversation.ID}, turn); err != nil {
+		t.Fatal(err)
+	}
+	page, err := database.ConversationItemPage(context.Background(), conversation.ID, "", 10)
+	if err != nil || len(page.Items) != 2 || page.Items[1].Kind != store.ConversationErrorNotice ||
+		!strings.Contains(page.Items[1].ContentText, "avoid a duplicate") {
+		t.Fatalf("uncertain transcript = %#v, %v", page.Items, err)
+	}
+	if _, err = database.CompleteConversationTurn(context.Background(), turn, "continued", "", nil, time.Now()); err == nil {
+		t.Fatal("uncertain Chat turn remained active")
 	}
 }
 

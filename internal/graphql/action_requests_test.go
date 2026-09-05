@@ -18,6 +18,25 @@ func TestPendingHumanInterventionsReturnsGovernedActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	setupTurn, _, err := resolver.Store.BeginConversationTurn(ctx, conversation.ID, "Connect it.", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupItems, err := resolver.Store.StartConversationToolRound(ctx, setupTurn, store.ConversationToolRound{
+		Provider: "openrouter", Call: store.ConversationToolCallInput{ProviderCallID: "setup-1", ProviderName: "mcp.connect_service", Name: "mcp.connect_service", Arguments: json.RawMessage(`{"service_url":"https://example.test"}`)},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupPayload := json.RawMessage(`{"status":"needs_auth","service_url":"https://example.test/","display_name":"Example","endpoint_url":"https://mcp.example.test/","setup_result":{"setup_status":"needs_auth","discovered_tool_count":1}}`)
+	if _, err = resolver.Store.FinishConversationToolCall(ctx, setupTurn, store.ConversationToolResultInput{
+		CallItemID: setupItems[len(setupItems)-1].ID, Provider: "openrouter", ProviderCallID: "setup-1", ProviderName: "mcp.connect_service", Name: "mcp.connect_service", Success: true, Payload: setupPayload,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = resolver.Store.CompleteConversationTurn(ctx, setupTurn, "Authentication is required.", "Authentication is required.", nil, now); err != nil {
+		t.Fatal(err)
+	}
 	turn, _, err := resolver.Store.BeginConversationTurn(ctx, conversation.ID, "Download it.", nil, now)
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +74,7 @@ func TestPendingHumanInterventionsReturnsGovernedActions(t *testing.T) {
 	t.Cleanup(server.Close)
 	result := postGraphQL(t, server.URL, `
 query Pending($conversationId: String!) {
-  pendingHumanInterventions(conversationId: $conversationId, first: 50) {
+  pendingHumanInterventions(conversationId: $conversationId, first: 1) {
     __typename
     ... on GovernedAction { actionId capabilityName state }
   }

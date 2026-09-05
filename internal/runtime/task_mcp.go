@@ -123,9 +123,15 @@ func (r *TaskExecution) ResolveActionRequest(ctx context.Context, actionID strin
 		payload, _ := json.Marshal(actionResultPayload(action))
 		return action, r.completeTaskMCPResult(ctx, action, call, payload, false)
 	}
-	payload, success, paused, err := r.executeTaskMCPAction(ctx,
-		store.Task{ID: action.TaskID}, store.TaskRun{ID: action.RunID, TaskID: action.TaskID, Generation: action.TaskGeneration}, call, action)
-	if err != nil || paused {
+	var payload json.RawMessage
+	var success, paused bool
+	if action.AuthorizationContext["adapter_binding"] != nil {
+		payload, success, paused, err = r.executeTaskAdapterAction(ctx, action)
+	} else {
+		payload, success, paused, err = r.executeTaskMCPAction(ctx,
+			store.Task{ID: action.TaskID}, store.TaskRun{ID: action.RunID, TaskID: action.TaskID, Generation: action.TaskGeneration}, call, action)
+	}
+	if err != nil || (paused && payload == nil) {
 		return action, err
 	}
 	action, err = r.database.ActionRequest(ctx, action.ID, action.Revision)
@@ -237,5 +243,5 @@ func (r *TaskExecution) completeTaskMCPResult(ctx context.Context, action store.
 		Kind: "tool_result", Status: status, Round: call.Round, ParentID: call.ID,
 		Payload: map[string]any{"name": action.CapabilityName, "arguments": arguments, "result": payload,
 			"success": success, "provider_call_id": action.AuthorizationContext["provider_call_id"], "provider_name": action.AuthorizationContext["provider_name"]},
-	}, time.Now())
+	}, action.State == store.ActionOutcomeUncertain, time.Now())
 }

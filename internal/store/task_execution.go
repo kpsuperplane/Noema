@@ -288,11 +288,20 @@ WHERE run_id=? AND task_generation=? AND status='waiting_for_approval'
 }
 
 // CompleteTaskIntervention stores one exact tool result before it queues the run.
-func (s *Store) CompleteTaskIntervention(ctx context.Context, runID string, generation int64, item TaskRunItemInput, now time.Time) error {
+func (s *Store) CompleteTaskIntervention(ctx context.Context, runID string, generation int64, item TaskRunItemInput, uncertain bool, now time.Time) error {
+	return s.completeTaskResult(ctx, runID, generation, "waiting_for_approval", item, uncertain, now)
+}
+
+// CompleteTaskUncertainResult atomically stores one result and opens recovery.
+func (s *Store) CompleteTaskUncertainResult(ctx context.Context, runID string, generation int64, item TaskRunItemInput, now time.Time) error {
+	return s.completeTaskResult(ctx, runID, generation, "running", item, true, now)
+}
+
+func (s *Store) completeTaskResult(ctx context.Context, runID string, generation int64, runStatus string, item TaskRunItemInput, uncertain bool, now time.Time) error {
 	if item.Kind != "tool_result" || item.ParentID == "" || !validTaskRunItem(item) {
-		return errors.New("invalid Task intervention result")
+		return errors.New("invalid Task tool result")
 	}
-	err := s.taskRunTransaction(ctx, runID, generation, "waiting_for_approval", func(tx *sql.Tx, _ *Task, run *TaskRun) error {
+	err := s.taskRunTransaction(ctx, runID, generation, runStatus, func(tx *sql.Tx, task *Task, run *TaskRun) error {
 		var next int64
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence_index)+1,0) FROM task_run_items WHERE run_id=?`, run.ID).Scan(&next); err != nil {
 			return err
@@ -312,6 +321,9 @@ VALUES (?,?,?,?,?,?,?, ?,?,?)`, id, run.ID, next, item.Round, item.Kind, item.St
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE task_run_items SET status=?,updated_at_ms=? WHERE item_id=? AND run_id=? AND item_kind='tool_call' AND status='running'`, item.Status, millis(now), item.ParentID, run.ID); err != nil {
 			return err
+		}
+		if uncertain {
+			return markTaskExecutionUncertainTx(ctx, tx, task, *run, now)
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='queued',queued_at_ms=?,updated_at_ms=? WHERE run_id=? AND status='waiting_for_approval'`, millis(now), millis(now), run.ID)
 		return err
@@ -451,7 +463,7 @@ func (s *Store) FailTaskExecution(ctx context.Context, runID string, generation 
 	})
 }
 
-// MarkTaskExecutionUncertain opens recovery after an approved ACP effect loses its process.
+// MarkTaskExecutionUncertain opens recovery after an approved effect has an uncertain result.
 func (s *Store) MarkTaskExecutionUncertain(ctx context.Context, runID string, generation int64, now time.Time) error {
 	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx *sql.Tx, task *Task, run *TaskRun) error {
 		return markTaskExecutionUncertainTx(ctx, tx, task, *run, now)
@@ -460,8 +472,8 @@ func (s *Store) MarkTaskExecutionUncertain(ctx context.Context, runID string, ge
 
 func markTaskExecutionUncertainTx(ctx context.Context, tx *sql.Tx, task *Task, run TaskRun, now time.Time) error {
 	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='failed',error_code='outcome_uncertain',
-error_message='An approved ACP operation may have completed.',ended_at_ms=?,updated_at_ms=?
-WHERE run_id=? AND status IN ('leased','running')`, millis(now), millis(now), run.ID)
+ error_message='An approved operation may have completed.',ended_at_ms=?,updated_at_ms=?
+WHERE run_id=? AND status IN ('leased','running','waiting_for_approval')`, millis(now), millis(now), run.ID)
 	if err != nil {
 		return err
 	}
@@ -469,7 +481,7 @@ WHERE run_id=? AND status IN ('leased','running')`, millis(now), millis(now), ru
 		return ErrStaleRun
 	}
 	return openTaskExecutionGate(ctx, tx, task, run, "recovery",
-		"Check the external result before continuing.", "An approved ACP operation may have completed.",
+		"Check the external result before continuing.", "An approved operation may have completed.",
 		"unsafe_effect_uncertain", "executor", now)
 }
 

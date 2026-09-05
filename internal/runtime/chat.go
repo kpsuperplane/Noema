@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/kpsuperplane/noema/internal/adapter"
 	_ "time/tzdata"
 
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
@@ -134,6 +136,7 @@ type Chat struct {
 	home       *os.Root
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
+	adapters   *adapter.Service
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
@@ -164,7 +167,7 @@ func NewChat(
 	openAI provider.Generator,
 	homeRoot *os.Root,
 	memoryStore *noemamemory.Store,
-	mcpServices ...*noemamcp.Service,
+	services ...any,
 ) (*Chat, error) {
 	if database == nil || openRouter == nil || codex == nil || openAI == nil || homeRoot == nil || memoryStore == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
@@ -186,7 +189,9 @@ func NewChat(
 			err = callErr
 			break
 		}
-		recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
+		if action.State != store.ActionOutcomeUncertain {
+			recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
+		}
 	}
 	if err == nil {
 		var choices []store.ConversationChoiceContinuation
@@ -204,12 +209,18 @@ func NewChat(
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var mcpService *noemamcp.Service
-	if len(mcpServices) != 0 {
-		mcpService = mcpServices[0]
+	var adapterService *adapter.Service
+	for _, service := range services {
+		switch value := service.(type) {
+		case *noemamcp.Service:
+			mcpService = value
+		case *adapter.Service:
+			adapterService = value
+		}
 	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService,
+		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore, mcp: mcpService, adapters: adapterService,
 		turns: make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
 		choices:          make(chan choiceResolution, turnQueueLimit),
@@ -556,6 +567,19 @@ func (c *Chat) failTurn(input SendTurnInput, turn store.ConversationTurn, cause 
 		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
 	})
+}
+
+func (c *Chat) failUncertainTurn(input SendTurnInput, turn store.ConversationTurn) error {
+	item, err := c.database.FailConversationTurn(c.ctx, turn, "The adapter outcome is uncertain. Check the external result before retrying to avoid a duplicate operation.", time.Now())
+	if err != nil {
+		return err
+	}
+	c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusError})
+	c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item})
+	c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID})
+	return nil
 }
 
 func (c *Chat) cancelTurn(input SendTurnInput, turn store.ConversationTurn) {
