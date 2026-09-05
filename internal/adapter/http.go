@@ -371,21 +371,30 @@ func decodeResponse(response httpResponse, contract Response) (any, error) {
 	return result, nil
 }
 
-func responseFailure(response httpResponse, sensitive map[string]bool) json.RawMessage {
+func responseFailure(response httpResponse, sensitive map[string]bool, secretValues []string) json.RawMessage {
 	value := map[string]any{"error": "remote_request_failed", "status": response.status}
 	if len(response.body) != 0 && len(response.body) <= 4096 && (response.contentType == "application/json" || strings.HasSuffix(response.contentType, "+json")) {
 		if body, err := script.DecodeJSON(response.body); err == nil {
-			value["body"] = sanitizeSensitiveOutput(body, sensitive)
+			value["body"] = sanitizeSensitiveOutput(body, sensitive, secretValues)
 		}
 	}
 	raw, _ := json.Marshal(value)
 	return raw
 }
 
-func sanitizeSensitiveOutput(value any, sensitive map[string]bool) any {
+func sanitizeSensitiveOutput(value any, sensitive map[string]bool, secretValues []string) any {
 	value = sanitizeOutput(value)
-	if len(sensitive) == 0 {
+	if len(sensitive) == 0 && len(secretValues) == 0 {
 		return value
+	}
+	redactText := func(text string) string {
+		for _, secret := range secretValues {
+			text = strings.ReplaceAll(text, secret, "[REDACTED]")
+		}
+		return text
+	}
+	if text, ok := value.(string); ok {
+		return redactText(text)
 	}
 	var scrub func(any)
 	scrub = func(current any) {
@@ -416,11 +425,17 @@ func sanitizeSensitiveOutput(value any, sensitive map[string]bool) any {
 						current[key] = parsed.String()
 					}
 				}
+				if text, ok := current[key].(string); ok {
+					current[key] = redactText(text)
+				}
 				scrub(current[key])
 			}
 		case []any:
-			for _, child := range current {
-				scrub(child)
+			for index, child := range current {
+				if text, ok := child.(string); ok {
+					current[index] = redactText(text)
+				}
+				scrub(current[index])
 			}
 		}
 	}

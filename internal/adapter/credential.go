@@ -85,7 +85,7 @@ var forbiddenCredentialHeaders = map[string]bool{
 	"via": true, "cookie": true, "set-cookie": true, "accept-encoding": true, "forwarded": true,
 }
 
-func applyCredentialAuth(auth Authentication, fields map[string]string, operation CompiledOperation, request *encodedRequest) (map[string]bool, error) {
+func applyCredentialAuth(auth Authentication, fields map[string]string, operation CompiledOperation, request *encodedRequest) (map[string]bool, []string, error) {
 	parsed, _ := url.Parse(request.rawURL)
 	credentials := make(map[string]any, len(fields))
 	for name, value := range fields {
@@ -117,12 +117,20 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 	result, err := script.RunFunction(auth.RequestAuth.Source, input)
 	object, ok := result.(map[string]any)
 	if err != nil || !ok || len(object) > 2 {
-		return nil, errors.New("adapter request authentication failed")
+		return nil, nil, errors.New("adapter request authentication failed")
 	}
 	sensitive := map[string]bool{}
+	secretValues := []string{}
+	seenValues := map[string]bool{}
+	rememberValue := func(value string) {
+		if !seenValues[value] {
+			seenValues[value] = true
+			secretValues = append(secretValues, value)
+		}
+	}
 	for key := range object {
 		if key != "headers" && key != "query" {
-			return nil, errors.New("adapter request authentication failed")
+			return nil, nil, errors.New("adapter request authentication failed")
 		}
 	}
 	if err := applyCredentialMap(object["headers"], 16, func(name, value string) error {
@@ -132,9 +140,10 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 		}
 		request.headers[name] = value
 		sensitive[lower] = true
+		rememberValue(value)
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := applyCredentialMap(object["query"], 16, func(name, value string) error {
 		if name == "" || len(name) > 128 || strings.IndexFunc(name, controlRune) >= 0 || query.Has(name) {
@@ -142,16 +151,17 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 		}
 		query.Add(name, value)
 		sensitive[strings.ToLower(name)] = true
+		rememberValue(value)
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	parsed.RawQuery = query.Encode()
 	if len(parsed.String()) > 8192 {
-		return nil, errors.New("adapter credential URL is too large")
+		return nil, nil, errors.New("adapter credential URL is too large")
 	}
 	request.rawURL = parsed.String()
-	return sensitive, nil
+	return sensitive, secretValues, nil
 }
 
 func applyCredentialMap(raw any, limit int, apply func(string, string) error) error {

@@ -198,29 +198,32 @@ func (r *TaskExecution) ResumeAdapterAuthentication(ctx context.Context, connect
 		return false, err
 	}
 	handled := false
+	var firstErr error
 	for _, request := range requests {
 		if request.TaskID == "" {
 			continue
 		}
 		handled = true
-		request, err = r.database.BeginAdapterAuthResume(ctx, request, time.Now())
-		if err != nil {
-			return true, err
-		}
 		var authority struct {
 			Binding adapter.Binding `json:"binding"`
 		}
 		if json.Unmarshal([]byte(request.BindingJSON), &authority) != nil {
-			return true, errors.New("stored adapter Task authority is invalid")
+			continue
 		}
 		binding, callErr := currentAdapterCredentialBinding(r.adapters, authority.Binding)
-		payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
-		if callErr == nil {
-			payload, success, callErr = r.adapters.Call(ctx, binding, json.RawMessage(request.ArgumentsJSON))
+		if callErr != nil {
+			continue
 		}
+		request, err = r.database.BeginAdapterAuthResume(ctx, request, time.Now())
+		if err != nil {
+			firstErr = errors.Join(firstErr, err)
+			continue
+		}
+		payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
+		payload, success, callErr = r.adapters.Call(ctx, binding, json.RawMessage(request.ArgumentsJSON))
 		if errors.Is(callErr, adapter.ErrAuthenticationRequired) {
 			if _, err = r.database.RetryAdapterAuthentication(ctx, request, time.Now()); err != nil {
-				return true, err
+				firstErr = errors.Join(firstErr, err)
 			}
 			continue
 		}
@@ -232,20 +235,26 @@ func (r *TaskExecution) ResumeAdapterAuthentication(ctx context.Context, connect
 		}
 		if request.ActionID != "" {
 			if _, _, err = r.database.FinishMCPAuthAction(ctx, request, state, payload, failure, "completed", time.Now()); err != nil {
-				return true, err
+				firstErr = errors.Join(firstErr, err)
+				continue
 			}
-		} else if _, err = r.database.FinishMCPAuthRequest(ctx, request.ID, request.Revision, "completed", failure, time.Now()); err != nil {
-			return true, err
 		}
 		call, loadErr := r.taskAuthCall(ctx, request)
 		if loadErr != nil {
-			return true, loadErr
+			firstErr = errors.Join(firstErr, loadErr)
+			continue
 		}
 		if err = r.completeTaskMCPResult(ctx, store.ActionRequest{TaskID: request.TaskID, RunID: request.RunID, TaskGeneration: request.TaskGeneration, CapabilityName: request.CapabilityName, State: state, AuthorizationContext: map[string]any{"provider_call_id": request.ProviderCallID, "provider_name": request.ProviderName}}, call, payload, success); err != nil {
-			return true, err
+			firstErr = errors.Join(firstErr, err)
+			continue
+		}
+		if request.ActionID == "" {
+			if _, err = r.database.FinishMCPAuthRequest(ctx, request.ID, request.Revision, "completed", failure, time.Now()); err != nil {
+				firstErr = errors.Join(firstErr, err)
+			}
 		}
 	}
-	return handled, nil
+	return handled, firstErr
 }
 
 // SkipMCPAuthentication closes one exact Task call without credentials.

@@ -98,7 +98,7 @@ func validateAuthentication(value Authentication) error {
 	}
 	setup := value.Setup
 	parsed, err := url.Parse(setup.SetupURL)
-	if !boundedText(setup.CredentialType, 128, false) || len(setup.SetupURL) > 4096 || err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || len(setup.Instructions) < 1 || len(setup.Instructions) > 8 {
+	if !boundedText(setup.CredentialType, 128, false) || len(setup.SetupURL) > 4096 || strings.TrimSpace(setup.SetupURL) != setup.SetupURL || err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || len(setup.Instructions) < 1 || len(setup.Instructions) > 8 {
 		return errors.New("adapter credential setup is invalid")
 	}
 	for _, instruction := range setup.Instructions {

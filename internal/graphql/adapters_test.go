@@ -46,8 +46,9 @@ func TestCredentialDefinitionProjectsSetupWithoutSecretValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projected := definitionModel(definition, adapter.ServiceSnapshot{Definitions: []adapter.Definition{definition}})
-	if projected.AuthenticationMode != "credential" || projected.CredentialSetup == nil || projected.CredentialSetup.RequestAuthTransform == nil || projected.CredentialSetup.RequestAuthTransform.Source != authSource || projected.NextAction == nil || projected.NextAction.Kind != "set_up_credential" {
+	connection := adapter.Connection{ConnectionID: "11111111111111111111111111111111", SemanticDigest: definition.SemanticDigest, Status: "authentication_required", ConnectionRevision: 2, PolicyRevision: 1, Authentication: adapter.ConnectionAuthentication{Kind: "credential", GenerationID: "22222222222222222222222222222222", Revision: 1}}
+	projected := definitionModel(definition, adapter.ServiceSnapshot{Definitions: []adapter.Definition{definition}, Connections: []adapter.Connection{connection}})
+	if projected.AuthenticationMode != "credential" || projected.CredentialSetup == nil || projected.CredentialSetup.RequestAuthTransform == nil || projected.CredentialSetup.RequestAuthTransform.Source != authSource || projected.NextAction == nil || projected.NextAction.Kind != "set_up_credential" || projected.NextAction.ConnectionID == nil || *projected.NextAction.ConnectionID != connection.ConnectionID || !adapterDefinitionNeedsChatIntervention(projected) {
 		t.Fatalf("credential projection = %#v", projected)
 	}
 }

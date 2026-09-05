@@ -811,12 +811,13 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		return nil, false, err
 	}
 	sensitive := map[string]bool{}
+	secretValues := []string{}
 	if definition.Manifest.Authentication.Kind == "credential" {
 		fields, loadErr := s.files.loadCredential(connection)
 		if loadErr != nil || !validCredentialFields(*definition.Manifest.Authentication.Setup, fields) {
 			return nil, false, ErrAuthenticationRequired
 		}
-		sensitive, err = applyCredentialAuth(definition.Manifest.Authentication, fields, operation, &request)
+		sensitive, secretValues, err = applyCredentialAuth(definition.Manifest.Authentication, fields, operation, &request)
 		if err != nil {
 			return nil, false, err
 		}
@@ -854,7 +855,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		if (response.status >= 500 || response.status >= 300 && response.status < 400) && !current.Behavior.ReadOnly {
 			return nil, false, ErrOutcomeUncertain
 		}
-		return responseFailure(response, sensitive), false, nil
+		return responseFailure(response, sensitive, secretValues), false, nil
 	}
 	nextToken := ""
 	if operation.Pagination.Kind == "response_token" {
@@ -900,7 +901,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			}
 		}
 	}
-	payload, err := wrapResult(sanitizeSensitiveOutput(result, sensitive))
+	payload, err := wrapResult(sanitizeSensitiveOutput(result, sensitive, secretValues))
 	return payload, err == nil, err
 }
 

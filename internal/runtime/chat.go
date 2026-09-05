@@ -240,6 +240,19 @@ func NewChat(
 		cancel()
 		return nil, fmt.Errorf("recover MCP authentication results: %w", err)
 	}
+	connections, err := database.AwaitingAdapterAuthConnections(chat.ctx, false)
+	if err == nil {
+		for _, connectionID := range connections {
+			_, err = chat.resolveMCPAuthentication(mcpAuthResolution{adapterConnectionID: connectionID})
+			if err != nil {
+				break
+			}
+		}
+	}
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("resume adapter authentication: %w", err)
+	}
 	go chat.run()
 	return chat, nil
 }

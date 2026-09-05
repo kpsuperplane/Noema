@@ -147,6 +147,10 @@ func TestAdapterAuthenticationSchemaConvergesFromVersionTwentyFour(t *testing.T)
 	if err != nil || len(mcpPending) != 0 {
 		t.Fatalf("MCP requests = %#v, %v", mcpPending, err)
 	}
+	connections, err := database.AwaitingAdapterAuthConnections(t.Context(), false)
+	if err != nil || len(connections) != 1 || connections[0] != request.AuthorityID {
+		t.Fatalf("awaiting adapter connections = %#v, %v", connections, err)
+	}
 	request, err = database.BeginAdapterAuthResume(t.Context(), request, now)
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +158,21 @@ func TestAdapterAuthenticationSchemaConvergesFromVersionTwentyFour(t *testing.T)
 	request, err = database.RetryAdapterAuthentication(t.Context(), request, now)
 	if err != nil || request.State != "awaiting_user" || request.Failure != "authentication_failed" {
 		t.Fatalf("retry = %#v, %v", request, err)
+	}
+	if _, err = database.BeginAdapterAuthResume(t.Context(), request, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	recovered, err := database.RecoverConversationMCPAuthRequests(t.Context())
+	if err != nil || len(recovered) != 1 || recovered[0].Failure != "outcome_uncertain" {
+		t.Fatalf("recovered adapter request = %#v, %v", recovered, err)
 	}
 }
 

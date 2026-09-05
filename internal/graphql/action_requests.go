@@ -78,7 +78,7 @@ func (r *Resolver) pendingHumanInterventions(
 			return nil, definitionErr
 		}
 		for _, definition := range definitions {
-			if !definition.Reviewed && !definition.Superseded {
+			if adapterDefinitionNeedsChatIntervention(definition) {
 				result = append(result, definition)
 			}
 		}
@@ -87,6 +87,11 @@ func (r *Resolver) pendingHumanInterventions(
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+func adapterDefinitionNeedsChatIntervention(definition *model.AdapterDefinition) bool {
+	return !definition.Superseded && (!definition.Reviewed ||
+		definition.Reviewed && definition.CredentialSetup != nil && definition.NextAction != nil && definition.NextAction.Kind == "set_up_credential")
 }
 
 func (r *Resolver) resolveActionRequest(

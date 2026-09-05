@@ -94,7 +94,9 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 			result.Connections = append(result.Connections, adapterDefinitionConnection(value, connection))
 			if connection.Status == "authentication_required" && value.Manifest.Authentication.Kind == "credential" {
 				revision := connection.ConnectionRevision
-				result.ConnectionActions = append(result.ConnectionActions, &model.AdapterNextAction{Kind: "set_up_credential", SemanticDigest: value.SemanticDigest, ConnectionID: &connection.ConnectionID, ExpectedConnectionRevision: &revision, OperationIds: []string{}, MissingScopes: []string{}})
+				action := &model.AdapterNextAction{Kind: "set_up_credential", SemanticDigest: value.SemanticDigest, ConnectionID: &connection.ConnectionID, ExpectedConnectionRevision: &revision, OperationIds: []string{}, MissingScopes: []string{}}
+				result.ConnectionActions = append(result.ConnectionActions, action)
+				result.NextAction = action
 			}
 			if connection.DataSharingPolicy == "" || connection.UnsafeActionPolicy == "" {
 				revision, policy := connection.ConnectionRevision, connection.PolicyRevision
@@ -400,14 +402,16 @@ func (r *Resolver) setupAdapterConnection(ctx context.Context, input model.Setup
 		return nil, err
 	}
 	if replacement != "" {
+		var resumeErr error
 		if r.TaskExecution != nil {
-			_, err = r.TaskExecution.ResumeAdapterAuthentication(ctx, replacement)
+			_, taskErr := r.TaskExecution.ResumeAdapterAuthentication(ctx, replacement)
+			resumeErr = errors.Join(resumeErr, taskErr)
 		}
-		if err == nil && r.Chat != nil {
-			err = r.Chat.ResumeAdapterAuthentication(ctx, replacement)
+		if r.Chat != nil {
+			resumeErr = errors.Join(resumeErr, r.Chat.ResumeAdapterAuthentication(ctx, replacement))
 		}
-		if err != nil {
-			return nil, err
+		if resumeErr != nil {
+			return nil, resumeErr
 		}
 	}
 	snapshot, err := service.Snapshot()

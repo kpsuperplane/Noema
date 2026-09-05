@@ -87,9 +87,9 @@ func TestCredentialManifestAndRequestAuthenticationAreClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sensitive, err := applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request)
-	if err != nil || request.headers["Authorization"] != "Bearer secret-marker" || !strings.Contains(request.rawURL, "signature=secret-marker") || !sensitive["authorization"] || !sensitive["signature"] {
-		t.Fatalf("request authentication = %#v, %#v, %v", request, sensitive, err)
+	sensitive, secretValues, err := applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request)
+	if err != nil || request.headers["Authorization"] != "Bearer secret-marker" || !strings.Contains(request.rawURL, "signature=secret-marker") || !sensitive["authorization"] || !sensitive["signature"] || len(secretValues) != 2 {
+		t.Fatalf("request authentication = %#v, %#v, %#v, %v", request, sensitive, secretValues, err)
 	}
 	manifest.Authentication.RequestAuth.Source = `return function(input) return {headers={Host=input.credentials.api_key}} end`
 	definition, err = Compile(manifest)
@@ -97,7 +97,7 @@ func TestCredentialManifestAndRequestAuthenticationAreClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, _, _ = encodeRequest(definition, definition.Operations[0], json.RawMessage(`{"id":"ordinary-id"}`), "")
-	if _, err = applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request); err == nil {
+	if _, _, err = applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request); err == nil {
 		t.Fatal("dangerous credential header was accepted")
 	}
 	manifest.Authentication.RequestAuth.Source = `return function(input) return {body=input.credentials.api_key} end`
@@ -105,8 +105,13 @@ func TestCredentialManifestAndRequestAuthenticationAreClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, _, _ = encodeRequest(definition, definition.Operations[0], json.RawMessage(`{"id":"ordinary-id"}`), "")
-	if _, err = applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request); err == nil {
+	if _, _, err = applyCredentialAuth(manifest.Authentication, map[string]string{"api_key": "secret-marker"}, definition.Operations[0], &request); err == nil {
 		t.Fatal("open credential result was accepted")
+	}
+	manifest.Authentication = testCredentialAuthentication()
+	manifest.Authentication.Setup.SetupURL = "https://example.com/keys?account=ordinary#new"
+	if _, err = Compile(manifest); err == nil {
+		t.Fatal("credential setup URL with query and fragment compiled")
 	}
 }
 
@@ -174,8 +179,8 @@ func TestDocumentCredentialAndDynamicSanitizationPreserveOrdinaryFields(t *testi
 	if err != nil || fields["token"] != "secret-marker" {
 		t.Fatalf("document = %#v, %v", fields, err)
 	}
-	value := sanitizeSensitiveOutput(map[string]any{"ordinary_id": "ordinary-value", "token": "secret-marker", "url": "https://example.com/a?keep=ordinary&token=secret-marker"}, map[string]bool{"token": true}).(map[string]any)
-	if value["ordinary_id"] != "ordinary-value" || value["token"] != "[REDACTED]" || value["url"] != "https://example.com/a?keep=ordinary" {
+	value := sanitizeSensitiveOutput(map[string]any{"ordinary_id": "ordinary-value", "token": "secret-marker", "debug": "echo Bearer secret-marker", "url": "https://example.com/a?keep=ordinary&token=secret-marker"}, map[string]bool{"token": true}, []string{"Bearer secret-marker", "secret-marker"}).(map[string]any)
+	if value["ordinary_id"] != "ordinary-value" || value["token"] != "[REDACTED]" || value["debug"] != "echo [REDACTED]" || value["url"] != "https://example.com/a?keep=ordinary" {
 		t.Fatalf("sanitized result = %#v", value)
 	}
 }

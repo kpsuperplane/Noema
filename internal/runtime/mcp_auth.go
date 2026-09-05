@@ -90,25 +90,28 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 		if err != nil {
 			return store.MCPAuthRequest{}, err
 		}
+		var firstErr error
 		for _, request := range requests {
 			if request.TaskID != "" {
 				continue
 			}
-			request, err = c.database.BeginAdapterAuthResume(c.ctx, request, time.Now())
-			if err != nil {
-				return request, err
-			}
 			binding, assignment, responseID, hostedState, decodeErr := decodeAdapterAuthAuthority(request.BindingJSON)
-			payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
 			if decodeErr == nil {
 				binding, decodeErr = currentAdapterCredentialBinding(c.adapters, binding)
 			}
-			if decodeErr == nil {
-				payload, success, decodeErr = c.adapters.Call(c.ctx, binding, json.RawMessage(request.ArgumentsJSON))
+			if decodeErr != nil {
+				continue
 			}
+			request, err = c.database.BeginAdapterAuthResume(c.ctx, request, time.Now())
+			if err != nil {
+				firstErr = errors.Join(firstErr, err)
+				continue
+			}
+			payload, success := toolFailure("adapter_authentication_failed", "Adapter authentication failed"), false
+			payload, success, decodeErr = c.adapters.Call(c.ctx, binding, json.RawMessage(request.ArgumentsJSON))
 			if errors.Is(decodeErr, adapter.ErrAuthenticationRequired) {
 				if _, err = c.database.RetryAdapterAuthentication(c.ctx, request, time.Now()); err != nil {
-					return request, err
+					firstErr = errors.Join(firstErr, err)
 				}
 				continue
 			}
@@ -126,26 +129,28 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 				} else if decodeErr != nil || !success {
 					actionState, actionFailure = store.ActionFailed, "adapter_call_failed"
 				}
-				request, action, finishErr := c.database.FinishMCPAuthAction(c.ctx, request, actionState, payload, actionFailure, state, time.Now())
+				_, action, finishErr := c.database.FinishMCPAuthAction(c.ctx, request, actionState, payload, actionFailure, state, time.Now())
 				if finishErr != nil {
-					return request, finishErr
+					firstErr = errors.Join(firstErr, finishErr)
+					continue
 				}
 				item, finishErr := c.appendActionResult(action)
 				if finishErr != nil {
-					return request, finishErr
+					firstErr = errors.Join(firstErr, finishErr)
+					continue
 				}
 				c.continueAfterAction(action, item)
 				continue
 			}
-			request, err = c.database.FinishMCPAuthRequest(c.ctx, request.ID, request.Revision, state, failure, time.Now())
-			if err != nil {
-				return request, err
-			}
 			if err = c.finishMCPAuthCallWithAssignment(request, payload, success, assignment, responseID, hostedState); err != nil {
-				return request, err
+				firstErr = errors.Join(firstErr, err)
+				continue
+			}
+			if _, err = c.database.FinishMCPAuthRequest(c.ctx, request.ID, request.Revision, state, failure, time.Now()); err != nil {
+				firstErr = errors.Join(firstErr, err)
 			}
 		}
-		return store.MCPAuthRequest{}, nil
+		return store.MCPAuthRequest{}, firstErr
 	}
 	if c.mcp == nil {
 		return store.MCPAuthRequest{}, errors.New("MCP service is unavailable")

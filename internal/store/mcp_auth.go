@@ -211,6 +211,25 @@ func (s *Store) AdapterAuthRequestsForConnection(ctx context.Context, connection
 	return result, rows.Err()
 }
 
+// AwaitingAdapterAuthConnections returns exact connections with calls that can resume.
+func (s *Store) AwaitingAdapterAuthConnections(ctx context.Context, task bool) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT authority_id FROM mcp_auth_requests
+	 WHERE authority_kind='adapter_connection' AND state='awaiting_user' AND (task_id IS NOT NULL)=? ORDER BY authority_id`, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var connectionID string
+		if err = rows.Scan(&connectionID); err != nil {
+			return nil, err
+		}
+		result = append(result, connectionID)
+	}
+	return result, rows.Err()
+}
+
 // BeginAdapterAuthResume fences one exact retry after credential replacement.
 func (s *Store) BeginAdapterAuthResume(ctx context.Context, request MCPAuthRequest, now time.Time) (MCPAuthRequest, error) {
 	if request.AuthorityKind != "adapter_connection" || request.State != "awaiting_user" {
