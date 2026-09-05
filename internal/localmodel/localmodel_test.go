@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -286,6 +287,23 @@ func TestRuntimeAssetsKeepRequiredAliasesAndUsePinnedRequest(t *testing.T) {
 		if !containsArgumentPair(args, pair) {
 			t.Fatalf("runtime arguments omit %v: %v", pair, args)
 		}
+	}
+}
+
+func TestRuntimeProcessExcludesNoemaEnvironment(t *testing.T) {
+	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "NOEMA_LOCALMODEL_ENV_HELPER" {
+		fmt.Printf("%s:%s:%s", os.Getenv("NOEMA_HOME"), os.Getenv("NOEMA_OPENAI__API_KEY"),
+			os.Getenv("NOEMA_TEST_ORDINARY"))
+		os.Exit(0)
+	}
+	t.Setenv("NOEMA_HOME", "private-home")
+	t.Setenv("NOEMA_OPENAI__API_KEY", "private-key")
+	t.Setenv("NOEMA_TEST_ORDINARY", "ordinary-value")
+	command := runtimeCommand(t.Context(), os.Args[0], "-test.run=^TestRuntimeProcessExcludesNoemaEnvironment$",
+		"--", "NOEMA_LOCALMODEL_ENV_HELPER")
+	output, err := command.Output()
+	if err != nil || string(output) != "::ordinary-value" {
+		t.Fatalf("llama-server environment = %q, %v", output, err)
 	}
 }
 

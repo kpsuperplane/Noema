@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/childenv"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -141,8 +142,7 @@ func (s *Service) startRuntimeCandidate(
 
 	processContext, cancel := context.WithCancel(context.Background())
 	args := runtimeArguments(blob, installation.ModelID, port, backend, s.checkpointCacheMiB(ctx))
-	command := exec.CommandContext(processContext, executable, args...)
-	configureProcess(command)
+	command := runtimeCommand(processContext, executable, args...)
 	history := &lineHistory{}
 	command.Stderr = history
 	if err := command.Start(); err != nil {
@@ -175,6 +175,13 @@ func (s *Service) startRuntimeCandidate(
 		context.Background(), provider.StatusAuthenticated, "", "", time.Now(),
 	)
 	return nil
+}
+
+func runtimeCommand(ctx context.Context, executable string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, executable, args...)
+	command.Env = childenv.ExternalProcess()
+	configureProcess(command)
+	return command
 }
 
 func runtimeArguments(blob, model string, port int, backend string, cacheMiB int) []string {

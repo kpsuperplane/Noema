@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kpsuperplane/noema/internal/childenv"
 )
 
 const (
@@ -150,6 +152,7 @@ func (g *FoundationGenerator) startBridge(ctx context.Context) (*foundationBridg
 		return nil, &foundationError{code: "bridge_missing", message: "Apple Foundation Models bridge is missing"}
 	}
 	command := exec.Command(g.bridgePath)
+	command.Env = childenv.ExternalProcess()
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return nil, foundationLaunchError(err)

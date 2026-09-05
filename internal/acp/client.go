@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kpsuperplane/noema/internal/childenv"
 )
 
 const (
@@ -201,6 +203,7 @@ func start(command Command) (*session, error) {
 		return nil, errors.New("ACP command is empty")
 	}
 	cmd := exec.Command(command.Path, slices.Clone(command.Args)...)
+	cmd.Env = childenv.ExternalProcess()
 	configureProcess(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

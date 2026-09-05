@@ -33,6 +33,21 @@ func TestProbePreservesAdvertisedMetadata(t *testing.T) {
 	assertProcessStopped(t, pidFile)
 }
 
+func TestProbeExcludesNoemaEnvironment(t *testing.T) {
+	t.Setenv("NOEMA_HOME", "private-home")
+	t.Setenv("NOEMA_OPENAI__API_KEY", "private-key")
+	t.Setenv("NOEMA_TEST_ORDINARY", "ordinary-value")
+	command, pidFile := helperCommand(t, "environment")
+	result, err := Probe(context.Background(), command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stringValue(result.ImplementationName) != "::ordinary-value" {
+		t.Fatalf("ACP environment = %q", stringValue(result.ImplementationName))
+	}
+	assertProcessStopped(t, pidFile)
+}
+
 func TestProbeDefaultsMalformedOptionalMetadataAndFiltersAuthMethods(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -151,6 +166,11 @@ func TestACPHelperProcess(t *testing.T) {
 	if mode == "wrong-version" {
 		version = 2
 	}
+	implementationName := "fake-acp"
+	if mode == "environment" {
+		implementationName = strings.Join([]string{os.Getenv("NOEMA_HOME"),
+			os.Getenv("NOEMA_OPENAI__API_KEY"), os.Getenv("NOEMA_TEST_ORDINARY")}, ":")
+	}
 	writeHelperResponse(t, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -164,7 +184,7 @@ func TestACPHelperProcess(t *testing.T) {
 				"id": "browser", "name": "Browser login", "description": "Open a browser",
 				"vendor": map[string]any{"mode": "external"},
 			}},
-			"agentInfo": map[string]any{"name": "fake-acp", "version": "1.2.3"},
+			"agentInfo": map[string]any{"name": implementationName, "version": "1.2.3"},
 		},
 	})
 	if mode == "authenticate" || mode == "hang-authenticate" {

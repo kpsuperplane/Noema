@@ -11,6 +11,9 @@ import (
 )
 
 func TestFoundationAvailabilityAndTokenCount(t *testing.T) {
+	t.Setenv("NOEMA_HOME", "private-home")
+	t.Setenv("NOEMA_OPENAI__API_KEY", "private-key")
+	t.Setenv("NOEMA_TEST_ORDINARY", "ordinary-value")
 	generator, record := foundationTestGenerator(t)
 	if err := generator.CheckAvailability(context.Background()); err != nil {
 		t.Fatal(err)
@@ -32,6 +35,9 @@ func TestFoundationAvailabilityAndTokenCount(t *testing.T) {
 	if err != nil || !strings.Contains(string(requests), `"type":"count_tokens"`) ||
 		!strings.Contains(string(requests), `"instructions":"Use local context."`) {
 		t.Fatalf("bridge requests = %q, %v", requests, err)
+	}
+	if !strings.Contains(string(requests), "environment:::ordinary-value") {
+		t.Fatalf("bridge environment was not filtered: %q", requests)
 	}
 	unsupported := newFoundationGenerator(generator.accounts, generator.bridgePath, false)
 	if err := unsupported.CheckAvailability(context.Background()); FoundationErrorCode(err) != "unsupported_platform" {
@@ -195,6 +201,7 @@ func foundationTestGenerator(t *testing.T) (*FoundationGenerator, string) {
 	bridge := filepath.Join(directory, "bridge")
 	script := `#!/bin/sh
 record="` + record + `"
+printf 'environment:%s:%s:%s\n' "$NOEMA_HOME" "$NOEMA_OPENAI__API_KEY" "$NOEMA_TEST_ORDINARY" >> "$record"
 generated=0
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "$record"
