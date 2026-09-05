@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -61,6 +62,17 @@ func (c *Chat) inspectTask(ctx context.Context, arguments json.RawMessage) (json
 	if err != nil {
 		return toolFailure("not_found", "Task document is unavailable"), false
 	}
+	var resultDocument, reviewDocument any
+	if content, readErr := home.ReadTaskFile(c.home, taskID, "RESULT.md"); readErr == nil {
+		resultDocument = content
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return toolFailure("not_found", "Task result document is unavailable"), false
+	}
+	if content, readErr := home.ReadTaskFile(c.home, taskID, "REVIEW.md"); readErr == nil {
+		reviewDocument = content
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return toolFailure("not_found", "Task review document is unavailable"), false
+	}
 	var projectID any
 	if task.ProjectID != "" {
 		projectID = task.ProjectID
@@ -68,10 +80,11 @@ func (c *Chat) inspectTask(ctx context.Context, arguments json.RawMessage) (json
 	payload, _ := json.Marshal(map[string]any{
 		"task_id": task.ID, "title": task.Title,
 		"task_document": document.Content, "task_document_digest": document.Digest,
-		"result_document": nil, "review_document": nil,
-		"stage_id": store.TaskStageID(task.State), "generation": 1, "revision": task.Revision,
-		"project_id": projectID, "scheduled_for": nil, "schedule_time_zone": nil,
-		"recurrence_id": nil, "recurrence_revision": nil, "recurrence_scheduled_for": nil,
+		"result_document": resultDocument, "review_document": reviewDocument,
+		"stage_id": "stage:personal:" + task.StageKey, "generation": task.Generation, "revision": task.Revision,
+		"project_id": projectID, "scheduled_for": timeValue(task.ScheduledFor), "schedule_time_zone": nilString(task.ScheduleTimeZone),
+		"recurrence_id": nilString(task.RecurrenceID), "recurrence_revision": task.RecurrenceRevision,
+		"recurrence_scheduled_for": timeValue(task.RecurrenceScheduledFor),
 	})
 	return payload, true
 }
@@ -455,7 +468,7 @@ func (c *Chat) executeChatToolRounds(
 		sideEffect := call.Name == updateOwnNameToolName || call.Name == fileDownloadName ||
 			call.Name == noemamcp.ConnectServiceToolName || call.Name == adapter.ProposeDefinitionTool ||
 			call.Name == projectCreateName || call.Name == projectUpdateName ||
-			call.Name == projectArchiveName || call.Name == projectReopenName
+			call.Name == projectArchiveName || call.Name == projectReopenName || taskToolHasSideEffect(call.Name)
 		if c.adapters != nil {
 			if binding, err := c.adapters.Binding(call.Name); err == nil {
 				sideEffect = !binding.Behavior.ReadOnly

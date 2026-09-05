@@ -48,11 +48,16 @@ func localChatTools() []provider.GenerationTool {
 		presentA2UITool(),
 		updateOwnNameTool(),
 	}
+	for _, tool := range taskToolSpecs {
+		if tool.Name != taskInspectName {
+			result = append(result, tool)
+		}
+	}
 	return append(result, projectToolSpecs...)
 }
 
 func supportsLocalChatTool(name string) bool {
-	return isProjectTool(name) || name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == presentA2UIName || name == fileDownloadName || name == fileParseName || name == taskInspectName ||
+	return isPrimaryTaskTool(name) || isProjectTool(name) || name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == presentA2UIName || name == fileDownloadName || name == fileParseName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
@@ -108,11 +113,14 @@ func (c *Chat) executeChatTool(
 	requestID string,
 	turnID string,
 ) (json.RawMessage, bool) {
+	correlationID := ""
+	if turnID != "" {
+		correlationID = "correlation:turn:" + turnID
+	}
+	if isPrimaryTaskTool(name) {
+		return c.executePrimaryTaskTool(ctx, name, requestID, correlationID, arguments)
+	}
 	if isProjectTool(name) {
-		correlationID := ""
-		if turnID != "" {
-			correlationID = "correlation:turn:" + turnID
-		}
 		return c.executeProjectTool(ctx, name, requestID, correlationID, arguments)
 	}
 	switch name {
@@ -122,8 +130,6 @@ func (c *Chat) executeChatTool(
 		return executeLuaTool(ctx, arguments)
 	case fileParseName:
 		return c.parseFileTool(ctx, conversation, arguments)
-	case taskInspectName:
-		return c.inspectTask(ctx, arguments)
 	case noemamemory.ReadPageToolName:
 		return c.readMemoryPage(arguments)
 	case noemamemory.SearchToolName:

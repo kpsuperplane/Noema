@@ -207,7 +207,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
-	if !ok || len(tools) != 16 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+	if !ok || len(tools) != 35 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
 	}
 	toolNames := make(map[string]bool)
@@ -224,7 +224,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		!toolNames["read_memory_page"] || !toolNames["search_memory"] || !toolNames["hosted_web_search"] {
 		t.Fatalf("advertised tools = %#v", toolNames)
 	}
-	if len(firstContinuation["tools"].([]any)) != 16 || len(secondContinuation["tools"].([]any)) != 16 {
+	if len(firstContinuation["tools"].([]any)) != 35 || len(secondContinuation["tools"].([]any)) != 35 {
 		t.Fatal("normal continuations did not retain the Chat tools")
 	}
 	messages := firstContinuation["messages"].([]any)
@@ -331,7 +331,7 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 		}
 	}
 	firstRequest, secondRequest := <-requests, <-requests
-	if len(firstRequest["tools"].([]any)) != 16 {
+	if len(firstRequest["tools"].([]any)) != 35 {
 		t.Fatalf("hosted web tools = %#v", firstRequest["tools"])
 	}
 	var replayedSearches int
@@ -478,7 +478,7 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if len(requests) != 3 || len(requests[0].Tools) != 15 ||
+	if len(requests) != 3 || len(requests[0].Tools) != 34 ||
 		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" ||
 		requests[0].Tools[4].Name != fileDownloadName {
 		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
