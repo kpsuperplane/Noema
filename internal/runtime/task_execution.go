@@ -31,6 +31,7 @@ const taskFilesList = "task.files.list"
 const taskFilesRead = "task.files.read"
 const taskFilesWrite = "task.files.write"
 const taskFilesDelete = "task.files.delete"
+const taskContinuationPrompt = "Pause new work at this run boundary. Call task.continue_execution. Do not call external tools."
 
 var (
 	errTaskTerminal   = errors.New("Task run reached a terminal tool")
@@ -245,6 +246,11 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	}
 	wroteTask = wroteTask || recoveredTaskWrite
 	messages = append(messages, replay...)
+	items, err = r.database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil {
+		r.failRun(ctx, run, "task_replay_unavailable", false)
+		return
+	}
 	generator, err := r.generator(run.ProviderKind)
 	if err != nil {
 		r.failRun(ctx, run, "configuration_unavailable", false)
@@ -254,17 +260,37 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	defer closeSession()
 	model, effort := r.taskModel(run, task)
 	toolCount := int(run.ToolCallCount)
-	progress := newToolProgress(task.Title)
+	document, _ := home.ReadTaskDocument(r.root, task.ID)
+	progress, audited := replayTaskProgress(document.Content, items)
+	stallReason := progress.deterministicStop()
 	var previousResponseID string
 	var incremental []provider.GenerationMessage
 	for round := int(run.ProviderCallCount); round < int(run.ExecutionPolicy.MaxProviderContinuations) && ctx.Err() == nil; round++ {
-		if round > int(run.ProviderCallCount) && round%int(run.ExecutionPolicy.ProgressAuditInterval) == 0 {
+		if stallReason != "" {
+			_ = r.appendTaskProgress(ctx, run, int64(round), "task:stall", "Task run paused after "+stallReason+".", nil)
+			instruction := provider.GenerationMessage{Role: "developer", Content: taskContinuationPrompt}
+			messages, incremental = append(messages, instruction), append(incremental, instruction)
+			progress.resetWindow()
+			stallReason = ""
+		}
+		if round > 0 && round%int(run.ExecutionPolicy.ProgressAuditInterval) == 0 && !audited[int64(round)] {
 			outcome, auditErr := runProgressAudit(ctx, r.database, r.generator, progress.digest(round))
 			if auditErr == nil {
-				r.appendTaskProgress(run, int64(round), outcome.UserSummary)
+				if r.appendTaskProgress(ctx, run, int64(round), "task:audit", outcome.UserSummary,
+					map[string]any{"decision": outcome.Decision, "next_goal": outcome.NextGoal}) == nil {
+					audited[int64(round)] = true
+				}
 				progress.apply(outcome)
+				if outcome.Decision == "pause" {
+					instruction := provider.GenerationMessage{Role: "developer", Content: taskContinuationPrompt}
+					messages, incremental = append(messages, instruction), append(incremental, instruction)
+				}
 				if outcome.Decision == "finalize" || outcome.Decision == "ask_human" {
-					r.finalizeTaskRun(task, run, generator, messages, wroteTask, "progress audit requested finalization")
+					reason := "progress audit requested finalization"
+					if outcome.Decision == "ask_human" {
+						reason = "progress audit requires human input"
+					}
+					r.finalizeTaskRun(task, run, generator, messages, wroteTask, reason)
 					return
 				}
 			}
@@ -316,12 +342,13 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			r.failRun(ctx, run, "unsupported_tool_sequence", false)
 			return
 		}
+		call := result.ToolCalls[0]
 		if toolCount >= int(run.ExecutionPolicy.MaxToolCalls) {
+			_ = r.appendSkippedTaskTool(ctx, run, int64(round), call, "task tool-call safety ceiling reached")
 			r.finalizeTaskRun(task, run, generator, messages, wroteTask, "task tool-call safety ceiling reached")
 			return
 		}
 		toolCount++
-		call := result.ToolCalls[0]
 		callInput := store.TaskRunItemInput{Kind: "tool_call", Status: "running", Round: int64(round), CorrelationID: call.ProviderCallID,
 			Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{callInput}, store.TaskRunUsage{ToolCalls: 1}, time.Now()); err != nil {
@@ -350,7 +377,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
-			_ = progress.observe(call, payload, success, !binding.Behavior.ReadOnly)
+			stallReason = progress.observe(call, payload, success, !binding.Behavior.ReadOnly)
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
 			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
 			messages = append(messages, incremental...)
@@ -380,7 +407,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
-			_ = progress.observe(call, payload, success, !binding.Behavior.ReadOnly)
+			stallReason = progress.observe(call, payload, success, !binding.Behavior.ReadOnly)
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
 			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
 			messages = append(messages, incremental...)
@@ -404,7 +431,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
-			_ = progress.observe(call, payload, success, false)
+			stallReason = progress.observe(call, payload, success, false)
 			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
 			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
 			messages = append(messages, incremental...)
@@ -421,7 +448,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 			return
 		}
-		_ = progress.observe(call, payload, success, taskWrite || taskToolHasSideEffect(call.Name))
+		stallReason = progress.observe(call, payload, success, taskWrite || taskToolHasSideEffect(call.Name))
 		if terminal && success {
 			if err := r.finishTaskTerminal(ctx, run, call.Name, call.Payload); err != nil {
 				if !errors.Is(err, store.ErrStaleRun) {
@@ -452,7 +479,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 
 func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, generator provider.Generator,
 	messages []provider.GenerationMessage, wroteTask bool, reason string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if generator == nil {
 		var err error
@@ -520,9 +547,18 @@ func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, gene
 	}
 }
 
-func (r *TaskExecution) appendTaskProgress(run store.TaskRun, round int64, content string) {
-	_ = r.database.AppendTaskRunItems(r.ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
-		Kind: "progress_notice", Status: "completed", Round: round, Content: content,
+func (r *TaskExecution) appendTaskProgress(ctx context.Context, run store.TaskRun, round int64,
+	correlation, content string, payload map[string]any) error {
+	return r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
+		Kind: "progress_notice", Status: "completed", Round: round, CorrelationID: correlation, Content: content, Payload: payload,
+	}}, store.TaskRunUsage{}, time.Now())
+}
+
+func (r *TaskExecution) appendSkippedTaskTool(ctx context.Context, run store.TaskRun, round int64,
+	call provider.GenerationToolCall, reason string) error {
+	return r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
+		Kind: "tool_call", Status: "skipped", Round: round, CorrelationID: call.ProviderCallID, Content: call.Name,
+		Payload: map[string]any{"name": call.Name, "reason": reason},
 	}}, store.TaskRunUsage{}, time.Now())
 }
 
@@ -1054,6 +1090,11 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 	wroteTask := false
 	for _, item := range items {
 		switch item.Kind {
+		case "progress_notice":
+			if item.CorrelationID != nil && (*item.CorrelationID == "task:stall" ||
+				*item.CorrelationID == "task:audit" && item.Payload["decision"] == "pause") {
+				messages = append(messages, provider.GenerationMessage{Role: "developer", Content: taskContinuationPrompt})
+			}
 		case "assistant_output":
 			content := ""
 			if item.Content != nil {
@@ -1073,6 +1114,9 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 			}
 			messages = append(messages, provider.GenerationMessage{Role: "assistant", Content: content, ReasoningDetails: reasoning})
 		case "tool_call":
+			if item.Status == "skipped" {
+				continue
+			}
 			name, _ := item.Payload["name"].(string)
 			arguments, err := json.Marshal(item.Payload["arguments"])
 			if err != nil || name == "" {
@@ -1119,6 +1163,46 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 		}
 	}
 	return messages, wroteTask, nil
+}
+
+func replayTaskProgress(goal string, items []store.TaskRunItem) (toolProgress, map[int64]bool) {
+	progress := newToolProgress(goal)
+	calls, audited := make(map[string]provider.GenerationToolCall), make(map[int64]bool)
+	for _, item := range items {
+		switch item.Kind {
+		case "tool_call":
+			if item.Status == "skipped" {
+				continue
+			}
+			name, _ := item.Payload["name"].(string)
+			arguments, _ := json.Marshal(item.Payload["arguments"])
+			calls[item.ID] = provider.GenerationToolCall{Name: name, Payload: arguments}
+		case "tool_result":
+			if item.ParentID == nil {
+				continue
+			}
+			call, exists := calls[*item.ParentID]
+			if !exists {
+				continue
+			}
+			payload, _ := json.Marshal(item.Payload["result"])
+			success, _ := item.Payload["success"].(bool)
+			progress.observe(call, payload, success, false)
+		case "progress_notice":
+			if item.CorrelationID == nil {
+				continue
+			}
+			if *item.CorrelationID == "task:stall" {
+				progress.resetWindow()
+			} else if *item.CorrelationID == "task:audit" {
+				audited[item.Round] = true
+				var next *string
+				_ = decodeTaskPayload(item.Payload["next_goal"], &next)
+				progress.apply(progressAuditOutcome{NextGoal: next})
+			}
+		}
+	}
+	return progress, audited
 }
 
 func taskAssistantPayload(result provider.GenerationResult) map[string]any {

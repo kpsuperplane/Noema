@@ -472,10 +472,15 @@ func insertQueuedTaskRun(ctx context.Context, tx *sql.Tx, task Task, kind string
 			return TaskRun{}, err
 		}
 	}
+	policy, err := taskExecutionPolicyTx(ctx, tx)
+	if err != nil {
+		return TaskRun{}, err
+	}
 	run := TaskRun{ID: id, TaskID: task.ID, InstanceName: "Task " + strings.ToUpper(kind[:1]) + kind[1:], Kind: kind,
 		Status: "queued", AgentID: task.ExecutorAgentID, Generation: task.Generation, AttemptIndex: attempt,
 		ReviewRound: review, ParentRunID: parentID, SelectionMode: "provider_default", ExecutorBackend: backend,
-		ExecutorAgentID: task.ExecutorAgentID, EffectiveCwd: effectiveCwd, QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+		ExecutorAgentID: task.ExecutorAgentID, EffectiveCwd: effectiveCwd, ExecutionPolicy: policy,
+		QueuedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	if backend == "provider" {
 		role := HostedModelTaskReviewer
 		if kind != "reviewer" {
@@ -499,11 +504,13 @@ FROM hosted_model_assignments WHERE role=?`, role).Scan(&run.ProviderKind, &run.
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO task_runs (run_id,task_id,task_generation,instance_name,run_kind,status,agent_id,
 attempt_index,review_round,parent_run_id,provider_kind,provider_account_id,selection_mode,model_profile,reasoning_effort,fast_mode,
-executor_backend,executor_agent_id,effective_cwd,queued_at_ms,created_at_ms,updated_at_ms)
-VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?)`, run.ID, run.TaskID, run.Generation,
+executor_backend,executor_agent_id,effective_cwd,max_provider_continuations,max_tool_calls,max_active_minutes,
+progress_audit_interval,max_automatic_retries,max_review_rounds,queued_at_ms,created_at_ms,updated_at_ms)
+VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,?,?)`, run.ID, run.TaskID, run.Generation,
 		run.InstanceName, run.Kind, run.AgentID, run.AttemptIndex, run.ReviewRound, run.ParentRunID,
 		run.ProviderKind, run.ProviderAccountID, run.SelectionMode, nullableString(run.ModelProfile), nullableString(run.ReasoningEffort), run.FastMode,
-		run.ExecutorBackend, run.ExecutorAgentID, nullableString(run.EffectiveCwd), millis(now), millis(now), millis(now))
+		run.ExecutorBackend, run.ExecutorAgentID, nullableString(run.EffectiveCwd), policy.MaxProviderContinuations, policy.MaxToolCalls,
+		policy.MaxActiveMinutes, policy.ProgressAuditInterval, policy.MaxAutomaticRetries, policy.MaxReviewRounds, millis(now), millis(now), millis(now))
 	if err == nil && acpLaunch != nil {
 		run.AcpLaunch = acpLaunch
 		err = insertAcpLaunchTx(ctx, tx, run.ID, *acpLaunch, now)

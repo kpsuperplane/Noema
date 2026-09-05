@@ -416,7 +416,7 @@ func TestTaskExecutionPolicyTriggersProgressAuditAndTerminalFinalization(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy.MaxProviderContinuations, policy.ProgressAuditInterval = 2, 1
+	policy.MaxProviderContinuations, policy.MaxToolCalls, policy.ProgressAuditInterval = 3, 1, 1
 	if _, err = database.UpdateTaskExecutionPolicy(t.Context(), policy); err != nil {
 		t.Fatal(err)
 	}
@@ -425,9 +425,16 @@ func TestTaskExecutionPolicyTriggersProgressAuditAndTerminalFinalization(t *test
 	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		calls++
 		if taskRequestHasTool(request.Tools, progressAuditToolName) {
-			return taskToolResult("audit", progressAuditToolName, map[string]any{"decision": "finalize", "user_summary": "Ready.", "next_goal": nil}), nil
+			var digest progressAuditDigest
+			if json.Unmarshal([]byte(request.Messages[1].Content), &digest) != nil || !strings.Contains(digest.UserGoal, "Finalize after the progress check.") {
+				t.Fatalf("audit goal = %#v", digest)
+			}
+			return taskToolResult("audit", progressAuditToolName, map[string]any{"decision": "continue", "user_summary": "Continue.", "next_goal": nil}), nil
 		}
 		if request.ToolChoice == provider.ToolChoiceRequired {
+			if !strings.Contains(fmt.Sprint(request.Messages), "task tool-call safety ceiling reached") {
+				t.Fatalf("finalization reason is absent: %#v", request.Messages)
+			}
 			for _, tool := range request.Tools {
 				if !taskTerminalTool(tool.Name) {
 					t.Fatalf("nonterminal finalization tool %q", tool.Name)
@@ -444,8 +451,77 @@ func TestTaskExecutionPolicyTriggersProgressAuditAndTerminalFinalization(t *test
 	defer runtime.Close()
 	waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "waiting" })
 	runs, err := database.TaskRuns(context.Background(), task.ID, 10)
-	if err != nil || len(runs) != 1 || runs[0].ExecutionPolicy != policy || calls != 3 {
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("finalized run = %#v, %v", runs, err)
+	}
+	items, _ := database.TaskRunReplayItems(context.Background(), runs[0].ID)
+	skipped := 0
+	for _, item := range items {
+		if item.Kind == "tool_call" && item.Status == "skipped" && item.Content != nil && *item.Content == taskFilesRead {
+			skipped++
+		}
+	}
+	if runs[0].ExecutionPolicy != policy || calls != 4 || skipped != 1 {
 		t.Fatalf("finalized run = %#v, calls = %d, %v", runs, calls, err)
+	}
+}
+
+func TestTaskExecutionPolicyRecoversDueAuditFromReplay(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	policy, _ := database.TaskExecutionPolicy(t.Context())
+	policy.MaxProviderContinuations, policy.ProgressAuditInterval = 8, 5
+	_, _ = database.UpdateTaskExecutionPolicy(t.Context(), policy)
+	task := createQueuedRuntimeTask(t, database, chat.home, "Recover this exact TASK.md goal.")
+	_, run, _, err := database.ClaimTaskExecution(t.Context(), time.Now())
+	if err != nil || database.StartTaskExecution(t.Context(), run.ID, run.Generation, time.Now()) != nil {
+		t.Fatalf("start seeded run: %v", err)
+	}
+	for round := int64(0); round < 5; round++ {
+		call := store.TaskRunItemInput{Kind: "tool_call", Status: "running", Round: round, CorrelationID: fmt.Sprintf("call:seed:%d", round),
+			Payload: map[string]any{"name": taskFilesRead, "arguments": json.RawMessage(`{"path":"TASK.md"}`)}}
+		if err = database.AppendTaskRunItems(t.Context(), run.ID, run.Generation, []store.TaskRunItemInput{{Kind: "assistant_output", Status: "completed", Round: round}, call}, store.TaskRunUsage{ProviderCalls: 1, ToolCalls: 1}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		items, _ := database.TaskRunReplayItems(t.Context(), run.ID)
+		if err = database.AppendTaskRunItems(t.Context(), run.ID, run.Generation, []store.TaskRunItemInput{{Kind: "tool_result", Status: "completed", Round: round, ParentID: items[len(items)-1].ID,
+			Payload: map[string]any{"result": json.RawMessage(`{"content":"same"}`), "success": true}}}, store.TaskRunUsage{}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := 0
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		calls++
+		if taskRequestHasTool(request.Tools, progressAuditToolName) {
+			var digest progressAuditDigest
+			_ = json.Unmarshal([]byte(request.Messages[1].Content), &digest)
+			if digest.WholeTurn.ToolCounts[taskFilesRead] != 5 || len(digest.Window.ToolCounts) != 0 || !strings.Contains(digest.UserGoal, "Recover this exact TASK.md goal.") {
+				t.Fatalf("recovered audit digest = %#v", digest)
+			}
+			return taskToolResult("audit-recovery", progressAuditToolName, map[string]any{"decision": "ask_human", "user_summary": "Need input.", "next_goal": nil}), nil
+		}
+		if text := fmt.Sprint(request.Messages); !strings.Contains(text, "progress audit requires human input") || !strings.Contains(text, taskContinuationPrompt) {
+			t.Fatalf("ask-human reason is absent: %#v", request.Messages)
+		}
+		return taskToolResult("final-recovery", taskReportBlocked, map[string]any{"gate_kind": "clarification", "question": "Continue?"}), nil
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "waiting" })
+	if calls != 2 {
+		t.Fatalf("recovered provider calls = %d", calls)
+	}
+	items, _ := database.TaskRunReplayItems(t.Context(), run.ID)
+	notices := 0
+	for _, item := range items {
+		if item.CorrelationID != nil && *item.CorrelationID == "task:stall" {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("stall notices = %d", notices)
 	}
 }
 

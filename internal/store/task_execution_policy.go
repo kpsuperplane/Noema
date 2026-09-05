@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 )
 
@@ -18,6 +19,12 @@ type TaskExecutionPolicy struct {
 // TaskExecutionPolicy returns the policy used when the next run is claimed.
 func (s *Store) TaskExecutionPolicy(ctx context.Context) (TaskExecutionPolicy, error) {
 	return scanTaskExecutionPolicy(s.db.QueryRowContext(ctx, `SELECT max_provider_continuations,
+max_tool_calls,max_active_minutes,progress_audit_interval,max_automatic_retries,max_review_rounds
+FROM task_execution_policy WHERE policy_id='default'`))
+}
+
+func taskExecutionPolicyTx(ctx context.Context, tx *sql.Tx) (TaskExecutionPolicy, error) {
+	return scanTaskExecutionPolicy(tx.QueryRowContext(ctx, `SELECT max_provider_continuations,
 max_tool_calls,max_active_minutes,progress_audit_interval,max_automatic_retries,max_review_rounds
 FROM task_execution_policy WHERE policy_id='default'`))
 }

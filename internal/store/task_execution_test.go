@@ -48,9 +48,32 @@ func TestTaskExecutionPolicyUpgradeValidationAndClaimSnapshots(t *testing.T) {
 	if _, err = database.QueueTask(t.Context(), id, 1, 1, testTaskLifecycleCommand("queue_task", "policy"), now); err != nil {
 		t.Fatal(err)
 	}
+	runs, err := database.TaskRuns(t.Context(), id, 10)
+	if err != nil || len(runs) != 1 || runs[0].ExecutionPolicy != updated {
+		t.Fatalf("queued policy = %#v, %v", runs, err)
+	}
 	_, run, found, err := database.ClaimTaskExecution(t.Context(), now)
 	if err != nil || !found || run.ExecutionPolicy != updated {
 		t.Fatalf("claimed policy = %#v, %t, %v", run.ExecutionPolicy, found, err)
+	}
+	if err = database.StartTaskExecution(t.Context(), run.ID, run.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FinishTaskPlanning(t.Context(), run.ID, run.Generation, "simple", now); err != nil {
+		t.Fatal(err)
+	}
+	runs, err = database.TaskRuns(t.Context(), id, 10)
+	if err != nil || len(runs) != 2 || runs[0].ExecutionPolicy != updated {
+		t.Fatalf("child queued policy = %#v, %v", runs, err)
+	}
+	refreshed := updated
+	refreshed.MaxAutomaticRetries = 0
+	if _, err = database.UpdateTaskExecutionPolicy(t.Context(), refreshed); err != nil {
+		t.Fatal(err)
+	}
+	_, run, found, err = database.ClaimTaskExecution(t.Context(), now)
+	if err != nil || !found || run.ExecutionPolicy != refreshed {
+		t.Fatalf("refreshed claim policy = %#v, %t, %v", run.ExecutionPolicy, found, err)
 	}
 	if err = database.StartTaskExecution(t.Context(), run.ID, run.Generation, now); err != nil {
 		t.Fatal(err)
