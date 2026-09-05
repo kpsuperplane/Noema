@@ -842,21 +842,16 @@ Pin exact tool versions in the migration toolchain file.
 
 ## 12. Budget and Schedule
 
-Reforecast after the evidence gate. These limits are provisional.
+The migration size gate supersedes the original phase forecast.
+Authored production must remain below 139,192 lines.
+The inclusive checked-in total must remain below 191,860 lines.
 
-| Work | Production budget | Test budget |
-| --- | ---: | ---: |
-| Spike | 6,000 | 3,000 |
-| Home and store | 18,000 | 8,000 |
-| Domain and read API | 20,000 | 8,000 |
-| Authentication and commands | 22,000 | 10,000 |
-| Provider and agent runtime | 45,000 | 18,000 |
-| Capabilities and integrations | 35,000 | 15,000 |
-| Complete API and notifications | 18,000 | 8,000 |
-| **Provisional total** | **164,000** | **70,000** |
+At commit `17b3f110`, authored production is 58,285 lines.
+The inclusive total is 156,858 lines.
+The smaller inclusive headroom governs current planning.
 
-Generated GraphQL code is measured separately. It does not justify growth in
-authored production code.
+Generated GraphQL code remains a separate reported class.
+It does not justify authored growth or removal of necessary tests.
 
 Each unit must define a smaller budget before implementation. Stop when a unit
 exceeds its estimate by 50 percent or 500 lines, whichever is smaller.
