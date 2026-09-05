@@ -759,6 +759,16 @@ The unit includes:
 - current GPT-5.6 cache options and bounded developer-message breakpoints;
 - bounded streams, cancellation, and safe provider errors.
 
+### Responses WebSocket unit
+
+OpenAI and Codex now use one bounded WebSocket session for each related Chat turn or Task run.
+The unit lazily connects, reuses one connection, and closes it at the owning runtime boundary.
+Normal continuations send incremental input while retaining full local replay for a safe setup fallback.
+OpenAI can retain stored response continuation during HTTP fallback.
+Codex falls back with full local replay and no hosted response continuation.
+Cancellation and failures after output never replay a request with an uncertain outcome.
+Providers without a session contract continue to use the existing HTTP generator.
+
 ### Bounded document conversion units
 
 Pure-Go document conversion now supports XLS, XLSX, ODS, DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, and EPUB.
