@@ -89,15 +89,17 @@ The hard total limit is 191,860 lines.
 
 Report authored production, tests, generated code, and the inclusive total separately.
 Do not use generated code to hide authored growth.
+Each protection must address a retained capability, current failure, concrete threat, or client contract.
+Remove speculative reliability, distributed coordination, and security machinery.
 
-At commit `461ec78415bb75001f626dfb9a52f035c0bcc832`, the Go counts are:
+At commit `7117a86e`, the Go counts are:
 
 | Class | Lines | Rust comparison |
 | --- | ---: | ---: |
-| Authored production | 53,715 | 30.9% of Rust production |
-| Tests | 18,257 | Separate evidence cost |
-| Generated GraphQL | 79,602 | Separate generated cost |
-| Inclusive total | 151,574 | 63.2% of all Rust code |
+| Authored production | 66,845 | 38.42% of Rust production |
+| Tests | 21,173 | Separate evidence cost |
+| Generated GraphQL | 79,612 | Separate generated cost |
+| Inclusive total | 167,630 | 69.90% of all Rust code |
 
 Measure this gate before each migration-unit merge and before cutover.
 If authored production reaches 70%, stop and run a reduction review.
@@ -397,10 +399,40 @@ Target 2,800 production lines and 850 test lines.
 Stop at 3,900 production lines or 1,300 test lines.
 Use seven focused tests for parsing, network policy, extraction bounds, providers, schema, settings, and runtime routing.
 
+### Local model runtime slice
+
+Implement this slice after schema version 28.
+Use schema version 29 for installations, durable events, and local model assignments.
+Use one concrete service for installation work, cancellation, one `llama-server` process, and runtime status.
+Use one generation mutex because the retained runtime supports one active local generation.
+Do not add a registry, pool, reaper, lease, scheduler, or Artifact framework.
+
+Pin llama.cpp b10015 for each supported target and backend.
+Store it under `NOEMA_HOME/system/tools/llama.cpp/b10015/<target>/<backend>`.
+Use `NOEMA_HOME/system/tmp` for staging. Verify the exact size and SHA-256 digest before atomic publication.
+Use Go tar, gzip, and zip readers. Never search `PATH`, resolve `latest`, or use fallback mirrors.
+Resume interrupted downloads with HTTP ranges. Reject an invalid size, digest, or GGUF header.
+Delete a model only when no assignment, active run, or generation uses it.
+
+Run one exact installed `llama-server` on loopback with an 8,192-token context and parallelism one.
+Disable its web interface. Keep startup and generation deadlines.
+Poll only its loopback startup health endpoint because the process supplies no push event.
+Keep the last 32 stderr lines for a bounded failure diagnostic.
+Qualify native tool support before activation.
+
+The current Rust contract supports macOS arm64 and amd64, Linux amd64, and Windows amd64.
+Linux arm64 has no current Rust asset, so its absence does not reduce a retained capability.
+The curated GGUF remains Metal-only. Linux and Windows keep the current public or local import path.
+
+Target at most 3,400 production lines and 650 test lines.
+Stop at 3,900 production lines or 975 test lines.
+Use no more than eight focused test functions.
+The direct Rust surface is approximately 9,800 production lines.
+
 ### Browser route and execution slice
 
 Implement this slice only after approved Noema-specific Obscura artifacts exist.
-Use schema version 29 for the ordered browser route and observed browser links.
+Use schema version 30 for the ordered browser route and observed browser links.
 Keep browser sessions process-local. Add no session table.
 One session belongs to one Chat conversation or Task generation.
 A provider switch starts fresh and transfers no browser state.
@@ -843,7 +875,17 @@ The built-in provider Task worker now runs from durable work-event wakeups. It i
 - human gates, validated review publication, cancellation, and terminal cleanup;
 - committed-event reconciliation for idempotent Task attention notifications.
 
-The remaining capability tools stay in later migration units.
+### Task model tools unit
+
+Go schema version 27 now supports every primary Chat Task tool.
+Task-role runs can capture and list Tasks and create, read, list, and parse Task Artifacts.
+Lifecycle commands preserve recurrence, Project placement, gates, policy, and run authorities.
+Delegation queues atomically. Current-run and Artifact-version fences protect committed work.
+Task captures inherit the source client time zone. Task-role artifacts preserve their Task source.
+Chat Task commands preserve their source conversation, turn, item, and tool-call identifiers.
+Only Task Executor can use hosted web search. Planner and Reviewer cannot use it.
+The unit adds 1,363 production lines and 331 test lines through five focused test functions.
+The correction reused current authorities. It added no provenance framework or background process.
 
 ### Browser Web Push and native Apple notification units
 
@@ -944,8 +986,10 @@ The migration size gate supersedes the original phase forecast.
 Authored production must remain below 139,192 lines.
 The inclusive checked-in total must remain below 191,860 lines.
 
-At commit `6efe3000`, authored production is 65,482 lines.
-The inclusive total is 165,936 lines.
+At commit `7117a86e`, authored production is 66,845 lines.
+Tests use 21,173 lines. Generated GraphQL uses 79,612 lines.
+The inclusive total is 167,630 lines.
+Authored production is 38.42 percent of Rust. The inclusive total is 69.90 percent.
 The smaller inclusive headroom governs current planning.
 
 Generated GraphQL code remains a separate reported class.
