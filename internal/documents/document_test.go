@@ -99,7 +99,7 @@ func TestDocumentMarkdownRTFHandlesDestinationsEncodingAndBounds(t *testing.T) {
 }
 
 func TestDocumentMarkdownRejectsExcessiveXMLDepth(t *testing.T) {
-	for _, mediaType := range []string{MediaDOCX, MediaODT, MediaPPTX, MediaODP, MediaRTF} {
+	for _, mediaType := range []string{MediaDOCX, MediaODT, MediaPPTX, MediaPPT, MediaODP, MediaRTF} {
 		if !IsDocument(mediaType) {
 			t.Fatalf("%s is not recognized", mediaType)
 		}

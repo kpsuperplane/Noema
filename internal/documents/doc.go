@@ -45,6 +45,7 @@ type docBlock struct {
 	kind    byte // p, h, q, c, l, t
 	level   int
 	inlines []docInline
+	blocks  []docBlock
 	code    string
 	list    []docListEntry
 	table   [][]docCell

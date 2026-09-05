@@ -621,8 +621,19 @@ func renderDOCBlocks(blocks []docBlock, notes map[string]int) string {
 			rendered = strings.Repeat("#", max(1, min(block.level, 6))) + " " + strings.TrimSpace(renderDOCInlines(block.inlines, false, notes))
 		case 'q':
 			text := strings.TrimSpace(renderDOCInlines(block.inlines, false, notes))
+			if len(block.blocks) > 0 {
+				text = renderDOCBlocks(block.blocks, notes)
+			}
 			if text != "" {
-				rendered = "> " + strings.ReplaceAll(text, "\n", "\n> ")
+				lines := strings.Split(text, "\n")
+				for i, line := range lines {
+					if line == "" {
+						lines[i] = ">"
+					} else {
+						lines[i] = "> " + line
+					}
+				}
+				rendered = strings.Join(lines, "\n")
 			}
 		case 'c':
 			fence := "```"

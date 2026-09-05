@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/abemedia/go-cfb"
 	"github.com/kpsuperplane/noema/internal/documents"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -58,7 +59,7 @@ func TestFileParseRoutesMediaAndEnforcesBounds(t *testing.T) {
 	wantMedia := map[string]string{
 		"xls": documents.MediaXLS, "xlsx": documents.MediaXLSX, "ods": documents.MediaODS,
 		"docx": documents.MediaDOCX, "odt": documents.MediaODT,
-		"pptx": documents.MediaPPTX, "odp": documents.MediaODP,
+		"pptx": documents.MediaPPTX, "ppt": documents.MediaPPT, "pps": documents.MediaPPT, "pot": documents.MediaPPT, "odp": documents.MediaODP,
 		"rtf": documents.MediaRTF, "pdf": documents.MediaPDF, "epub": documents.MediaEPUB,
 	}
 	for extension, want := range wantMedia {
@@ -66,6 +67,34 @@ func TestFileParseRoutesMediaAndEnforcesBounds(t *testing.T) {
 		if got != want {
 			t.Fatalf("%s media = %q, want %q", extension, got, want)
 		}
+	}
+	compoundFile, err := os.CreateTemp(t.TempDir(), "*.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compoundWriter := cfb.NewWriterV3(compoundFile)
+	stream, err := compoundWriter.CreateStream("PowerPoint Document")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = stream.Write([]byte("records")); err != nil {
+		t.Fatal(err)
+	}
+	if err = stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = compoundWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = compoundFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	compoundContent, err := os.ReadFile(compoundFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if media, format := documentMedia(compoundContent, "bin"); media != documents.MediaPPT || format != "ppt" {
+		t.Fatalf("detected PPT media = %q, format = %q", media, format)
 	}
 
 	cwd := t.TempDir()

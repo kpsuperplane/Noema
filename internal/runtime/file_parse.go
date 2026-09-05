@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/abemedia/go-cfb"
 	"github.com/kpsuperplane/noema/internal/documents"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -355,6 +356,11 @@ func documentMedia(content []byte, format string) (string, string) {
 	if bytes.HasPrefix(bytes.TrimSpace(content), []byte(`{\rtf`)) {
 		return documents.MediaRTF, "rtf"
 	}
+	if compound, err := cfb.NewReader(bytes.NewReader(content)); err == nil {
+		if _, err = compound.OpenStream("PowerPoint Document"); err == nil {
+			return documents.MediaPPT, "ppt"
+		}
+	}
 	if mediaType, name := documentMediaFromExtension(format); mediaType != "" {
 		return mediaType, name
 	}
@@ -410,6 +416,8 @@ func documentMediaFromExtension(format string) (string, string) {
 		return documents.MediaODT, "odt"
 	case "pptx":
 		return documents.MediaPPTX, "pptx"
+	case "ppt", "pps", "pot":
+		return documents.MediaPPT, "ppt"
 	case "odp":
 		return documents.MediaODP, "odp"
 	case "rtf":
