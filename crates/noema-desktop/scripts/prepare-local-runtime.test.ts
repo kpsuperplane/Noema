@@ -131,10 +131,9 @@ describe("runtime preparation target mapper", () => {
     });
   });
 
-  test("rejects a target absent from the pinned manifest", () => {
-    expect(() => runtimePreparationPlan(manifest, "aarch64-unknown-linux-gnu")).toThrow(
-      "No pinned llama.cpp runtime is available for aarch64-unknown-linux-gnu."
-    );
+  test("prepares Linux ARM64 CPU and Vulkan runtimes", () => {
+    const plan = runtimePreparationPlan(manifest, "aarch64-unknown-linux-gnu");
+    expect(plan.steps.map(({ asset }) => asset.backend)).toEqual(["cpu", "vulkan"]);
   });
 });
 

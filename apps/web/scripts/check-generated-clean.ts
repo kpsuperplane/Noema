@@ -2,7 +2,6 @@ import { stat } from "node:fs/promises";
 
 const schemaPath = "../../graphql/schema.graphql";
 const generatedPaths = [schemaPath, "src/generated", "src/routeTree.gen.ts"];
-const strayApiWebPath = "../../crates/noema-api/web";
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -22,13 +21,7 @@ async function pathExists(path: string): Promise<boolean> {
 
 if (!(await pathExists(schemaPath))) {
   throw new Error(
-    `${schemaPath} is missing; gen:schema must export the shared client schema`,
-  );
-}
-
-if (await pathExists(strayApiWebPath)) {
-  throw new Error(
-    `${strayApiWebPath} must not exist; the API exporter writes only to the caller's explicit output`,
+    `${schemaPath} is missing; commit the Go gqlgen client schema`,
   );
 }
 

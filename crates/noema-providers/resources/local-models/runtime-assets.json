@@ -17,6 +17,20 @@
       "role": "server_bundle"
     },
     {
+      "target_triple": "aarch64-unknown-linux-gnu",
+      "backend": "cpu",
+      "archive_name": "llama-b10015-bin-ubuntu-arm64.tar.gz",
+      "sha256": "9cb7957fbe7f209e264d543afb408e04492b79d65d6927dec37c32cff79a651b",
+      "role": "server_bundle"
+    },
+    {
+      "target_triple": "aarch64-unknown-linux-gnu",
+      "backend": "vulkan",
+      "archive_name": "llama-b10015-bin-ubuntu-vulkan-arm64.tar.gz",
+      "sha256": "e46eafeecdeaa3d7db35e76d9bdf467066ddcbb04fbb0a755dba1de64bdff2db",
+      "role": "server_bundle"
+    },
+    {
       "target_triple": "x86_64-unknown-linux-gnu",
       "backend": "vulkan",
       "archive_name": "llama-b10015-bin-ubuntu-vulkan-x64.tar.gz",

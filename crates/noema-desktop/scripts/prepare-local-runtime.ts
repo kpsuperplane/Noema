@@ -329,6 +329,9 @@ export function requestedTargetTriple() {
   if (process.platform === "linux" && process.arch === "x64") {
     return "x86_64-unknown-linux-gnu";
   }
+  if (process.platform === "linux" && process.arch === "arm64") {
+    return "aarch64-unknown-linux-gnu";
+  }
   throw new Error(`Noema V1 does not package llama.cpp for ${process.platform}/${process.arch}.`);
 }
 
