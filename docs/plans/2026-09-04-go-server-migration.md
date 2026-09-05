@@ -599,7 +599,7 @@ The Agent settings unit uses Go schema version 10. It includes:
 - current Agent, ACP, and Task model-pool GraphQL operations.
 
 Task placement can use enabled ACP identities and revision snapshots.
-ACP Task execution remains a later unit.
+ACP Task execution now uses Go with rooted working directories, reviewed permissions, replay, cancellation, and uncertain-effect recovery.
 
 ### Artifact authority unit
 
@@ -711,7 +711,7 @@ The built-in provider Task worker now runs from durable work-event wakeups. It i
 - human gates, validated review publication, cancellation, and terminal cleanup;
 - committed-event reconciliation for idempotent Task attention notifications.
 
-ACP execution and the remaining capability tools stay in later migration units.
+The remaining capability tools stay in later migration units.
 
 ### Browser Web Push and native Apple notification units
 
@@ -811,7 +811,6 @@ Later waves can run these paths in parallel after their listed dependency merges
 
 | Path | Dependency |
 | --- | --- |
-| ACP Task runs | Built-in Task execution and shared capability policy |
 | Adapter review, OAuth, HTTP, and Lua | Action requests |
 | Hosted web and interactive browser tools | Action requests |
 | Local and Apple model runtimes | Provider account authority |

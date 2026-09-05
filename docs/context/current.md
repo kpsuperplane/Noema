@@ -31,7 +31,7 @@ Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
 `file.parse` uses isolated conversion for DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, EPUB, and spreadsheet formats.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
 Built-in Tasks now run Planner, Executor, Reviewer, files, replay, gates, retries, wake-driven attention, and Live Activities in Go.
-MCP, bounded Lua, ACP runs, remaining capability tools, remaining integrations, and Chat context compaction remain migration units.
+MCP, bounded Lua, ACP Task runs, and primary Agent naming now use Go; remaining integrations and Chat compaction remain.
 
 ## Current constraints
 
