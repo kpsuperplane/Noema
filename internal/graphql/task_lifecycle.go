@@ -333,6 +333,23 @@ func (r *Resolver) tasks(ctx context.Context, input model.TaskListInput, first *
 	return r.taskConnection(ctx, page)
 }
 
+func (r *Resolver) needsYou(ctx context.Context, workspace string, project *string, first *int, after *string) (*model.TaskAttentionConnection, error) {
+	tasks, err := r.tasks(ctx, model.TaskListInput{
+		WorkspaceID: workspace, ProjectID: project, AttentionOnly: true, Scope: model.TaskScopeActive,
+	}, first, after)
+	if err != nil {
+		return nil, err
+	}
+	result := &model.TaskAttentionConnection{PageInfo: tasks.PageInfo}
+	for _, edge := range tasks.Edges {
+		if edge.Node.Attention == nil {
+			return nil, errors.New("Task attention is unavailable")
+		}
+		result.Edges = append(result.Edges, &model.TaskAttentionEdge{Cursor: edge.Cursor, Node: edge.Node.Attention})
+	}
+	return result, nil
+}
+
 func (r *Resolver) taskHistory(ctx context.Context, workspace string, project *string, kind *model.TerminalTaskKind, first *int, after *string) (*model.TaskConnection, error) {
 	input := model.TaskListInput{WorkspaceID: workspace, ProjectID: project, Scope: model.TaskScopeTerminal}
 	if kind != nil {
@@ -430,8 +447,44 @@ func (r *Resolver) hydrateTaskSummary(ctx context.Context, task store.Task, resu
 		if gate, err := r.Store.TaskGate(ctx, task.ActiveGateID); err == nil {
 			result.ActiveGate = taskGateModel(gate)
 			result.ValidActions = validTaskActions(task, &gate)
+			result.Attention = taskAttentionModel(taskCardFromSummary(result), &gate)
 		}
 	}
+}
+
+func taskAttentionModel(task *model.TaskCard, gate *store.TaskGate) *model.TaskAttention {
+	var kind model.TaskAttentionKind
+	title := ""
+	switch gate.Kind {
+	case "clarification":
+		kind, title = model.TaskAttentionKindClarificationRequired, "Clarification required"
+	case "approval":
+		kind, title = model.TaskAttentionKindApprovalRequired, "Approval required"
+	case "recovery":
+		kind, title = model.TaskAttentionKindRecoveryRequired, "Recovery decision required"
+	default:
+		return nil
+	}
+	return &model.TaskAttention{Kind: kind, Title: title, Summary: runePreview(gate.Prompt, 400),
+		Gate: taskGateModel(*gate), Task: task, ValidActions: append([]model.ValidTaskAction(nil), task.ValidActions...)}
+}
+
+func taskCardFromSummary(value *model.TaskSummary) *model.TaskCard {
+	return &model.TaskCard{TaskID: value.TaskID, Workspace: value.Workspace, Project: value.Project,
+		Title: value.Title, TaskDocumentPreview: value.TaskDocumentPreview, Stage: value.Stage,
+		Revision: value.Revision, Generation: value.Generation, ExecutorAgentID: value.ExecutorAgentID,
+		ExecutorBackend: value.ExecutorBackend, CwdOverride: value.CwdOverride, EffectiveCwd: value.EffectiveCwd,
+		EffectiveCwdSource: value.EffectiveCwdSource, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		Schedule: value.Schedule, CompletedAt: value.CompletedAt, CurrentRun: value.CurrentRun,
+		ActiveGate: value.ActiveGate, ValidActions: append([]model.ValidTaskAction(nil), value.ValidActions...)}
+}
+
+func runePreview(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) > limit {
+		runes = runes[:limit]
+	}
+	return string(runes)
 }
 func currentRunModel(run store.TaskRun) *model.CurrentRunSummary {
 	return &model.CurrentRunSummary{RunID: run.ID, InstanceName: run.InstanceName, Kind: model.TaskRunKind(strings.ToUpper(run.Kind)), Status: model.TaskRunStatus(strings.ToUpper(run.Status)), AttemptIndex: int(run.AttemptIndex), QueuedAt: run.QueuedAt.Format(time.RFC3339Nano), StartedAt: formatOptionalTime(run.StartedAt), UpdatedAt: run.UpdatedAt.Format(time.RFC3339Nano), ActivityLabel: strings.ToUpper(run.Status[:1]) + run.Status[1:]}
