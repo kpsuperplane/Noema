@@ -8,6 +8,8 @@ Durable contracts belong in subsystem documents. Git owns completed history.
 The human authorized all seven Go cleanup items. ORMs are permitted.
 The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
 One migration registry now drives fresh creation and upgrades at version 32.
+`go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
+CI checks generated Go and web files. The Rust launcher is removed.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.
@@ -247,12 +249,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 
 - The current calculation and artifact paths passed focused live regression.
   Task `task:18d07a17681adac7353` completed with a reviewed accessible HTML artifact.
-- The return packet received test receipt `M3-0006`.
-- The travel packet corrected one malformed source link before test receipt `M3-0007`.
-- The human waived affected-user review for the controlled accessibility fixture.
-  This waiver does not prove usability for an affected user.
-- The Milestone 5 withdrawal retest passed as `task:18d0cf496635f93b1bd`.
-  The human declined `action:18d0cf588c5a34b03bc` for the final send.
 - Browser review compares parsed interaction meaning across snapshots and optional input shapes.
   The unchanged retry returned `human_declined_equivalent_action` before a second action request.
 - The fixture kept consent withdrawn with no receipt, zero deliveries, and zero attempts.
@@ -296,7 +292,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 ## Validation defaults
 
 - Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`,
-  and `cargo gate-test`. Use `cargo validate` for focused commands.
+  and `cargo gate-test`. Use `scripts/validate-rust` for focused commands.
 - Go: use `go test ./cmd/... ./internal/...`, `go vet`, `staticcheck`, and
   `govulncheck`. Use `CGO_ENABLED=0` for shipped builds.
 - Web: run `bun run lint` and `bun run build` from `apps/web`.

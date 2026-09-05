@@ -96,6 +96,15 @@ jobs:
       - name: Install web dependencies
         working-directory: apps/web
         run: bun install --frozen-lockfile
+      - name: Check generated Go and web code
+        run: |
+          go tool gqlgen generate
+          git diff --exit-code -- internal/graphql
+          cd apps/web
+          bun run check:generated
+      - name: Check web types and lint
+        working-directory: apps/web
+        run: bun run lint
       - name: Build packaged server
         run: scripts/build-go-server
       - name: Cross-build release targets

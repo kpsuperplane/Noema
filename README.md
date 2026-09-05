@@ -8,16 +8,16 @@ GraphQL, and HTTP. Rust remains for the Tauri shell, model evaluations, and the
 external Obscura worker. `apps/web` is the React UI shared by both shells.
 
 The old multi-command Noema CLI surface has been removed. For standalone local
-web development, use the `cargo dev` supervisor. It runs the Go server watcher
+web development, use the `go run ./cmd/noema-dev` supervisor. It runs the Go server watcher
 next to the Bun web asset watcher. Local product work
 should use that web entrypoint, the owning backend crate, the web frontend
 package, or the desktop app.
 
 ```bash
-NOEMA_HOME=.noema-dev cargo dev
+NOEMA_HOME=.noema-dev go run ./cmd/noema-dev
 ```
 
-`cargo dev` currently requires Unix because it always enables the private Unix
+`go run ./cmd/noema-dev` currently requires Unix because it always enables the private Unix
 GraphQL socket. On macOS, it also watches the Foundation bridge package and
 runs `swift build` after bridge changes.
 
@@ -26,10 +26,10 @@ runs `swift build` after bridge changes.
 - Go 1.26.6
 - Rust and Cargo for desktop, evaluations, and the Obscura release worker
 - Bun for frontend dependency installation and builds
-- `cargo-watch` for the combined development supervisor
+- Air v1.67.4, downloaded automatically by the Go development supervisor
 - CMake, Clang, and libclang when building Obscura release workers
 - Tesseract OCR and `prlimit` for printed English text in raster images
-- A Unix host for `cargo dev`
+- A Unix host for `go run ./cmd/noema-dev`
 - For macOS desktop builds: Xcode and its command-line tools
 - For Apple Foundation Models: macOS 26 and Swift 6
 - One supported chat provider:
@@ -172,7 +172,7 @@ cargo gate-test
 ```
 
 Use `go test` with package paths for focused server checks. Use
-`cargo validate <cargo-command> [arguments]` for focused retained Rust checks.
+`scripts/validate-rust <cargo-command> [arguments]` for focused retained Rust checks.
 The supervisor coalesces short save bursts. The frontend keeps GraphQL
 generation and Vite's build graph warm between edits.
 
@@ -191,7 +191,7 @@ For standalone web development, run the combined local supervisor from the repo
 root:
 
 ```bash
-NOEMA_HOME=.noema-dev cargo dev
+NOEMA_HOME=.noema-dev go run ./cmd/noema-dev
 ```
 
 To run the authenticated loopback server without the development asset watcher,
@@ -201,12 +201,12 @@ run the Go command:
 NOEMA_HOME=.noema-dev go run ./cmd/noema
 ```
 
-`cargo dev` sets the runtime `web.local_graphql_socket` option. It also binds
+`go run ./cmd/noema-dev` sets the runtime `web.local_graphql_socket` option. It also binds
 the development server to `127.0.0.1`. Authentication follows `config.yaml` and
 is enabled by default. Local tools can use `${NOEMA_HOME}/run/graphql.sock`
 without a passkey. Set `web.dev_no_auth: true` only on a trusted network.
 
-When root starts `./attach`, Cargo keeps root ownership of the build process.
+When root starts `./attach`, Go keeps root ownership of the build process.
 The launcher stages generated files under `/run/noema-dev` and runs only the
 Noema server as `noema-dev`. Its home is `/var/lib/noema-dev`.
 
@@ -267,8 +267,8 @@ Revoke that client later from another authenticated client.
 Use the Rust desktop crate for desktop-side validation:
 
 ```bash
-cargo validate check -p noema-desktop
-cargo validate test -p noema-desktop
+scripts/validate-rust check -p noema-desktop
+scripts/validate-rust test -p noema-desktop
 ```
 
 ## Repository Layout
@@ -292,7 +292,7 @@ crates/noema-memory/          Native Markdown memory and derived search
 crates/noema-store/           SQLite persistence and persistence read models
 crates/noema-runtime/         Governed, transport-neutral agent execution
 crates/noema-desktop/         Tauri shell for local Go and remote servers
-crates/noema-dev/             Development supervisor and validation launcher
+cmd/noema-dev/                Go development supervisor
 crates/noema-model-evals/     Opt-in local-model qualification runner
 docs/                         Current contracts, active plans, and dated evidence
 ```

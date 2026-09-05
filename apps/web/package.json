@@ -7,10 +7,10 @@
     "gen:ios-icons": "bun run scripts/generate-ios-lucide-icons.ts",
     "gen:types": "bun run gen:operations",
     "gen:routes": "tsr generate",
-    "dev": "bun run build && bun run dev:assets:vite",
-    "dev:assets": "bun run build:assets && bun run --parallel dev:assets:codegen dev:assets:vite",
-    "dev:assets:codegen": "cargo watch --postpone -w graphql -w apps/web/src/graphql -w apps/web/codegen.ts -s 'cd apps/web && bun run gen:operations'",
-    "dev:assets:vite": "cargo watch --postpone -w apps/web/bun.lock -w apps/web/index.html -w apps/web/package.json -w apps/web/public -w apps/web/src -w apps/web/vite.config.ts -w apps/web/vite.graphiql.config.ts -i apps/web/src/routeTree.gen.ts -s 'cd apps/web && bun run build:web-assets'",
+    "dev": "bun run dev:assets",
+    "dev:assets": "bun run build:assets && bun run --parallel dev:assets:codegen dev:assets:vite dev:assets:graphiql",
+    "dev:assets:codegen": "graphql-codegen --config codegen.ts --watch",
+    "dev:assets:vite": "NOEMA_DEV_WATCH=1 vite build --watch",
     "dev:tauri": "bun run gen:types && bun run gen:routes && vite --config vite.desktop.config.ts --host 127.0.0.1 --port 5173 --strictPort",
     "build": "bun run gen:types && bun run gen:routes && bun run build:web-assets",
     "build:assets": "bun run gen:operations && bun run gen:routes && bun run build:web-assets",
@@ -20,7 +20,8 @@
     "check:generated": "bun run gen:types && bun run gen:routes && bun run scripts/check-generated-clean.ts",
     "test": "bun test src",
     "lint": "bun run gen:types && bun run gen:routes && tsc --noEmit && eslint src --max-warnings=0",
-    "astryx": "node node_modules/@astryxdesign/cli/bin/astryx.mjs"
+    "astryx": "node node_modules/@astryxdesign/cli/bin/astryx.mjs",
+    "dev:assets:graphiql": "vite build --config vite.graphiql.config.ts --watch"
   },
   "dependencies": {
     "@apollo/client": "^4.2.3",
@@ -49,6 +50,7 @@
     "@graphql-codegen/fragment-matcher": "^6.0.1",
     "@graphql-codegen/typescript": "^6.0.2",
     "@graphql-codegen/typescript-operations": "^6.0.5",
+    "@parcel/watcher": "2.5.6",
     "@stylexjs/babel-plugin": "^0.19.0",
     "@tanstack/router-cli": "^1.167.18",
     "@tanstack/router-plugin": "^1.168.19",

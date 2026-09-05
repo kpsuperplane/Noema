@@ -60,3 +60,10 @@ Do not remove the browser worker or Tauri desktop capability.
 - XLSX replacement complete: Excelize v2.11.0; 205 fewer implementation lines.
   Existing tests now use valid XLSX namespaces and package relationships.
   Truncated XML and archive limits remain checked. All Go unit tests and vet passed.
+
+- Development and CI complete. Go supervises pinned Air and native web watchers.
+  The Rust launcher is removed. Generated Go and web checks now run in CI.
+  The focused Rust wrapper is `scripts/validate-rust`; compiler cache settings remain unchanged.
+  Linux document workers now limit writable data mappings; address reservations caused intermittent failures.
+  Go tests and vet, web lint/build, and all retained Rust checks passed.
+  The new supervisor adds 136 production lines and 60 test lines; Rust loses 993 lines.

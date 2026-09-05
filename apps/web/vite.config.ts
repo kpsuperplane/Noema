@@ -114,7 +114,7 @@ export default defineConfig({
   build: {
     outDir: assetOutDir,
     manifest: true,
-    emptyOutDir: true,
+    emptyOutDir: !process.env.NOEMA_DEV_WATCH,
     cssCodeSplit: false,
     rollupOptions: {
       output: {

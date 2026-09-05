@@ -7,24 +7,6 @@ CC = "sccache clang"
 CXX = "sccache clang++"
 
 [alias]
-dev = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "dev",
-]
-validate = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "validate",
-]
-gate-lint = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "validate", "clippy", "--workspace", "--all-targets",
-    "--", "-D", "warnings",
-]
-gate-test = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "validate", "test", "--workspace", "--no-fail-fast",
-]
-check-workspace = [
-    "run", "--profile", "dev-launcher", "--target-dir", "target/noema-dev-launcher",
-    "-p", "noema-dev", "--", "validate", "check", "--workspace",
-]
+gate-lint = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+gate-test = ["test", "--workspace", "--no-fail-fast"]
+check-workspace = ["check", "--workspace"]

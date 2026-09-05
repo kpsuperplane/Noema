@@ -1,0 +1,27 @@
+root = "."
+tmp_dir = "target/air"
+env_files = []
+
+[build]
+cmd = "scripts/run-noema-dev-server build"
+entrypoint = ["scripts/run-noema-dev-server"]
+include_dir = ["cmd", "internal"]
+include_file = ["go.mod", "go.sum", "graphql/schema.graphql"]
+include_ext = ["go"]
+exclude_dir = ["target", "internal/web/release-assets"]
+exclude_regex = ["_test\\.go$"]
+delay = 1500
+send_interrupt = true
+kill_delay = "2s"
+stop_on_error = false
+poll = false
+
+[[build.rules]]
+name = "foundation"
+include_dir = ["crates/noema-providers/apple-foundation-bridge/Sources"]
+include_file = ["crates/noema-providers/apple-foundation-bridge/Package.swift"]
+cmd = 'if [ "$(uname -s)" = Darwin ]; then swift build --package-path crates/noema-providers/apple-foundation-bridge; fi'
+delay = 1000
+
+[misc]
+clean_on_exit = false

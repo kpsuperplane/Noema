@@ -5,7 +5,6 @@ members = [
     "crates/noema-capabilities/adapters",
     "crates/noema-capabilities/mcp",
     "crates/noema-conversations",
-    "crates/noema-dev",
     "crates/noema-desktop",
     "crates/noema-home",
     "crates/noema-memory",
@@ -92,7 +91,3 @@ incremental = false
 [profile.test]
 debug = 1
 incremental = false
-
-[profile.dev-launcher]
-inherits = "dev"
-debug = 1

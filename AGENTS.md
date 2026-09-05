@@ -80,7 +80,7 @@
   - `cargo check-workspace`
   - `cargo gate-lint`
   - `cargo gate-test`
-- Run focused Cargo commands through `cargo validate <cargo-command> [arguments]`, for example `cargo validate test -p noema-capability-adapters --lib`.
+- Run focused Cargo commands through `scripts/validate-rust <cargo-command> [arguments]`, for example `scripts/validate-rust test -p noema-capability-adapters --lib`.
 - Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
 - Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new tests requires a written risk and redundancy justification before implementation continues.
 - Do not test derives, getters, constructors, enum mirrors, pass-through mappings/resolvers, or mock interactions unless they enforce an external compatibility or security contract. Do not repeat the same behavior through domain, store, API, and runtime layers unless each boundary owns materially different logic.

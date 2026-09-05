@@ -6,9 +6,15 @@ readonly noema_home="${NOEMA_HOME:-/var/lib/noema-dev}"
 readonly runtime_dir="/run/noema-dev"
 readonly asset_dir="${runtime_dir}/web-assets"
 
+export NOEMA_WEB__HOST=127.0.0.1
+export NOEMA_WEB__LOCAL_GRAPHQL_SOCKET=true
 if (( EUID != 0 )); then
-  echo "Noema development privilege drop requires root" >&2
-  exit 1
+  if [[ "${1:-}" == "build" ]]; then
+    mkdir -p target/go
+    CGO_ENABLED=0 go build -buildvcs=false -o target/go/noema-dev-server ./cmd/noema
+    exit 0
+  fi
+  exec target/go/noema-dev-server
 fi
 install -d -o root -g root -m 0755 -- "${runtime_dir}" "${asset_dir}"
 if [[ "$(stat -c '%u:%a' -- "${runtime_dir}")" != "0:755" ]]; then
@@ -20,8 +26,11 @@ if [[ "$(stat -c '%U:%G:%a' -- "${noema_home}")" != "${run_user}:${run_user}:700
   exit 1
 fi
 
-CGO_ENABLED=0 go build -buildvcs=false -o "${runtime_dir}/noema" ./cmd/noema
-chmod 0555 "${runtime_dir}/noema"
+if [[ "${1:-}" == "build" ]]; then
+  CGO_ENABLED=0 go build -buildvcs=false -o "${runtime_dir}/noema" ./cmd/noema
+  chmod 0555 "${runtime_dir}/noema"
+  exit 0
+fi
 
 export HOME="${noema_home}"
 export USER="${run_user}"
