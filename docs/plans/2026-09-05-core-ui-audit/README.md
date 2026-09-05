@@ -111,6 +111,7 @@ The empty ACP group also separates agent models from task models.
 
 **Suggestion:** Give the chosen model enough width to show its name.
 Keep model, reasoning, Fast, and task-model enablement visible in each row.
+Hide the Model and Reasoning labels. Keep accessible names that identify each model group.
 Use a compact group with aligned controls. On phones, give the model selector its own full-width line.
 Keep a visible Off state for disabled task models.
 Keep agent models and task models adjacent. Put external agent setup after them on the same page.

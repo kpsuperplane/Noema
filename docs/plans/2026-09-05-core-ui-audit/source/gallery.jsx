@@ -163,8 +163,8 @@ function Agents({notice}){
   return <SettingsListItem key={name} label={<VStack gap={2} className="model-row">
    <HStack align="center" justify="between" gap={2}><strong>{name}</strong>{task?<Switch label={value.enabled?'Enabled':'Off'} aria-label={`${name} enabled`} value={value.enabled} onChange={enabled=>change({enabled})}/>:null}</HStack>
    <HStack gap={3} className="model-fields" align="end">
-    <Selector label="Model" aria-label={`${name} model`} size="sm" options={['GPT-5.6-Terra','GPT-5.6-Sol','GPT-5.6-Luna']} value={value.model} onChange={model=>change({model})}/>
-    <Selector label="Reasoning" aria-label={`${name} reasoning`} size="sm" options={['Low','Medium','High','XHigh']} value={value.reason} onChange={reason=>change({reason})}/>
+    <Selector label="Model" isLabelHidden aria-label={`${name} model`} size="sm" options={['GPT-5.6-Terra','GPT-5.6-Sol','GPT-5.6-Luna']} value={value.model} onChange={model=>change({model})}/>
+    <Selector label="Reasoning" isLabelHidden aria-label={`${name} reasoning`} size="sm" options={['Low','Medium','High','XHigh']} value={value.reason} onChange={reason=>change({reason})}/>
     <Switch label="Fast" aria-label={`${name} fast mode`} value={value.fast} onChange={fast=>change({fast})}/>
    </HStack>
   </VStack>}/>;

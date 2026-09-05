@@ -76,3 +76,9 @@ Production and inclusive migration ratios remain below 80 percent.
 - Checked inline save feedback, scheduling, instruction-dialog opening, direct starting, pause, and accessible composer fields at both widths.
 - Each task detail has one floating bar. No horizontal overflow or browser page errors occurred.
 - Updated screenshots contain sample data only. Product UI source remains unchanged by this unit.
+
+## Model label refinement
+
+- Hid Model and Reasoning labels in Agent models and Task models. Accessible names remain available.
+- Gallery build passed. Reviewed both groups at 1440px and 390px widths.
+- All ten selectors remain available. No horizontal overflow or browser page errors occurred.
