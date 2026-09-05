@@ -6,6 +6,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "noema-obscura-worker"
+path = "src/bin/noema-obscura-worker.rs"
+required-features = ["adapters"]
+
 [lints]
 workspace = true
 
