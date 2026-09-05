@@ -148,6 +148,17 @@ func (r *Resolver) task(ctx context.Context, taskID string) (*model.TaskDetail, 
 	return r.taskDetailModel(ctx, task, document), nil
 }
 
+func (r *Resolver) taskWorkspaceFile(ctx context.Context, taskID, path string) (*model.TaskWorkspaceFileText, error) {
+	if _, err := r.Store.Task(ctx, taskID); err != nil {
+		return nil, taskLifecycleError(err)
+	}
+	content, err := home.ReadTaskFile(r.home, taskID, path)
+	if err != nil {
+		return nil, taskInputError("the Task workspace file is unavailable")
+	}
+	return &model.TaskWorkspaceFileText{Path: path, Content: content}, nil
+}
+
 func taskSummaryModel(task store.Task, workspaceID string, document string) *model.TaskSummary {
 	result := &model.TaskSummary{
 		TaskID: task.ID,
@@ -201,6 +212,13 @@ func (r *Resolver) taskSummaryModel(
 
 func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, document home.TaskDocument) *model.TaskDetail {
 	result := taskDetailModel(task, document)
+	if content, err := home.ReadTaskFile(r.home, task.ID, "RESULT.md"); err == nil {
+		result.ResultDocument = &content
+	}
+	if content, err := home.ReadTaskFile(r.home, task.ID, "REVIEW.md"); err == nil {
+		result.ReviewDocument = &content
+	}
+	result.WorkspaceFiles, result.WorkspaceFilesTruncated = r.taskWorkspaceManifest(task.ID)
 	if task.CwdOverride != nil {
 		result.EffectiveCwd = task.CwdOverride
 		result.EffectiveCwdSource = "task"
@@ -235,6 +253,35 @@ func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, documen
 		}
 	}
 	return result
+}
+
+func (r *Resolver) taskWorkspaceManifest(taskID string) ([]*model.TaskWorkspaceFile, bool) {
+	const limit = 256
+	files := make([]*model.TaskWorkspaceFile, 0)
+	queue := []string{"."}
+	for len(queue) != 0 {
+		path := queue[0]
+		queue = queue[1:]
+		entries, err := home.ListTaskFiles(r.home, taskID, path)
+		if err != nil {
+			return files, true
+		}
+		for _, entry := range entries {
+			if len(files) == limit {
+				return files, true
+			}
+			var size *int
+			if entry.SizeBytes != nil {
+				value := int(*entry.SizeBytes)
+				size = &value
+			}
+			files = append(files, &model.TaskWorkspaceFile{Path: entry.Path, IsDirectory: entry.IsDirectory, SizeBytes: size})
+			if entry.IsDirectory {
+				queue = append(queue, entry.Path)
+			}
+		}
+	}
+	return files, false
 }
 
 func taskExecutorBackend(task store.Task) string {
