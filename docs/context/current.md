@@ -18,16 +18,17 @@ keeps all production capabilities and uses no Rust or CGo.
 The Go server uses a fresh home. It does not open or convert a Rust home.
 The Rust server remains the production authority until the final cutover.
 
-The Go evidence gate passed. The replacement now uses Go schema version 13.
-It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, and Task scheduling.
+The Go evidence gate passed. The replacement now uses Go schema version 14.
+It includes authentication, provider onboarding, primary Chat, Projects, Agent settings, Artifacts, Task scheduling, and Web Push.
 OpenRouter and Codex preserve text, tools, replay, reasoning, citations, usage, and current model assignments.
-Primary Chat supports durable restart recovery and bounded repeated `task.inspect` calls.
+Primary Chat supports durable recovery and bounded `task.inspect`, `file.parse`, and Memory tool loops.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
-Native Memory owns bounded page reads, citations, hierarchy, state, and crash-safe publication.
+Native Memory owns bounded reads, lexical search, citations, hierarchy, state, crash-safe publication, and root prompt context.
 Artifact storage owns safe local files, external URLs, versions, metadata, integrity checks, and authorized delivery.
 Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
-Reusable Go conversion supports DOCX, ODT, PPTX, ODP, and RTF for later `file.parse` integration.
-Task execution, governance, remaining tools, notifications, and Memory consolidation remain migration units.
+`file.parse` uses isolated conversion for DOCX, ODT, PPTX, ODP, RTF, PDF, EPUB, and spreadsheet formats.
+Web Push owns protected VAPID keys, session registrations, presence, durable retries, and primary Chat final answers.
+Task execution, governance, remaining tools, native notifications, legacy documents, OCR, and Memory consolidation remain migration units.
 
 ## Current constraints
 

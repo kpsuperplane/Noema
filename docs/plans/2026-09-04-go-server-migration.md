@@ -598,16 +598,32 @@ The first native Memory unit includes:
 - staged page publication and startup recovery;
 - rooted atomic replacement on Linux, macOS, and Windows.
 
-Search tools, update events, preference writes, and consolidation remain later units.
+Lexical search, exact page reads, root prompt context, model tools, and durable replay now use Go authorities.
+Update events, preference writes, and consolidation remain later units.
 
 ### Bounded document conversion units
 
-Pure-Go document conversion now supports XLS, XLSX, ODS, DOCX, ODT, PPTX, ODP, and RTF.
+Pure-Go document conversion now supports XLS, XLSX, ODS, DOCX, ODT, PPTX, ODP, RTF, PDF, and EPUB.
 It enforces the 32 MiB input and 20,000-character output contracts.
 Archive expansion, XML depth, XML tokens, rows, cells, and parser failures remain bounded.
 
-Only spreadsheet conversion is connected to Artifact previews.
-The other converters await the `file.parse` runtime unit.
+Spreadsheet conversion is connected to Artifact previews.
+The Chat `file.parse` tool uses rooted reads and one isolated parser process.
+The worker has a 30-second limit and a 512 MiB Unix address-space limit.
+Legacy DOC, legacy PPT, and OCR remain later conversion units.
+
+### Browser Web Push unit
+
+The browser Web Push unit uses Go schema version 14. It includes:
+
+- protected per-installation VAPID configuration;
+- browser-session-owned registration, removal, status, and presence;
+- durable delivery claims, bounded retries, expiry, and invalidation;
+- private-network endpoint rejection and resolved-address pinning;
+- presence suppression and primary Chat final-answer projection;
+- one bounded Task-attention queue entrypoint for the Task execution unit.
+
+APNs, native notification delivery, and Live Activities remain later units.
 
 ## 11. Validation Strategy
 
