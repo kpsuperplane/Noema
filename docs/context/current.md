@@ -23,12 +23,13 @@ It includes authentication, provider onboarding, primary Chat, Projects, Agent s
 OpenRouter and Codex preserve text, tools, replay, reasoning, citations, usage, and current model assignments.
 Primary Chat supports durable recovery and bounded `task.inspect`, `file.parse`, and Memory tool loops.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
-Native Memory owns bounded reads, lexical search, citations, hierarchy, state, crash-safe publication, and root prompt context.
+Native Memory owns bounded reads, search, citations, hierarchy, model updates, crash-safe publication, checkpoints, and root prompt context.
+Until context compaction moves to Go, a replaceable 70-percent pending-source threshold schedules automatic updates.
 Artifact storage owns safe local files, external URLs, versions, metadata, integrity checks, and authorized delivery.
 Spreadsheet previews support XLS, XLSX, and ODS through bounded parsers.
 `file.parse` uses isolated conversion for DOC, DOCX, PPT, PPTX, ODT, ODP, RTF, PDF, EPUB, and spreadsheet formats.
 Web Push and APNs own protected keys, client registrations, presence, durable retries, and primary Chat final answers.
-Task execution, governance, remaining tools, Task Live Activity delivery, OCR, and Memory consolidation remain migration units.
+Task execution, governance, remaining tools, Task Live Activity delivery, and Chat context compaction remain migration units.
 
 ## Current constraints
 

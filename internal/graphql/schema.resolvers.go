@@ -383,12 +383,12 @@ func (r *mutationRootResolver) SaveActionReviewerPreference(ctx context.Context,
 
 // UpdateMemory is the resolver for the updateMemory field.
 func (r *mutationRootResolver) UpdateMemory(ctx context.Context) (*model.GraphqlNativeMemoryUpdateResult, error) {
-	panic(fmt.Errorf("not implemented: UpdateMemory - updateMemory"))
+	return r.updateMemory(ctx)
 }
 
 // SaveMemoryModelPreference is the resolver for the saveMemoryModelPreference field.
 func (r *mutationRootResolver) SaveMemoryModelPreference(ctx context.Context, input model.GraphqlSaveMemoryModelPreferenceInput) (*model.AgentModelPreference, error) {
-	panic(fmt.Errorf("not implemented: SaveMemoryModelPreference - saveMemoryModelPreference"))
+	return r.saveMemoryModelPreference(ctx, input)
 }
 
 // EnsurePrimaryConversation is the resolver for the ensurePrimaryConversation field.

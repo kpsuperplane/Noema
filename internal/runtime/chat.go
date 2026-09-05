@@ -20,6 +20,7 @@ const (
 	turnQueueLimit       = 64
 	subscriberQueueLimit = 128
 	shutdownSaveTimeout  = 5 * time.Second
+	memoryEventChannel   = "\x00memory"
 )
 
 var (
@@ -39,6 +40,7 @@ const (
 	EventAssistantDelta    EventKind = "assistant_text_delta"
 	EventTurnCompleted     EventKind = "turn_completed"
 	EventTransientError    EventKind = "transient_error"
+	EventMemoryChanged     EventKind = "memory_changed"
 )
 
 // AgentStatus is one live Chat status.
@@ -118,6 +120,10 @@ type Chat struct {
 	closeErr   error
 	stateMu    sync.RWMutex
 	closed     bool
+	memoryMu   sync.Mutex
+	memoryRun  bool
+	memoryErr  string
+	memoryWG   sync.WaitGroup
 
 	subMu       sync.Mutex
 	subscribers map[uint64]subscriber
@@ -219,8 +225,18 @@ func (c *Chat) SubscribeAll(ctx context.Context) <-chan Event {
 	return events
 }
 
+// SubscribeMemory returns native Memory invalidations until the context ends.
+func (c *Chat) SubscribeMemory(ctx context.Context) <-chan Event {
+	events, _ := c.subscribe(ctx, memoryEventChannel, false)
+	return events
+}
+
 func (c *Chat) subscribe(ctx context.Context, conversationID string, ready bool) (<-chan Event, error) {
-	events := make(chan Event, subscriberQueueLimit)
+	queueLimit := subscriberQueueLimit
+	if conversationID == memoryEventChannel {
+		queueLimit = 1
+	}
+	events := make(chan Event, queueLimit)
 
 	c.subMu.Lock()
 	if c.ctx.Err() != nil {
@@ -256,6 +272,7 @@ func (c *Chat) Close() error {
 		if c.done != nil {
 			<-c.done
 		}
+		c.memoryWG.Wait()
 		recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
 		_, c.closeErr = c.database.RecoverConversationTurns(recoveryContext, time.Now())
 		stopRecovery()
@@ -327,6 +344,7 @@ func (c *Chat) execute(request queuedTurn) {
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &userItem,
 	})
+	c.publishMemoryChanged()
 
 	assignment, err := c.primaryAssignment(c.ctx)
 	if err != nil {

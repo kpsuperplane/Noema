@@ -603,7 +603,7 @@ The Artifact authority unit uses Go schema version 11. It includes:
 
 Spreadsheet preview conversion supports XLS, XLSX, and ODS.
 
-### Native Memory read unit
+### Native Memory unit
 
 The first native Memory unit includes:
 
@@ -613,8 +613,11 @@ The first native Memory unit includes:
 - staged page publication and startup recovery;
 - rooted atomic replacement on Linux, macOS, and Windows.
 
-Lexical search, exact page reads, root prompt context, model tools, and durable replay now use Go authorities.
-Update events, preference writes, and consolidation remain later units.
+Lexical search, exact page reads, root prompt context, model tools, durable replay, and update events now use Go authorities.
+Manual updates and the assigned Memory model use the current GraphQL contract.
+Consolidation checks citations and editable page scope before one atomic publication and checkpoint update.
+A replaceable 70-percent pending-source threshold schedules one automatic primary Chat update.
+Chat context compaction remains a later unit and will replace that temporary trigger.
 
 ### Bounded document conversion units
 
@@ -626,7 +629,9 @@ Spreadsheet conversion is connected to Artifact previews.
 The Chat `file.parse` tool uses rooted reads and one isolated parser process.
 The worker has a 30-second limit and a 512 MiB Unix address-space limit.
 Legacy DOC and legacy PPT use bounded Compound File Binary parsers.
-OCR remains a later conversion unit.
+Raster OCR uses optional Tesseract through the same isolated worker.
+Strong document signatures take priority over misleading image extensions.
+The worker enforces the 512 MiB memory limit on Unix and Windows.
 
 ### Browser Web Push and native Apple notification units
 
@@ -703,6 +708,39 @@ exceeds its estimate by 50 percent or 500 lines, whichever is smaller.
 
 Expected focused full-time duration for one person is six to twelve months.
 Reforecast when the spike and store unit finish.
+
+### Parallel delivery
+
+Parallel work uses complete user paths. It does not assign one Rust package to
+one agent. A path owns its required store, runtime, API, and focused tests.
+
+Only one active path owns a new schema version. Other paths must use the current
+schema or wait for that version to merge. Generated GraphQL changes merge after
+the schema owner. The main branch then validates the combined result.
+
+The current wave has these independent paths:
+
+| Path | Owned outcome | Shared limit |
+| --- | --- | --- |
+| Raster OCR | Parse supported images through the isolated file worker | No schema change |
+| Memory consolidation | Update Memory, save its model choice, and publish checked changes | No schema change |
+| Chat action requests | Review exact Chat calls and download public non-HTML files | Owns schema version 18 |
+| Integration | Review, merge, measure, and validate the combined server | No feature expansion |
+
+Later waves can run these paths in parallel after their listed dependency merges:
+
+| Path | Dependency |
+| --- | --- |
+| Task execution and ACP runs | Task lifecycle and action requests |
+| MCP setup, OAuth, and dynamic calls | Action requests |
+| Adapter review, OAuth, HTTP, and Luau | Action requests |
+| Hosted web and interactive browser tools | Action requests |
+| Local and Apple model runtimes | Provider account authority |
+| Chat choices, A2UI, settings, and debug reads | Primary Chat runtime |
+| Task Live Activities | Task execution and APNs |
+
+The final serial wave changes the desktop sidecar, removes the development gate,
+runs acceptance, and removes the Rust server closure.
 
 ## 13. Cutover and Rollback
 
