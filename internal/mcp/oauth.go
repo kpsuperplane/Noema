@@ -70,9 +70,12 @@ func (s *Service) startOAuth(ctx context.Context, owner string, input SetupInput
 	if owner != "human:local" || input.TransportKind != "streamable_http" {
 		return OAuthAttempt{}, errors.New("MCP OAuth setup is invalid")
 	}
-	callback, err := validateOAuthRedirect(redirect)
+	callback, err := validateOAuthCallback(redirect)
 	if err != nil {
 		return OAuthAttempt{}, err
+	}
+	if s.oauthCallback == "" || callback.String() != s.oauthCallback {
+		return OAuthAttempt{}, errors.New("MCP redirect URI does not match this server")
 	}
 	id, err := newPrefixedID("mcp_oauth:")
 	if err != nil {
@@ -249,6 +252,7 @@ func (s *Service) publishDiscovery(ctx context.Context, input SetupInput, defini
 		_ = s.secrets.removeConnection(serverID)
 		return SetupResult{}, err
 	}
+	s.scheduleClassification(server.ID)
 	return SetupResult{Server: &server, Status: "ready_for_policy", Discovered: len(tools)}, nil
 }
 
@@ -287,6 +291,7 @@ func (s *Service) publishOAuthReauthentication(ctx context.Context, attempt *oau
 		_ = restoreConnectionSecrets(s.secrets, server.ID, current)
 		return SetupResult{}, err
 	}
+	s.scheduleClassification(server.ID)
 	return SetupResult{Server: &server, Status: "ready_for_policy", Discovered: len(tools)}, nil
 }
 
@@ -389,7 +394,7 @@ func (s *Service) CallbackHandler() http.Handler {
 	})
 }
 
-func validateOAuthRedirect(raw string) (*url.URL, error) {
+func validateOAuthCallback(raw string) (*url.URL, error) {
 	value, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || value.User != nil || value.Path != "/mcp/oauth/callback" || value.RawQuery != "" || value.Fragment != "" {
 		return nil, errors.New("MCP redirect URI is invalid")

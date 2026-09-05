@@ -448,8 +448,15 @@ func (r *Resolver) mcpAttempt(ctx context.Context, id string) (*model.McpOAuthSe
 	if err != nil {
 		return nil, err
 	}
-	if value.Status == "completed" && r.Chat != nil {
-		if err := r.Chat.ResumeMCPAuthentication(ctx, id); err != nil {
+	if value.Status == "completed" {
+		handled := false
+		if r.TaskExecution != nil {
+			handled, err = r.TaskExecution.ResumeMCPAuthentication(ctx, id)
+		}
+		if err == nil && !handled && r.Chat != nil {
+			err = r.Chat.ResumeMCPAuthentication(ctx, id)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -480,10 +487,21 @@ func (r *Resolver) skipMCPCallAuthentication(ctx context.Context, input model.Sk
 	if _, err := r.requireMCP(ctx); err != nil {
 		return nil, err
 	}
-	if r.Chat == nil {
-		return nil, errors.New("Chat runtime is unavailable")
+	request, err := r.Store.MCPAuthRequest(ctx, input.RequestID, input.ExpectedRevision)
+	if err != nil {
+		return nil, err
 	}
-	request, err := r.Chat.SkipMCPAuthentication(ctx, input.RequestID, input.ExpectedRevision)
+	if request.TaskID != "" {
+		if r.TaskExecution == nil {
+			return nil, errors.New("Task execution runtime is unavailable")
+		}
+		request, err = r.TaskExecution.SkipMCPAuthentication(ctx, request)
+	} else {
+		if r.Chat == nil {
+			return nil, errors.New("Chat runtime is unavailable")
+		}
+		request, err = r.Chat.SkipMCPAuthentication(ctx, input.RequestID, input.ExpectedRevision)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -610,10 +628,13 @@ func mcpAuthenticationModel(value store.MCPAuthRequest) *model.McpAuthentication
 	if value.Failure != "" {
 		result.FailureCode = &value.Failure
 	}
+	if value.TaskID != "" {
+		result.TaskID = &value.TaskID
+	}
 	return result
 }
 
-func (r *Resolver) pendingMCPAuthentications(ctx context.Context, conversationID *string, first *int) ([]model.HumanIntervention, error) {
+func (r *Resolver) pendingMCPAuthentications(ctx context.Context, conversationID, taskID *string, first *int) ([]model.HumanIntervention, error) {
 	limit := 50
 	if first != nil {
 		limit = *first
@@ -621,7 +642,7 @@ func (r *Resolver) pendingMCPAuthentications(ctx context.Context, conversationID
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("pendingHumanInterventions first must be within 1..100")
 	}
-	values, err := r.Store.PendingMCPAuthRequests(ctx, localHumanID, conversationID, limit)
+	values, err := r.Store.PendingMCPAuthRequests(ctx, localHumanID, conversationID, taskID, limit)
 	if err != nil {
 		return nil, err
 	}

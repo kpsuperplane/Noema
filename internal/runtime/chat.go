@@ -206,6 +206,17 @@ func NewChat(
 		recoveredActions: recoveredActions,
 		subscribers:      make(map[uint64]subscriber),
 	}
+	requests, err := database.RecoverConversationMCPAuthRequests(chat.ctx)
+	for _, request := range requests {
+		payload := toolFailure("outcome_uncertain", "MCP tool outcome is uncertain after restart")
+		if err = chat.finishMCPAuthCall(request, payload, false); err != nil {
+			break
+		}
+	}
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("recover MCP authentication results: %w", err)
+	}
 	go chat.run()
 	return chat, nil
 }

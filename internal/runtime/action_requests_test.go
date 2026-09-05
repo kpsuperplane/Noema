@@ -149,7 +149,7 @@ func TestMCPAuthenticationInterruptionIsDurableAndSkippable(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	pending, err := database.PendingMCPAuthRequests(context.Background(), "human:local", &conversation.ID, 10)
+	pending, err := database.PendingMCPAuthRequests(context.Background(), "human:local", &conversation.ID, nil, 10)
 	if err != nil || len(pending) != 1 || pending[0].State != "awaiting_user" {
 		t.Fatalf("pending = %#v, %v", pending, err)
 	}
@@ -226,7 +226,7 @@ func TestReviewedMCPAuthenticationSurvivesRestartAndCompletesAction(t *testing.T
 		t.Fatalf("suspended action = %#v, %v", action, err)
 	}
 	collectCompletedTurns(t, events, 1)
-	pending, err := database.PendingMCPAuthRequests(t.Context(), "human:local", &conversation.ID, 10)
+	pending, err := database.PendingMCPAuthRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
 	if err != nil || len(pending) != 1 || pending[0].ActionID != actions[0].ID {
 		t.Fatalf("pending authentication = %#v, %v", pending, err)
 	}

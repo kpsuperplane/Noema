@@ -11,6 +11,8 @@ import (
 // MCPAuthRequest is one secret-free durable call authentication interruption.
 type MCPAuthRequest struct {
 	ID, OwnerHumanID, ConversationID, TurnID, CallItemID, ServerID string
+	TaskID, RunID, RunItemID                                       string
+	TaskGeneration                                                 int64
 	ActionID                                                       string
 	CapabilityName, BindingJSON, ArgumentsJSON, Provider           string
 	ProviderCallID, ProviderName, OAuthAttemptID, State, Failure   string
@@ -32,9 +34,20 @@ func (s *Store) CreateMCPAuthRequest(ctx context.Context, value MCPAuthRequest, 
 	}
 	defer tx.Rollback()
 	var payload string
-	if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM conversation_items WHERE item_id=? AND conversation_id=?
+	if value.TaskID == "" {
+		if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM conversation_items WHERE item_id=? AND conversation_id=?
  AND turn_id=? AND kind='tool_call' AND status='running'`, value.CallItemID, value.ConversationID, value.TurnID).Scan(&payload); err != nil {
-		return MCPAuthRequest{}, ConversationItem{}, errors.New("MCP authentication call is unavailable")
+			return MCPAuthRequest{}, ConversationItem{}, errors.New("MCP authentication call is unavailable")
+		}
+	} else {
+		var status, kind, itemStatus string
+		if err := tx.QueryRowContext(ctx, `SELECT r.provider_kind,i.round_index,i.sequence_index,i.item_kind,i.status,i.payload_json
+FROM task_runs r JOIN tasks t ON t.task_id=r.task_id JOIN task_run_items i ON i.run_id=r.run_id
+WHERE r.run_id=? AND r.task_id=? AND r.task_generation=? AND i.item_id=? AND t.current_run_id=r.run_id AND r.status IN ('running','waiting_for_approval')`,
+			value.RunID, value.TaskID, value.TaskGeneration, value.RunItemID).Scan(&value.Provider, &value.ProviderRound, &value.OutputIndex, &kind, &itemStatus, &payload); err != nil || kind != "tool_call" || itemStatus != "running" {
+			return MCPAuthRequest{}, ConversationItem{}, errors.New("MCP authentication Task call is unavailable")
+		}
+		_ = status
 	}
 	var item map[string]any
 	if json.Unmarshal([]byte(payload), &item) != nil {
@@ -42,28 +55,53 @@ func (s *Store) CreateMCPAuthRequest(ctx context.Context, value MCPAuthRequest, 
 	}
 	metadata, _ := item["metadata"].(map[string]any)
 	action, _ := metadata["action"].(map[string]any)
-	value.Provider, _ = metadata["provider"].(string)
+	if value.TaskID != "" {
+		action = item
+		metadata = item
+	}
+	if value.Provider == "" {
+		value.Provider, _ = metadata["provider"].(string)
+	}
 	value.ProviderCallID, _ = action["provider_call_id"].(string)
 	value.ProviderName, _ = action["provider_name"].(string)
-	value.OutputIndex = int(numberValue(metadata["output_index"]))
+	if value.TaskID == "" {
+		value.OutputIndex = int(numberValue(metadata["output_index"]))
+	}
 	value.ID, value.Revision, value.State = id, 1, "awaiting_user"
 	if value.Provider == "" || action["name"] != value.CapabilityName {
 		return MCPAuthRequest{}, ConversationItem{}, errors.New("MCP authentication call is invalid")
 	}
-	if value.ActionID != "" {
+	if value.ActionID != "" && value.TaskID == "" {
 		var state string
 		if err := tx.QueryRowContext(ctx, `SELECT state FROM action_requests WHERE action_id=? AND conversation_id=? AND turn_id=? AND call_item_id=?`,
 			value.ActionID, value.ConversationID, value.TurnID, value.CallItemID).Scan(&state); err != nil || state != "executing" {
 			return MCPAuthRequest{}, ConversationItem{}, errors.New("MCP authentication action is unavailable")
 		}
+	} else if value.ActionID != "" {
+		var state string
+		if err := tx.QueryRowContext(ctx, `SELECT state FROM action_requests WHERE action_id=? AND task_id=? AND run_id=? AND run_item_id=?`,
+			value.ActionID, value.TaskID, value.RunID, value.RunItemID).Scan(&state); err != nil || state != "executing" {
+			return MCPAuthRequest{}, ConversationItem{}, errors.New("MCP authentication Task action is unavailable")
+		}
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO mcp_auth_requests (request_id,owner_human_id,conversation_id,turn_id,call_item_id,
+	_, err = tx.ExecContext(ctx, `INSERT INTO mcp_auth_requests (request_id,owner_human_id,conversation_id,turn_id,call_item_id,task_id,run_id,task_generation,run_item_id,
  mcp_server_id,capability_name,binding_json,arguments_json,provider,provider_round,output_index,provider_call_id,provider_name,action_request_id,state,created_at_ms,updated_at_ms)
- VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'awaiting_user',?,?)`, id, value.OwnerHumanID, value.ConversationID, value.TurnID,
-		value.CallItemID, value.ServerID, value.CapabilityName, value.BindingJSON, value.ArgumentsJSON, value.Provider,
+	 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'awaiting_user',?,?)`, id, value.OwnerHumanID, nullText(value.ConversationID), nullText(value.TurnID),
+		nullText(value.CallItemID), nullText(value.TaskID), nullText(value.RunID), nullableTaskGeneration(value.TaskID, value.TaskGeneration), nullText(value.RunItemID),
+		value.ServerID, value.CapabilityName, value.BindingJSON, value.ArgumentsJSON, value.Provider,
 		value.ProviderRound, value.OutputIndex, value.ProviderCallID, value.ProviderName, nullText(value.ActionID), millis(now), millis(now))
 	if err != nil {
 		return MCPAuthRequest{}, ConversationItem{}, err
+	}
+	if value.TaskID != "" {
+		if _, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='waiting_for_approval',updated_at_ms=?
+WHERE run_id=? AND task_id=? AND task_generation=? AND status='running'`, millis(now), value.RunID, value.TaskID, value.TaskGeneration); err != nil {
+			return MCPAuthRequest{}, ConversationItem{}, err
+		}
+		if err := tx.Commit(); err != nil {
+			return MCPAuthRequest{}, ConversationItem{}, err
+		}
+		return value, ConversationItem{}, nil
 	}
 	sequence, err := nextConversationSequenceTx(ctx, tx, value.ConversationID)
 	if err != nil {
@@ -91,21 +129,26 @@ func (s *Store) CreateMCPAuthRequest(ctx context.Context, value MCPAuthRequest, 
 
 func numberValue(value any) float64 { result, _ := value.(float64); return result }
 
-const mcpAuthSelect = `SELECT request_id,owner_human_id,conversation_id,turn_id,call_item_id,mcp_server_id,
+const mcpAuthSelect = `SELECT request_id,owner_human_id,conversation_id,turn_id,call_item_id,task_id,run_id,task_generation,run_item_id,mcp_server_id,
  capability_name,binding_json,arguments_json,provider,provider_round,output_index,provider_call_id,provider_name,
  COALESCE(oauth_attempt_id,''),state,COALESCE(failure_code,''),revision,COALESCE(action_request_id,'') FROM mcp_auth_requests`
 
 func scanMCPAuth(row rowScanner) (MCPAuthRequest, error) {
 	var v MCPAuthRequest
-	err := row.Scan(&v.ID, &v.OwnerHumanID, &v.ConversationID, &v.TurnID, &v.CallItemID, &v.ServerID, &v.CapabilityName, &v.BindingJSON, &v.ArgumentsJSON, &v.Provider, &v.ProviderRound, &v.OutputIndex, &v.ProviderCallID, &v.ProviderName, &v.OAuthAttemptID, &v.State, &v.Failure, &v.Revision, &v.ActionID)
+	var conversationID, turnID, callItemID, taskID, runID, runItemID sql.NullString
+	var generation sql.NullInt64
+	err := row.Scan(&v.ID, &v.OwnerHumanID, &conversationID, &turnID, &callItemID, &taskID, &runID, &generation, &runItemID,
+		&v.ServerID, &v.CapabilityName, &v.BindingJSON, &v.ArgumentsJSON, &v.Provider, &v.ProviderRound, &v.OutputIndex, &v.ProviderCallID, &v.ProviderName, &v.OAuthAttemptID, &v.State, &v.Failure, &v.Revision, &v.ActionID)
+	v.ConversationID, v.TurnID, v.CallItemID = conversationID.String, turnID.String, callItemID.String
+	v.TaskID, v.RunID, v.RunItemID, v.TaskGeneration = taskID.String, runID.String, runItemID.String, generation.Int64
 	return v, err
 }
 
 func (s *Store) MCPAuthRequest(ctx context.Context, id string, revision int) (MCPAuthRequest, error) {
 	return scanMCPAuth(s.db.QueryRowContext(ctx, mcpAuthSelect+` WHERE request_id=? AND revision=?`, id, revision))
 }
-func (s *Store) PendingMCPAuthRequests(ctx context.Context, owner string, conversationID *string, limit int) ([]MCPAuthRequest, error) {
-	rows, err := s.db.QueryContext(ctx, mcpAuthSelect+` WHERE owner_human_id=? AND state IN ('awaiting_user','authorizing') AND (? IS NULL OR conversation_id=?) ORDER BY created_at_ms LIMIT ?`, owner, conversationID, conversationID, limit)
+func (s *Store) PendingMCPAuthRequests(ctx context.Context, owner string, conversationID, taskID *string, limit int) ([]MCPAuthRequest, error) {
+	rows, err := s.db.QueryContext(ctx, mcpAuthSelect+` WHERE owner_human_id=? AND state IN ('awaiting_user','authorizing') AND (? IS NULL OR conversation_id=?) AND (? IS NULL OR task_id=?) ORDER BY created_at_ms LIMIT ?`, owner, conversationID, conversationID, taskID, taskID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -148,9 +191,50 @@ func (s *Store) MCPAuthRequestsForAttempt(ctx context.Context, attempt string) (
 	return result, rows.Err()
 }
 
+// RecoverTaskMCPAuthRequests returns direct Task calls cancelled during startup recovery.
+func (s *Store) RecoverTaskMCPAuthRequests(ctx context.Context) ([]MCPAuthRequest, error) {
+	rows, err := s.db.QueryContext(ctx, mcpAuthSelect+` WHERE task_id IS NOT NULL AND action_request_id IS NULL AND state='cancelled'
+	 AND failure_code='outcome_uncertain' AND EXISTS (SELECT 1 FROM task_run_items i WHERE i.item_id=mcp_auth_requests.run_item_id AND i.status='running')
+	 ORDER BY created_at_ms`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []MCPAuthRequest
+	for rows.Next() {
+		value, scanErr := scanMCPAuth(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
+
+// RecoverConversationMCPAuthRequests returns direct calls cancelled during startup recovery.
+func (s *Store) RecoverConversationMCPAuthRequests(ctx context.Context) ([]MCPAuthRequest, error) {
+	rows, err := s.db.QueryContext(ctx, mcpAuthSelect+` WHERE conversation_id IS NOT NULL AND action_request_id IS NULL
+ AND state='cancelled' AND failure_code='outcome_uncertain'
+ AND EXISTS (SELECT 1 FROM conversation_items i WHERE i.item_id=mcp_auth_requests.call_item_id AND i.status='running')
+ ORDER BY created_at_ms`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []MCPAuthRequest
+	for rows.Next() {
+		value, scanErr := scanMCPAuth(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
+
 // BeginMCPAuthResume records that one reviewed remote call can no longer be retried safely.
 func (s *Store) BeginMCPAuthResume(ctx context.Context, request MCPAuthRequest, now time.Time) (MCPAuthRequest, error) {
-	if request.ActionID == "" || request.State != "authorizing" {
+	if request.State != "authorizing" {
 		return MCPAuthRequest{}, errors.New("MCP authentication resumption is invalid")
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE mcp_auth_requests SET state='resuming',updated_at_ms=?

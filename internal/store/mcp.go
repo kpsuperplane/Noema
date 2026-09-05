@@ -455,6 +455,34 @@ func (s *Store) ResetMCPToolPolicy(ctx context.Context, serverID, connectionRevi
 	return scanMCPTool(s.db.QueryRowContext(ctx, mcpToolSelect+` WHERE mcp_server_id=? AND mcp_tool_id=?`, serverID, toolID))
 }
 
+// ClassifyMCPTool fills only missing source hints under exact catalog and policy fences.
+func (s *Store) ClassifyMCPTool(ctx context.Context, serverID, connectionRevision, toolID,
+	sourceRevision string, expected int, behavior [4]bool, now time.Time) (MCPTool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE mcp_tools SET
+ read_only=CASE WHEN read_only_source='safe_default' THEN ? ELSE read_only END,
+ read_only_source=CASE WHEN read_only_source='safe_default' THEN 'model' ELSE read_only_source END,
+ idempotent=CASE WHEN idempotent_source='safe_default' THEN ? ELSE idempotent END,
+ idempotent_source=CASE WHEN idempotent_source='safe_default' THEN 'model' ELSE idempotent_source END,
+ destructive=CASE WHEN destructive_source='safe_default' THEN ? ELSE destructive END,
+ destructive_source=CASE WHEN destructive_source='safe_default' THEN 'model' ELSE destructive_source END,
+ open_world=CASE WHEN open_world_source='safe_default' THEN ? ELSE open_world END,
+ open_world_source=CASE WHEN open_world_source='safe_default' THEN 'model' ELSE open_world_source END,
+ status=CASE WHEN status='disabled' THEN 'disabled' ELSE 'ready' END,
+ policy_revision=policy_revision+1,updated_at_ms=?
+ WHERE mcp_server_id=? AND mcp_tool_id=? AND source_revision=? AND policy_revision=?
+ AND EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_server_id=? AND connection_revision=?)
+ AND (read_only_source='safe_default' OR idempotent_source='safe_default' OR destructive_source='safe_default' OR open_world_source='safe_default')`,
+		behavior[0], behavior[1], behavior[2], behavior[3], millis(now), serverID, toolID, sourceRevision, expected,
+		serverID, connectionRevision)
+	if err != nil {
+		return MCPTool{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return MCPTool{}, errors.New("MCP tool classification authority changed")
+	}
+	return scanMCPTool(s.db.QueryRowContext(ctx, mcpToolSelect+` WHERE mcp_server_id=? AND mcp_tool_id=?`, serverID, toolID))
+}
+
 // FenceMCPServer disables one connection before protected credential deletion.
 func (s *Store) FenceMCPServer(ctx context.Context, id, revision string, now time.Time) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE mcp_servers SET enabled=0, health_status='unavailable',

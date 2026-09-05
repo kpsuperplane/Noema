@@ -30,6 +30,7 @@ type Resolver struct {
 	ProviderAccounts *provider.AccountService
 	OpenRouter       *provider.OpenRouterService
 	Chat             *runtime.Chat
+	TaskExecution    *runtime.TaskExecution
 	Artifacts        *artifact.Service
 	Memory           *memory.Store
 	MCP              *mcp.Service

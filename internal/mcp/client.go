@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -27,6 +28,7 @@ const (
 	maxSchemaBytes     = 256 << 10
 	maxAnnotations     = 16 << 10
 	maxToolResult      = 1 << 20
+	maxWireBody        = 32 << 20
 )
 
 // ErrAuthenticationRequired reports one fixed authentication boundary failure.
@@ -326,7 +328,31 @@ func (t headerTransport) RoundTrip(request *http.Request) (*http.Response, error
 	if t.token != "" {
 		copy.Header.Set("Authorization", "Bearer "+t.token)
 	}
-	return t.base.RoundTrip(copy)
+	response, err := t.base.RoundTrip(copy)
+	if err == nil && response.Body != nil {
+		response.Body = &boundedBody{ReadCloser: response.Body, remaining: maxWireBody}
+	}
+	return response, err
+}
+
+type boundedBody struct {
+	io.ReadCloser
+	remaining int64
+}
+
+func (r *boundedBody) Read(buffer []byte) (int, error) {
+	if r.remaining < 0 {
+		return 0, ErrMessageTooLarge
+	}
+	if int64(len(buffer)) > r.remaining+1 {
+		buffer = buffer[:r.remaining+1]
+	}
+	n, err := r.ReadCloser.Read(buffer)
+	r.remaining -= int64(n)
+	if r.remaining < 0 {
+		return n, ErrMessageTooLarge
+	}
+	return n, err
 }
 
 func mcpHTTPClient(ctx context.Context, rawURL string, safeHeaders map[string]string, secrets SecretMaterial) (*http.Client, error) {
@@ -395,6 +421,9 @@ func safeTransportError(action string, err error) error {
 		return err
 	}
 	message := strings.ToLower(err.Error())
+	if errors.Is(err, ErrMessageTooLarge) || strings.Contains(err.Error(), ErrMessageTooLarge.Error()) {
+		return fmt.Errorf("%s: %w", action, ErrMessageTooLarge)
+	}
 	if strings.Contains(message, "401") || strings.Contains(message, "unauthorized") {
 		return ErrAuthenticationRequired
 	}

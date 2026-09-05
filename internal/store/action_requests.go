@@ -51,6 +51,8 @@ type ActionBehavior struct {
 // NewActionRequest contains one exact model proposal.
 type NewActionRequest struct {
 	ConversationID, TurnID, CallItemID string
+	TaskID, RunID, RunItemID           string
+	TaskGeneration                     int64
 	OwnerHumanID, RequestingAgentID    string
 	CapabilityName, OperationToken     string
 	ReviewRoute                        ActionReviewRoute
@@ -71,6 +73,8 @@ type ActionAssessment struct {
 // ActionRequest is one saved proposal and its current result.
 type ActionRequest struct {
 	ID, OwnerHumanID, ConversationID, TurnID, CallItemID, ApprovalItemID string
+	TaskID, RunID, RunItemID                                             string
+	TaskGeneration                                                       int64
 	RequestingAgentID, CapabilityName, OperationToken                    string
 	Revision                                                             int
 	ReviewRoute                                                          ActionReviewRoute
@@ -122,13 +126,14 @@ func (s *Store) CreateActionRequest(ctx context.Context, input NewActionRequest,
 	}
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO action_requests (
- action_id, revision, owner_human_id, conversation_id, turn_id, call_item_id,
+ action_id, revision, owner_human_id, conversation_id, turn_id, call_item_id, task_id, run_id, task_generation, run_item_id,
  requesting_agent_id, capability_name, operation_token, review_route,
  read_only, repeat_safe, destructive, open_world, arguments_json, arguments_sha256,
  input_schema_json, authorization_context_json, safe_summary, state,
  created_at_ms, updated_at_ms
-) VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'proposed',?,?)`,
-		actionID, input.OwnerHumanID, input.ConversationID, input.TurnID, input.CallItemID,
+) VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'proposed',?,?)`,
+		actionID, input.OwnerHumanID, nullText(input.ConversationID), nullText(input.TurnID), nullText(input.CallItemID),
+		nullText(input.TaskID), nullText(input.RunID), nullableTaskGeneration(input.TaskID, input.TaskGeneration), nullText(input.RunItemID),
 		input.RequestingAgentID, input.CapabilityName, input.OperationToken, input.ReviewRoute,
 		input.Behavior.ReadOnly, input.Behavior.RepeatSafe, input.Behavior.Destructive,
 		input.Behavior.OpenWorld, string(arguments), hex.EncodeToString(digest[:]), string(schema),
@@ -141,18 +146,22 @@ INSERT INTO action_requests (
 	}
 	action, err := actionRequestTx(ctx, tx, actionID, 1)
 	if err == nil && input.ReviewRoute == ActionHumanReview {
-		approval, approvalErr := insertActionApprovalItem(ctx, tx, action, now)
-		if approvalErr != nil {
-			return ActionRequest{}, approvalErr
+		var approvalID any
+		if input.TaskID == "" {
+			approval, approvalErr := insertActionApprovalItem(ctx, tx, action, now)
+			if approvalErr != nil {
+				return ActionRequest{}, approvalErr
+			}
+			approvalID = approval.ID
 		}
-		if _, approvalErr = tx.ExecContext(ctx, `INSERT INTO action_request_decisions
- (action_id, action_revision, state, created_at_ms) VALUES (?,1,'pending',?)`, actionID, millis(now)); approvalErr != nil {
-			return ActionRequest{}, approvalErr
+		if _, err = tx.ExecContext(ctx, `INSERT INTO action_request_decisions
+	(action_id, action_revision, state, created_at_ms) VALUES (?,1,'pending',?)`, actionID, millis(now)); err != nil {
+			return ActionRequest{}, err
 		}
-		if _, approvalErr = tx.ExecContext(ctx, `UPDATE action_requests SET state='awaiting_approval',
- approval_item_id=?, updated_at_ms=? WHERE action_id=? AND revision=1 AND state='proposed'`,
-			approval.ID, millis(now), actionID); approvalErr != nil {
-			return ActionRequest{}, approvalErr
+		if _, err = tx.ExecContext(ctx, `UPDATE action_requests SET state='awaiting_approval',
+	 approval_item_id=?, updated_at_ms=? WHERE action_id=? AND revision=1 AND state='proposed'`,
+			approvalID, millis(now), actionID); err != nil {
+			return ActionRequest{}, err
 		}
 		action, err = actionRequestTx(ctx, tx, actionID, 1)
 	}
@@ -203,11 +212,13 @@ INSERT INTO action_request_assessments (
 	var approval *ConversationItem
 	if recommendation == "require_approval" {
 		next = ActionAwaitingApproval
-		item, itemErr := insertActionApprovalItem(ctx, tx, action, now)
-		if itemErr != nil {
-			return ActionRequest{}, nil, itemErr
+		if action.TaskID == "" {
+			item, itemErr := insertActionApprovalItem(ctx, tx, action, now)
+			if itemErr != nil {
+				return ActionRequest{}, nil, itemErr
+			}
+			approval = &item
 		}
-		approval = &item
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO action_request_decisions (action_id, action_revision, state, created_at_ms)
 VALUES (?,?,'pending',?)`, actionID, revision, millis(now)); err != nil {
@@ -535,6 +546,75 @@ WHERE action_id = ? AND revision = 1 AND state = 'executing'`,
 	return result, nil
 }
 
+// RecoverTaskActionRequests closes interrupted Task claims and returns missing results.
+func (s *Store) RecoverTaskActionRequests(ctx context.Context, now time.Time) ([]ActionRequest, error) {
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT a.action_id,a.state FROM action_requests a
+JOIN task_run_items i ON i.run_id=a.run_id AND i.item_id=a.run_item_id
+JOIN task_runs r ON r.run_id=a.run_id JOIN tasks t ON t.current_run_id=r.run_id AND t.generation=a.task_generation
+WHERE a.task_id IS NOT NULL AND i.status='running' AND a.state<>'awaiting_approval'
+ AND NOT EXISTS (SELECT 1 FROM mcp_auth_requests m WHERE m.action_request_id=a.action_id AND m.state IN ('awaiting_user','authorizing','resuming'))
+ORDER BY a.created_at_ms,a.action_id`)
+	if err != nil {
+		return nil, err
+	}
+	type interrupted struct {
+		id    string
+		state ActionRequestState
+	}
+	var items []interrupted
+	for rows.Next() {
+		var item interrupted
+		if err = rows.Scan(&item.id, &item.state); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	result := make([]ActionRequest, 0, len(items))
+	for _, item := range items {
+		switch item.state {
+		case ActionProposed, ActionExecutable:
+			if _, err = tx.ExecContext(ctx, `UPDATE action_requests SET state='cancelled',failure_code='execution_interrupted',completed_at_ms=?,updated_at_ms=? WHERE action_id=? AND state IN ('proposed','executable')`, millis(now), millis(now), item.id); err != nil {
+				return nil, err
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE action_request_decisions SET state='superseded' WHERE action_id=? AND state IN ('pending','approved')`, item.id); err != nil {
+				return nil, err
+			}
+			if err = insertActionEvent(ctx, tx, item.id, "cancelled", "system:recovery", map[string]any{"reason": "execution_interrupted"}, now); err != nil {
+				return nil, err
+			}
+		case ActionExecuting:
+			if _, err = tx.ExecContext(ctx, `UPDATE action_requests SET state='outcome_uncertain',failure_code='outcome_uncertain',completed_at_ms=?,updated_at_ms=? WHERE action_id=? AND state='executing'`, millis(now), millis(now), item.id); err != nil {
+				return nil, err
+			}
+			if err = insertActionEvent(ctx, tx, item.id, "outcome_uncertain", "system:recovery", map[string]any{"failure_code": "outcome_uncertain"}, now); err != nil {
+				return nil, err
+			}
+		}
+		action, loadErr := actionRequestTx(ctx, tx, item.id, 1)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='waiting_for_approval',updated_at_ms=? WHERE run_id=? AND status IN ('leased','running','queued')`, millis(now), action.RunID); err != nil {
+			return nil, err
+		}
+		result = append(result, action)
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // PendingActionRequests lists pending requests for the local human.
 func (s *Store) PendingActionRequests(
 	ctx context.Context, humanID string, conversationID, taskID *string, limit int,
@@ -542,13 +622,11 @@ func (s *Store) PendingActionRequests(
 	if humanID != "human:local" || limit < 1 || limit > 100 {
 		return nil, errors.New("pending action request is invalid")
 	}
-	if taskID != nil {
-		return []ActionRequest{}, nil
-	}
 	rows, err := s.db.QueryContext(ctx, actionSelect+`
 WHERE a.owner_human_id = ? AND a.state = 'awaiting_approval'
   AND (? IS NULL OR a.conversation_id = ?)
-ORDER BY a.created_at_ms DESC, a.action_id DESC LIMIT ?`, humanID, conversationID, conversationID, limit)
+  AND (? IS NULL OR a.task_id = ?)
+ORDER BY a.created_at_ms DESC, a.action_id DESC LIMIT ?`, humanID, conversationID, conversationID, taskID, taskID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -674,6 +752,26 @@ func validateActionAssessment(value ActionAssessment) (string, error) {
 }
 
 func requireExactActionOrigin(ctx context.Context, tx *sql.Tx, input NewActionRequest, arguments []byte, turnState string) error {
+	if input.TaskID != "" {
+		var status, kind, itemStatus, payload string
+		var generation int64
+		err := tx.QueryRowContext(ctx, `SELECT r.status,r.task_generation,i.item_kind,i.status,i.payload_json
+FROM task_runs r JOIN tasks t ON t.task_id=r.task_id JOIN task_run_items i ON i.run_id=r.run_id
+WHERE r.run_id=? AND r.task_id=? AND i.item_id=? AND t.current_run_id=r.run_id AND t.generation=r.task_generation`,
+			input.RunID, input.TaskID, input.RunItemID).Scan(&status, &generation, &kind, &itemStatus, &payload)
+		if err != nil || generation != input.TaskGeneration || status != turnState || kind != "tool_call" || itemStatus != "running" {
+			return errors.New("action Task origin is unavailable")
+		}
+		var item map[string]any
+		if json.Unmarshal([]byte(payload), &item) != nil {
+			return errors.New("action Task origin is invalid")
+		}
+		storedArguments, _ := json.Marshal(item["arguments"])
+		if item["name"] != input.CapabilityName || string(storedArguments) != string(arguments) {
+			return errors.New("action Task call does not match the request")
+		}
+		return nil
+	}
 	var storedTurn, kind, status, payload string
 	err := tx.QueryRowContext(ctx, `SELECT t.status, i.kind, i.status, i.payload_json
 FROM conversation_turns t JOIN conversation_items i
@@ -698,11 +796,16 @@ WHERE t.conversation_id = ? AND t.turn_id = ? AND i.item_id = ?`,
 func requireStoredActionOrigin(ctx context.Context, tx *sql.Tx, action ActionRequest, requiredTurnState string) error {
 	arguments, _ := json.Marshal(action.Arguments)
 	input := NewActionRequest{ConversationID: action.ConversationID, TurnID: action.TurnID,
-		CallItemID: action.CallItemID, CapabilityName: action.CapabilityName}
+		CallItemID: action.CallItemID, TaskID: action.TaskID, RunID: action.RunID, RunItemID: action.RunItemID,
+		TaskGeneration: action.TaskGeneration, CapabilityName: action.CapabilityName}
 	if requiredTurnState != "" {
 		return requireExactActionOrigin(ctx, tx, input, arguments, requiredTurnState)
 	}
-	for _, state := range []string{"running", "completed"} {
+	states := []string{"running", "completed"}
+	if action.TaskID != "" {
+		states = []string{"running", "waiting_for_approval"}
+	}
+	for _, state := range states {
 		if requireExactActionOrigin(ctx, tx, input, arguments, state) == nil {
 			return nil
 		}
@@ -740,9 +843,17 @@ func nullText(value string) any {
 	return value
 }
 
+func nullableTaskGeneration(taskID string, generation int64) any {
+	if taskID == "" {
+		return nil
+	}
+	return generation
+}
+
 const actionSelect = `
 SELECT a.action_id, a.revision, a.owner_human_id, a.conversation_id, a.turn_id,
- a.call_item_id, COALESCE(a.approval_item_id,''), a.requesting_agent_id,
+ a.call_item_id, a.task_id, a.run_id, a.task_generation, a.run_item_id,
+ COALESCE(a.approval_item_id,''), a.requesting_agent_id,
  a.capability_name, a.operation_token, a.review_route, a.read_only, a.repeat_safe,
  a.destructive, a.open_world, a.arguments_json, a.arguments_sha256,
  a.input_schema_json, a.authorization_context_json, a.safe_summary, a.state,
@@ -762,8 +873,10 @@ func scanActionRequest(row rowScanner) (ActionRequest, error) {
 	var readOnly, repeatSafe, destructive, openWorld int
 	var created, updated int64
 	var assessmentStatus, reviewer, authorization, risk, reasons, explanation sql.NullString
+	var conversationID, turnID, callItemID, taskID, runID, runItemID sql.NullString
+	var taskGeneration sql.NullInt64
 	if err := row.Scan(&action.ID, &action.Revision, &action.OwnerHumanID,
-		&action.ConversationID, &action.TurnID, &action.CallItemID, &action.ApprovalItemID,
+		&conversationID, &turnID, &callItemID, &taskID, &runID, &taskGeneration, &runItemID, &action.ApprovalItemID,
 		&action.RequestingAgentID, &action.CapabilityName, &action.OperationToken,
 		&action.ReviewRoute, &readOnly, &repeatSafe, &destructive, &openWorld,
 		&arguments, &action.ArgumentsSHA256, &schema, &contextJSON, &action.SafeSummary,
@@ -771,6 +884,8 @@ func scanActionRequest(row rowScanner) (ActionRequest, error) {
 		&assessmentStatus, &reviewer, &authorization, &risk, &reasons, &explanation); err != nil {
 		return ActionRequest{}, err
 	}
+	action.ConversationID, action.TurnID, action.CallItemID = conversationID.String, turnID.String, callItemID.String
+	action.TaskID, action.RunID, action.RunItemID, action.TaskGeneration = taskID.String, runID.String, runItemID.String, taskGeneration.Int64
 	action.Behavior = ActionBehavior{readOnly == 1, repeatSafe == 1, destructive == 1, openWorld == 1}
 	action.CreatedAt, action.UpdatedAt = fromMillis(created), fromMillis(updated)
 	if json.Unmarshal([]byte(arguments), &action.Arguments) != nil ||

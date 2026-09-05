@@ -97,6 +97,16 @@ func TestMCPAuthorityPreservesPoliciesAndFencesDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	classified, err := database.ClassifyMCPTool(ctx, server.ID, server.ConnectionRevision, tool.ID,
+		tool.SourceRevision, 1, [4]bool{false, true, false, false}, now)
+	if err != nil || classified.ReadOnly.Source != "annotation" || classified.ReadOnly.Value == nil || !*classified.ReadOnly.Value ||
+		classified.Idempotent.Source != "model" || classified.Idempotent.Value == nil || !*classified.Idempotent.Value {
+		t.Fatalf("classified tool = %#v, %v", classified, err)
+	}
+	if _, err = database.ClassifyMCPTool(ctx, server.ID, server.ConnectionRevision, tool.ID,
+		tool.SourceRevision, 1, [4]bool{}, now); err == nil {
+		t.Fatal("stale classification changed the tool")
+	}
 	server, err = database.SaveMCPConnectionPolicy(ctx, server.ID, server.ConnectionRevision, 0,
 		"allow_automatically", "always_ask", now)
 	if err != nil {
@@ -104,7 +114,7 @@ func TestMCPAuthorityPreservesPoliciesAndFencesDeletion(t *testing.T) {
 	}
 	override := [4]bool{true, true, false, true}
 	current, err := database.SaveMCPToolPolicy(ctx, server.ID, server.ConnectionRevision, tool.ID,
-		tool.SourceRevision, 1, nil, &override, now)
+		tool.SourceRevision, classified.PolicyRevision, nil, &override, now)
 	if err != nil {
 		t.Fatal(err)
 	}

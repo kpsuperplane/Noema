@@ -66,6 +66,12 @@ type Service struct {
 	credentialMu  sync.Mutex
 	attempts      map[string]*oauthAttempt
 	oauthComplete func(string)
+	oauthCallback string
+	classify      func(context.Context, store.MCPTool) ([4]bool, error)
+	classifyCtx   context.Context
+	classifyStop  context.CancelFunc
+	classifying   map[string]bool
+	classifyWG    sync.WaitGroup
 }
 
 // SetOAuthCompletionHandler binds completed call authentication attempts.
@@ -75,8 +81,27 @@ func (s *Service) SetOAuthCompletionHandler(handler func(string)) {
 	s.mu.Unlock()
 }
 
+// SetToolClassifier starts bounded classification for missing remote hints.
+func (s *Service) SetToolClassifier(classifier func(context.Context, store.MCPTool) ([4]bool, error)) {
+	s.mu.Lock()
+	s.classify = classifier
+	s.mu.Unlock()
+	servers, _ := s.database.MCPServers(s.classifyCtx)
+	for _, server := range servers {
+		s.scheduleClassification(server.ID)
+	}
+}
+
+// Close stops background classification work.
+func (s *Service) Close() {
+	s.mu.Lock()
+	s.classifyStop()
+	s.mu.Unlock()
+	s.classifyWG.Wait()
+}
+
 // NewService opens one MCP authority and removes abandoned transient OAuth material.
-func NewService(paths home.Paths, database *store.Store, stdioEnabled bool) (*Service, error) {
+func NewService(paths home.Paths, database *store.Store, stdioEnabled bool, callback ...string) (*Service, error) {
 	if database == nil {
 		return nil, errors.New("MCP store is unavailable")
 	}
@@ -105,8 +130,18 @@ func NewService(paths home.Paths, database *store.Store, stdioEnabled bool) (*Se
 	if err := secrets.cleanupConnections(validServers); err != nil {
 		return nil, fmt.Errorf("recover MCP credentials: %w", err)
 	}
-	return &Service{database: database, secrets: secrets, stdioEnabled: stdioEnabled,
-		attempts: make(map[string]*oauthAttempt)}, nil
+	oauthCallback := ""
+	if len(callback) != 0 {
+		parsed, callbackErr := validateOAuthCallback(callback[0])
+		if callbackErr != nil {
+			return nil, callbackErr
+		}
+		oauthCallback = parsed.String()
+	}
+	classifyCtx, classifyStop := context.WithCancel(context.Background())
+	return &Service{database: database, secrets: secrets, stdioEnabled: stdioEnabled, oauthCallback: oauthCallback,
+		attempts: make(map[string]*oauthAttempt), classifyCtx: classifyCtx, classifyStop: classifyStop,
+		classifying: make(map[string]bool)}, nil
 }
 
 // StdioEnabled reads the startup double-opt-in setting. It defaults to false.
@@ -187,6 +222,10 @@ func (s *Service) create(ctx context.Context, input SetupInput, definition store
 		}
 		return SetupResult{Status: "unavailable", Error: "Noema could not connect to this MCP server"}, nil
 	}
+	if input.TransportKind == "streamable_http" && input.AuthPreference != "USE_ANONYMOUS" &&
+		!hasSecretMaterial(input.Secrets) && oauthAvailable(ctx, input.URL) {
+		return SetupResult{Status: "authentication_available", Discovered: len(discovery.Tools), OAuthSupported: true}, nil
+	}
 	serverID, err := newPrefixedID("mcp_server:")
 	if err != nil {
 		return SetupResult{}, errors.New("MCP identity generation failed")
@@ -221,6 +260,7 @@ func (s *Service) create(ctx context.Context, input SetupInput, definition store
 		_ = s.secrets.removeConnection(serverID)
 		return SetupResult{}, err
 	}
+	s.scheduleClassification(server.ID)
 	return SetupResult{Server: &server, Status: "ready_for_policy", Discovered: len(tools)}, nil
 }
 
@@ -267,7 +307,50 @@ func (s *Service) Continue(ctx context.Context, serverID string, replacement Sec
 		_ = restoreConnectionSecrets(s.secrets, serverID, backup)
 		return SetupResult{}, err
 	}
+	s.scheduleClassification(server.ID)
 	return SetupResult{Server: &server, Status: "ready_for_policy", Discovered: len(tools)}, nil
+}
+
+func (s *Service) scheduleClassification(serverID string) {
+	s.mu.Lock()
+	if s.classify == nil || s.classifying[serverID] || s.classifyCtx.Err() != nil {
+		s.mu.Unlock()
+		return
+	}
+	s.classifying[serverID] = true
+	s.classifyWG.Add(1)
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			s.classifyWG.Done()
+			s.mu.Lock()
+			delete(s.classifying, serverID)
+			s.mu.Unlock()
+		}()
+		server, err := s.database.MCPServer(s.classifyCtx, serverID)
+		if err != nil {
+			return
+		}
+		tools, err := s.database.MCPTools(s.classifyCtx, serverID)
+		if err != nil {
+			return
+		}
+		for _, tool := range tools {
+			if tool.Status != "defaulted" {
+				continue
+			}
+			s.mu.Lock()
+			classifier := s.classify
+			s.mu.Unlock()
+			ctx, cancel := context.WithTimeout(s.classifyCtx, discoveryTimeout)
+			behavior, classifyErr := classifier(ctx, tool)
+			cancel()
+			if classifyErr == nil {
+				_, _ = s.database.ClassifyMCPTool(s.classifyCtx, server.ID, server.ConnectionRevision,
+					tool.ID, tool.SourceRevision, tool.PolicyRevision, behavior, time.Now())
+			}
+		}
+	}()
 }
 
 // Servers returns all current safe connection metadata.
@@ -467,7 +550,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, arguments json.Ra
 	return result, success, nil
 }
 
-// Delete fences calls before protected credential deletion.
+// Delete removes durable references before abandoned protected credentials.
 func (s *Service) Delete(ctx context.Context, id string) (bool, error) {
 	s.credentialMu.Lock()
 	defer s.credentialMu.Unlock()
@@ -478,10 +561,12 @@ func (s *Service) Delete(ctx context.Context, id string) (bool, error) {
 	if err := s.database.FenceMCPServer(ctx, id, server.ConnectionRevision, time.Now()); err != nil {
 		return false, err
 	}
-	if err := s.secrets.removeConnection(id); err != nil {
-		return false, errors.New("MCP credentials could not be removed")
+	deleted, err := s.database.DeleteMCPServer(ctx, id)
+	if err != nil || !deleted {
+		return deleted, err
 	}
-	return s.database.DeleteMCPServer(ctx, id)
+	_ = s.secrets.removeConnection(id)
+	return true, nil
 }
 
 func definitionFromSetup(input SetupInput) (store.MCPDefinition, error) {

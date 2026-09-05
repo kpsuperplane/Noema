@@ -110,7 +110,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
-	mcpService, err := noemamcp.NewService(paths, taskStore, stdioEnabled)
+	mcpService, err := noemamcp.NewService(paths, taskStore, stdioEnabled, authConfig.Origin+"/mcp/oauth/callback")
 	if err != nil {
 		return fmt.Errorf("open MCP service: %w", err)
 	}
@@ -147,15 +147,22 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
-	mcpService.SetOAuthCompletionHandler(func(attemptID string) { _ = chatRuntime.ResumeMCPAuthentication(context.Background(), attemptID) })
+	mcpService.SetToolClassifier(chatRuntime.MCPToolClassifier())
 	defer chatRuntime.Close()
+	defer mcpService.Close()
 	taskExecution, err := noemaruntime.NewTaskExecution(
-		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root,
+		ctx, taskStore, openRouterGenerator, codexGenerator, openAIGenerator, root, mcpService,
 	)
 	if err != nil {
 		return fmt.Errorf("start Task execution: %w", err)
 	}
 	defer taskExecution.Close()
+	mcpService.SetOAuthCompletionHandler(func(attemptID string) {
+		handled, _ := taskExecution.ResumeMCPAuthentication(context.Background(), attemptID)
+		if !handled {
+			_ = chatRuntime.ResumeMCPAuthentication(context.Background(), attemptID)
+		}
+	})
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
 	listener, err := net.Listen("tcp", address)
@@ -167,11 +174,13 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 
-	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
+	resolver := noemagraphql.NewResolver(
 		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
 		artifacts, nativeMemory, notifications,
 		mcpService,
-	))
+	)
+	resolver.TaskExecution = taskExecution
+	graphqlHandler := noemagraphql.NewHandler(resolver)
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)
