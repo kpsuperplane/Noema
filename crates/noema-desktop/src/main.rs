@@ -9,15 +9,10 @@ mod desktop_profile;
 mod desktop_state;
 mod external_url;
 mod graphql_ipc;
-mod loopback_http;
-mod mcp_oauth_callback;
 mod remote_graphql;
 mod remote_oauth;
 
 fn main() {
-    if let Some(status) = noema_host::run_private_worker_if_requested() {
-        std::process::exit(status);
-    }
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(
             |app, _arguments, _directory| {
@@ -36,16 +31,21 @@ fn main() {
                 .join("desktop.json");
             app.manage(desktop_state::DesktopState::new(config_path));
             let state = app.state::<desktop_state::DesktopState>();
-            let local_model_runtime_root = app
+            let resource_dir = app
                 .path()
                 .resource_dir()
-                .map_err(|error| std::io::Error::other(error.to_string()))?
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            let local_model_runtime_root = resource_dir
                 .join("binaries")
-                .join("runtime");
-            tauri::async_runtime::block_on(state.initialize(Some(local_model_runtime_root)))
-                .map_err(|error| {
-                    std::io::Error::other(format!("{} {error}", error.user_message()))
-                })?;
+                .join("runtime")
+                .join(env!("TAURI_ENV_TARGET_TRIPLE"));
+            let server_path = resource_dir.join("binaries").join(if cfg!(windows) {
+                "noema-server.exe"
+            } else {
+                "noema-server"
+            });
+            tauri::async_runtime::block_on(state.initialize(server_path, local_model_runtime_root))
+                .map_err(std::io::Error::other)?;
             if let Some(urls) = app
                 .deep_link()
                 .get_current()

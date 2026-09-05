@@ -2,17 +2,59 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/schedule"
 	"github.com/kpsuperplane/noema/internal/store"
 )
+
+func TestDesktopStartupInputIsBoundedAndLeavesShutdownPipeOpen(t *testing.T) {
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	input := fmt.Sprintf(`{"token":%q,"runtimeRoot":%q}`+"\nshutdown", token, runtimeRoot)
+	options, reader := readDesktopOptions(strings.NewReader(input))
+	if options == nil || options.Token != token || options.RuntimeRoot != runtimeRoot {
+		t.Fatalf("desktop options = %#v", options)
+	}
+	remainder, err := io.ReadAll(reader)
+	if err != nil || string(remainder) != "shutdown" {
+		t.Fatalf("startup remainder = %q, %v", remainder, err)
+	}
+	if invalid, _ := readDesktopOptions(strings.NewReader(`{"token":"x","extra":true}` + "\n")); invalid != nil {
+		t.Fatal("unknown desktop startup field was accepted")
+	}
+	called := false
+	handler := desktopHandler(token, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/mcp/oauth/callback" {
+			response.WriteHeader(http.StatusNoContent)
+			return
+		}
+		called = auth.DesktopAccess(request.Context())
+	}), http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodPost, "/graphql", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	if !called {
+		t.Fatal("desktop credential did not authorize GraphQL")
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/mcp/oauth/callback?code=x", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("desktop callback response = %d", response.Code)
+	}
+}
 
 func TestProjectDocumentRecoveryUsesCommittedReceipt(t *testing.T) {
 	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))

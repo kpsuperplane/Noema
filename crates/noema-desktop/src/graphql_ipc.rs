@@ -1,14 +1,12 @@
 //! Tauri IPC commands for GraphQL operations.
 
-use async_graphql::{Request, Response};
-use futures_util::StreamExt;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{Emitter, Manager, State, Window};
 use tokio::sync::oneshot;
 
 use crate::{
-    desktop_state::{DesktopState, GraphqlTarget},
+    desktop_state::DesktopState,
     remote_graphql::{RemoteError, RemoteSubscriptionEvent},
 };
 
@@ -44,21 +42,11 @@ pub(crate) async fn graphql_execute(
     request_json: Value,
 ) -> Result<Value, String> {
     require_main_window_label(window.label())?;
-    match state.graphql_target().await? {
-        GraphqlTarget::Local(schema) => {
-            let request: Request = serde_json::from_value(request_json)
-                .map_err(|_| "Noema lost connection to its local app service.".to_string())?;
-            let response: Response = schema
-                .execute(request.data(noema_api::RequestPrincipal::local()))
-                .await;
-            serde_json::to_value(response)
-                .map_err(|_| "Noema lost connection to its local app service.".to_string())
-        }
-        GraphqlTarget::Remote(remote) => remote.execute(request_json).await.map_err(|error| {
-            emit_connection_change(&window, &error);
-            remote_error_message(error)
-        }),
-    }
+    let (transport, local) = state.graphql_target().await?;
+    transport.execute(request_json).await.map_err(|error| {
+        emit_connection_change(&window, &error, local);
+        graphql_error_message(error, local)
+    })
 }
 
 /// Start a GraphQL subscription stream.
@@ -83,59 +71,39 @@ pub(crate) async fn graphql_subscribe(
         let Ok(generation) = generation_rx.await else {
             return;
         };
-        match target {
-            GraphqlTarget::Local(schema) => {
-                if let Ok(request) = serde_json::from_value::<Request>(request_json) {
-                    let request = request.data(noema_api::RequestPrincipal::local());
-                    let mut stream = schema.execute_stream(request);
-                    while let Some(response) = stream.next().await {
-                        let response_json = match serde_json::to_value(response) {
-                            Ok(value) => value,
-                            Err(_) => break,
-                        };
-                        let payload = SubscriptionEventPayload {
+        let (transport, local) = target;
+        transport
+            .subscribe(request_json, |event| match event {
+                RemoteSubscriptionEvent::Next(response) => window
+                    .emit(
+                        "graphql_subscription_event",
+                        SubscriptionEventPayload {
                             subscription_id: event_id.clone(),
-                            response: response_json,
-                        };
-                        if window.emit("graphql_subscription_event", payload).is_err() {
-                            break;
-                        }
-                    }
+                            response,
+                        },
+                    )
+                    .is_ok(),
+                RemoteSubscriptionEvent::Offline => {
+                    let _ = window.emit(
+                        "desktop_connection_changed",
+                        ConnectionChangedPayload {
+                            state: if local { "unavailable" } else { "offline" },
+                        },
+                    );
+                    true
                 }
-            }
-            GraphqlTarget::Remote(remote) => {
-                remote
-                    .subscribe(request_json, |event| match event {
-                        RemoteSubscriptionEvent::Next(response) => window
-                            .emit(
-                                "graphql_subscription_event",
-                                SubscriptionEventPayload {
-                                    subscription_id: event_id.clone(),
-                                    response,
-                                },
-                            )
-                            .is_ok(),
-                        RemoteSubscriptionEvent::Offline => {
-                            let _ = window.emit(
-                                "desktop_connection_changed",
-                                ConnectionChangedPayload { state: "offline" },
-                            );
-                            true
-                        }
-                        RemoteSubscriptionEvent::Unauthorized => {
-                            let _ = window.emit(
-                                "desktop_connection_changed",
-                                ConnectionChangedPayload {
-                                    state: "unauthorized",
-                                },
-                            );
-                            false
-                        }
-                        RemoteSubscriptionEvent::Complete => false,
-                    })
-                    .await;
-            }
-        }
+                RemoteSubscriptionEvent::Unauthorized => {
+                    let _ = window.emit(
+                        "desktop_connection_changed",
+                        ConnectionChangedPayload {
+                            state: if local { "unavailable" } else { "unauthorized" },
+                        },
+                    );
+                    false
+                }
+                RemoteSubscriptionEvent::Complete => false,
+            })
+            .await;
         window
             .state::<DesktopState>()
             .remove_finished_subscription(&task_cleanup_id, generation)
@@ -150,10 +118,11 @@ pub(crate) async fn graphql_subscribe(
     Ok(())
 }
 
-fn emit_connection_change(window: &Window, error: &RemoteError) {
+fn emit_connection_change(window: &Window, error: &RemoteError, local: bool) {
     let state = match error {
-        RemoteError::Unauthorized => "unauthorized",
-        RemoteError::Offline => "offline",
+        RemoteError::Unauthorized if !local => "unauthorized",
+        RemoteError::Offline if !local => "offline",
+        RemoteError::Unauthorized | RemoteError::Offline => "unavailable",
         RemoteError::InvalidResponse => "unavailable",
     };
     let _ = window.emit(
@@ -162,7 +131,10 @@ fn emit_connection_change(window: &Window, error: &RemoteError) {
     );
 }
 
-fn remote_error_message(error: RemoteError) -> String {
+fn graphql_error_message(error: RemoteError, local: bool) -> String {
+    if local {
+        return "Noema lost connection to its local app service.".to_string();
+    }
     match error {
         RemoteError::Unauthorized => {
             "This desktop client no longer has access to the server.".to_string()

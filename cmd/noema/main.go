@@ -2,7 +2,9 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/acp"
@@ -41,6 +44,7 @@ func main() {
 	}
 	listen := flag.String("listen", "", "override the configured web bind address")
 	migrationSpike := flag.Bool("migration-spike", false, "allow the incomplete migration server to start")
+	desktopSidecar := flag.Bool("desktop-sidecar", false, "run as the packaged desktop child")
 	flag.Parse()
 
 	if !*migrationSpike {
@@ -50,13 +54,49 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
-	if err := run(ctx, *listen, os.Stdout); err != nil {
+	var desktop *desktopOptions
+	if *desktopSidecar {
+		var reader *bufio.Reader
+		desktop, reader = readDesktopOptions(os.Stdin)
+		if desktop == nil {
+			fmt.Fprintln(os.Stderr, "Noema Go server failed: invalid desktop startup input")
+			os.Exit(2)
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			_, _ = io.Copy(io.Discard, reader)
+			cancel()
+		}()
+	}
+	if err := run(ctx, *listen, os.Stdout, desktop); err != nil {
 		fmt.Fprintf(os.Stderr, "Noema Go server failed: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, address string, output *os.File) error {
+type desktopOptions struct {
+	Token       string `json:"token"`
+	RuntimeRoot string `json:"runtimeRoot"`
+}
+
+func readDesktopOptions(input io.Reader) (*desktopOptions, *bufio.Reader) {
+	reader := bufio.NewReaderSize(input, 8*1024)
+	line, err := reader.ReadSlice('\n')
+	if err != nil || len(line) > 8*1024 {
+		return nil, reader
+	}
+	var value desktopOptions
+	decoder := json.NewDecoder(strings.NewReader(string(line)))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&value) != nil || decoder.Decode(&struct{}{}) != io.EOF || value.Token == "" || value.RuntimeRoot != "" && !filepath.IsAbs(value.RuntimeRoot) {
+		return nil, reader
+	}
+	return &value, reader
+}
+
+func run(ctx context.Context, address string, output io.Writer, desktop *desktopOptions) error {
 	paths, err := home.Resolve()
 	if err != nil {
 		return err
@@ -69,6 +109,15 @@ func run(ctx context.Context, address string, output *os.File) error {
 	errorLog, _ := diagnostics.Open(paths.ErrorsLog())
 	if errorLog != nil {
 		defer errorLog.Close()
+	}
+	var listener net.Listener
+	if desktop != nil {
+		listener, err = net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			return fmt.Errorf("listen for desktop HTTP: %w", err)
+		}
+		defer listener.Close()
+		address = listener.Addr().String()
 	}
 
 	taskStore, err := store.Open(ctx, paths.Database())
@@ -105,8 +154,21 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return fmt.Errorf("open Artifact service: %w", err)
 	}
-	runTaskSchedules(ctx, root, taskStore, output)
-	authConfig, recovery, err := auth.LoadConfig(paths, address)
+	diagnostics := output
+	if desktop != nil {
+		diagnostics = os.Stderr
+	}
+	runTaskSchedules(ctx, root, taskStore, diagnostics)
+	var authConfig auth.Config
+	var recovery *auth.Recovery
+	authConfig, recovery, err = auth.LoadConfig(paths, address)
+	if desktop != nil && err == nil {
+		authConfig.Authority = address
+		authConfig.Origin = "http://" + address
+		authConfig.RPID = "localhost"
+		authConfig.Secure = false
+		authConfig.DevNoAuth = false
+	}
 	if err != nil {
 		return err
 	}
@@ -168,7 +230,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if _, err := foundationGenerator.RefreshAccount(ctx, time.Now()); err != nil {
 		return err
 	}
-	localModels, err := localmodel.New(taskStore, paths.Root())
+	runtimeRoot := ""
+	if desktop != nil {
+		runtimeRoot = desktop.RuntimeRoot
+	}
+	localModels, err := localmodel.New(taskStore, paths.Root(), runtimeRoot)
 	if err != nil {
 		return err
 	}
@@ -249,11 +315,13 @@ func run(ctx context.Context, address string, output *os.File) error {
 	})
 	go notifications.Run(ctx, chatRuntime.SubscribeAll(ctx))
 
-	listener, err := net.Listen("tcp", authConfig.ListenAddress)
-	if err != nil {
-		return fmt.Errorf("listen for HTTP: %w", err)
+	if listener == nil {
+		listener, err = net.Listen("tcp", authConfig.ListenAddress)
+		if err != nil {
+			return fmt.Errorf("listen for HTTP: %w", err)
+		}
+		defer listener.Close()
 	}
-	defer listener.Close()
 	resolver := noemagraphql.NewResolver(
 		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
 		artifacts, nativeMemory, notifications,
@@ -280,6 +348,9 @@ func run(ctx context.Context, address string, output *os.File) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}
+	if desktop != nil {
+		server.Handler = desktopHandler(desktop.Token, mux, server.Handler)
+	}
 	serverContext, stopServers := context.WithCancel(ctx)
 	defer stopServers()
 	var localResult <-chan error
@@ -297,7 +368,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 	go func() {
 		serveResult <- server.Serve(listener)
 	}()
-	fmt.Fprintf(output, "Noema Go migration slice listening on %s\n", listener.Addr())
+	if desktop == nil {
+		fmt.Fprintf(output, "Noema Go migration slice listening on %s\n", listener.Addr())
+	} else if err := json.NewEncoder(output).Encode(map[string]string{"type": "ready", "origin": authConfig.Origin}); err != nil {
+		return fmt.Errorf("write desktop ready line: %w", err)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -332,6 +407,25 @@ func run(ctx context.Context, address string, output *os.File) error {
 		}
 		return fmt.Errorf("serve local GraphQL: %w", err)
 	}
+}
+
+func desktopHandler(token string, application, fallback http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callbackPath := strings.HasPrefix(r.URL.Path, "/provider/oauth/callback/") ||
+			r.URL.Path == "/mcp/oauth/callback" || r.URL.Path == "/adapter/oauth/callback"
+		if callbackPath {
+			application.ServeHTTP(w, r)
+			return
+		}
+		candidate, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		desktopPath := r.URL.Path == "/graphql" || r.URL.Path == "/graphql/ws" ||
+			strings.HasPrefix(r.URL.Path, "/artifacts/versions/") || strings.HasPrefix(r.URL.Path, "/favicons/")
+		if ok && desktopPath && candidate == token {
+			application.ServeHTTP(w, r.WithContext(auth.WithDesktopAccess(r.Context())))
+			return
+		}
+		fallback.ServeHTTP(w, r)
+	})
 }
 
 func recoverRecurrenceDocuments(ctx context.Context, root *os.Root, database *store.Store) error {

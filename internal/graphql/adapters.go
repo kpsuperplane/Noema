@@ -19,7 +19,8 @@ import (
 )
 
 func (r *Resolver) requireAdapters(ctx context.Context) (*adapter.Service, error) {
-	if _, ok := auth.BrowserSessionHash(ctx); !ok || r.Adapters == nil {
+	_, browser := auth.BrowserSessionHash(ctx)
+	if (!browser && !auth.DesktopAccess(ctx)) || r.Adapters == nil {
 		return nil, errors.New("adapter service is unavailable")
 	}
 	return r.Adapters, nil

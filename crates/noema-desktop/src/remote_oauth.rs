@@ -9,14 +9,11 @@ use oauth2::{
 };
 use ring::rand::{SecureRandom as _, SystemRandom};
 use tokio::{
-    io::AsyncWriteExt as _,
+    io::{AsyncReadExt as _, AsyncWriteExt as _},
     net::{TcpListener, TcpStream},
 };
 
-use crate::{
-    desktop_profile::{RemoteMetadata, RemoteProfile},
-    loopback_http,
-};
+use crate::desktop_profile::{RemoteMetadata, RemoteProfile};
 
 const CALLBACK_PATH: &str = "/oauth/callback";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -159,16 +156,11 @@ async fn read_callback(
     stream: &mut TcpStream,
     redirect: &str,
 ) -> Result<(AuthorizationCode, CsrfToken), String> {
-    let request = loopback_http::read_request_head(stream, MAX_CALLBACK_BYTES)
-        .await
-        .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
-    if request.method != "GET" {
-        return Err("Noema received an invalid sign-in response.".to_string());
-    }
+    let target = read_callback_target(stream).await?;
     let base = url::Url::parse(redirect)
         .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
     let callback = base
-        .join(&request.target)
+        .join(&target)
         .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
     if callback.origin() != base.origin()
         || callback.path() != CALLBACK_PATH
@@ -195,6 +187,35 @@ async fn read_callback(
         AuthorizationCode::new(code.to_string()),
         CsrfToken::new(state.to_string()),
     ))
+}
+
+async fn read_callback_target(stream: &mut TcpStream) -> Result<String, String> {
+    let mut bytes = Vec::with_capacity(1024);
+    let mut buffer = [0_u8; 1024];
+    loop {
+        let read = stream
+            .read(&mut buffer)
+            .await
+            .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
+        if read == 0 || bytes.len() + read > MAX_CALLBACK_BYTES {
+            return Err("Noema received an invalid sign-in response.".to_string());
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+            let text = std::str::from_utf8(&bytes[..end])
+                .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
+            let mut fields = text.lines().next().unwrap_or_default().split_whitespace();
+            let method = fields.next();
+            let target = fields.next();
+            if method != Some("GET") || fields.next() != Some("HTTP/1.1") || fields.next().is_some()
+            {
+                return Err("Noema received an invalid sign-in response.".to_string());
+            }
+            return target
+                .map(str::to_string)
+                .ok_or_else(|| "Noema received an invalid sign-in response.".to_string());
+        }
+    }
 }
 
 pub(crate) fn trusted_origin(raw: &str) -> Result<String, String> {

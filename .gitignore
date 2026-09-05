@@ -16,6 +16,7 @@ __pycache__/
 /.supermemory/
 /crates/noema-desktop/binaries/runtime/*
 !/crates/noema-desktop/binaries/runtime/.gitkeep
+/crates/noema-desktop/binaries/noema-server*
 .env
 .env.*
 !.env.example

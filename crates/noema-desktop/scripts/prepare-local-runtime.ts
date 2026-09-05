@@ -41,6 +41,46 @@ export type PrepareLocalRuntimeOptions = {
   targetTriple?: string;
 };
 
+export async function prepareGoServer(options: PrepareLocalRuntimeOptions = {}) {
+  const targetTriple = options.targetTriple ?? requestedTargetTriple();
+  const target = goTarget(targetTriple);
+  const executable = target.goos === "windows" ? "noema-server.exe" : "noema-server";
+  const destination = join(desktopRoot, "binaries", executable);
+  rmSync(join(desktopRoot, "binaries", target.goos === "windows" ? "noema-server" : "noema-server.exe"), { force: true });
+  const command = ["go", "build", "-trimpath", "-buildvcs=false"];
+  if (target.goos === "windows") {
+    command.push("-ldflags=-H=windowsgui");
+  }
+  command.push("-o", destination, "./cmd/noema");
+  const build = Bun.spawn(command, {
+    cwd: workspaceRoot,
+    env: { ...process.env, CGO_ENABLED: "0", GOOS: target.goos, GOARCH: target.goarch },
+    stdout: "inherit",
+    stderr: "inherit"
+  });
+  if (await build.exited !== 0) {
+    throw new Error(`Could not build the Go server for ${targetTriple}.`);
+  }
+  if (target.goos !== "windows") {
+    chmodSync(destination, 0o755);
+  }
+}
+
+export function goTarget(targetTriple: string) {
+  const targets: Record<string, { goos: string; goarch: string }> = {
+    "aarch64-apple-darwin": { goos: "darwin", goarch: "arm64" },
+    "x86_64-apple-darwin": { goos: "darwin", goarch: "amd64" },
+    "aarch64-unknown-linux-gnu": { goos: "linux", goarch: "arm64" },
+    "x86_64-unknown-linux-gnu": { goos: "linux", goarch: "amd64" },
+    "x86_64-pc-windows-msvc": { goos: "windows", goarch: "amd64" }
+  };
+  const target = targets[targetTriple];
+  if (!target) {
+    throw new Error(`No Go server target is available for ${targetTriple}.`);
+  }
+  return target;
+}
+
 const desktopRoot = resolve(import.meta.dir, "..");
 const workspaceRoot = resolve(desktopRoot, "../..");
 const manifestPath = resolve(
@@ -269,7 +309,7 @@ function serverNameForTarget(targetTriple: string) {
   return targetTriple.includes("-windows-") ? "llama-server.exe" : "llama-server";
 }
 
-function requestedTargetTriple() {
+export function requestedTargetTriple() {
   const explicit =
     process.env.NOEMA_DESKTOP_TARGET ??
     process.env.TAURI_ENV_TARGET_TRIPLE ??

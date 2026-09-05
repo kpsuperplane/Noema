@@ -30,7 +30,7 @@ const WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(15);
 #[derive(Clone)]
 pub(crate) struct RemoteGraphql {
     origin: Arc<str>,
-    credentials: Arc<RemoteCredentials>,
+    credentials: Arc<GraphqlCredentials>,
     http: reqwest::Client,
 }
 
@@ -86,7 +86,22 @@ impl RemoteGraphql {
         };
         Ok(Self {
             origin: origin.into(),
-            credentials: Arc::new(credentials),
+            credentials: Arc::new(GraphqlCredentials::Remote(credentials)),
+            http,
+        })
+    }
+
+    pub(crate) fn new_local(origin: String, token: String) -> Result<Self, String> {
+        let origin = local_origin(&origin)?;
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|_| "Noema could not prepare its local connection.".to_string())?;
+        Ok(Self {
+            origin: origin.into(),
+            credentials: Arc::new(GraphqlCredentials::Local(token)),
             http,
         })
     }
@@ -306,11 +321,55 @@ impl RemoteGraphql {
     }
 
     fn websocket_url(&self) -> String {
+        if let Some(authority) = self.origin.strip_prefix("http://") {
+            return format!("ws://{authority}/graphql/ws");
+        }
         format!(
             "wss://{}/graphql/ws",
             self.origin.trim_start_matches("https://")
         )
     }
+}
+
+enum GraphqlCredentials {
+    Local(String),
+    Remote(RemoteCredentials),
+}
+
+impl GraphqlCredentials {
+    async fn access(&self) -> Result<String, RemoteError> {
+        match self {
+            Self::Local(token) => Ok(token.clone()),
+            Self::Remote(credentials) => credentials.access().await,
+        }
+    }
+
+    async fn invalidate(&self, access: &str) {
+        if let Self::Remote(credentials) = self {
+            credentials.invalidate(access).await;
+        }
+    }
+
+    async fn revoke(&self) -> Result<(), RemoteError> {
+        match self {
+            Self::Local(_) => Ok(()),
+            Self::Remote(credentials) => credentials.revoke().await,
+        }
+    }
+}
+
+fn local_origin(value: &str) -> Result<String, String> {
+    let parsed = url::Url::parse(value)
+        .map_err(|_| "Noema received an invalid local server address.".to_string())?;
+    let origin = parsed.origin().ascii_serialization();
+    if parsed.scheme() != "http"
+        || parsed.host_str() != Some("127.0.0.1")
+        || parsed.port().is_none()
+        || value.trim_end_matches('/') != origin
+    {
+        return Err("Noema received an invalid local server address.".to_string());
+    }
+    Ok(origin)
 }
 
 struct RemoteCredentials {
@@ -464,6 +523,21 @@ mod tests {
             serde_json::from_slice(request.body().expect("body").as_bytes().expect("bytes"))
                 .expect("json body");
         assert_eq!(saved, body);
+
+        let local = RemoteGraphql::new_local(
+            "http://127.0.0.1:4747".to_string(),
+            "desktop-access".to_string(),
+        )
+        .expect("local");
+        let request = local
+            .build_graphql_request(&body, "desktop-access")
+            .expect("local request");
+        assert_eq!(request.url().as_str(), "http://127.0.0.1:4747/graphql");
+        assert_eq!(local.websocket_url(), "ws://127.0.0.1:4747/graphql/ws");
+        assert!(
+            RemoteGraphql::new_local("http://example.com:4747".to_string(), "x".to_string())
+                .is_err()
+        );
     }
 
     #[test]

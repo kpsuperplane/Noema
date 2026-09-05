@@ -35,6 +35,6 @@
   "bundle": {
     "active": true,
     "icon": ["icons/icon.png"],
-    "resources": ["binaries/runtime"]
+    "resources": ["binaries"]
   }
 }

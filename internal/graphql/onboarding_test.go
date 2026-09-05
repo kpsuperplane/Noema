@@ -46,7 +46,7 @@ func TestLocalModelOnboardingKeepsActionReviewWithHuman(t *testing.T) {
 	if _, err := resolver.Store.ActivateLocalModel(ctx, installed.ID, false, now); err != nil {
 		t.Fatal(err)
 	}
-	service, err := localmodel.New(resolver.Store, resolver.home.Name())
+	service, err := localmodel.New(resolver.Store, resolver.home.Name(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

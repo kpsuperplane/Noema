@@ -47,6 +47,7 @@ type Event struct {
 type Service struct {
 	database       *store.Store
 	home           string
+	runtimeRoot    string
 	client         *http.Client
 	generationMu   sync.Mutex
 	operationMu    sync.Mutex
@@ -66,9 +67,12 @@ type installJob struct {
 	done   chan struct{}
 }
 
-func New(database *store.Store, home string) (*Service, error) {
-	if database == nil || !filepath.IsAbs(home) {
+func New(database *store.Store, home, runtimeRoot string) (*Service, error) {
+	if database == nil || !filepath.IsAbs(home) || runtimeRoot != "" && !filepath.IsAbs(runtimeRoot) {
 		return nil, errors.New("local model dependencies are unavailable")
+	}
+	if runtimeRoot != "" {
+		runtimeRoot = filepath.Clean(runtimeRoot)
 	}
 	client := &http.Client{
 		CheckRedirect: func(_ *http.Request, previous []*http.Request) error {
@@ -81,6 +85,7 @@ func New(database *store.Store, home string) (*Service, error) {
 	return &Service{
 		database:    database,
 		home:        filepath.Clean(home),
+		runtimeRoot: runtimeRoot,
 		client:      client,
 		jobs:        make(map[string]installJob),
 		subscribers: make(map[uint64]chan Event),

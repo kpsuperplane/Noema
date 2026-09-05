@@ -224,6 +224,26 @@ func TestRuntimeAssetsKeepRequiredAliasesAndUsePinnedRequest(t *testing.T) {
 	if _, err := os.Stat(badPath + ".partial"); !os.IsNotExist(err) {
 		t.Fatalf("corrupt runtime partial remains: %v", err)
 	}
+	bundledBackend := "cpu"
+	if runtime.GOOS == "darwin" {
+		bundledBackend = "metal"
+	}
+	bundledName := "llama-server"
+	if runtime.GOOS == "windows" {
+		bundledName += ".exe"
+	}
+	bundledServer := filepath.Join(root, "packaged", bundledBackend, bundledName)
+	if err := os.MkdirAll(filepath.Dir(bundledServer), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundledServer, []byte("packaged"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	service.runtimeRoot = filepath.Join(root, "packaged")
+	if path, err := service.ensureRuntimeAssets(t.Context(), "cpu"); err != nil || path != bundledServer {
+		t.Fatalf("packaged runtime = %q, %v", path, err)
+	}
+	service.runtimeRoot = ""
 
 	archiveBody, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -341,7 +361,7 @@ func newTestService(t *testing.T) (*Service, *store.Store, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	service, err := New(database, home)
+	service, err := New(database, home, "")
 	if err != nil {
 		t.Fatal(err)
 	}
