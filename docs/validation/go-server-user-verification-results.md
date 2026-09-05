@@ -368,6 +368,16 @@ Startup and publication rebuild that index. The older SQLite search description 
 The [validation record](evidence/2026-09-05-memory-rebuild-validation.json) identifies source hashes, compared queries, and reused Go checks.
 No production code changed. This check covers the current three-article test tree.
 
+## Duplicate Memory facts and assistant evidence
+
+The [duplicate-evidence driver](evidence/2026-09-05-memory-duplicate.mjs) repeats the existing synthetic preferences and asks for an unrelated fictional occupation.
+Its [results](evidence/2026-09-05-memory-duplicate-results.json) contain the new human message, assistant response, and Memory snapshots before and after update.
+All three article paths and bodies remain unchanged. No duplicate article or fact appears.
+Every retained citation is a human-message source. The assistant’s invented occupation does not become Memory evidence.
+The update finishes without an error and advances its processed sequence. Reload preserves the root article.
+The [validation record](evidence/2026-09-05-memory-duplicate-validation.json) identifies the tested revision, driver hashes, reused checks, and limits.
+No production code changed. This result does not cover secret-bearing input or every Memory rejection path.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -477,7 +487,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | MEM-02 | Pass · live Chromium | Browser update creates cited articles from exact synthetic human facts. The saved sequence advances and status returns to idle. | — |
 | MEM-03 | Not run | Controlled setup pending. | — |
 | MEM-04 | Pass · live Chromium/Chat | The newer preference replaces the old fact and cites its correction. Chat reads the current article and reports French. | — |
-| MEM-05 | Not run | Controlled setup pending. | — |
+| MEM-05 | Pass · live Chat/Chromium | Repeated preferences leave article paths and bodies unchanged. An assistant-invented fictional occupation is not stored or cited as a human fact. | — |
 | MEM-06 | Partial · live Chromium | Root and child articles open through exact related-article routes. Deep hierarchy and ancestor checks remain pending. | — |
 | MEM-07 | Pass · live Chromium | Pointer hover and keyboard focus show the exact source type, date, excerpt, and identity at desktop and phone widths. | — |
 | MEM-08 | Partial · live Chat | Search and deeper page reads return the corrected fact and unchanged leisure interest. Bounded root-context injection remains pending. | — |
