@@ -460,7 +460,7 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 			return provider.GenerationResult{Text: "Alice likes tea."}, nil
 		}
 	})
-	chat, err := NewChat(database, generator, original.codex, original.home, original.memory)
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,7 +562,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 			Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
 		}, nil
 	})
-	chat, err := NewChat(database, openRouter, codex, homeRoot, openChatMemory(t, homeRoot))
+	chat, err := NewChat(database, openRouter, codex, codex, homeRoot, openChatMemory(t, homeRoot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,6 +623,17 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	}
 	if finalText != "Codex complete." {
 		t.Fatalf("durable final text = %q", finalText)
+	}
+}
+
+func TestChatSelectsOpenAIWithHostedSearch(t *testing.T) {
+	selected := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		return provider.GenerationResult{}, nil
+	})
+	chat := &Chat{openAI: selected}
+	generator, err := chat.generatorFor("openai")
+	if err != nil || generator == nil || !hostedWebSearchEnabled("openai", provider.ToolTransportNative) {
+		t.Fatalf("OpenAI Chat route = %v, %v", generator, err)
 	}
 }
 
@@ -960,7 +971,7 @@ func TestChatCloseCancelsActiveProviderAndRejectsNewTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := NewChat(database, chat.openRouter, chat.codex, chat.home, chat.memory)
+	restarted, err := NewChat(database, chat.openRouter, chat.codex, chat.openAI, chat.home, chat.memory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1026,7 +1037,9 @@ func chatFixtureAt(t *testing.T, cwd string) (*Chat, *store.Store, store.Convers
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := NewChat(database, generator, codexGenerator, homeRoot, openChatMemory(t, homeRoot))
+	chat, err := NewChat(
+		database, generator, codexGenerator, codexGenerator, homeRoot, openChatMemory(t, homeRoot),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -206,7 +206,7 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver.Chat, err = noemaruntime.NewChat(
-		resolver.Store, generator, codexGenerator, resolver.home, resolver.Memory,
+		resolver.Store, generator, codexGenerator, codexGenerator, resolver.home, resolver.Memory,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +288,9 @@ func openChatTestResolver(t *testing.T) *Resolver {
 	}
 	resolver.Memory = nativeMemory
 	t.Cleanup(func() { _ = nativeMemory.Close() })
-	chat, err := noemaruntime.NewChat(resolver.Store, generator, codexGenerator, resolver.home, nativeMemory)
+	chat, err := noemaruntime.NewChat(
+		resolver.Store, generator, codexGenerator, codexGenerator, resolver.home, nativeMemory,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

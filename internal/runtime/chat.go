@@ -97,6 +97,7 @@ type Chat struct {
 	database   *store.Store
 	openRouter provider.Generator
 	codex      provider.Generator
+	openAI     provider.Generator
 	home       *os.Root
 	memory     *noemamemory.Store
 	turns      chan queuedTurn
@@ -116,10 +117,11 @@ func NewChat(
 	database *store.Store,
 	openRouter provider.Generator,
 	codex provider.Generator,
+	openAI provider.Generator,
 	homeRoot *os.Root,
 	memoryStore *noemamemory.Store,
 ) (*Chat, error) {
-	if database == nil || openRouter == nil || codex == nil || homeRoot == nil || memoryStore == nil {
+	if database == nil || openRouter == nil || codex == nil || openAI == nil || homeRoot == nil || memoryStore == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
 	}
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
@@ -131,7 +133,7 @@ func NewChat(
 	ctx, cancel := context.WithCancel(context.Background())
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
-		openRouter: openRouter, codex: codex, home: homeRoot, memory: memoryStore,
+		openRouter: openRouter, codex: codex, openAI: openAI, home: homeRoot, memory: memoryStore,
 		turns: make(chan queuedTurn, turnQueueLimit), done: make(chan struct{}),
 		subscribers: make(map[uint64]subscriber),
 	}
@@ -346,7 +348,7 @@ func (c *Chat) execute(request queuedTurn) {
 
 func hostedWebSearchEnabled(providerKind string, transport provider.ToolTransport) bool {
 	return transport == provider.ToolTransportNative &&
-		(providerKind == "codex" || providerKind == "openrouter")
+		(providerKind == "codex" || providerKind == "openai" || providerKind == "openrouter")
 }
 
 func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
@@ -355,6 +357,8 @@ func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
 		return c.openRouter, nil
 	case "codex":
 		return c.codex, nil
+	case "openai":
+		return c.openAI, nil
 	default:
 		return nil, errors.New("primary Chat provider is unsupported")
 	}
