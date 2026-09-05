@@ -239,7 +239,7 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 			return nil, errors.New("stored multiple-choice selection is invalid")
 		}
 		return model.MultipleChoiceSelection{PromptItemID: promptID, SelectionMode: mode, SelectedOptions: options}, nil
-	case store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
+	case store.ConversationActivity, store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
 		id, _ := item.Payload["id"].(string)
 		kind, _ := item.Payload["activity_kind"].(string)
 		title, _ := item.Payload["title"].(string)

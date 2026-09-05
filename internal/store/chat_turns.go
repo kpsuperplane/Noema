@@ -30,6 +30,7 @@ const (
 	ConversationAssistantText           ConversationItemKind = "assistant_text"
 	ConversationToolCall                ConversationItemKind = "tool_call"
 	ConversationToolResult              ConversationItemKind = "tool_result"
+	ConversationActivity                ConversationItemKind = "activity"
 	ConversationReasoning               ConversationItemKind = "reasoning"
 	ConversationMultipleChoicePrompt    ConversationItemKind = "multiple_choice_prompt"
 	ConversationMultipleChoiceSelection ConversationItemKind = "multiple_choice_selection"
@@ -368,6 +369,27 @@ func (s *Store) CompleteConversationTurnOutput(
 	return s.finishConversationTurn(
 		ctx, turn, ConversationAssistantText, text, providerText, metadata,
 		reasoning, providerRound, now,
+	)
+}
+
+// CompleteConversationProgressAuditPause saves an audit pause without primary-provider attribution.
+func (s *Store) CompleteConversationProgressAuditPause(
+	ctx context.Context,
+	turn ConversationTurn,
+	text string,
+	providerRound int,
+	now time.Time,
+) (ConversationItem, error) {
+	if strings.TrimSpace(text) == "" || !utf8.ValidString(text) || len(text) > maxConversationText || providerRound < 0 {
+		return ConversationItem{}, errors.New("progress audit response is empty, invalid, or too large")
+	}
+	return s.finishConversationTurn(
+		ctx, turn, ConversationAssistantText, text, text,
+		map[string]any{
+			"turn_index": turn.TurnIndex, "response_index": 0, "output_index": 0,
+			"provider_round": providerRound, "phase": "final_answer",
+			"source": "progress_audit_pause", "provider": "progress_audit",
+		}, nil, providerRound, now,
 	)
 }
 
