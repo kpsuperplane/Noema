@@ -696,6 +696,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-06 | API-14 | Application deletion remains blocked after its only grant is revoked. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-flow-results.json), [reproduction patch](evidence/2026-09-06-oauth-flow-reproduction.patch) |
 | AUDIT-07 | API-07 | Expanded OAuth consent grants the new scope, but the existing connection does not expose the new operation. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-expansion-results.json), [reproduction patch](evidence/2026-09-06-oauth-expansion-reproduction.patch) |
 | AUDIT-08 | MCP-02 | Renewal omits the existing registered OAuth client and fails when dynamic registration is unavailable. | OAuth lifecycle | [Result](evidence/2026-09-06-mcp-oauth-results.json), [reproduction patch](evidence/2026-09-06-mcp-oauth-reproduction.patch) |
+| AUDIT-09 | FILE-01 | Executor catalog and dispatcher omit the documented file.download capability. | Task capabilities | [Result](evidence/2026-09-06-task-download-results.json), [reproduction patch](evidence/2026-09-06-task-download-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -932,6 +933,16 @@ Task placement and review remain pending under FILE-01.
 Evidence: [results](evidence/2026-09-06-download-results.json) and [reproduction patch](evidence/2026-09-06-download-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## Missing Task download capability
+
+The Task contract permits `file.download` for the Executor within the Task directory.
+A real claimed Executor has no download tool in its catalog.
+Direct dispatch returns `unsupported_tool` before network access.
+AUDIT-09 records this defect for the Task capabilities batch.
+Task placement and review checks remain pending until the capability is restored.
+Evidence: [results](evidence/2026-09-06-task-download-results.json) and [reproduction patch](evidence/2026-09-06-task-download-reproduction.patch).
+The temporary failing test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1106,7 +1117,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-14 | Not run | Controlled setup pending. | — |
 | WEB-15 | Not run | Controlled setup pending. | — |
 | WEB-16 | Not run | Controlled setup pending. | — |
-| FILE-01 | Partial | Controlled TLS download preserves exact bytes and nested Unicode filename. Task placement and review remain pending. | — |
+| FILE-01 | Fail · controlled Task runtime | Download function preserves exact bytes. AUDIT-09: Executor catalog and dispatcher omit file.download. Task placement and review cannot proceed. | — |
 | FILE-02 | Pass · controlled TLS service | Parent, absolute, and outside symlink paths fail before network access. Private redirects fail without publishing a destination. Existing bytes remain intact. | — |
 | FILE-03 | Partial | DOCX, ODT, and RTF preserve known structure through the packaged Chat tool. DOC remains pending. | — |
 | FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
