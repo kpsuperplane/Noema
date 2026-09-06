@@ -71,6 +71,7 @@ const styles = stylex.create({
     width: 28,
     height: 28
   },
+  setupSize: { width: 80, height: 80 },
   lgSize: {
     width: 44,
     height: 44
@@ -103,7 +104,7 @@ export function IdentityAvatar({
   className?: string;
   focusable?: boolean;
   label?: string;
-  size?: "xs" | "nav" | "default" | "sm" | "lg";
+  size?: "xs" | "nav" | "default" | "sm" | "lg" | "setup";
 }) {
   const [focused, setFocused] = React.useState(false);
   const [hovered, setHovered] = React.useState(false);
@@ -116,6 +117,7 @@ export function IdentityAvatar({
     size === "nav" && styles.navSize,
     size === "sm" && styles.smSize,
     size === "lg" && styles.lgSize,
+    size === "setup" && styles.setupSize,
     size === "default" && styles.defaultSize
   );
   const avatarProps = stylex.props(styles.avatar);

@@ -1,0 +1,790 @@
+// Package runtime owns active Go server execution.
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/diagnostics"
+	"github.com/kpsuperplane/noema/internal/localmodel"
+	_ "time/tzdata"
+
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
+	noemamemory "github.com/kpsuperplane/noema/internal/memory"
+	"github.com/kpsuperplane/noema/internal/project"
+	"github.com/kpsuperplane/noema/internal/provider"
+	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/webtool"
+)
+
+const (
+	turnQueueLimit       = 64
+	subscriberQueueLimit = 128
+	shutdownSaveTimeout  = 5 * time.Second
+	memoryEventChannel   = "\x00memory"
+)
+
+var (
+	// ErrChatClosed means the Chat runtime no longer accepts turns.
+	ErrChatClosed = errors.New("Chat runtime is closed")
+	// ErrChatQueueFull means the bounded turn queue cannot accept more input.
+	ErrChatQueueFull = errors.New("Chat turn queue is full")
+)
+
+// EventKind identifies one live Chat event.
+type EventKind string
+
+const (
+	EventSubscriptionReady EventKind = "subscription_ready"
+	EventAgentStatus       EventKind = "agent_status"
+	EventConversationItem  EventKind = "conversation_item"
+	EventAssistantDelta    EventKind = "assistant_text_delta"
+	EventTurnCompleted     EventKind = "turn_completed"
+	EventTransientError    EventKind = "transient_error"
+	EventMemoryChanged     EventKind = "memory_changed"
+)
+
+const EventHumanInterventionsChanged EventKind = "human_interventions_changed"
+
+// AgentStatus is one live Chat status.
+type AgentStatus string
+
+const (
+	AgentStatusIdle          AgentStatus = "IDLE"
+	AgentStatusInputReceived AgentStatus = "INPUT_RECEIVED"
+	AgentStatusThinking      AgentStatus = "THINKING"
+	AgentStatusError         AgentStatus = "ERROR"
+)
+
+// Event is one runtime-neutral Chat subscription event.
+type Event struct {
+	Kind             EventKind
+	ConversationID   string
+	ClientMessageID  *string
+	TurnID           string
+	StreamID         string
+	ResponseIndex    int
+	Delta            string
+	Status           AgentStatus
+	Item             *store.ConversationItem
+	TransientMessage string
+}
+
+// SendTurnInput contains one accepted human turn.
+type SendTurnInput struct {
+	choice          *store.ConversationChoiceSelection
+	ConversationID  string
+	Input           string
+	ClientMessageID *string
+	ClientTimeZone  *string
+}
+
+// TurnAccepted confirms that the runtime queued one turn.
+type TurnAccepted struct {
+	ConversationID  string
+	ClientMessageID *string
+}
+
+type queuedTurn struct {
+	input        SendTurnInput
+	conversation store.Conversation
+	location     *time.Location
+	sourceItemID string
+}
+
+type actionResolution struct {
+	ctx                         context.Context
+	actionID, humanID, decision string
+	revision                    int
+	reply                       chan actionResolutionResult
+}
+
+type actionResolutionResult struct {
+	action store.ActionRequest
+	err    error
+}
+
+type actionContinuation struct {
+	action  store.ActionRequest
+	trigger store.ConversationItem
+}
+
+type mcpAuthResolution struct {
+	attemptID, requestID, adapterConnectionID string
+	revision                                  int
+	skip                                      bool
+	supersede                                 bool
+	reply                                     chan mcpAuthResult
+}
+type mcpAuthResult struct {
+	request store.MCPAuthRequest
+	err     error
+}
+
+type subscriber struct {
+	conversationID string
+	events         chan Event
+}
+
+// Chat serializes text turns and publishes their live events.
+type Chat struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
+	database   *store.Store
+	openRouter provider.Generator
+	codex      provider.Generator
+	openAI     provider.Generator
+	local      provider.Generator
+	home       *os.Root
+	memory     *noemamemory.Store
+	mcp        *noemamcp.Service
+	adapters   *adapter.Service
+	projects   *project.Service
+	web        *webtool.Service
+	errors     *diagnostics.Writer
+	turns      chan queuedTurn
+	actions    chan actionResolution
+	mcpAuth    chan mcpAuthResolution
+	a2ui       chan a2uiResolution
+	done       chan struct{}
+	closeOnce  sync.Once
+	closeErr   error
+	stateMu    sync.RWMutex
+	closed     bool
+	memoryMu   sync.Mutex
+	memoryRun  bool
+	memoryErr  string
+	memoryWG   sync.WaitGroup
+
+	recoveredActions []actionContinuation
+	recoveredA2UI    []store.ConversationA2UIContinuation
+
+	subMu       sync.Mutex
+	subscribers map[uint64]subscriber
+	nextSubID   uint64
+}
+
+// NewChat starts one serialized Chat runtime.
+func NewChat(
+	database *store.Store,
+	openRouter provider.Generator,
+	codex provider.Generator,
+	openAI provider.Generator,
+	homeRoot *os.Root,
+	memoryStore *noemamemory.Store,
+	services ...any,
+) (*Chat, error) {
+	if database == nil || openRouter == nil || codex == nil || openAI == nil || homeRoot == nil || memoryStore == nil {
+		return nil, errors.New("Chat runtime dependencies are unavailable")
+	}
+	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
+	actions, err := database.RecoverActionRequests(recoveryContext, time.Now())
+	recoveredActions := make([]actionContinuation, 0, len(actions))
+	for _, action := range actions {
+		turn, input, callErr := database.ActionConversationCall(recoveryContext, action)
+		if callErr != nil {
+			err = callErr
+			break
+		}
+		input.Payload = mustJSON(actionResultPayload(action))
+		input.Success = action.State == store.ActionSucceeded
+		item, callErr := database.FinishConversationToolCall(recoveryContext, turn, input, time.Now())
+		if callErr != nil {
+			err = callErr
+			break
+		}
+		if action.State != store.ActionOutcomeUncertain {
+			recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
+		}
+	}
+	var recoveredA2UI []store.ConversationA2UIContinuation
+	if err == nil {
+		recoveredA2UI, err = database.RecoverConversationA2UI(recoveryContext, time.Now())
+	}
+	if err == nil {
+		_, err = database.RecoverConversationTurns(recoveryContext, time.Now())
+	}
+	stopRecovery()
+	if err != nil {
+		return nil, fmt.Errorf("recover stopped Chat turns: %w", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var mcpService *noemamcp.Service
+	var adapterService *adapter.Service
+	var localModels *localmodel.Service
+	var webTools *webtool.Service
+	var errorLog *diagnostics.Writer
+	for _, service := range services {
+		switch value := service.(type) {
+		case *noemamcp.Service:
+			mcpService = value
+		case *adapter.Service:
+			adapterService = value
+		case *localmodel.Service:
+			localModels = value
+		case *webtool.Service:
+			webTools = value
+		case *diagnostics.Writer:
+			errorLog = value
+		}
+	}
+	chat := &Chat{
+		ctx: ctx, cancel: cancel, database: database,
+		openRouter: openRouter, codex: codex, openAI: openAI, local: localModels, home: homeRoot,
+		memory: memoryStore, mcp: mcpService, adapters: adapterService, web: webTools, errors: errorLog,
+		projects: project.New(database, homeRoot),
+		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
+		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
+		a2ui:             make(chan a2uiResolution, turnQueueLimit),
+		done:             make(chan struct{}),
+		recoveredActions: recoveredActions,
+		recoveredA2UI:    recoveredA2UI,
+		subscribers:      make(map[uint64]subscriber),
+	}
+	requests, err := database.RecoverConversationMCPAuthRequests(chat.ctx)
+	for _, request := range requests {
+		payload := toolFailure("outcome_uncertain", "MCP tool outcome is uncertain after restart")
+		if err = chat.finishMCPAuthCall(request, payload, false); err != nil {
+			break
+		}
+	}
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("recover MCP authentication results: %w", err)
+	}
+	connections, err := database.AwaitingAdapterAuthConnections(chat.ctx, false)
+	if err == nil {
+		for _, connectionID := range connections {
+			_, err = chat.resolveMCPAuthentication(mcpAuthResolution{adapterConnectionID: connectionID})
+			if err != nil {
+				break
+			}
+		}
+	}
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("resume adapter authentication: %w", err)
+	}
+	go chat.run()
+	return chat, nil
+}
+
+// Projects returns the Project authority used by primary Chat.
+func (c *Chat) Projects() *project.Service { return c.projects }
+
+// SendTurn validates and queues one turn without binding execution to the request context.
+func (c *Chat) SendTurn(ctx context.Context, input SendTurnInput) (TurnAccepted, error) {
+	input.ClientMessageID = cloneOptionalString(input.ClientMessageID)
+	input.ClientTimeZone = cloneOptionalString(input.ClientTimeZone)
+	conversation, err := c.database.Conversation(ctx, input.ConversationID)
+	if err != nil {
+		return TurnAccepted{}, err
+	}
+	location := time.UTC
+	if input.ClientTimeZone != nil {
+		if *input.ClientTimeZone == "" {
+			return TurnAccepted{}, errors.New("clientTimeZone must be a valid IANA timezone")
+		}
+		location, err = time.LoadLocation(*input.ClientTimeZone)
+		if err != nil {
+			return TurnAccepted{}, errors.New("clientTimeZone must be a valid IANA timezone")
+		}
+	}
+	request := queuedTurn{input: input, conversation: conversation, location: location}
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	if c.closed {
+		return TurnAccepted{}, ErrChatClosed
+	}
+	select {
+	case <-ctx.Done():
+		return TurnAccepted{}, ctx.Err()
+	case c.turns <- request:
+		return TurnAccepted{
+			ConversationID: input.ConversationID, ClientMessageID: input.ClientMessageID,
+		}, nil
+	default:
+		return TurnAccepted{}, ErrChatQueueFull
+	}
+}
+
+// Subscribe returns live events after one readiness event.
+func (c *Chat) Subscribe(ctx context.Context, conversationID string) (<-chan Event, error) {
+	if _, err := c.database.Conversation(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	return c.subscribe(ctx, conversationID, true)
+}
+
+// SubscribeAll returns live events for the notification projection.
+func (c *Chat) SubscribeAll(ctx context.Context) <-chan Event {
+	events, _ := c.subscribe(ctx, "", false)
+	return events
+}
+
+// SubscribeMemory returns native Memory invalidations until the context ends.
+func (c *Chat) SubscribeMemory(ctx context.Context) <-chan Event {
+	events, _ := c.subscribe(ctx, memoryEventChannel, false)
+	return events
+}
+
+// NotifyHumanInterventionsChanged publishes one durable intervention invalidation.
+func (c *Chat) NotifyHumanInterventionsChanged(conversationID string) {
+	c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: conversationID})
+}
+
+func (c *Chat) subscribe(ctx context.Context, conversationID string, ready bool) (<-chan Event, error) {
+	queueLimit := subscriberQueueLimit
+	if conversationID == memoryEventChannel {
+		queueLimit = 1
+	}
+	events := make(chan Event, queueLimit)
+
+	c.subMu.Lock()
+	if c.ctx.Err() != nil {
+		c.subMu.Unlock()
+		close(events)
+		return nil, ErrChatClosed
+	}
+	c.nextSubID++
+	id := c.nextSubID
+	c.subscribers[id] = subscriber{conversationID: conversationID, events: events}
+	if ready {
+		events <- Event{Kind: EventSubscriptionReady, ConversationID: conversationID}
+	}
+	c.subMu.Unlock()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-c.ctx.Done():
+		}
+		c.removeSubscriber(id)
+	}()
+	return events, nil
+}
+
+// Close cancels active work, restores its Chat to idle, and closes subscribers.
+func (c *Chat) Close() error {
+	c.closeOnce.Do(func() {
+		c.stateMu.Lock()
+		c.closed = true
+		c.cancel()
+		c.stateMu.Unlock()
+		if c.done != nil {
+			<-c.done
+		}
+		c.memoryWG.Wait()
+		recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
+		_, c.closeErr = c.database.RecoverConversationTurns(recoveryContext, time.Now())
+		stopRecovery()
+		c.subMu.Lock()
+		for id, current := range c.subscribers {
+			close(current.events)
+			delete(c.subscribers, id)
+		}
+		c.subMu.Unlock()
+	})
+	return c.closeErr
+}
+
+func (c *Chat) run() {
+	if c.done != nil {
+		defer close(c.done)
+	}
+	defer func() {
+		for {
+			select {
+			case request := <-c.turns:
+				c.publishTransientFailure(request.input, ErrChatClosed)
+			default:
+				return
+			}
+		}
+	}()
+	workWake := c.database.SubscribeWork(c.ctx)
+	var notificationRetry <-chan time.Time
+	drainNotifications := func() {
+		if err := c.drainPrimaryNotifications(); err != nil {
+			notificationRetry = time.After(time.Second)
+		} else {
+			notificationRetry = nil
+		}
+	}
+	drainNotifications()
+	for _, recovery := range c.recoveredActions {
+		if c.ctx.Err() != nil {
+			return
+		}
+		c.continueAfterAction(recovery.action, recovery.trigger)
+	}
+	c.recoveredActions = nil
+	for _, recovery := range c.recoveredA2UI {
+		if c.ctx.Err() != nil {
+			return
+		}
+		c.resumeA2UI(recovery)
+	}
+	c.recoveredA2UI = nil
+	for {
+		if c.ctx.Err() != nil {
+			return
+		}
+		select {
+		case <-c.ctx.Done():
+			return
+		case request := <-c.turns:
+			c.execute(request)
+		case request := <-c.actions:
+			action, err := c.resolveActionRequest(request)
+			request.reply <- actionResolutionResult{action: action, err: err}
+		case request := <-c.mcpAuth:
+			value, err := c.resolveMCPAuthentication(request)
+			request.reply <- mcpAuthResult{request: value, err: err}
+		case request := <-c.a2ui:
+			c.resolveA2UI(request)
+		case <-workWake:
+			drainNotifications()
+		case <-notificationRetry:
+			drainNotifications()
+		}
+	}
+}
+
+func (c *Chat) execute(request queuedTurn) {
+	now := time.Now()
+	var turn store.ConversationTurn
+	var userItem store.ConversationItem
+	var err error
+	if request.input.choice != nil {
+		turn, userItem, err = c.database.BeginConversationChoiceTurn(c.ctx, request.input.ConversationID, *request.input.choice, request.input.ClientMessageID, now)
+	} else {
+		turn, userItem, err = c.database.BeginConversationTurn(c.ctx, request.input.ConversationID, request.input.Input, request.input.ClientMessageID, now)
+	}
+	if err != nil {
+		c.publishTransientFailure(request.input, err)
+		return
+	}
+	c.publish(Event{
+		Kind: EventAgentStatus, ConversationID: turn.ConversationID,
+		Status: AgentStatusInputReceived,
+	})
+	if err := c.database.SetConversationAgentStatus(
+		c.ctx, turn.ConversationID, "thinking", time.Now(),
+	); err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	c.publish(Event{
+		Kind: EventAgentStatus, ConversationID: turn.ConversationID,
+		Status: AgentStatusThinking,
+	})
+	c.publish(Event{
+		Kind: EventConversationItem, ConversationID: turn.ConversationID,
+		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &userItem,
+	})
+	c.publishMemoryChanged()
+	request.sourceItemID = userItem.ID
+
+	assignment, err := c.primaryAssignment(c.ctx)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	generator, err := c.generatorFor(assignment.ProviderKind)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	contextGenerator := generator
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
+	contextState, err := c.database.ConversationProviderContext(c.ctx, turn.ConversationID, assignment.ProviderKind, assignment.ModelProfile)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	completed, active, through, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	memoryContext := c.memoryRootContext()
+	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative) && (c.web == nil || !c.web.Explicit(c.ctx))
+	projectContext, err := c.projectContext(c.ctx)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	environment, err := c.modelEnvironment(c.ctx, request.conversation, request.location, time.Now())
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	tools, err := c.chatTools(c.ctx)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	outputTokens := maxOutputTokensFor(assignment.ProviderKind)
+	runtimeStarted := time.Now()
+	runtimeSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "runtime", "Prepare model context",
+		store.RuntimeDebugMetadata{Phase: "initial"}, runtimeStarted)
+	providerMessages, _, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database, generator: contextGenerator,
+		accountID: assignment.ProviderAccountID, providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
+		base: developerMessages(environment, memoryContext, projectContext, hostedWeb), completed: completed, active: active,
+		tools: tools, hostedWeb: hostedWeb, outputReserve: *outputTokens,
+		persist: func(summary string, recent []provider.GenerationMessage) error {
+			return c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
+				assignment.ModelProfile, summary, recent, through, time.Now())
+		}})
+	runtimeStatus := "completed"
+	if err != nil {
+		runtimeStatus = "failed"
+	}
+	if runtimeSpan != "" {
+		_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), runtimeSpan, runtimeStatus,
+			store.RuntimeDebugMetadata{Phase: "initial"}, time.Since(runtimeStarted), time.Now())
+	}
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
+	providerStarted := time.Now()
+	providerSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
+		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "provider", "Initial provider request",
+		store.RuntimeDebugMetadata{Provider: assignment.ProviderKind, Model: assignment.ModelProfile, Phase: "initial"}, providerStarted)
+	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
+		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
+		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
+		ConversationID: turn.ConversationID, MaxOutputTokens: outputTokens,
+		Tools:           tools,
+		ToolTransport:   provider.ToolTransportNative,
+		ToolChoice:      provider.ToolChoiceAuto,
+		HostedWebSearch: hostedWeb,
+		StoreResponse:   responseIDContinuationProvider(assignment.ProviderKind),
+		FastMode:        assignment.FastMode,
+	}, func(event provider.StreamEvent) {
+		if event.Kind == provider.TextDelta {
+			c.publish(Event{
+				Kind: EventAssistantDelta, ConversationID: turn.ConversationID,
+				TurnID: turn.ID, StreamID: streamID, ResponseIndex: 0, Delta: event.Delta,
+			})
+		}
+	})
+	providerStatus := "completed"
+	if err != nil {
+		providerStatus = "failed"
+	}
+	if providerSpan != "" {
+		inputTokens, cachedTokens := result.Usage.InputTokens, result.Usage.CachedInputTokens
+		outputTokens, totalTokens := result.Usage.OutputTokens, result.Usage.TotalTokens
+		_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), providerSpan, providerStatus,
+			store.RuntimeDebugMetadata{Provider: assignment.ProviderKind, Model: assignment.ModelProfile, Phase: "initial",
+				InputTokens: &inputTokens, CachedInputTokens: &cachedTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens},
+			time.Since(providerStarted), time.Now())
+	}
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	c.executeChatToolRounds(request, turn, assignment, generator, result, memoryContext, 0, false)
+}
+
+func hostedWebSearchEnabled(providerKind string, transport provider.ToolTransport) bool {
+	return transport == provider.ToolTransportNative &&
+		(providerKind == "codex" || providerKind == "openai" || providerKind == "openrouter")
+}
+
+func responseIDContinuationProvider(providerKind string) bool {
+	return providerKind == "codex" || providerKind == "openai"
+}
+
+func openGenerationSession(generator provider.Generator) (provider.Generator, func(), bool) {
+	opener, ok := generator.(provider.SessionGenerator)
+	if !ok {
+		return generator, func() {}, false
+	}
+	session := opener.OpenGenerationSession()
+	return session, func() { _ = session.Close() }, true
+}
+
+func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
+	switch providerKind {
+	case "openrouter":
+		return c.openRouter, nil
+	case "codex":
+		return c.codex, nil
+	case "openai":
+		return c.openAI, nil
+	case "local_models":
+		if c.local != nil {
+			return c.local, nil
+		}
+		return nil, errors.New("local models are unavailable")
+	default:
+		return nil, errors.New("primary Chat provider is unsupported")
+	}
+}
+
+func (c *Chat) primaryAssignment(ctx context.Context) (store.ModelAssignment, error) {
+	assignments, err := c.database.HostedModelAssignments(ctx)
+	if err != nil {
+		return store.ModelAssignment{}, err
+	}
+	for _, assignment := range assignments {
+		if assignment.Role != store.HostedModelNoema {
+			continue
+		}
+		if assignment.SelectionMode == store.ModelSelectionNoemaRecommended {
+			for _, recommendation := range provider.ModelRecommendations(assignment.ProviderKind) {
+				if recommendation.UseCase == provider.ModelUsePrimary {
+					assignment.ModelProfile = recommendation.ModelProfile
+					assignment.ReasoningEffort = store.ModelReasoningEffort(recommendation.ReasoningEffort)
+					return assignment, nil
+				}
+			}
+		}
+		return assignment, nil
+	}
+	return store.ModelAssignment{}, errors.New("primary Chat model is not configured")
+}
+
+func (c *Chat) failTurn(input SendTurnInput, turn store.ConversationTurn, cause error) {
+	if c.ctx.Err() != nil {
+		c.cancelTurn(input, turn)
+		return
+	}
+	_ = c.errors.Write("runtime.chat_failed", diagnostics.Text("conversation_id", turn.ConversationID),
+		diagnostics.Text("turn_id", turn.ID))
+	item, err := c.database.FailConversationTurn(c.ctx, turn, "The provider request failed.", time.Now())
+	if err != nil {
+		c.publishTransientFailure(input, cause)
+		return
+	}
+	c.publish(Event{
+		Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusError,
+	})
+	c.publish(Event{
+		Kind: EventConversationItem, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item,
+	})
+	c.publish(Event{
+		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
+	})
+}
+
+func (c *Chat) failUncertainTurn(input SendTurnInput, turn store.ConversationTurn) error {
+	item, err := c.database.FailConversationTurn(c.ctx, turn, "The adapter outcome is uncertain. Check the external result before retrying to avoid a duplicate operation.", time.Now())
+	if err != nil {
+		return err
+	}
+	c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusError})
+	c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item})
+	c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID})
+	return nil
+}
+
+func (c *Chat) cancelTurn(input SendTurnInput, turn store.ConversationTurn) {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownSaveTimeout)
+	defer cancel()
+	if err := c.database.CancelConversationTurn(ctx, turn, time.Now()); err != nil {
+		c.publishTransientFailure(input, err)
+		return
+	}
+	c.publish(Event{
+		Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle,
+	})
+	c.publish(Event{
+		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
+		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
+	})
+}
+
+func (c *Chat) publishTransientFailure(input SendTurnInput, cause error) {
+	message := "The Chat turn could not be saved."
+	if errors.Is(cause, store.ErrConversationTurnActive) {
+		message = "Chat is still busy. Finish the current interaction before sending another message."
+	}
+	c.publish(Event{
+		Kind: EventTransientError, ConversationID: input.ConversationID,
+		ClientMessageID:  input.ClientMessageID,
+		TransientMessage: message,
+	})
+	c.publish(Event{
+		Kind: EventTurnCompleted, ConversationID: input.ConversationID,
+		ClientMessageID: input.ClientMessageID,
+	})
+}
+
+func (c *Chat) publish(event Event) {
+	c.subMu.Lock()
+	defer c.subMu.Unlock()
+	for id, current := range c.subscribers {
+		if current.conversationID != "" && current.conversationID != event.ConversationID {
+			continue
+		}
+		select {
+		case current.events <- event:
+		default:
+			close(current.events)
+			delete(c.subscribers, id)
+		}
+	}
+}
+
+func (c *Chat) removeSubscriber(id uint64) {
+	c.subMu.Lock()
+	defer c.subMu.Unlock()
+	current, ok := c.subscribers[id]
+	if !ok {
+		return
+	}
+	delete(c.subscribers, id)
+	close(current.events)
+}
+
+func runtimeEnvironment(conversation store.Conversation, location *time.Location, now time.Time) string {
+	local := now.In(location)
+	cwd := "null"
+	if conversation.CWD != "" {
+		cwd = strconv.Quote(conversation.CWD)
+	}
+	return fmt.Sprintf(
+		"Runtime environment:\n- current_date: %s\n- current_time: %s\n- timezone: %s\n- cwd: %s\nFor the human's current date, weekday, time, and relative-date reasoning, these values are authoritative and override any provider, platform, server, or UTC clock. Treat cwd as a location hint, not as user intent or permission to access files.",
+		strconv.Quote(local.Format(time.DateOnly)), strconv.Quote(local.Format(time.RFC3339)),
+		strconv.Quote(location.String()), cwd,
+	)
+}
+
+func cloneOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func maxOutputTokens() *uint32 {
+	value := uint32(8192)
+	return &value
+}
+
+func maxOutputTokensFor(providerKind string) *uint32 {
+	if providerKind == "local_models" {
+		value := uint32(1024)
+		return &value
+	}
+	return maxOutputTokens()
+}

@@ -175,7 +175,6 @@ extension SettingsModel {
       reasoningEffort: value.reasoningEffort?.rawValue,
       selectionMode: value.selectionMode.rawValue,
       fastMode: value.fastMode,
-      enabled: value.enabled,
       sortOrder: value.sortOrder
     )
   }
@@ -193,7 +192,6 @@ extension SettingsModel {
       reasoningEffort: value.reasoningEffort?.rawValue,
       selectionMode: value.selectionMode.rawValue,
       fastMode: value.fastMode,
-      enabled: value.enabled,
       sortOrder: value.sortOrder
     )
   }

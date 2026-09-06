@@ -6,6 +6,7 @@ follow any directly delegated task until completion or human intervention.
 Options:
   --origin <url>       Noema origin (default: http://localhost:3737)
   --socket <path>      Authenticated local GraphQL Unix socket
+  --cookie <value>     Browser session cookie for authenticated HTTP polling
   --timezone <zone>    IANA client timezone (default: Etc/UTC)
   --timeout-ms <ms>    Turn timeout (default: 600000)
   --help               Show this help
@@ -14,6 +15,7 @@ Options:
 type Options = {
   origin: string;
   socketPath?: string;
+  sessionCookie?: string;
   timezone: string;
   timeoutMs: number;
   prompt: string;
@@ -53,6 +55,7 @@ type DelegatedTaskState = {
 function parseArgs(args: string[]): Options {
   let origin = "http://localhost:3737";
   let socketPath: string | undefined;
+  let sessionCookie: string | undefined;
   let timezone = "Etc/UTC";
   let timeoutMs = 600_000;
   const prompt: string[] = [];
@@ -70,6 +73,7 @@ function parseArgs(args: string[]): Options {
     if (
       argument === "--origin"
       || argument === "--socket"
+      || argument === "--cookie"
       || argument === "--timezone"
       || argument === "--timeout-ms"
     ) {
@@ -78,6 +82,7 @@ function parseArgs(args: string[]): Options {
       index += 1;
       if (argument === "--origin") origin = value;
       if (argument === "--socket") socketPath = value;
+      if (argument === "--cookie") sessionCookie = value;
       if (argument === "--timezone") timezone = value;
       if (argument === "--timeout-ms") timeoutMs = Number(value);
       continue;
@@ -92,6 +97,7 @@ function parseArgs(args: string[]): Options {
   return {
     origin: origin.replace(/\/$/, ""),
     socketPath,
+    sessionCookie,
     timezone,
     timeoutMs,
     prompt: prompt.join(" "),
@@ -101,19 +107,30 @@ function parseArgs(args: string[]): Options {
 async function graphql<T>(options: Options, query: string, variables = {}): Promise<T> {
   const payload = JSON.stringify({ query, variables });
   let envelope: GraphqlEnvelope<T>;
-  if (options.socketPath) {
-    const process = Bun.spawn([
-      "curl",
+  if (options.socketPath || options.sessionCookie) {
+    const headers = ["content-type: application/json"];
+    const url = options.socketPath ? "http://localhost/graphql" : `${options.origin}/graphql`;
+    const args = [
       "--silent",
       "--show-error",
       "--fail-with-body",
-      "--unix-socket",
-      options.socketPath,
+      "--noproxy",
+      "*",
+      ...(options.socketPath ? ["--unix-socket", options.socketPath] : []),
       "--header",
-      "content-type: application/json",
+      headers[0],
+    ];
+    if (options.sessionCookie) {
+      args.push("--header", `Host: noema.kevinpei.com`);
+      args.push("--header", `Origin: https://noema.kevinpei.com`);
+      args.push("--header", `Cookie: ${options.sessionCookie}`);
+    }
+    const process = Bun.spawn([
+      "curl",
+      ...args,
       "--data-binary",
       "@-",
-      "http://localhost/graphql",
+      url,
     ], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     process.stdin.write(payload);
     process.stdin.end();
@@ -180,7 +197,7 @@ async function waitForTurn(options: Options, conversationId: string, clientMessa
   const itemIds = new Set<string>();
   let turnId: string | undefined;
   const deadline = Date.now() + options.timeoutMs;
-  if (options.socketPath) {
+  if (options.socketPath || options.sessionCookie) {
     await graphql(options, `mutation RunCase($input: SendConversationTurnInput!) {
       sendConversationTurn(input: $input) { conversationId clientMessageId }
     }`, {
@@ -309,12 +326,8 @@ async function delegatedTaskState(options: Options, taskId: string) {
       activeGate { gateId kind state prompt }
       resultDocument resultMetadata
     }
-    pendingHumanInterventions(taskId: $taskId, first: 50) {
-      __typename
-      ... on GovernedAction { actionId revision capabilityName safeSummary state }
-      ... on McpAuthenticationIntervention { requestId revision capabilityName failureCode }
-      ... on AdapterAuthenticationIntervention { requestId revision capabilityName state failureCode }
-      ... on TaskAttention { kind title summary validActions }
+    pendingHumanInterventions: pendingGovernedActions(taskId: $taskId, first: 50) {
+      actionId revision capabilityName safeSummary state
     }
   }`, { taskId });
 }
@@ -331,7 +344,7 @@ async function waitForDelegatedTask(options: Options, taskId: string) {
   if (delegatedTaskReachedBoundary(initial)) return initial;
 
   const deadline = Date.now() + options.timeoutMs;
-  if (options.socketPath) {
+  if (options.socketPath || options.sessionCookie) {
     while (Date.now() < deadline) {
       try {
         const state = await delegatedTaskState(options, taskId);
@@ -446,12 +459,8 @@ const result = await graphql<{
     behavior { readOnly idempotent destructive openWorld }
     assessment { status authorization risk reasonCodes explanation }
   }
-  pendingHumanInterventions(conversationId: $conversationId, first: 50) {
-    __typename
-    ... on GovernedAction { actionId revision capabilityName safeSummary state }
-    ... on McpAuthenticationIntervention { requestId revision capabilityName failureCode }
-    ... on AdapterAuthenticationIntervention { requestId revision capabilityName state failureCode }
-    ... on McpSetupIntervention { itemId setupStatus displayName }
+  pendingHumanInterventions: pendingGovernedActions(conversationId: $conversationId, first: 50) {
+    actionId revision capabilityName safeSummary state
   }
 }`, { conversationId });
 

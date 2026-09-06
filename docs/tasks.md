@@ -240,6 +240,9 @@ A repeated fall-back minute executes at most once.
 `skip` records a missed slot.
 `run_once` queues one representative occurrence before normal cadence resumes.
 Overlap policies are `skip`, `queue_one`, and `allow`.
+`queue_one` keeps one pending occurrence while a Task is active.
+When that occurrence is released, older overlapped slots do not create further catch-up Tasks.
+A future slot set by Skip next remains unchanged.
 
 Run now is separate execution authority.
 For a pending scheduled Task, it runs that same Task early.
@@ -337,11 +340,10 @@ Backend field availability alone does not justify display.
 
 ## Code ownership
 
-- `crates/noema-workspaces` owns workspace and project records.
-- `crates/noema-tasks` owns Task workflow, commands, gates, runs, and events.
-- Task modules in `crates/noema-store` own persistence, transitions, leases, and reconciliation.
-- Task modules in `crates/noema-runtime` own supervised execution and Task tools.
-- Task modules in `crates/noema-api` own GraphQL projections and resolvers.
+- `internal/project` owns Project records and document rules.
+- `internal/store` owns Task persistence, commands, gates, runs, and events.
+- `internal/runtime` owns supervised execution and Task tools.
+- Task modules in `internal/graphql` own GraphQL projections and resolvers.
 - `apps/web` and `apps/ios` own client presentation from generated contracts.
 
 These boundaries do not require horizontal feature work.

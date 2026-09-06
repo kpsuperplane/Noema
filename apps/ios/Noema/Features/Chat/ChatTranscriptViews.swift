@@ -411,6 +411,14 @@ struct ToolMarkerView: View {
               .foregroundStyle(NoemaColor.contentSecondary)
               .lineLimit(1)
               .multilineTextAlignment(.leading)
+            if markerCount > 1 && !expanded {
+              Text("+\(markerCount - 1)")
+                .font(NoemaFont.compact.weight(.medium))
+                .foregroundStyle(NoemaColor.content)
+                .padding(.horizontal, NoemaSpacing.sm)
+                .frame(minHeight: NoemaSpacing.xl)
+                .background(NoemaColor.controlFill, in: Capsule())
+            }
             if expandable {
               Image(systemName: "chevron.down")
                 .font(.system(size: 10, weight: .semibold))
@@ -424,7 +432,7 @@ struct ToolMarkerView: View {
         }
         .buttonStyle(.plain)
         .disabled(!expandable)
-        .accessibilityLabel("\(toolMarkerStatusLabel(markerStatus)), \(toolMarkerName(in: collapsedMessages))")
+        .accessibilityLabel("\(toolMarkerStatusLabel(markerStatus)), \(markerAccessibilityName)")
         .accessibilityValue(expandable ? (expanded ? "Expanded" : "Collapsed") : "")
         if calls.count == 1 { ToolTechnicalRecordButton(messages: messages) }
       }
@@ -463,6 +471,12 @@ struct ToolMarkerView: View {
   private var expandable: Bool { markerCount > 1 || calls.contains(where: toolMarkerExpandable) }
 
   private var markerCount: Int { calls.count }
+
+  private var markerAccessibilityName: String {
+    guard markerCount > 1 else { return toolMarkerName(in: collapsedMessages) }
+    if expanded { return "\(markerCount) tool calls" }
+    return "\(toolMarkerName(in: collapsedMessages)), \(markerCount - 1) more tool calls"
+  }
 
   private var collapsedMessages: [ChatMessage] {
     calls.last(where: { [.pending, .running].contains(toolMarkerStatus(in: $0)) }) ?? calls.last ?? messages

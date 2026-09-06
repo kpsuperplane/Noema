@@ -1,0 +1,83 @@
+diff --git a/internal/webtool/audit_browser_switch_state_test.go b/internal/webtool/audit_browser_switch_state_test.go
+new file mode 100644
+index 00000000..0d99954d
+--- /dev/null
++++ b/internal/webtool/audit_browser_switch_state_test.go
+@@ -0,0 +1,77 @@
++package webtool
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestAuditBrowserSwitchDoesNotTransferPageState(t *testing.T) {
++	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
++	defer cancel()
++	stub := &kernelTestServer{}
++	remote := httptest.NewServer(http.HandlerFunc(stub.handler))
++	defer remote.Close()
++	fixture := newKernelTestFixture(t, remote.URL, true)
++	service := fixture.service
++	service.browserPath = "/var/lib/noema-dev/system/tools/obscura/v0.2.2/linux-amd64/obscura"
++	owner := "conversation:audit-switch-state"
++	opened := service.ExecuteBrowser(ctx, owner, BrowseOpenName, json.RawMessage(`{"url":"https://example.com"}`), "audit:open")
++	if !opened.Success {
++		t.Fatal("public page open failed")
++	}
++	old := currentBrowserSession(t, service, owner)
++	// All values are synthetic state, not credential material.
++	script := `document.body.innerHTML='<input value="audit-form-marker"><button>Audit button</button>'; document.cookie='audit_state=audit-cookie-marker; path=/'; localStorage.setItem('audit','audit-local-marker'); sessionStorage.setItem('audit','audit-session-marker'); [document.querySelector('input').value,document.cookie,localStorage.getItem('audit'),sessionStorage.getItem('audit')].join('|')`
++	var initial string
++	if err := old.process.evaluate(ctx, script, &initial); err != nil {
++		t.Fatal(err)
++	}
++	markers := []string{"audit-form-marker", "audit-cookie-marker", "audit-local-marker", "audit-session-marker"}
++	for _, marker := range markers {
++		if !strings.Contains(initial, marker) {
++			t.Fatal("synthetic state setup incomplete")
++		}
++	}
++	snapshot := service.ExecuteBrowser(ctx, owner, BrowseSnapshotName, json.RawMessage(`{}`), "audit:snapshot")
++	if !snapshot.Success {
++		t.Fatal("state snapshot failed")
++	}
++	revision := currentBrowserRevision(t, service, owner)
++	switched := service.ExecuteBrowser(ctx, owner, BrowseSwitchName, json.RawMessage(fmt.Sprintf(`{"snapshot_revision":%d,"url":"https://8.8.8.8/kernel"}`, revision)), "audit:switch")
++	if !switched.Success {
++		t.Fatalf("switch: %s", switched.Model)
++	}
++	next := currentBrowserSession(t, service, owner)
++	if next == old || next.providerKind != "kernel" || next.process != nil {
++		t.Fatal("switch did not create separate Kernel session")
++	}
++	stale := service.ExecuteBrowser(ctx, owner, BrowseInteractName, json.RawMessage(fmt.Sprintf(`{"snapshot_revision":%d,"ref":"e1","action":"click"}`, revision)), "audit:stale")
++	if stale.Success || !strings.Contains(string(stale.Model), "stale_snapshot") {
++		t.Fatal("old snapshot was accepted")
++	}
++	stub.mu.Lock()
++	calls := append([]kernelTestCall(nil), stub.calls...)
++	stub.mu.Unlock()
++	if len(calls) != 2 || calls[0].path != "/browsers" {
++		t.Fatalf("unexpected remote call count: %d", len(calls))
++	}
++	for _, call := range calls {
++		body, _ := json.Marshal(call.body)
++		for _, marker := range markers {
++			if strings.Contains(string(body), marker) {
++				t.Fatal("old page state was sent to new provider")
++			}
++		}
++	}
++	closed := service.ExecuteBrowser(ctx, owner, BrowseCloseName, json.RawMessage(`{}`), "audit:close")
++	if !closed.Success {
++		t.Fatal("Kernel close failed")
++	}
++	t.Log("Synthetic form, cookie, local storage, and session storage stayed out of switch requests; old revision rejected before remote interaction")
++}

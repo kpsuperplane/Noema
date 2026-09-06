@@ -1,0 +1,23 @@
+diff --git a/dist/Text/useTruncation.js b/dist/Text/useTruncation.js
+index 88e38acb82597dd452c055fdb31f568198eef6fe..9b6c89b5a8d8130a6b81ea02f2cc6a6a6214ed00 100644
+--- a/dist/Text/useTruncation.js
++++ b/dist/Text/useTruncation.js
+@@ -91,14 +91,12 @@ export function useTruncation(options) {
+       } else {
+         checkTruncation(element);
+       }
+-    } else {
+-      setIsTruncated(false);
+-      setFullText('');
+     }
++    // Ref detachment must not schedule a render. Merged refs can change on each render.
+   }, [maxLines, checkTruncation]);
+   return {
+     ref,
+-    isTruncated,
+-    fullText
++    isTruncated: maxLines > 0 && isTruncated,
++    fullText: maxLines > 0 ? fullText : ''
+   };
+ }
+\ No newline at end of file

@@ -20,6 +20,7 @@ export function SettingsManagementLayout({
   primaryAction,
   list,
   detail,
+  detailHeader,
   detailOpen,
   detailLabel,
   onDetailOpenChange
@@ -28,6 +29,7 @@ export function SettingsManagementLayout({
   primaryAction?: SettingsPrimaryAction;
   list: ReactNode;
   detail?: ReactNode;
+  detailHeader?: ReactNode;
   detailOpen: boolean;
   detailLabel: string;
   onDetailOpenChange: (open: boolean) => void;
@@ -45,6 +47,7 @@ export function SettingsManagementLayout({
       }
       detail={detail ? (
         <VStack {...stylex.props(styles.scroller)}>
+          {detailHeader ? <header {...stylex.props(styles.detailHeader)}>{detailHeader}</header> : null}
           <ManagementDetailBody>{detail}</ManagementDetailBody>
         </VStack>
       ) : null}
@@ -111,6 +114,15 @@ const styles = stylex.create({
     "@media (max-width: 760px)": { padding: "var(--spacing-3)" }
   },
   toolbar: { position: "sticky", top: 0, zIndex: 3, flexShrink: 0 },
+  detailHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 3,
+    flexShrink: 0,
+    padding: "var(--spacing-3) var(--spacing-4) var(--spacing-1)",
+    backgroundColor: "var(--background)",
+    "@media (max-width: 979px)": { paddingInline: "var(--spacing-2)" }
+  },
   desktopAction: {
     position: "absolute",
     top: "var(--spacing-3)",

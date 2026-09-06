@@ -1,0 +1,100 @@
+diff --git a/internal/runtime/audit_archives_test.go b/internal/runtime/audit_archives_test.go
+new file mode 100644
+index 00000000..2eba379f
+--- /dev/null
++++ b/internal/runtime/audit_archives_test.go
+@@ -0,0 +1,94 @@
++package runtime
++
++import (
++	"archive/zip"
++	"bytes"
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func TestAuditDocumentArchiveBoundaries(t *testing.T) {
++	cwd := t.TempDir()
++	outside := filepath.Join(filepath.Dir(cwd), "audit-outside.txt")
++	if err := os.WriteFile(outside, []byte("Preserved café 日本語"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { os.Remove(outside) })
++	for _, name := range []string{"valid", "oversized", "part", "entries", "parent"} {
++		t.Run(name, func(t *testing.T) {
++			filename := name + ".docx"
++			target := filepath.Join(cwd, filename)
++			if name == "oversized" {
++				f, err := os.Create(target)
++				if err != nil {
++					t.Fatal(err)
++				}
++				if err = f.Truncate(fileParseMaximumInput + 1); err != nil {
++					t.Fatal(err)
++				}
++				f.Close()
++			} else {
++				var buf bytes.Buffer
++				z := zip.NewWriter(&buf)
++				write := func(path string, data []byte) {
++					t.Helper()
++					w, err := z.Create(path)
++					if err != nil {
++						t.Fatal(err)
++					}
++					if _, err = w.Write(data); err != nil {
++						t.Fatal(err)
++					}
++				}
++				if name != "part" {
++					write("word/document.xml", []byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Ordinary text</w:t></w:r></w:p></w:body></w:document>`))
++				}
++				switch name {
++				case "part":
++					write("word/document.xml", bytes.Repeat([]byte("x"), 33<<20))
++				case "entries":
++					for i := 0; i < 10001; i++ {
++						write(fmt.Sprintf("item%d", i), []byte("x"))
++					}
++				case "parent":
++					write("../audit-outside.txt", []byte("Changed"))
++				}
++				if err := z.Close(); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.WriteFile(target, buf.Bytes(), 0600); err != nil {
++					t.Fatal(err)
++				}
++			}
++			before, err := os.ReadFile(target)
++			if err != nil {
++				t.Fatal(err)
++			}
++			args, _ := json.Marshal(map[string]any{"path": filename})
++			started := time.Now()
++			result, err := parseConversationFile(t.Context(), cwd, args)
++			if name == "valid" {
++				if err != nil || result.Status != "converted" || result.Content == nil || *result.Content != "Ordinary text" {
++					t.Fatal("valid control failed", err)
++				}
++			} else if err != nil || result.Status != "failed" || result.Error == nil || result.Content != nil {
++				t.Fatalf("boundary status=%s error=%v", result.Status, err)
++			}
++			if time.Since(started) > 5*time.Second {
++				t.Error("boundary rejection exceeded five seconds")
++			}
++			after, err := os.ReadFile(target)
++			if err != nil || !bytes.Equal(before, after) {
++				t.Fatal("source changed", err)
++			}
++			preserved, err := os.ReadFile(outside)
++			if err != nil || string(preserved) != "Preserved café 日本語" {
++				t.Fatal("outside file changed", err)
++			}
++		})
++	}
++}

@@ -1,0 +1,9 @@
+{
+  "baseRevision": "d7add3e5",
+  "instance": "https://noema.kevinpei.com",
+  "command": "node docs/validation/evidence/2026-09-06-public-pages.mjs",
+  "result": "passed",
+  "cases": ["OPS-01", "NATIVE-02"],
+  "verified": "Public callback errors remain script-free and signed-out GraphQL remains denied. Native consent cancellation returns access_denied without a code at desktop and phone widths, and the loopback callback receives the exact state.",
+  "transport": "Direct HTTPS origin with JavaScript blocked. A local loopback callback server receives the cancellation."
+}

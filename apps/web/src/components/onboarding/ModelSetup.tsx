@@ -1,9 +1,7 @@
 import { Button } from "@astryxdesign/core/Button";
-import { Card } from "@astryxdesign/core/Card";
-import { Divider } from "@astryxdesign/core/Divider";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   ConfirmOnboardingModelSelectionsInput,
   NoemaModelUseCase,
@@ -11,8 +9,12 @@ import type {
   OnboardingModelSetupQuery
 } from "@/generated/graphql";
 import { ControlledModelPreferenceSelect } from "../settings/ControlledModelPreferenceSelect";
-import type { ModelPreferenceSaveInput, ModelProviderOption } from "../settings/modelPreferenceTypes";
+import type {
+  ModelPreferenceSaveInput,
+  ModelProviderOption
+} from "../settings/modelPreferenceTypes";
 import { ErrorMarker } from "../ErrorMarker";
+import { SetupCard, SetupActions, SetupNote } from "../shell/SetupFrame";
 
 type Setup = OnboardingModelSetupQuery["onboardingModelSetup"];
 type Draft = Omit<ConfirmOnboardingModelSelectionsInput, "providerAccountId">;
@@ -29,24 +31,71 @@ const groups: ReadonlyArray<{
 }> = [
   {
     title: "Chat",
-    rows: [{ key: "noema", label: "Noema", description: "Your main conversational model", useCase: "PRIMARY" }]
+    rows: [
+      {
+        key: "noema",
+        label: "Noema",
+        description: "Your main conversational model",
+        useCase: "PRIMARY"
+      }
+    ]
   },
   {
     title: "Tasks",
     rows: [
-      { key: "simpleTasks", label: "Simple tasks", description: "Fast, routine task execution", useCase: "TASK_SIMPLE" },
-      { key: "mediumTasks", label: "Medium tasks", description: "General task execution", useCase: "TASK_MEDIUM" },
-      { key: "difficultTasks", label: "High tasks", description: "Complex task execution", useCase: "TASK_DIFFICULT" },
-      { key: "taskReviewer", label: "Task reviewer", description: "Reviews completed task work", useCase: "TASK_REVIEWER" }
+      {
+        key: "simpleTasks",
+        label: "Simple tasks",
+        description: "Fast, routine task execution",
+        useCase: "TASK_SIMPLE"
+      },
+      {
+        key: "mediumTasks",
+        label: "Medium tasks",
+        description: "General task execution",
+        useCase: "TASK_MEDIUM"
+      },
+      {
+        key: "difficultTasks",
+        label: "Difficult tasks",
+        description: "Complex task execution",
+        useCase: "TASK_DIFFICULT"
+      },
+      {
+        key: "taskReviewer",
+        label: "Task reviewer",
+        description: "Reviews completed task work",
+        useCase: "TASK_REVIEWER"
+      }
     ]
   },
   {
     title: "Supporting work",
     rows: [
-      { key: "webFetchSummarizer", label: "Web summaries", description: "Condenses fetched pages", useCase: "WEB_FETCH_SUMMARIZER" },
-      { key: "toolProgressAudit", label: "Progress checks", description: "Checks long-running task progress", useCase: "TOOL_PROGRESS_AUDIT" },
-      { key: "actionReviewer", label: "Action reviews", description: "Reviews governed actions", useCase: "ACTION_REVIEWER" },
-      { key: "memoryConsolidation", label: "Memory updates", description: "Maintains long-term memory", useCase: "MEMORY_CONSOLIDATION" }
+      {
+        key: "webFetchSummarizer",
+        label: "Web summaries",
+        description: "Condenses fetched pages",
+        useCase: "WEB_FETCH_SUMMARIZER"
+      },
+      {
+        key: "toolProgressAudit",
+        label: "Progress checks",
+        description: "Checks long-running task progress",
+        useCase: "TOOL_PROGRESS_AUDIT"
+      },
+      {
+        key: "actionReviewer",
+        label: "Action reviews",
+        description: "Reviews governed actions",
+        useCase: "ACTION_REVIEWER"
+      },
+      {
+        key: "memoryConsolidation",
+        label: "Memory updates",
+        description: "Maintains long-term memory",
+        useCase: "MEMORY_CONSOLIDATION"
+      }
     ]
   }
 ];
@@ -65,99 +114,168 @@ export function ModelSetup({
   onUseDifferentProvider: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => setup.proposedSelections);
-  const provider = useMemo<ModelProviderOption>(() => ({
-    providerKind: setup.providerKind,
-    providerAccountId: setup.providerAccountId,
-    providerDisplayName: setup.providerDisplayName,
-    status: "AUTHENTICATED",
-    profiles: setup.profiles,
-    recommendations: setup.recommendations
-  }), [setup]);
+  const provider = useMemo<ModelProviderOption>(
+    () => ({
+      providerKind: setup.providerKind,
+      providerAccountId: setup.providerAccountId,
+      providerDisplayName: setup.providerDisplayName,
+      status: "AUTHENTICATED",
+      profiles: setup.profiles,
+      recommendations: setup.recommendations
+    }),
+    [setup]
+  );
   const reconciledDraft = reconcileDraft(draft, setup);
 
-  const complete = groups.every(({ rows }) => rows.every(({ key }) => {
-    if (key === "actionReviewer" && setup.providerKind === "local_models") return true;
-    return isValidSelection(reconciledDraft[key], setup, modelUseCaseForKey(key));
-  }));
+  const complete = groups.every(({ rows }) =>
+    rows.every(({ key }) => {
+      if (key === "actionReviewer" && setup.providerKind === "local_models")
+        return true;
+      return isValidSelection(
+        reconciledDraft[key],
+        setup,
+        modelUseCaseForKey(key)
+      );
+    })
+  );
 
+  const rows = groups.flatMap((group) => group.rows);
+  const resolved = (key: DraftKey) => {
+    const selection = reconciledDraft[key];
+    if (!selection) return null;
+    return selection.selectionMode === "NOEMA_RECOMMENDED"
+      ? setup.recommendations.find(
+          (item) => item.useCase === modelUseCaseForKey(key)
+        )?.modelProfile
+      : selection.modelProfile;
+  };
+  const summaries = new Map<string, { name: string; jobs: string[] }>();
+  const jobs: Array<[string, DraftKey[]]> = [
+    ["Chat", ["noema"]],
+    ["Routine tasks", ["simpleTasks", "mediumTasks", "taskReviewer"]],
+    ["Difficult tasks", ["difficultTasks"]],
+    [
+      "Supporting work",
+      [
+        "webFetchSummarizer",
+        "toolProgressAudit",
+        "actionReviewer",
+        "memoryConsolidation"
+      ]
+    ]
+  ];
+  for (const [label, keys] of jobs) {
+    const assigned = keys.filter((key) => reconciledDraft[key]);
+    const combined = assigned.every(
+      (key) => resolved(key) === resolved(assigned[0])
+    );
+    for (const key of combined ? assigned.slice(0, 1) : assigned) {
+      const profileId = resolved(key);
+      const name =
+        setup.profiles.find((item) => item.id === profileId)?.label ??
+        "Model unavailable";
+      const summary = summaries.get(profileId ?? key) ?? { name, jobs: [] };
+      summary.jobs.push(
+        combined ? label : rows.find((row) => row.key === key)!.label
+      );
+      summaries.set(profileId ?? key, summary);
+    }
+  }
   return (
-    <VStack as="section" {...stylex.props(styles.root)} aria-label="Model setup" gap={4}>
-      <VStack gap={3} hAlign="center">
-        <img
-          src={`${import.meta.env.BASE_URL}pwa-512x512.png`}
-          width="64"
-          height="64"
-          alt=""
-          {...stylex.props(styles.logo)}
-        />
-        <VStack gap={1.5} hAlign="center">
-          <p {...stylex.props(styles.eyebrow)}>Connected to {setup.providerDisplayName}</p>
-          <h1 {...stylex.props(styles.title)}>Review your models</h1>
-          <p {...stylex.props(styles.description)}>
-            These defaults cover chat, tasks, and supporting work. You can change them now or later.
-          </p>
-        </VStack>
+    <SetupCard
+      title="Review your models"
+      intro="Ready for chat, tasks, and more."
+      step={`Connected to ${setup.providerDisplayName}`}
+    >
+      <VStack gap={3} aria-label="Model assignments">
+        {[...summaries.entries()].map(([id, summary]) => (
+          <VStack key={id} gap={0.5}>
+            <strong>{summary.name}</strong>
+            <p {...stylex.props(styles.description)}>
+              {summary.jobs.join(" · ")}
+            </p>
+          </VStack>
+        ))}
+        {setup.providerKind === "local_models" &&
+        !reconciledDraft.actionReviewer ? (
+          <SetupNote>
+            Noema will ask you to approve actions that need review.
+          </SetupNote>
+        ) : null}
       </VStack>
-
-      <VStack gap={3}>
-        {groups.map((group) => (
-          <Card key={group.title} padding={0}>
-            <VStack as="section" gap={0} {...stylex.props(styles.group)}>
+      <details>
+        <summary {...stylex.props(styles.customize)}>Customize models</summary>
+        <VStack gap={3}>
+          {groups.map((group) => (
+            <VStack as="section" key={group.title} gap={2}>
               <h2 {...stylex.props(styles.groupTitle)}>{group.title}</h2>
-              {group.rows.map((row, rowIndex) => {
+              {group.rows.map((row) => {
                 const selection = reconciledDraft[row.key];
-                const isHumanReview = row.key === "actionReviewer" && !selection;
                 return (
-                  <Fragment key={row.key}>
-                    {rowIndex > 0 ? <Divider /> : null}
-                    <section {...stylex.props(styles.row)}>
-                      <VStack gap={0.5}>
-                        <strong {...stylex.props(styles.rowLabel)}>{row.label}</strong>
-                        <span {...stylex.props(styles.rowDescription)}>{row.description}</span>
-                      </VStack>
-                      {isHumanReview ? (
-                        <span {...stylex.props(styles.humanReview)}>Ask me for approval</span>
-                      ) : selection ? (
-                        <ControlledModelPreferenceSelect
-                          options={[provider]}
-                          selection={toPreference(setup.providerAccountId, selection)}
-                          useCase={row.useCase}
-                          disabled={saving}
-                          ariaLabel={row.label}
-                          onChange={(next) => setDraft({
+                  <VStack key={row.key} gap={1.5}>
+                    <strong {...stylex.props(styles.rowLabel)}>
+                      {row.label}
+                    </strong>
+                    {selection ? (
+                      <ControlledModelPreferenceSelect
+                        options={[provider]}
+                        selection={toPreference(
+                          setup.providerAccountId,
+                          selection
+                        )}
+                        useCase={row.useCase}
+                        disabled={saving}
+                        ariaLabel={row.label}
+                        onChange={(next) =>
+                          setDraft({
                             ...reconciledDraft,
                             [row.key]: fromPreference(next)
-                          })}
-                        />
-                      ) : null}
-                    </section>
-                  </Fragment>
+                          })
+                        }
+                      />
+                    ) : (
+                      <p {...stylex.props(styles.description)}>
+                        Ask me for approval
+                      </p>
+                    )}
+                  </VStack>
                 );
               })}
             </VStack>
-          </Card>
-        ))}
-      </VStack>
-
-      {error ? <ErrorMarker message={error} /> : null}
-      <HStack justify="end" gap={2} wrap="wrap" {...stylex.props(styles.actions)}>
+          ))}
+        </VStack>
+      </details>
+      {error ? (
+        <>
+          <ErrorMarker message="Noema could not finish setup. Your choices are still here." />
+          <details>
+            <summary>Error details</summary>
+            <p>{error}</p>
+          </details>
+        </>
+      ) : null}
+      <SetupActions>
         <Button
-          type="button"
           variant="secondary"
-          label="Use a different provider"
+          label="Change provider"
           isDisabled={saving}
           onClick={onUseDifferentProvider}
         />
         <Button
-          type="button"
           variant="primary"
-          label="Confirm models and start chat"
+          label={error ? "Try again" : "Start chatting"}
           isLoading={saving}
           isDisabled={!complete || saving}
-          onClick={() => onConfirm({ providerAccountId: setup.providerAccountId, ...reconciledDraft })}
+          onClick={() =>
+            onConfirm({
+              providerAccountId: setup.providerAccountId,
+              ...reconciledDraft
+            })
+          }
         />
-      </HStack>
-    </VStack>
+      </SetupActions>
+      <SetupNote>You can change these in Settings.</SetupNote>
+    </SetupCard>
   );
 }
 
@@ -167,19 +285,59 @@ function reconcileDraft(current: Draft, setup: Setup): Draft {
     toSelectionInput(
       isValidSelection(selection, setup, "PRIMARY") ? selection : proposed.noema
     );
-  const actionReviewer = isValidSelection(current.actionReviewer, setup, "ACTION_REVIEWER")
+  const actionReviewer = isValidSelection(
+    current.actionReviewer,
+    setup,
+    "ACTION_REVIEWER"
+  )
     ? current.actionReviewer
     : proposed.actionReviewer;
   return {
     noema: keep(current.noema),
-    simpleTasks: toSelectionInput(isValidSelection(current.simpleTasks, setup, "TASK_SIMPLE") ? current.simpleTasks : proposed.simpleTasks),
-    mediumTasks: toSelectionInput(isValidSelection(current.mediumTasks, setup, "TASK_MEDIUM") ? current.mediumTasks : proposed.mediumTasks),
-    difficultTasks: toSelectionInput(isValidSelection(current.difficultTasks, setup, "TASK_DIFFICULT") ? current.difficultTasks : proposed.difficultTasks),
-    taskReviewer: toSelectionInput(isValidSelection(current.taskReviewer, setup, "TASK_REVIEWER") ? current.taskReviewer : proposed.taskReviewer),
-    webFetchSummarizer: toSelectionInput(isValidSelection(current.webFetchSummarizer, setup, "WEB_FETCH_SUMMARIZER") ? current.webFetchSummarizer : proposed.webFetchSummarizer),
-    toolProgressAudit: toSelectionInput(isValidSelection(current.toolProgressAudit, setup, "TOOL_PROGRESS_AUDIT") ? current.toolProgressAudit : proposed.toolProgressAudit),
+    simpleTasks: toSelectionInput(
+      isValidSelection(current.simpleTasks, setup, "TASK_SIMPLE")
+        ? current.simpleTasks
+        : proposed.simpleTasks
+    ),
+    mediumTasks: toSelectionInput(
+      isValidSelection(current.mediumTasks, setup, "TASK_MEDIUM")
+        ? current.mediumTasks
+        : proposed.mediumTasks
+    ),
+    difficultTasks: toSelectionInput(
+      isValidSelection(current.difficultTasks, setup, "TASK_DIFFICULT")
+        ? current.difficultTasks
+        : proposed.difficultTasks
+    ),
+    taskReviewer: toSelectionInput(
+      isValidSelection(current.taskReviewer, setup, "TASK_REVIEWER")
+        ? current.taskReviewer
+        : proposed.taskReviewer
+    ),
+    webFetchSummarizer: toSelectionInput(
+      isValidSelection(
+        current.webFetchSummarizer,
+        setup,
+        "WEB_FETCH_SUMMARIZER"
+      )
+        ? current.webFetchSummarizer
+        : proposed.webFetchSummarizer
+    ),
+    toolProgressAudit: toSelectionInput(
+      isValidSelection(current.toolProgressAudit, setup, "TOOL_PROGRESS_AUDIT")
+        ? current.toolProgressAudit
+        : proposed.toolProgressAudit
+    ),
     actionReviewer: actionReviewer ? toSelectionInput(actionReviewer) : null,
-    memoryConsolidation: toSelectionInput(isValidSelection(current.memoryConsolidation, setup, "MEMORY_CONSOLIDATION") ? current.memoryConsolidation : proposed.memoryConsolidation)
+    memoryConsolidation: toSelectionInput(
+      isValidSelection(
+        current.memoryConsolidation,
+        setup,
+        "MEMORY_CONSOLIDATION"
+      )
+        ? current.memoryConsolidation
+        : proposed.memoryConsolidation
+    )
   };
 }
 
@@ -202,16 +360,22 @@ function isValidSelection(
   if (!selection) return false;
   if (selection.selectionMode === "NOEMA_RECOMMENDED") {
     return setup.recommendations.some(
-      (recommendation) => recommendation.useCase === useCase && !recommendation.disabledReason
+      (recommendation) =>
+        recommendation.useCase === useCase && !recommendation.disabledReason
     );
   }
   const profile = setup.profiles.find(
-    (candidate) => candidate.id === selection.modelProfile && !candidate.disabledReason
+    (candidate) =>
+      candidate.id === selection.modelProfile && !candidate.disabledReason
   );
   if (!profile) return false;
   return profile.reasoningEfforts.length === 0
-    ? selection.reasoningEffort === null || selection.reasoningEffort === undefined
-    : Boolean(selection.reasoningEffort && profile.reasoningEfforts.includes(selection.reasoningEffort));
+    ? selection.reasoningEffort === null ||
+        selection.reasoningEffort === undefined
+    : Boolean(
+        selection.reasoningEffort &&
+        profile.reasoningEfforts.includes(selection.reasoningEffort)
+      );
 }
 
 function toPreference(
@@ -221,7 +385,9 @@ function toPreference(
   return { providerAccountId, ...selection };
 }
 
-function fromPreference(selection: ModelPreferenceSaveInput): OnboardingModelSelectionInput {
+function fromPreference(
+  selection: ModelPreferenceSaveInput
+): OnboardingModelSelectionInput {
   return {
     selectionMode: selection.selectionMode,
     modelProfile: selection.modelProfile,
@@ -231,85 +397,24 @@ function fromPreference(selection: ModelPreferenceSaveInput): OnboardingModelSel
 }
 
 function modelUseCaseForKey(key: DraftKey): NoemaModelUseCase {
-  return groups
-    .flatMap((group) => group.rows)
-    .find((row) => row.key === key)?.useCase ?? "PRIMARY";
+  return (
+    groups.flatMap((group) => group.rows).find((row) => row.key === key)
+      ?.useCase ?? "PRIMARY"
+  );
 }
 
 const styles = stylex.create({
-  root: {
-    width: "min(100%, 720px)",
-    minHeight: "100%",
-    boxSizing: "border-box",
-    justifyContent: "safe center",
-    marginInline: "auto",
-    paddingBlockStart: "var(--spacing-6)",
-    "@media (max-width: 760px)": {
-      justifyContent: "flex-start",
-      paddingBlockStart: "var(--spacing-4)"
-    }
-  },
-  actions: {
-    paddingBlockEnd: "var(--spacing-12)",
-    "@media (max-width: 760px)": {
-      paddingBlockEnd: "var(--spacing-8)"
-    }
-  },
-  logo: {
-    display: "block",
-    flexShrink: 0,
-    borderRadius: 15,
-    boxShadow:
-      "0 2px 3px color-mix(in srgb, black 8%, transparent), 0 12px 30px color-mix(in srgb, var(--pine-500) 18%, transparent)"
-  },
-  eyebrow: {
+  description: {
     margin: 0,
     color: "var(--muted-foreground)",
     fontSize: "var(--font-size-sm)",
-    fontWeight: 600
+    textWrap: "pretty"
   },
-  title: {
-    margin: 0,
-    fontSize: "var(--font-size-2xl)",
-    lineHeight: 1.15
-  },
-  description: {
-    margin: 0,
-    maxWidth: "60ch",
-    color: "var(--muted-foreground)",
-    textAlign: "center"
-  },
-  group: {
-    padding: "var(--spacing-3)"
-  },
+  customize: { paddingBlock: "var(--spacing-2)", fontWeight: 600 },
   groupTitle: {
     margin: 0,
-    paddingBlockEnd: "var(--spacing-2)",
     fontSize: "var(--font-size-base)",
     color: "var(--muted-foreground)"
   },
-  row: {
-    display: "grid",
-    gridTemplateColumns: "minmax(180px, 1fr) minmax(300px, 1.4fr)",
-    alignItems: "center",
-    gap: "var(--spacing-3)",
-    paddingBlock: "var(--spacing-2)",
-    '@media (max-width: 760px)': {
-      gridTemplateColumns: "minmax(0, 1fr)",
-      gap: "var(--spacing-1-5)"
-    }
-  },
-  rowLabel: {
-    fontSize: "var(--font-size-base)"
-  },
-  rowDescription: {
-    color: "var(--muted-foreground)",
-    fontSize: "var(--font-size-sm)"
-  },
-  humanReview: {
-    justifySelf: "end",
-    color: "var(--muted-foreground)",
-    fontSize: "var(--font-size-base)",
-    '@media (max-width: 760px)': { justifySelf: "start" }
-  }
+  rowLabel: { fontSize: "var(--font-size-sm)" }
 });

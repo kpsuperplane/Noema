@@ -1,0 +1,18 @@
+{
+  "revision": "0cc9ab05c7a27490417226694866ab15b10610c0",
+  "case": "WEB-16",
+  "result": "Pass for controlled Linux worker stall",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/webtool -run '^TestAuditBrowserDeadlineAllowsFreshSession$' -v",
+  "output": "=== RUN   TestAuditBrowserDeadlineAllowsFreshSession\n    audit_browser_deadline_test.go:64: deadline=30.01482601s diagnostic={\"diagnostic\":{\"detail\":\"CDP response was unavailable\",\"provider\":\"obscura\",\"stage\":\"web.browse.snapshot\"},\"error\":\"unavailable\",\"message\":\"Obscura browser operation failed\",\"snapshot_revision\":1}; fresh session opened and closed\n--- PASS: TestAuditBrowserDeadlineAllowsFreshSession (30.93s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t30.937s\n",
+  "assertions": [
+    "A real Obscura worker opens a public page.",
+    "SIGSTOP stalls only the separate test-owned worker process group.",
+    "The production snapshot call fails after its 30-second deadline.",
+    "The returned diagnostic identifies Obscura and web.browse.snapshot.",
+    "The failed session is removed.",
+    "A new process opens a healthy session under the same owner.",
+    "The new session closes successfully."
+  ],
+  "scope": "Production service with the real installed Linux worker. The diagnostic reports unavailable CDP response without explicitly naming deadline expiry. No live Chat UI check.",
+  "normalSuiteChanges": false
+}

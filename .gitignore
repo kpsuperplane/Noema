@@ -1,7 +1,7 @@
 /target/
+/internal/web/release-assets/*
+!/internal/web/release-assets/.gitkeep
 /apps/web/target/
-/crates/noema-memory/target/
-/crates/noema-server/target/
 /crates/noema-desktop/gen/
 node_modules/
 __pycache__/
@@ -14,6 +14,7 @@ __pycache__/
 /.supermemory/
 /crates/noema-desktop/binaries/runtime/*
 !/crates/noema-desktop/binaries/runtime/.gitkeep
+/crates/noema-desktop/binaries/noema-server*
 .env
 .env.*
 !.env.example

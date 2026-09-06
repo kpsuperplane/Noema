@@ -1,0 +1,16 @@
+{
+  "case": "ACTION-02",
+  "revision": "19acbbd0",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/store -run ^TestAuditConcurrentApprovalAndExecution$ -v",
+  "result": "pass",
+  "output": "TestAuditConcurrentApprovalAndExecution PASS; internal/store 0.218s",
+  "assertions": [
+    "Two competing approvals accept one decision.",
+    "Two competing execution claims accept one claim.",
+    "The saved URL and path remain exact.",
+    "After completion, approval reuse and another claim both fail."
+  ],
+  "scope": "Real store with concurrent goroutines. Browser clients and an external service receipt remain untested.",
+  "temporaryTestLines": 107,
+  "productionLines": 0
+}

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { AvatarGroup } from "@astryxdesign/core/AvatarGroup";
+import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
 import { Check, ExternalLink } from "lucide-react";
@@ -17,7 +18,6 @@ import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskBody } from "./TaskBody";
 import { TaskTranscriptSourceProvider } from "./TaskTranscript";
-import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 export function TaskDetailPanel({
@@ -30,7 +30,9 @@ export function TaskDetailPanel({
   edit,
   renderSecondarySurface,
   onOpenDetail,
-  showTasksLink = false
+  showTasksLink = false,
+  onRetry,
+  retrying = false
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -40,6 +42,8 @@ export function TaskDetailPanel({
   controls?: React.ReactNode;
   edit?: TaskInlineEditController;
   showTasksLink?: boolean;
+  onRetry?: () => void;
+  retrying?: boolean;
   renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
@@ -77,10 +81,10 @@ export function TaskDetailPanel({
     );
   }
   if (error && !currentDetail) {
-    return <div {...stylex.props(styles.root)}><TaskUnavailable message={error} /></div>;
+    return <div {...stylex.props(styles.root)}><TaskUnavailable message={error} onRetry={onRetry} retrying={retrying} /></div>;
   }
   if (!currentDetail) {
-    return <div {...stylex.props(styles.root)}><TaskUnavailable message="Task details are unavailable." /></div>;
+    return <div {...stylex.props(styles.root)}><TaskUnavailable message="Task details are unavailable." onRetry={onRetry} retrying={retrying} /></div>;
   }
 
   const run = latestTaskRun(currentDetail);
@@ -92,7 +96,7 @@ export function TaskDetailPanel({
       renderSecondarySurface={renderSecondarySurface}
       run={run}
       controls={controls}
-      showStatus={showStatus && currentDetail.status !== "done"}
+      showStatus={showStatus && Boolean(run) && currentDetail.status !== "done"}
       showTasksLink={showTasksLink}
       taskId={taskId}
     />
@@ -163,11 +167,7 @@ function TaskContextCard({
           showTasksLink={showTasksLink}
           taskId={taskId}
         />
-        {detail.schedule && !detail.schedule.recurrenceId ? (
-          <div {...stylex.props(styles.contextBody)}>
-            <TaskScheduleSummary schedule={detail.schedule} />
-          </div>
-        ) : null}
+
       </div>
     </aside>
   );
@@ -203,7 +203,7 @@ function TaskSummaryHeader({
       ) : null}
       <div {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
-          {completed ? "Task Completed" : run ? run.instanceName : "No agent run yet"}
+          {completed ? "Task Completed" : run ? run.instanceName : detail.status === "cancelled" ? "Task cancelled" : detail.stageBehavior === "DISPATCH" ? "Queued" : detail.stageBehavior === "ACTIVE" ? "Working" : detail.attention ? "Needs you" : detail.schedule ? "Scheduled" : "Ready when you are"}
         </strong>
         {completed && contributors.length ? (
           <AvatarGroup aria-label="Agents that worked on this task" size="xsm">
@@ -406,8 +406,13 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function TaskUnavailable({ message }: { message: string }) {
-  return <div role="status" {...stylex.props(styles.unavailable)}>{message}</div>;
+function TaskUnavailable({ message, onRetry, retrying }: { message: string; onRetry?: () => void; retrying: boolean }) {
+  return (
+    <div role={onRetry ? undefined : "status"} {...stylex.props(styles.unavailable)}>
+      <p role={onRetry ? "alert" : undefined}>{message}</p>
+      {onRetry ? <Button type="button" size="sm" variant="secondary" label="Retry" isLoading={retrying} isDisabled={retrying} onClick={onRetry} /> : null}
+    </div>
+  );
 }
 
 const styles = stylex.create({

@@ -154,8 +154,9 @@ Estimates below are maximum net additions, not targets. Reassess against current
 | 3. Setup | `components/onboarding/Onboarding.tsx`, `components/onboarding/ModelSetup.tsx`, `components/ListCardLink.tsx` (`ListCardButton`), existing model preference selectors | +120 production lines; no new UI tests | Defaults remain drafts; all assignments remain editable; local and cloud paths remain complete |
 
 Paths above are relative to `apps/web/src` unless identified as server files.
-At this baseline, server renderers live in `crates/noema-server/src/web/router.rs` and `native_oauth.rs`.
-A separate Go migration is active. Recheck the production renderer before applying unit 2; do not duplicate renderer work across retired implementations.
+The production implementation uses the Go server on `codex/go-server-migration`.
+See [implementation.md](implementation.md) for current ownership and validation.
+The earlier Rust server paths describe the audit baseline only.
 Extend the existing setup frame and reuse `components/IdentityAvatar.tsx` in the application. Keep public result renderers independent.
 Do not require the authenticated SPA to render a public callback or fatal startup error.
 Keep server result pages usable independently of the app bundle. Render a static avatar when animation code is unavailable.

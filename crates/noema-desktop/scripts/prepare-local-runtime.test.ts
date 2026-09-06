@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import {
   runtimePlanIsPrepared,
   runtimePreparationPlan,
+  goTarget,
   stageRuntimeAsset,
   type RuntimeManifest,
   type RuntimePreparationPlan
@@ -20,7 +21,7 @@ import {
 
 const manifestPath = resolve(
   import.meta.dir,
-  "../../noema-providers/resources/local-models/runtime-assets.json"
+  "../../../internal/localmodel/runtime-assets.json"
 );
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as RuntimeManifest;
 
@@ -130,9 +131,19 @@ describe("runtime preparation target mapper", () => {
     });
   });
 
-  test("rejects a target absent from the pinned manifest", () => {
-    expect(() => runtimePreparationPlan(manifest, "aarch64-unknown-linux-gnu")).toThrow(
-      "No pinned llama.cpp runtime is available for aarch64-unknown-linux-gnu."
+  test("prepares Linux ARM64 CPU and Vulkan runtimes", () => {
+    const plan = runtimePreparationPlan(manifest, "aarch64-unknown-linux-gnu");
+    expect(plan.steps.map(({ asset }) => asset.backend)).toEqual(["cpu", "vulkan"]);
+  });
+});
+
+describe("Go server target mapper", () => {
+  test("maps all release targets without CGo-specific state", () => {
+    expect(goTarget("aarch64-apple-darwin")).toEqual({ goos: "darwin", goarch: "arm64" });
+    expect(goTarget("x86_64-unknown-linux-gnu")).toEqual({ goos: "linux", goarch: "amd64" });
+    expect(goTarget("x86_64-pc-windows-msvc")).toEqual({ goos: "windows", goarch: "amd64" });
+    expect(() => goTarget("riscv64-unknown-linux-gnu")).toThrow(
+      "No Go server target is available for riscv64-unknown-linux-gnu."
     );
   });
 });

@@ -1,0 +1,17 @@
+{
+  "revision": "4309b643d248d868b1a1bf22bbbdb8a7dfdd2ded",
+  "case": "NOTE-06",
+  "result": "Pass for controlled Web Push transport",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/notification -run '^TestAuditWebPushTransportOutcomes$' -v",
+  "output": "=== RUN   TestAuditWebPushTransportOutcomes\n=== RUN   TestAuditWebPushTransportOutcomes/201\n=== RUN   TestAuditWebPushTransportOutcomes/404\n=== RUN   TestAuditWebPushTransportOutcomes/410\n=== RUN   TestAuditWebPushTransportOutcomes/429\n=== RUN   TestAuditWebPushTransportOutcomes/503\n=== RUN   TestAuditWebPushTransportOutcomes/400\n=== RUN   TestAuditWebPushTransportOutcomes/0\n--- PASS: TestAuditWebPushTransportOutcomes (1.42s)\n    --- PASS: TestAuditWebPushTransportOutcomes/201 (0.22s)\n    --- PASS: TestAuditWebPushTransportOutcomes/404 (0.20s)\n    --- PASS: TestAuditWebPushTransportOutcomes/410 (0.20s)\n    --- PASS: TestAuditWebPushTransportOutcomes/429 (0.20s)\n    --- PASS: TestAuditWebPushTransportOutcomes/503 (0.20s)\n    --- PASS: TestAuditWebPushTransportOutcomes/400 (0.19s)\n    --- PASS: TestAuditWebPushTransportOutcomes/0 (0.20s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t1.424s\n",
+  "assertions": [
+    "HTTP 201 completes delivery.",
+    "HTTP 404 and 410 remove the expired registration.",
+    "HTTP 429, HTTP 503, and connection loss schedule a one-minute first retry.",
+    "HTTP 400 fails without another pending delivery.",
+    "Retryable and non-expired terminal outcomes preserve registration."
+  ],
+  "scope": "Production encrypted Web Push sender and delivery store. TLS dial is routed to a local fixture while endpoint validation uses a public IP. Payload decryption and physical display are not covered.",
+  "retryExhaustionEvidence": "2026-09-06-notification-coverage.json",
+  "normalSuiteChanges": false
+}

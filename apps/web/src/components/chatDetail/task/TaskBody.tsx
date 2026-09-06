@@ -4,18 +4,19 @@ import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
-import { IconButton } from "@astryxdesign/core/IconButton";
+import { VStack } from "@astryxdesign/core/VStack";
+import { Link } from "@tanstack/react-router";
+import { normalizeTasksSearch } from "@/components/tasks/tasksTypes";
+import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
+import { TaskInstructionsField } from "@/components/tasks/TaskDocumentFields";
 import * as stylex from "@stylexjs/stylex";
-import { Pencil } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, providerCitationsFromMetadata } from "@/components/transcript/ProviderCitationSources";
 import { TasksTaskWorkspaceFileDocument } from "@/generated/graphql";
 import type { TaskDetail, TaskRunItem, TaskWorkspaceFile } from "./taskTypes";
-import { taskStageLabel } from "./TaskOverview";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
-import { MarkdownDocumentInlineEditor } from "@/components/MarkdownDocumentInlineEditor";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 const TASK_DOCUMENT_PATH = "TASK.md";
@@ -175,7 +176,7 @@ function TaskWorkspace({
   return (
     <section aria-label="Task workspace" {...stylex.props(styles.workspace)}>
       <section aria-label={selectedPath} {...stylex.props(styles.fileViewer)}>
-        <nav aria-label="Task files" {...stylex.props(styles.fileBar)}>
+        {orderedFiles.length > 1 ? <nav aria-label="Task files" {...stylex.props(styles.fileBar)}>
           <HStack
             gap={1}
             width="100%"
@@ -197,7 +198,7 @@ function TaskWorkspace({
           {detail.workspaceFilesTruncated ? (
             <p role="status" {...stylex.props(styles.fileNotice)}>Some files are not shown.</p>
           ) : null}
-        </nav>
+        </nav> : null}
         <TaskWorkspaceFileViewer detail={detail} edit={edit} path={selectedPath} />
       </section>
     </section>
@@ -295,17 +296,15 @@ function workspaceFileButtonLabel(file: TaskWorkspaceFile): string {
 }
 
 function TaskDocument({ citations = [], detail, edit, fileName, text }: { citations?: Parameters<typeof ProviderCitationMarkdown>[0]["citations"]; detail?: TaskDetail; edit?: TaskInlineEditController; fileName: string; text: string }) {
-  if (detail && edit?.field === "DOCUMENT") {
-    return <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
-      <MarkdownDocumentInlineEditor key={`${detail.taskId}:document`} className={stylex.props(styles.editorContent).className} document={detail.taskDocument} digest={edit.task.taskDocumentDigest} edit={edit} label="Task description" title="Description" saveLabel="Save description" onSave={edit.saveDocument} />
-      <TaskMetadata detail={detail} />
-    </div>;
-  }
+  if (detail) return <VStack gap={3} data-slot="task-document" className={stylex.props(styles.editorContent, styles.taskScroller).className}>
+    {edit?.options}
+    {detail.schedule?.recurrenceId ? <Link to="/tasks/recurrences/$recurrenceId" params={{ recurrenceId: detail.schedule.recurrenceId }} search={(current) => normalizeTasksSearch(current)}>View recurring task</Link> : detail.schedule || detail.stageBehavior === "INTAKE" ? <TaskScheduleSummary schedule={detail.schedule}>{edit?.timing}</TaskScheduleSummary> : null}
+    <TaskInstructionsField value={detail.taskDocument} edit={edit} />
+  </VStack>;
   const response = text.trim() || undefined;
 
   return (
     <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
-      {detail ? <TaskDocumentBar edit={edit} /> : null}
       <div {...stylex.props(styles.taskContent)}>
         {response && detail ? (
           <MarkdownContent density="compact" className={stylex.props(styles.taskDescription).className}>{response}</MarkdownContent>
@@ -322,50 +321,9 @@ function TaskDocument({ citations = [], detail, edit, fileName, text }: { citati
         ) : (
           <p {...stylex.props(styles.empty)}>{fileName} has no text content.</p>
         )}
-        {detail ? <TaskMetadata detail={detail} /> : null}
       </div>
     </div>
   );
-}
-
-function TaskDocumentBar({ edit }: { edit?: TaskInlineEditController }) {
-  if (!edit?.canEdit) return null;
-
-  return (
-    <div {...stylex.props(styles.documentBar)}>
-      <span {...stylex.props(styles.editControls)}>
-        <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />
-      </span>
-    </div>
-  );
-}
-
-function TaskMetadata({ detail }: { detail: TaskDetail }) {
-  const revision = detail.currentRevision ?? latestRevision(detail);
-  const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
-  return (
-    <dl {...stylex.props(styles.metadata)}>
-      <MetadataRow label="Stage" value={taskStageLabel(detail)} />
-      {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
-      {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
-      {provenance ? <MetadataRow label="From" value={provenance} /> : null}
-    </dl>
-  );
-}
-
-function MetadataRow({ label, value }: { label: string; value: string }) {
-  return <div {...stylex.props(styles.metadataRow)}><dt {...stylex.props(styles.metadataKey)}>{label}</dt><dd {...stylex.props(styles.metadataValue)}>{value}</dd></div>;
-}
-
-function latestRevision(detail: TaskDetail): number {
-  return detail.revisions.reduce((latest, revision) => Math.max(latest, revision.revision), 0);
-}
-
-function formatDate(value: string): string {
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp)
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
 }
 
 const styles = stylex.create({
@@ -376,8 +334,9 @@ const styles = stylex.create({
     height: "100%"
   },
   tabBar: {
+    width: "100%", maxWidth: 720, marginInline: "auto",
     minWidth: 0,
-    paddingInline: "var(--spacing-1)",
+    paddingInline: "var(--spacing-4)",
     "@container (width > 1200px)": { display: "none" }
   },
   frame: {
@@ -467,12 +426,11 @@ const styles = stylex.create({
   workspaceStatus: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--noema-text-secondary)", fontSize: 13 },
   taskScroller: {
     overflowX: "hidden",
-    paddingBlockStart: "var(--spacing-3)",
+    paddingBlockStart: "var(--spacing-4)",
     paddingBlockEnd: "var(--spacing-6)"
   },
-  documentBar: { display: "flex", justifyContent: "flex-end", alignItems: "center", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, minHeight: 36, marginInline: "auto", marginBlockEnd: "var(--spacing-2)" },
-  editControls: { display: "inline-flex", width: "100%", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
-  editorContent: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
+
+  editorContent: { width: "100%", maxWidth: 720, paddingInline: "var(--spacing-4)", marginInline: "auto", borderRadius: "var(--radius-element)" },
   taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto" },
   plainText: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, margin: "var(--spacing-0) auto", color: "var(--noema-text-primary)", fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
   taskContent: {
@@ -480,21 +438,7 @@ const styles = stylex.create({
     gap: "var(--spacing-4)",
     width: "100%"
   },
-  metadata: {
-    display: "grid",
-    gap: "var(--spacing-1-5)",
-    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
-    maxWidth: 760,
-    marginInline: "auto",
-    marginBlock: "var(--spacing-0)",
-    paddingBlockStart: "var(--spacing-3)",
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: "var(--noema-border-subtle)"
-  },
-  metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },
-  metadataKey: { color: "var(--noema-text-muted)", fontSize: 12 },
-  metadataValue: { minWidth: 0, margin: "var(--spacing-0)", color: "var(--noema-text-secondary)", fontSize: 12, overflowWrap: "anywhere" },
+
   markdown: {
     color: "var(--noema-text-primary)",
     fontSize: 14,

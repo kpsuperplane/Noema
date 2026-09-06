@@ -1,0 +1,20 @@
+{
+  "revision": "c6332ec3bffc4e769575ec51f35e1a78963e1711",
+  "case": "FILE-03",
+  "result": "Pass \u00b7 controlled parser",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/runtime -run '^TestAuditLegacyDOCProductionParse$' -v",
+  "output": "=== RUN   TestAuditLegacyDOCProductionParse\n--- PASS: TestAuditLegacyDOCProductionParse (0.01s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t0.015s\n",
+  "sourceFixture": "internal/documents/testdata/doc/text.doc",
+  "expectedTextSource": "TestDocumentMarkdownDOCKeepsProductionStructure",
+  "assertions": [
+    "Production file parser returns the complete expected Markdown without truncation.",
+    "The DOC uses a Unicode filename.",
+    "Source bytes remain unchanged."
+  ],
+  "setupCorrections": [
+    "Use the public maximum of 20000 characters.",
+    "Copy the complete expected Go string expression, including its embedded backtick section."
+  ],
+  "temporaryTestLines": 104,
+  "normalSuiteChanges": false
+}

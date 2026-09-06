@@ -1,0 +1,17 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "projectId": "project:eb7e02135a057b326b0863dbccf19894",
+  "route": "https://noema.kevinpei.com/tasks/projects/project%3Aeb7e02135a057b326b0863dbccf19894?project=project%3Aeb7e02135a057b326b0863dbccf19894",
+  "evidence": [
+    {
+      "id": "PROJECT-02",
+      "result": "pass",
+      "detail": "Browser saves persist exactly. The competing browser retains its local draft and current server content. Acknowledgement and cancellation do not silently overwrite either."
+    },
+    {
+      "id": "PROJECT-04",
+      "result": "pass",
+      "detail": "Browser archive keeps context readable after reload and removes editing controls in both clients. Reopen restores editing with the same content."
+    }
+  ]
+}

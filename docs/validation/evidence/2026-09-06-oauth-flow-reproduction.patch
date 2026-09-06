@@ -1,0 +1,205 @@
+diff --git a/internal/adapter/audit_oauth_flow_test.go b/internal/adapter/audit_oauth_flow_test.go
+new file mode 100644
+index 00000000..112ce640
+--- /dev/null
++++ b/internal/adapter/audit_oauth_flow_test.go
+@@ -0,0 +1,199 @@
++package adapter
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++func TestAuditOAuthCallbacksSharedGrantAndRefresh(t *testing.T) {
++	var exchanges, refreshes atomic.Int64
++	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		if r.Method == "POST" {
++			if err := r.ParseForm(); err != nil {
++				w.WriteHeader(400)
++				return
++			}
++			if r.Form.Get("grant_type") == "refresh_token" {
++				refreshes.Add(1)
++			} else {
++				exchanges.Add(1)
++				if r.Form.Get("code_verifier") == "" || r.Form.Get("redirect_uri") == "" {
++					w.WriteHeader(400)
++					return
++				}
++			}
++			fmt.Fprint(w, `{"access_token":"synthetic-access","refresh_token":"synthetic-refresh","token_type":"Bearer","expires_in":3600,"scope":"scope.read"}`)
++			return
++		}
++		if r.Header.Get("Authorization") != "Bearer synthetic-access" {
++			w.WriteHeader(401)
++			return
++		}
++		fmt.Fprint(w, `{"name":"Account café 日本語"}`)
++	}))
++	t.Cleanup(server.Close)
++	previous := http.DefaultTransport
++	transport := previous.(*http.Transport).Clone()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
++		return (&tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}).DialContext(ctx, network, server.Listener.Addr().String())
++	}
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous; transport.CloseIdleConnections() })
++	const callback = "http://127.0.0.1:3737/adapter/oauth/callback"
++	service, _ := newOAuthService(t, callback)
++	application, err := service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil, []byte(`{"installed":{"client_id":"audit-client","client_secret":"synthetic-client"}}`))
++	if err != nil {
++		t.Fatal(err)
++	}
++	definitions := []Definition{}
++	for _, id := range []string{"audit-one", "audit-two"} {
++		manifest := oauthManifest()
++		manifest.DefinitionID = id
++		manifest.AdapterID = id
++		manifest.Origin = "https://1.1.1.1/"
++		manifest.Reviewed = true
++		definition, err := service.files.installDefinition(manifest, "https://example.com/audit", nil, nil)
++		if err != nil {
++			t.Fatal(err)
++		}
++		definitions = append(definitions, definition)
++	}
++	start := func() OAuthAttempt {
++		t.Helper()
++		attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definitions[0].SemanticDigest, OperationIDs: []string{"lookup"}, Additional: []OAuthServiceSelection{{SemanticDigest: definitions[1].SemanticDigest, OperationIDs: []string{"lookup"}}}})
++		if err != nil {
++			t.Fatal(err)
++		}
++		return attempt
++	}
++	callbackFor := func(attempt OAuthAttempt, fields url.Values) string {
++		parsed, err := url.Parse(attempt.AuthorizationURL)
++		if err != nil {
++			t.Fatal(err)
++		}
++		fields.Set("state", parsed.Query().Get("state"))
++		return callback + "?" + fields.Encode()
++	}
++	denied := start()
++	deniedEvent, err := service.CompleteOAuth(t.Context(), callbackFor(denied, url.Values{"error": {"access_denied"}}))
++	if err == nil || deniedEvent.Status != "denied" || exchanges.Load() != 0 {
++		t.Fatal("denial accepted or reached token endpoint")
++	}
++	attempt := start()
++	completedURL := callbackFor(attempt, url.Values{"code": {"synthetic-code"}})
++	completed, err := service.CompleteOAuth(t.Context(), completedURL)
++	if err != nil || completed.Status != "completed" || completed.GrantID == "" || exchanges.Load() != 1 {
++		t.Fatal("OAuth completion failed", err)
++	}
++	if _, err = service.CompleteOAuth(t.Context(), completedURL); err == nil || exchanges.Load() != 1 {
++		t.Error("callback replay repeated token exchange")
++	}
++	cached, found := service.OAuthAttempt(attempt.AttemptID)
++	if !found || cached.Status != "completed" || cached.GrantID != completed.GrantID {
++		t.Error("backgrounded client lost attempt result")
++	}
++	events, err := service.SubscribeOAuth(t.Context(), attempt.AttemptID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if event := <-events; event.GrantID != completed.GrantID || event.Status != "completed" {
++		t.Error("late subscriber received wrong result")
++	}
++	for _, definition := range definitions {
++		_, connection, err := service.AttachOAuthConnection(t.Context(), definition.SemanticDigest, completed.GrantID, completed.GrantRevision, "")
++		if err != nil {
++			t.Fatal(err)
++		}
++		_, same, err := service.AttachOAuthConnection(t.Context(), definition.SemanticDigest, completed.GrantID, completed.GrantRevision, "")
++		if err != nil || same.ConnectionID != connection.ConnectionID {
++			t.Fatal("attachment duplicated connection", err)
++		}
++		if _, err = service.SaveConnectionPolicy(t.Context(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask"); err != nil {
++			t.Fatal(err)
++		}
++	}
++	bindings, err := service.Bindings()
++	if err != nil || len(bindings) != 2 {
++		t.Fatal("shared connections unavailable", err)
++	}
++	if bindings[0].ConnectionID == bindings[1].ConnectionID || bindings[0].GrantID != completed.GrantID || bindings[1].GrantID != completed.GrantID {
++		t.Fatal("shared grant identity changed")
++	}
++	grant, token, err := service.files.loadOAuthGrant(completed.GrantID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	generation := randomHex()
++	grant.TokenGeneration = &generation
++	grant.TokenRevision++
++	token.GenerationID = generation
++	token.ExpiresAt = time.Now().Add(-time.Hour).Unix()
++	if err = service.files.replaceOAuthObject("adapters/oauth-grants", grant.GrantID, "grant.json", grant, "tokens", generation, token); err != nil {
++		t.Fatal(err)
++	}
++	// Concurrent dependent calls must serialize refresh and preserve both API results.
++	var group sync.WaitGroup
++	failures := make(chan string, 2)
++	for _, binding := range bindings {
++		group.Add(1)
++		go func(binding Binding) {
++			defer group.Done()
++			payload, ok, err := service.Call(t.Context(), binding, json.RawMessage(`{"id":"record"}`))
++			var result map[string]any
++			_ = json.Unmarshal(payload, &result)
++			if err != nil || !ok || result["name"] != "Account café 日本語" {
++				failures <- "dependent API call failed"
++			}
++		}(binding)
++	}
++	group.Wait()
++	close(failures)
++	for failure := range failures {
++		t.Error(failure)
++	}
++	if refreshes.Load() != 1 {
++		t.Errorf("shared refresh count=%d expected=1", refreshes.Load())
++	}
++	snapshot, err := service.OAuthSnapshot()
++	if err != nil {
++		t.Fatal(err)
++	}
++	raw, _ := json.Marshal(snapshot)
++	if strings.Contains(string(raw), "synthetic-access") || strings.Contains(string(raw), "synthetic-refresh") {
++		t.Error("OAuth snapshot exposed credential material")
++	}
++	if _, err = service.DeleteOAuthApplication(application.ApplicationID, application.Revision); err == nil {
++		t.Error("application with active grant was deleted")
++	}
++	if _, err = service.DisconnectOAuthGrant(t.Context(), completed.GrantID, completed.GrantRevision); err != nil {
++		t.Fatal(err)
++	}
++	remaining, err := service.Bindings()
++	if err != nil || len(remaining) != 0 {
++		t.Error("disconnected APIs retain bindings")
++	}
++	for _, binding := range bindings {
++		if _, ok, err := service.Call(t.Context(), binding, json.RawMessage(`{"id":"record"}`)); ok || err == nil {
++			t.Error("disconnected API retained access")
++		}
++	}
++	if deleted, err := service.DeleteOAuthApplication(application.ApplicationID, application.Revision); err != nil || !deleted {
++		t.Error("disconnected application could not be deleted", err)
++	}
++
++}

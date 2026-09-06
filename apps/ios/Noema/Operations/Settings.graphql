@@ -438,7 +438,6 @@ query NativeTaskModelPools {
     reasoningEffort
     selectionMode
     fastMode
-    enabled
     sortOrder
     createdAt
     updatedAt
@@ -456,7 +455,6 @@ mutation NativeUpdateTaskModelPoolEntry($poolEntryId: String!, $input: TaskModel
     reasoningEffort
     selectionMode
     fastMode
-    enabled
     sortOrder
     createdAt
     updatedAt

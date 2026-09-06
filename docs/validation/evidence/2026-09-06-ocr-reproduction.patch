@@ -1,0 +1,35 @@
+diff --git a/internal/runtime/audit_ocr_test.go b/internal/runtime/audit_ocr_test.go
+new file mode 100644
+index 00000000..16d5cedd
+--- /dev/null
++++ b/internal/runtime/audit_ocr_test.go
+@@ -0,0 +1,29 @@
++package runtime
++
++import (
++	"encoding/json"
++	"strings"
++	"testing"
++)
++
++func TestAuditOCRAndMissingExecutable(t *testing.T) {
++	const cwd = "/var/tmp/noema-suite-run-20260905/ocr"
++	result, err := parseConversationFile(t.Context(), cwd, json.RawMessage(`{"path":"scan.png"}`))
++	if err != nil || result.Status != "converted" || result.Content == nil {
++		t.Fatalf("OCR status=%s error=%v", result.Status, err)
++	}
++	for _, text := range []string{"AUDIT INVOICE 12345", "TOTAL 42.00 USD"} {
++		if !strings.Contains(*result.Content, text) {
++			t.Errorf("OCR missed %q", text)
++		}
++	}
++	t.Setenv("PATH", t.TempDir())
++	missing, err := parseConversationFile(t.Context(), cwd, json.RawMessage(`{"path":"scan.png"}`))
++	if err != nil || missing.Status != "failed" || missing.Error == nil || *missing.Error != "ocr_unavailable" || missing.Content != nil {
++		t.Fatalf("missing OCR status=%s error=%v", missing.Status, err)
++	}
++	text, err := parseConversationFile(t.Context(), cwd, json.RawMessage(`{"path":"notes.txt"}`))
++	if err != nil || text.Status != "converted" || text.Content == nil || *text.Content != "Unrelated café 日本語" {
++		t.Fatal("unrelated text failed", err)
++	}
++}

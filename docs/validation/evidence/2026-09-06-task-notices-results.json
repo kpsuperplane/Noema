@@ -1,0 +1,24 @@
+{
+  "baseRevision": "4c8dfb295f854b4302d241a4ea6aaa981256f1a7",
+  "command": "CGO_ENABLED=0 go test ./internal/runtime -run '^TestAuditTaskNoticesAndSuppressedCompletion$' -v",
+  "output": "=== RUN   TestAuditTaskNoticesAndSuppressedCompletion\n=== RUN   TestAuditTaskNoticesAndSuppressedCompletion/notify\n=== RUN   TestAuditTaskNoticesAndSuppressedCompletion/suppress\n--- PASS: TestAuditTaskNoticesAndSuppressedCompletion (0.51s)\n    --- PASS: TestAuditTaskNoticesAndSuppressedCompletion/notify (0.27s)\n    --- PASS: TestAuditTaskNoticesAndSuppressedCompletion/suppress (0.23s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t0.523s\n",
+  "cases": {
+    "RUN-12": {
+      "result": "Partial",
+      "verified": [
+        "The real notice drain processes captured, waiting, recovery, and completed Task events.",
+        "Narration receives the exact gate question and current result.",
+        "Saved Chat items contain assistant text and correct Task references, without run transcript items.",
+        "Repeated drain adds no items or narration."
+      ],
+      "pending": "Rendered browser states and card hydration across these transitions."
+    },
+    "RUN-13": {
+      "result": "Partial",
+      "verified": "With notify_human=false, the real notice drain saves no completion notice and makes no completion narration call. Task state still reaches Done.",
+      "pending": "An actual recurring Task with unchanged output, including the model decision to suppress its notice."
+    }
+  },
+  "scope": "Controlled store transitions feed the production Chat notice path with synthetic narration. No browser override or live data changes.",
+  "normalSuiteChanges": false
+}

@@ -1,0 +1,151 @@
+{
+  "baseRevision": "46394ea4",
+  "commands": [
+    "node /var/tmp/noema-suite-run-20260905/public-pages.mjs",
+    "node /var/tmp/noema-suite-run-20260905/public-pages.mjs resume"
+  ],
+  "instance": "https://noema.kevinpei.com",
+  "transport": "Direct HTTPS origin. JavaScript bundles blocked. Native denial returns to an intercepted local callback; no external callback service receives data.",
+  "cases": [
+    "OPS-01",
+    "NATIVE-02"
+  ],
+  "defect": "AUDIT-19",
+  "results": [
+    {
+      "width": 1440,
+      "path": "/provider/oauth/callback/audit-missing",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 1440,
+      "path": "/mcp/oauth/callback",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 1440,
+      "path": "/adapter/oauth/callback",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 1440,
+      "path": "/oauth/authorize?response_type=invalid",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 1440,
+      "check": "Public pages do not grant private GraphQL access",
+      "passed": true,
+      "status": 401,
+      "hasData": false,
+      "blockedScripts": 0
+    },
+    {
+      "width": 1440,
+      "check": "Native consent renders and cancels without a JavaScript bundle",
+      "passed": false,
+      "postStatus": null,
+      "redirectError": null,
+      "redirectHasCode": null,
+      "requests": [
+        {
+          "path": "/oauth/authorize",
+          "error": "net::ERR_ABORTED"
+        }
+      ],
+      "receipt": null,
+      "csp": [
+        "form-action"
+      ]
+    },
+    {
+      "width": 390,
+      "path": "/provider/oauth/callback/audit-missing",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 390,
+      "path": "/mcp/oauth/callback",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 390,
+      "path": "/adapter/oauth/callback",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 390,
+      "path": "/oauth/authorize?response_type=invalid",
+      "passed": true,
+      "status": 400,
+      "scripts": 0,
+      "stylesheetLoaded": true
+    },
+    {
+      "width": 390,
+      "check": "Public pages do not grant private GraphQL access",
+      "passed": true,
+      "status": 401,
+      "hasData": false,
+      "blockedScripts": 0
+    },
+    {
+      "width": 390,
+      "check": "Native consent renders and cancels without a JavaScript bundle",
+      "passed": false,
+      "postStatus": null,
+      "redirectError": null,
+      "redirectHasCode": null,
+      "requests": [
+        {
+          "path": "/oauth/authorize",
+          "error": "net::ERR_ABORTED"
+        }
+      ],
+      "receipt": null,
+      "csp": [
+        "form-action"
+      ]
+    }
+  ],
+  "interpretation": [
+    "Provider, MCP, adapter, and invalid native-authorization pages return styled HTML with no scripts at desktop and phone widths.",
+    "Public callback pages use no-store and no-referrer. Signed-out GraphQL reads return 401 without data.",
+    "After a fresh passkey login, the native Desktop consent page renders without JavaScript.",
+    "Clicking Not now causes net::ERR_ABORTED for /oauth/authorize and a form-action policy violation at both widths. The intercepted loopback callback receives no request.",
+    "The public policy permits form-action self. The native Desktop return uses an HTTP loopback callback. The iOS consent branch has its own form-action policy.",
+    "No Connect app action was submitted. The test does not prove successful approval delivery or native application retry UI."
+  ],
+  "corrections": [
+    "Browser Fetch responses expose status as a property.",
+    "OAuth state must contain at least 32 characters.",
+    "Native consent requires recent passkey authentication. The saved audit cookie alone did not satisfy that requirement.",
+    "The final driver records policy failures and continues with remaining widths. It does not classify its zero exit status as success."
+  ],
+  "cleanup": "The final two isolated sessions were logged out. An earlier stopped consent attempt left an unsaved browser session for normal expiry. No passkey was added.",
+  "remaining": [
+    "Successful provider callback pages remain covered only by earlier controlled handler and OAuth tests.",
+    "Native approval and physical desktop/iOS returns remain pending."
+  ]
+}

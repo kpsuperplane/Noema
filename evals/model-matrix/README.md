@@ -11,20 +11,20 @@ The nine setting ids are `primary`, `task_simple`, `task_medium`, `task_difficul
 
 ```bash
 # Inspect every OpenRouter candidate and its recommendation targets.
-cargo validate run -p noema-model-evals -- matrix list
+go run ./cmd/noema-model-evals matrix list
 
 # No ids runs a complete default decision. Explicit ids are exploration only.
-cargo validate run -p noema-model-evals -- matrix run
-cargo validate run -p noema-model-evals -- matrix run \
+go run ./cmd/noema-model-evals matrix run
+go run ./cmd/noema-model-evals matrix run \
   openrouter-luna-low openrouter-haiku-4.5 openrouter-terra-medium
 
 # Reproducible default-maintenance workflow.
-cargo validate run -p noema-model-evals -- defaults plan
-cargo validate run -p noema-model-evals -- defaults estimate <plan.json>
+go run ./cmd/noema-model-evals defaults plan
+go run ./cmd/noema-model-evals defaults estimate <plan.json>
 OPENROUTER_API_KEY=<key> \
-  cargo validate run -p noema-model-evals -- defaults run <plan.json>
-cargo validate run -p noema-model-evals -- defaults propose <decision-dir>
-cargo validate run -p noema-model-evals -- defaults verify <decision-dir>
+  go run ./cmd/noema-model-evals defaults run <plan.json>
+go run ./cmd/noema-model-evals defaults propose <decision-dir>
+go run ./cmd/noema-model-evals defaults verify <decision-dir>
 ```
 
 Hosted matrix and cadence runs read `OPENROUTER_API_KEY` directly. They do not
@@ -34,8 +34,8 @@ rejects inaccessible planned models. Local GGUF qualification remains separate
 under `evals/local-models/`.
 
 Reports are written incrementally under
-`target/noema-model-evals/model-matrix/<run-id>/` as `matrix.json` and
-`summary.md`. Explicit-subset exploration reports never emit final
+`target/noema-model-evals/<run-id>/` as `report.json` and
+`report.md`. Explicit-subset exploration reports never emit final
 recommendations. A default-decision report emits them only after every selected
 candidate and repetition completes; qualification also requires every critical
 case and the returned OpenRouter model identity to match the candidate contract.
@@ -46,7 +46,7 @@ billed calls nine times.
 
 ## Evidence validity
 
-The current runner uses suite v9.
+The current runner uses Go suite v10.
 Committed decision summaries are sufficient durable evidence.
 Machine-local plans, checkpoints, responses, comparisons, and generated patches are optional diagnostic support.
 Their absence does not invalidate a committed decision summary.
@@ -56,7 +56,7 @@ Rerun when case coverage changes a recommended role's material contract or a nam
 A later applied decision supersedes only the provider and role cells that it changes.
 
 Each committed decision records its suite and supersession status.
-Current shipped recommendations remain authoritative in `crates/noema-providers/src/recommendations.rs`.
+Current shipped recommendations remain authoritative in `internal/provider/recommendations.go`.
 
 Primary qualification includes seven non-compensable stateful scenarios. They
 cover a cross-timezone flight and public event discovered on the web, an email
@@ -91,20 +91,20 @@ Typed safety and terminal-contract roles use deterministic graders only.
 The immutable plan embeds Git state, candidates, prices, suite and policy
 versions, a conservative maximum-token cost estimate, a matching spend ceiling,
 and a content fingerprint. The evidence directory copies that plan and updates
-`matrix.json` and `summary.md` after every case. Rerunning the same plan resumes
+`report.json` and `report.md` after every case. Rerunning the same plan resumes
 the checkpoint and never repeats a recorded model or judge call. Execution is
 sequential, with one provider call in flight and the suite timeout applied to
-each call. Account, authentication, and rate-limit failures stop the run before
-that case is checkpointed; rerunning the plan clears the transient run failure
-and retries from that exact case. Candidate-specific request and malformed-output
-failures remain qualification evidence. The cost ceiling multiplies stateful
+each case. An interrupted request keeps an uncertain-cost checkpoint.
+Create a new plan before another attempt at that request.
+Completed cases remain recorded, including malformed outputs and provider failures.
+ The cost ceiling multiplies stateful
 cases by their maximum provider round count rather than treating each case as
 one request.
 
 Pricing in `candidates.toml` is a decision-time snapshot, not provider billing. Before a decision run, refresh each price from the provider's catalog and keep the generated JSON report with the decision. Cached input uses its explicit rate when present; otherwise the normal input rate is used conservatively. Candidates without prices remain comparable on correctness and latency but sort after equally correct candidates with complete cost data.
 
 The matrix never applies its recommendations. It emits a reviewable
-`recommendations.rs` patch from a completed default decision.
+`recommendations.go` patch from a completed default decision.
 
 `defaults propose` recomputes rankings from the checkpoint, selects the best
 qualified candidate with an explicit mapping for each provider/role cell,
@@ -112,3 +112,7 @@ applies the incumbent margin independently for that provider, and writes
 `recommendations.patch` plus `proposal.md`. It never edits the source tree.
 `defaults verify` succeeds only when every shipped hosted-provider default has
 qualified mapped evidence and exactly matches the selected profile and effort.
+
+Go plans use schema 2. Go reports use schema 3.
+Old Rust plans cannot resume under the Go runner.
+The Go suite uses current production prompts, tool schemas, and provider adapters.

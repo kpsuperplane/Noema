@@ -1,0 +1,26 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "transport": "Development socket",
+  "evidence": [
+    {
+      "id": "TIME-06-manual",
+      "result": "pass",
+      "detail": "A new manual occurrence copies the updated template. The original Task document remains unchanged.",
+      "recurrenceId": "recurrence:53d79f6551403902dace4f9600c75cc4",
+      "taskId": "task:be5c7bffca6b7eac4db957aca6e9a8bf"
+    },
+    {
+      "id": "TIME-09-server",
+      "result": "pass",
+      "detail": "Run recurrence now creates one manual occurrence and preserves the next normal slot.",
+      "recurrenceId": "recurrence:53d79f6551403902dace4f9600c75cc4",
+      "normalSlot": "2026-09-06T20:25:00Z"
+    },
+    {
+      "id": "TIME-08-end",
+      "result": "pass",
+      "detail": "Ended template remains readable and rejects editing.",
+      "recurrenceId": "recurrence:53d79f6551403902dace4f9600c75cc4"
+    }
+  ]
+}

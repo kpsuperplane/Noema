@@ -1,0 +1,26 @@
+[
+  {
+    "title": "Audit SVG fallback",
+    "filename": "fallback.svg",
+    "media_type": "image/svg+xml",
+    "content": "<svg xmlns=\"http://www.w3.org/2000/svg\"><text x=\"1\" y=\"15\">SVG audit</text></svg>"
+  },
+  {
+    "title": "Audit binary fallback",
+    "filename": "fallback.bin",
+    "media_type": "application/octet-stream",
+    "content": "Controlled binary fallback bytes\n"
+  },
+  {
+    "title": "Audit plain text",
+    "filename": "literal.txt",
+    "media_type": "text/plain",
+    "content": "<b>Literal café 日本語 🧭</b>\n"
+  },
+  {
+    "title": "Audit PDF preview",
+    "filename": "preview.pdf",
+    "media_type": "application/pdf",
+    "content": "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n5 0 obj\n<< /Length 50 >>\nstream\nBT /F1 18 Tf 30 130 Td (Noema PDF audit 42) Tj ET\nendstream\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000241 00000 n \n0000000311 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n410\n%%EOF\n"
+  }
+]

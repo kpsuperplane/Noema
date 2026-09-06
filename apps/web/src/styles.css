@@ -2,6 +2,7 @@
 @import "@astryxdesign/core/astryx.css";
 @import "@astryxdesign/theme-neutral/theme.css";
 @import "./theme/noema-neutral.css";
+@import "./theme/supporting.css";
 @import "./motion/pageWave.css";
 
 @property --shell-page-center-offset {
@@ -344,17 +345,21 @@ a[href][data-slot="shell-sidebar-control"] {
   padding-inline: 0;
 }
 
+/* The task document grows through Milkdown and Astryx source-field wrappers. */
 [data-slot="task-capture-document"] [data-slot="markdown-inline-editor"],
 [data-slot="task-capture-document"] [data-slot="markdown-inline-editor-host"],
 [data-slot="task-capture-document"] [data-slot="markdown-editor"],
 [data-slot="task-capture-document"] [data-slot="markdown-editor"] > div,
-[data-slot="task-capture-document"] [data-slot="markdown-editor"] .milkdown,
-[data-slot="task-capture-document"] [data-slot="markdown-editor"] .ProseMirror {
-  min-height: 100%;
+[data-slot="task-capture-document"] .milkdown,
+[data-slot="task-capture-document"] .astryx-field > div:has(> .astryx-textarea) {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
 }
-
-[data-slot="task-capture-document"] [data-slot="markdown-editor"] textarea {
-  min-height: 100%;
+[data-slot="task-capture-document"] .ProseMirror,
+[data-slot="task-capture-document"] .astryx-textarea,
+[data-slot="task-capture-document"] textarea {
+  flex-grow: 1;
 }
 
 [data-slot="markdown-editor"][data-density="inline"] .milkdown .ProseMirror > :first-child {

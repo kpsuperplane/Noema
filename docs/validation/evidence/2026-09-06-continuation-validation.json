@@ -1,0 +1,47 @@
+{
+  "case": "RUN-07",
+  "result": "Pass \u00b7 controlled runtime",
+  "baseRevision": "d7df121a",
+  "test": "TestTaskContinuationUsesCheckpointWithoutRepeatingWork",
+  "testFileSha256": "2a8e1283544bbd5ea0f499f2c030f83b269930ff6a419aaa235340ff36b0b5c0",
+  "assertions": [
+    "The child Executor receives the exact saved checkpoint.",
+    "The earlier Executor is complete and is the child run parent.",
+    "The support-file read returns the saved first-step output.",
+    "The saved transcript contains exactly one first-step write.",
+    "Planner, two Executors, and Reviewer complete.",
+    "Final support and result files preserve exact text and Unicode."
+  ],
+  "checks": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/runtime -run '^TestTaskContinuationUsesCheckpointWithoutRepeatingWork$'",
+      "result": "pass",
+      "output": "ok  \tgithub.com/kpsuperplane/noema/internal/runtime\t0.327s\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": "ok  \tgithub.com/kpsuperplane/noema/cmd/noema\t(cached)\nok  \tgithub.com/kpsuperplane/noema/cmd/noema-dev\t(cached)\n?   \tgithub.com/kpsuperplane/noema/cmd/noema-model-evals\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/acp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/adapter\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/artifact\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/auth\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/childenv\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/diagnostics\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/documents\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/graphql\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/graphql/model\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/home\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/localmodel\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/mcp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/memory\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/modeleval\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/netpolicy\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/project\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/provider\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/publicpage\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t18.615s\nok  \tgithub.com/kpsuperplane/noema/internal/schedule\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/script\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/store\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/web\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t(cached)\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": ""
+    }
+  ],
+  "netLines": {
+    "production": 0,
+    "tests": 98
+  },
+  "goTotals": {
+    "production": 78351,
+    "tests": 26077,
+    "generated": 79612,
+    "inclusive": 184040,
+    "productionRatio": 0.4503189838496465,
+    "inclusiveRatio": 0.7673896908592063
+  },
+  "limits": [
+    "Model responses are controlled. This verifies runtime continuation and current-file behavior."
+  ]
+}

@@ -1,0 +1,80 @@
+diff --git a/internal/runtime/audit_first_pass_test.go b/internal/runtime/audit_first_pass_test.go
+new file mode 100644
+index 00000000..4aac723c
+--- /dev/null
++++ b/internal/runtime/audit_first_pass_test.go
+@@ -0,0 +1,74 @@
++package runtime
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++)
++
++func TestAuditTaskReadAnotherOwnerAuthorizedTask(t *testing.T) {
++	chat, database, _ := chatFixture(t)
++	source := createQueuedRuntimeTask(t, database, chat.home, "Source café 日本語")
++	target := createQueuedRuntimeTask(t, database, chat.home, "Target café 日本語")
++	runtime := &TaskExecution{database: database, root: chat.home}
++	arguments, _ := json.Marshal(map[string]string{"task_id": target.ID})
++	// Primary Chat verifies that this owner can read the target Task.
++	if payload, allowed := chat.inspectTask(t.Context(), arguments); !allowed {
++		t.Fatalf("owner read failed: %s", payload)
++	}
++	for _, role := range []string{"executor", "reviewer"} {
++		payload, success, _, _ := runtime.executeTaskTool(t.Context(), source, store.TaskRun{Kind: role}, taskInspectName, arguments, false)
++		var result map[string]any
++		_ = json.Unmarshal(payload, &result)
++		if !success || result["task_id"] != target.ID || result["task_document"] != "Target café 日本語" {
++			t.Errorf("%s cross-Task read success=%t payload=%s", role, success, payload)
++		}
++	}
++}
++
++func TestAuditTaskFileBoundaryPreservesOutsideContent(t *testing.T) {
++	chat, database, _ := chatFixture(t)
++	task := createQueuedRuntimeTask(t, database, chat.home, "Task café 日本語")
++	runtime := &TaskExecution{database: database, root: chat.home}
++	outside := t.TempDir()
++	sentinel := filepath.Join(outside, "ordinary.md")
++	const content = "Outside café 日本語"
++	if err := os.WriteFile(sentinel, []byte(content), 0600); err != nil {
++		t.Fatal(err)
++	}
++	taskDir := filepath.Join(chat.home.Name(), "tasks", strings.TrimPrefix(task.ID, "task:"))
++	if err := os.Symlink(outside, filepath.Join(taskDir, "escape")); err != nil {
++		t.Fatal(err)
++	}
++	for _, path := range []string{sentinel, "../outside.md", "escape/ordinary.md"} {
++		for _, tool := range []string{taskFilesRead, taskFilesWrite, taskFilesDelete} {
++			args := map[string]string{"path": path}
++			if tool == taskFilesWrite {
++				args["content"] = "Replacement"
++			}
++			raw, _ := json.Marshal(args)
++			payload, success, _, _ := runtime.executeTaskTool(t.Context(), task, store.TaskRun{Kind: "executor"}, tool, raw, false)
++			if success || strings.Contains(string(payload), content) {
++				t.Errorf("outside access %s %q: %s", tool, path, payload)
++			}
++		}
++	}
++	got, err := os.ReadFile(sentinel)
++	if err != nil || string(got) != content {
++		t.Fatalf("outside file changed: %q, %v", got, err)
++	}
++	if err := home.WriteTaskFile(chat.home, task.ID, "notes.md", "Allowed café 日本語"); err != nil {
++		t.Fatal(err)
++	}
++	payload, success, _, _ := runtime.executeTaskTool(t.Context(), task, store.TaskRun{Kind: "executor"}, taskFilesRead, json.RawMessage(`{"path":"notes.md"}`), false)
++	var result map[string]any
++	_ = json.Unmarshal(payload, &result)
++	if !success || result["content"] != "Allowed café 日本語" {
++		t.Fatalf("allowed read: %s", payload)
++	}
++}

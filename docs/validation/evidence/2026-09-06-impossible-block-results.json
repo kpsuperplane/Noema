@@ -1,0 +1,198 @@
+{
+  "origin": "https://noema.kevinpei.com",
+  "cases": [
+    {
+      "key": "impossible",
+      "title": "Migration audit — impossible integer",
+      "request": "# Integer request\n\nProduce an integer that is both odd and even under the standard definitions. If this is impossible, explain the limitation in RESULT.md. This is a mathematical request, not a request for alternative definitions. Use no external services. Change no files outside this Task.",
+      "startedAt": "2026-09-06T01:19:29.663Z",
+      "route": "https://noema.kevinpei.com/tasks/task%3A2c4aed88b9b5e0ddffdee0f99edbac59?terminal=all",
+      "taskId": "task:2c4aed88b9b5e0ddffdee0f99edbac59",
+      "observations": [
+        {
+          "taskId": "task:2c4aed88b9b5e0ddffdee0f99edbac59",
+          "stage": {
+            "key": "doing"
+          },
+          "revision": 3,
+          "generation": 1,
+          "resultDocument": null,
+          "reviewDocument": null,
+          "activeGate": null,
+          "runs": [
+            {
+              "runId": "run:97aa4cdbaca35f65c0ca98193c0f783f",
+              "kind": "PLANNER",
+              "status": "RUNNING"
+            }
+          ]
+        },
+        {
+          "taskId": "task:2c4aed88b9b5e0ddffdee0f99edbac59",
+          "stage": {
+            "key": "doing"
+          },
+          "revision": 5,
+          "generation": 1,
+          "resultDocument": null,
+          "reviewDocument": null,
+          "activeGate": null,
+          "runs": [
+            {
+              "runId": "run:9f167fd9cbda6ce536a3a24f27ec1cba",
+              "kind": "EXECUTOR",
+              "status": "RUNNING"
+            },
+            {
+              "runId": "run:97aa4cdbaca35f65c0ca98193c0f783f",
+              "kind": "PLANNER",
+              "status": "COMPLETED"
+            }
+          ]
+        },
+        {
+          "taskId": "task:2c4aed88b9b5e0ddffdee0f99edbac59",
+          "stage": {
+            "key": "doing"
+          },
+          "revision": 7,
+          "generation": 1,
+          "resultDocument": "# Result\n\nNo such integer exists under the standard definitions.\n\nIf an integer `n` were both even and odd, then for some integers `a` and `b`,\n\n- `n = 2a` (even), and\n- `n = 2b + 1` (odd).\n\nEquating these gives `2(a - b) = 1`, but the left-hand side is even and therefore cannot equal the odd integer `1`. This is impossible.\n\nNo external services were used, and no files outside this Task were changed. The only new artifact is `RESULT.md`.\n",
+          "reviewDocument": null,
+          "activeGate": null,
+          "runs": [
+            {
+              "runId": "run:ad234cd62e222217d82996aa47e2cc7c",
+              "kind": "REVIEWER",
+              "status": "RUNNING"
+            },
+            {
+              "runId": "run:9f167fd9cbda6ce536a3a24f27ec1cba",
+              "kind": "EXECUTOR",
+              "status": "COMPLETED"
+            },
+            {
+              "runId": "run:97aa4cdbaca35f65c0ca98193c0f783f",
+              "kind": "PLANNER",
+              "status": "COMPLETED"
+            }
+          ]
+        },
+        {
+          "taskId": "task:2c4aed88b9b5e0ddffdee0f99edbac59",
+          "stage": {
+            "key": "done"
+          },
+          "revision": 8,
+          "generation": 1,
+          "resultDocument": "# Result\n\nNo such integer exists under the standard definitions.\n\nIf an integer `n` were both even and odd, then for some integers `a` and `b`,\n\n- `n = 2a` (even), and\n- `n = 2b + 1` (odd).\n\nEquating these gives `2(a - b) = 1`, but the left-hand side is even and therefore cannot equal the odd integer `1`. This is impossible.\n\nNo external services were used, and no files outside this Task were changed. The only new artifact is `RESULT.md`.\n",
+          "reviewDocument": "RESULT.md fully satisfies TASK.md. It correctly applies the standard definitions, gives the contradiction 2(a−b)=1, concludes that no integer can be both odd and even, and confirms that no external services or outside files were used. Directory evidence shows only TASK.md and RESULT.md, as required.\n",
+          "activeGate": null,
+          "runs": [
+            {
+              "runId": "run:ad234cd62e222217d82996aa47e2cc7c",
+              "kind": "REVIEWER",
+              "status": "COMPLETED"
+            },
+            {
+              "runId": "run:9f167fd9cbda6ce536a3a24f27ec1cba",
+              "kind": "EXECUTOR",
+              "status": "COMPLETED"
+            },
+            {
+              "runId": "run:97aa4cdbaca35f65c0ca98193c0f783f",
+              "kind": "PLANNER",
+              "status": "COMPLETED"
+            }
+          ]
+        }
+      ],
+      "timeout": false,
+      "text1440": "Skip to content\nMomo\nTasks\nMemory\nSettings\nPersonal\nMigration audit Project café 日本語\nTasks\nNew task\nInbox\n6\nMigration audit — bounded Chat capture\n3h\n# New action audit This is a separate request: café 日本語 🧭.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — bounded Chat capture\n3h\n# Chat capture audit Preserve café 日本語 🧭 in this Inbox request.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — captured from Chat\n3h\n# Chat capture audit Preserve café 日本語 🧭 in this Inbox request. Do not run the Task, create another Project, or access external services.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — edited café 日本語 🧭\n4h\n# Updated request **Bold café** and [exact URL](https://example.com/a?x=1&y=2). - First - 日本語 🧭 ```json {\"ordinary\":\"kept\"} ``` Accepted first-client change. Source fallback saved café 日本語 🧭.\nInbox\nMigration audit — Artifact sources\n4h\n# Artifact audit Synthetic source files for download and integrity checks.\nInbox\nMigration audit — Unicode café 日本語 🧭\n5h\n# Migration audit Verify that café, 日本語, 🧭, and https://example.com/a?b=1 remain intact.\nInbox\nHistory\n10\nMigration audit — impossible integer\nnow\n# Integer request Produce an integer that is both odd and even under the standard definitions. If this is impossible, explain the limitation in RESULT.md. This is a mathematical request, not a request for alternative definitions. Use no external services. Change no files outside\nDone\nMigration audit — direct execution\n1h\n# Direct execution audit Calculate 8 × 9. Write exactly 72 to RESULT.md. Use no external services. Change no files outside this Task. Progress: Calculated 8 × 9 = 72; writing RESULT.md.\nDone\nMigration audit — relative tomorrow Asia/Tokyo\n1h\nCalculate 6 × 7 and write only 42 to RESULT.md.\nCancelled\n·\nMigration audit Project café 日本語\nMigration audit — relative tomorrow America/Los_Angeles\n1h\nCalculate 6 × 7 and write only 42 to RESULT.md.\nCancelled\n·\nMigration audit Project café 日本語\nMigration audit — missed recurrence RUN_ONCE\n1h\n# Missed deadline audit ## Requirements - Calculate 6 × 7. - Write only `42` to `RESULT.md`. - Do not access external services. - Do not change files outside this Task. ## Plan 1. Compute `6 × 7` as `42`. 2. Create or replace `RESULT.md` in this Task with exactly `42` and no ad\nDone\nMigration audit — missed recurrence SKIP\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — missed recurrence RUN_ONCE\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — missed deadline RUN_ONCE\n1h\n# Missed deadline audit ## Requirements - Calculate 6 × 7. - Write only `42` to `RESULT.md`. - Do not access external services. - Do not change files outside this Task. ## Plan 1. Compute 6 × 7 as 42. 2. Create `RESULT.md` containing exactly `42` and no other text. 3. Verify th\nDone\nMigration audit — missed deadline SKIP\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — pause-resume deadlines\n2h\n# Recurrence pause-resume deadline audit Calculate 3 × 7. Write only 21 to RESULT.md. Do not use external services. Do not change files outside this Task. ## Plan 1. Compute 3 × 7 as 21. 2. Create `RESULT.md` containing exactly `21` and no additional text. 3. Verify that `RESUL\nDone\nLoad more\nMigration audit — impossible integer\nWorkspace\nTranscript\nResult\nTask\nReview\nResult\nNo such integer exists under the standard definitions.\nIf an integer n were both even and odd, then for some integers a and b,\nn = 2a (even), and\nn = 2b + 1 (odd).\nEquating these gives 2(a - b) = 1, but the left-hand side is even and therefore cannot equal the odd integer 1. This is impossible.\nNo external services were used, and no files outside this Task were changed. The only new artifact is RESULT.md.\nTask Completed\nReviewer",
+      "text390": "\nMigration audit — impossible integer\nClose detail\nWorkspace\nTranscript\nResult\nTask\nReview\nResult\nNo such integer exists under the standard definitions.\nIf an integer n were both even and odd, then for some integers a and b,\nn = 2a (even), and\nn = 2b + 1 (odd).\nEquating these gives 2(a - b) = 1, but the left-hand side is even and therefore cannot equal the odd integer 1. This is impossible.\nNo external services were used, and no files outside this Task were changed. The only new artifact is RESULT.md.\nTask Completed\nReviewer"
+    },
+    {
+      "key": "human-input",
+      "title": "Migration audit — missing delivery address",
+      "request": "# Delivery label\n\nPrepare a delivery label using the delivery address I will provide. Ask me for the address before creating the label. Do not assume an address. Do not contact anyone or use external services. Change no files outside this Task.",
+      "startedAt": "2026-09-06T01:20:24.558Z",
+      "route": "https://noema.kevinpei.com/tasks/task%3Af932f3c82add0b649c3ffc5d2328e179?terminal=all",
+      "taskId": "task:f932f3c82add0b649c3ffc5d2328e179",
+      "observations": [
+        {
+          "taskId": "task:f932f3c82add0b649c3ffc5d2328e179",
+          "stage": {
+            "key": "doing"
+          },
+          "revision": 3,
+          "generation": 1,
+          "resultDocument": null,
+          "reviewDocument": null,
+          "activeGate": null,
+          "runs": [
+            {
+              "runId": "run:8ad7f581e9485cc02fe1934569e603d9",
+              "kind": "PLANNER",
+              "status": "RUNNING"
+            }
+          ]
+        },
+        {
+          "taskId": "task:f932f3c82add0b649c3ffc5d2328e179",
+          "stage": {
+            "key": "waiting"
+          },
+          "revision": 4,
+          "generation": 1,
+          "resultDocument": null,
+          "reviewDocument": null,
+          "activeGate": {
+            "gateId": "gate:73c7b61957fb703027eccac9ec0efbd5",
+            "kind": "CLARIFICATION",
+            "prompt": "Please provide the complete delivery address to print on the label."
+          },
+          "runs": [
+            {
+              "runId": "run:8ad7f581e9485cc02fe1934569e603d9",
+              "kind": "PLANNER",
+              "status": "WAITING_FOR_APPROVAL"
+            }
+          ]
+        }
+      ],
+      "timeout": false,
+      "text1440": "Skip to content\nMomo\nTasks\nMemory\nSettings\nPersonal\nMigration audit Project café 日本語\nTasks\nNew task\nInbox\n6\nMigration audit — bounded Chat capture\n3h\n# New action audit This is a separate request: café 日本語 🧭.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — bounded Chat capture\n3h\n# Chat capture audit Preserve café 日本語 🧭 in this Inbox request.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — captured from Chat\n3h\n# Chat capture audit Preserve café 日本語 🧭 in this Inbox request. Do not run the Task, create another Project, or access external services.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — edited café 日本語 🧭\n4h\n# Updated request **Bold café** and [exact URL](https://example.com/a?x=1&y=2). - First - 日本語 🧭 ```json {\"ordinary\":\"kept\"} ``` Accepted first-client change. Source fallback saved café 日本語 🧭.\nInbox\nMigration audit — Artifact sources\n4h\n# Artifact audit Synthetic source files for download and integrity checks.\nInbox\nMigration audit — Unicode café 日本語 🧭\n5h\n# Migration audit Verify that café, 日本語, 🧭, and https://example.com/a?b=1 remain intact.\nInbox\nHistory\n10\nMigration audit — impossible integer\nnow\n# Integer request Produce an integer that is both odd and even under the standard definitions. If this is impossible, explain the limitation in RESULT.md. This is a mathematical request, not a request for alternative definitions. Use no external services. Change no files outside\nDone\nMigration audit — direct execution\n1h\n# Direct execution audit Calculate 8 × 9. Write exactly 72 to RESULT.md. Use no external services. Change no files outside this Task. Progress: Calculated 8 × 9 = 72; writing RESULT.md.\nDone\nMigration audit — relative tomorrow Asia/Tokyo\n1h\nCalculate 6 × 7 and write only 42 to RESULT.md.\nCancelled\n·\nMigration audit Project café 日本語\nMigration audit — relative tomorrow America/Los_Angeles\n1h\nCalculate 6 × 7 and write only 42 to RESULT.md.\nCancelled\n·\nMigration audit Project café 日本語\nMigration audit — missed recurrence RUN_ONCE\n1h\n# Missed deadline audit ## Requirements - Calculate 6 × 7. - Write only `42` to `RESULT.md`. - Do not access external services. - Do not change files outside this Task. ## Plan 1. Compute `6 × 7` as `42`. 2. Create or replace `RESULT.md` in this Task with exactly `42` and no ad\nDone\nMigration audit — missed recurrence SKIP\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — missed recurrence RUN_ONCE\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — missed deadline RUN_ONCE\n1h\n# Missed deadline audit ## Requirements - Calculate 6 × 7. - Write only `42` to `RESULT.md`. - Do not access external services. - Do not change files outside this Task. ## Plan 1. Compute 6 × 7 as 42. 2. Create `RESULT.md` containing exactly `42` and no other text. 3. Verify th\nDone\nMigration audit — missed deadline SKIP\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — pause-resume deadlines\n2h\n# Recurrence pause-resume deadline audit Calculate 3 × 7. Write only 21 to RESULT.md. Do not use external services. Do not change files outside this Task. ## Plan 1. Compute 3 × 7 as 21. 2. Create `RESULT.md` containing exactly `21` and no additional text. 3. Verify that `RESUL\nDone\nLoad more\nMigration audit — missing delivery address\nWorkspace\nTranscript\nTask\nDelivery label\nRequirements\nPrepare a delivery label using the delivery address supplied by the user.\nAsk for the delivery address before creating the label; do not infer or assume any address.\nDo not contact anyone or use external services.\nChange no files outside this Task.\nPlan\nPause and request the complete delivery address from the user before creating any label.\nAfter the address is provided, confirm it is the intended destination and format it into a delivery label.\nSave only the resulting label within this Task, without contacting external services or modifying files outside it.\nCurrent status\nAwaiting the user’s delivery address; no label has been created.\nStage\nWaiting\nRevision\n1\nCreated\nSep 6, 2026, 1:20 AM\ntask.report_blocked\ntask.report_blocked\nTask Planner\nPlanner",
+      "text390": "\nMigration audit — missing delivery address\nClose detail\nWorkspace\nTranscript\nTask\nDelivery label\nRequirements\nPrepare a delivery label using the delivery address supplied by the user.\nAsk for the delivery address before creating the label; do not infer or assume any address.\nDo not contact anyone or use external services.\nChange no files outside this Task.\nPlan\nPause and request the complete delivery address from the user before creating any label.\nAfter the address is provided, confirm it is the intended destination and format it into a delivery label.\nSave only the resulting label within this Task, without contacting external services or modifying files outside it.\nCurrent status\nAwaiting the user’s delivery address; no label has been created.\nStage\nWaiting\nRevision\n1\nCreated\nSep 6, 2026, 1:20 AM\ntask.report_blocked\ntask.report_blocked\nTask Planner\nPlanner"
+    }
+  ],
+  "baseRevision": "79790ea0bd19ee9f511b35e5a83d439b437f3f0e",
+  "RUN-10": "Pass · live Codex/Chromium",
+  "RUN-04": "Fail · live browser gate controls; AUDIT-05",
+  "transcriptViews": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "text": "Skip to content\nMomo\nTasks\nMemory\nSettings\nPersonal\nMigration audit Project café 日本語\nTasks\nNew task\nInbox\n6\nMigration audit — bounded Chat capture\n3h\n# New action audit This is a separate request: café 日本語 🧭.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — bounded Chat capture\n3h\n# Chat capture audit Preserve café 日本語 🧭 in this Inbox request.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — captured from Chat\n3h\n# Chat capture audit Preserve café 日本語 🧭 in this Inbox request. Do not run the Task, create another Project, or access external services.\nInbox\n·\nMigration audit Project café 日本語\nMigration audit — edited café 日本語 🧭\n4h\n# Updated request **Bold café** and [exact URL](https://example.com/a?x=1&y=2). - First - 日本語 🧭 ```json {\"ordinary\":\"kept\"} ``` Accepted first-client change. Source fallback saved café 日本語 🧭.\nInbox\nMigration audit — Artifact sources\n4h\n# Artifact audit Synthetic source files for download and integrity checks.\nInbox\nMigration audit — Unicode café 日本語 🧭\n5h\n# Migration audit Verify that café, 日本語, 🧭, and https://example.com/a?b=1 remain intact.\nInbox\nHistory\n10\nMigration audit — impossible integer\n1m\n# Integer request Produce an integer that is both odd and even under the standard definitions. If this is impossible, explain the limitation in RESULT.md. This is a mathematical request, not a request for alternative definitions. Use no external services. Change no files outside\nDone\nMigration audit — direct execution\n1h\n# Direct execution audit Calculate 8 × 9. Write exactly 72 to RESULT.md. Use no external services. Change no files outside this Task. Progress: Calculated 8 × 9 = 72; writing RESULT.md.\nDone\nMigration audit — relative tomorrow Asia/Tokyo\n1h\nCalculate 6 × 7 and write only 42 to RESULT.md.\nCancelled\n·\nMigration audit Project café 日本語\nMigration audit — relative tomorrow America/Los_Angeles\n1h\nCalculate 6 × 7 and write only 42 to RESULT.md.\nCancelled\n·\nMigration audit Project café 日本語\nMigration audit — missed recurrence RUN_ONCE\n1h\n# Missed deadline audit ## Requirements - Calculate 6 × 7. - Write only `42` to `RESULT.md`. - Do not access external services. - Do not change files outside this Task. ## Plan 1. Compute `6 × 7` as `42`. 2. Create or replace `RESULT.md` in this Task with exactly `42` and no ad\nDone\nMigration audit — missed recurrence SKIP\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — missed recurrence RUN_ONCE\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — missed deadline RUN_ONCE\n1h\n# Missed deadline audit ## Requirements - Calculate 6 × 7. - Write only `42` to `RESULT.md`. - Do not access external services. - Do not change files outside this Task. ## Plan 1. Compute 6 × 7 as 42. 2. Create `RESULT.md` containing exactly `42` and no other text. 3. Verify th\nDone\nMigration audit — missed deadline SKIP\n1h\n# Missed deadline audit Calculate 6 × 7. Write only 42 to RESULT.md. Do not access external services. Do not change files outside this Task.\nCancelled\nMigration audit — pause-resume deadlines\n2h\n# Recurrence pause-resume deadline audit Calculate 3 × 7. Write only 21 to RESULT.md. Do not use external services. Do not change files outside this Task. ## Plan 1. Compute 3 × 7 as 21. 2. Create `RESULT.md` containing exactly `21` and no additional text. 3. Verify that `RESUL\nDone\nLoad more\nMigration audit — missing delivery address\nWorkspace\nTranscript\nMigration audit — missing delivery address\nTask Planner · Planner · Waiting for approval\nAgent\ntask.files.list\ntask.files.list\nAgent\ntask.files.write\ntask.files.write\nAgent\ntask.report_blocked\ntask.report_blocked\nTask Planner\nPlanner",
+      "textboxes": 0
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "text": "\nMigration audit — missing delivery address\nWorkspace\nTranscript\nMigration audit — missing delivery address\nTask Planner · Planner · Waiting for approval\nAgent\ntask.files.list\ntask.files.list\nAgent\ntask.files.write\ntask.files.write\nAgent\ntask.report_blocked\ntask.report_blocked\nTask Planner\nPlanner",
+      "textboxes": 0
+    }
+  ],
+  "screenshots": {
+    "impossible-1440.png": "bbed26785ebe1d66ca08f166fb60e24eb1480865533d74b74d713bc95dcd6c60",
+    "impossible-390.png": "fa4af31dc05fcd50fbd5f6626568f0dcce06f4fdd500ecd7b90c90874c701951",
+    "human-input-1440.png": "574704a2f011999061ba206e92d8e80d813fe4b3c8ef6e141744cbd9f935bce9",
+    "human-input-390.png": "d4a1148c6b7e09b9047532b5c977b38b00052760c732cd69af8005f0e983f411",
+    "human-input-transcript-1440.png": "4f2a73dd36f6dec2b974b471d00d0b2e8a14b74cfee74b2e875a1cc8c4e0ed60",
+    "human-input-transcript-390.png": "6d3ae8c6b57a905c5186cfa67e1ba3e92f2eacd3b70bf78b4bbb194df2cf8049"
+  },
+  "scope": "Live requested instance through its direct HTTPS origin. Cloudflare edge access is not covered. Screenshots reviewed at desktop and phone widths. The delivery-address gate remains unanswered."
+}

@@ -93,3 +93,48 @@ Screen-reader acceptance and a real mobile keyboard review remain implementation
 The non-technical usability session remains an implementation acceptance gate.
 Application builds and Rust tests were not run because this unit changes plan files only.
 No UI test files were added.
+
+## Production implementation — 2026-09-05
+
+See [implementation.md](implementation.md) for ownership, flow changes, and browser evidence.
+
+All required checks passed:
+
+- `bun run check:generated`
+- `bun run lint`
+- `bun run build`
+- `CGO_ENABLED=0 go test ./cmd/... ./internal/...`
+- `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`
+- `cargo fmt --all --check`
+- `cargo check-workspace`
+- `cargo gate-lint`
+- `cargo gate-test`
+- Generated public Button markup matches the installed Astryx component.
+- `git diff --check`
+
+Initial test attempts hit a full temporary filesystem and concurrent build changes.
+The final runs passed with `TMPDIR=/root/nt`. Compiler wrappers and build caches remained enabled.
+
+Three focused tests cover distinct risks:
+
+1. Public consent escapes values and preserves the CSRF form contract.
+2. Public stylesheet resolution uses the current build and rejects external or invalid paths.
+3. Native callbacks distinguish verified denial, handoff, and invalid state without echoing callback values.
+
+No frontend test files were added. Temporary browser inspection files were removed.
+
+Patch measurements, excluding the imported approved plan:
+
+| Area | Net lines |
+| --- | ---: |
+| Frontend production | +242 |
+| Go production | +48 |
+| Go tests | +44 |
+| Generated GraphQL | 0 |
+| Inclusive Go | +92 |
+| Retained Rust production | +42 |
+| Retained Rust tests | +46 |
+
+The tracked Go tree measured 76,486 production lines and 180,732 inclusive lines.
+The migration ratios were 43.96% and 75.36%. Both remained below 80%.
+The patch stayed within its production and test budgets.

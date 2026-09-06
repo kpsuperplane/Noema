@@ -17,7 +17,6 @@ export const TaskModelPoolEntryFields = gql`
     reasoningEffort
     selectionMode
     fastMode
-    enabled
     sortOrder
     createdAt
     updatedAt

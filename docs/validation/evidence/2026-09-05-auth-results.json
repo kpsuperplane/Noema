@@ -1,0 +1,47 @@
+[
+  {
+    "id": "HOME-01",
+    "result": "pass",
+    "detail": "Fresh packaged Linux release opens passkey setup without existing credentials."
+  },
+  {
+    "id": "AUTH-01",
+    "result": "pass",
+    "detail": "Browser virtual passkey claims the release and admits GraphQL."
+  },
+  {
+    "id": "AUTH-04-final-key",
+    "result": "pass",
+    "detail": "The final passkey cannot be removed."
+  },
+  {
+    "id": "AUTH-08",
+    "result": "pass",
+    "detail": "Unclaimed and signed-out requests cannot read GraphQL or private artifacts; signed-out WebSocket is denied."
+  },
+  {
+    "id": "AUTH-09",
+    "result": "pass",
+    "detail": "Authenticated requests with foreign Origin or Host are rejected."
+  },
+  {
+    "id": "AUTH-03-server-restart",
+    "result": "pass",
+    "detail": "Stored browser session survives server restart."
+  },
+  {
+    "id": "AUTH-07-server",
+    "result": "pass",
+    "detail": "Logout revokes protected reads and writes in another tab."
+  },
+  {
+    "id": "AUTH-06-fresh",
+    "result": "pass",
+    "detail": "A fresh passkey ceremony works after logout."
+  },
+  {
+    "id": "AUTH-05",
+    "result": "pass",
+    "detail": "Recovery enrolls a new virtual passkey; the consumed recovery code is rejected."
+  }
+]

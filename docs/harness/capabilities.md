@@ -88,7 +88,7 @@ Each manifest defines:
 Authentication is one of:
 
 - No credential.
-- Reviewed private credential fields plus request-auth Luau.
+- Reviewed private credential fields plus request-auth Lua.
 - OAuth 2.0 authorization code with PKCE and one reviewed profile digest.
 
 Each operation defines:
@@ -109,7 +109,7 @@ digest.
 
 ### Request authority
 
-Rust owns the origin, method, path, headers, query encoding, body template,
+Go owns the origin, method, path, headers, query encoding, body template,
 transport, and current connection fence. Model arguments can fill only reviewed
 placeholders.
 
@@ -126,7 +126,7 @@ unknown transport result becomes an uncertain outcome.
 Each successful response has:
 
 - Exact accepted media types.
-- An optional reviewed Luau transform.
+- An optional reviewed Lua transform.
 - One closed output schema.
 
 Every output string has `maxBytes`. Every output array has `maxItems`. Objects
@@ -140,7 +140,7 @@ transform so it produces a deliberate compact receipt.
 The 1 MiB response-body limit is a transport boundary. It is not a model-result
 allowance. Remote error details have a separate 4 KiB limit.
 
-Response Luau receives only bounded status, body, and content type. It has no
+Response Lua receives only bounded status, body, and content type. It has no
 network, filesystem, process, environment, clock, randomness, credentials,
 modules, or cross-call state. Failure never falls back to raw output.
 
@@ -168,10 +168,10 @@ history.
 ## Authentication authority
 
 Generic credentials use reviewed write-only setup fields or one bounded setup
-document. Reviewed Luau converts those inputs to a closed private field set.
-Request-auth Luau can emit only bounded headers and query values.
+document. Reviewed Lua converts those inputs to a closed private field set.
+Request-auth Lua can emit only bounded headers and query values.
 
-OAuth remains a Rust protocol. A reviewed profile owns endpoints, callback
+OAuth remains a Go protocol. A reviewed profile owns endpoints, callback
 modes, client authentication, audience sharing, and scope behavior.
 
 OAuth authority is split across:
@@ -185,6 +185,9 @@ OAuth authority is split across:
 Many account grants can reuse one application. Compatible connections can
 reference one grant. Each operation declares alternative complete scope sets.
 Catalog compilation exposes only operations covered by current granted scopes.
+Model tool descriptions include the API name and current connection and account labels.
+Unlabeled connections and grants retain their stable identifiers in those descriptions.
+Renaming an account changes its metadata without replacing its protected token file.
 
 OAuth start, callback, refresh, attachment, and invocation check the exact
 application, grant, connection, definition, and policy revisions. Refresh uses

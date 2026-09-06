@@ -1,0 +1,33 @@
+{
+  "testedRevision": "883914fef05ecfe17adcbf83e540f03af0d7edac",
+  "case": "TIME-02",
+  "result": "pass",
+  "productionChanges": 0,
+  "newUnitTests": 0,
+  "driverHashes": {
+    "schedule-browser.mjs": "df3b16e59d0f1542d4cfb285d11e3fdb5b7fda86bb95977f02dc2c28a1709fd8",
+    "schedule-completion.mjs": "624ffdbf7dd61be6377fc2ec17fad04977c227fc71a8563df1ba6b82c4e3c01b",
+    "schedule-browser-results.json": "c6d545deecbd91075958281016c6d81108c9ad515970f61f055bb18cce8df13e"
+  },
+  "checks": [
+    "Reschedule replaces the exact UTC instant without starting a run.",
+    "Unschedule preserves Task identity and Unicode content in Inbox after reload.",
+    "Run now starts the same Task before its future schedule.",
+    "One Executor run completes with RESULT.md equal to 56. Planner and Reviewer also complete.",
+    "The reloaded desktop browser displays the result. The phone control starts the Task."
+  ],
+  "validationReuse": {
+    "revision": "c7f8785d",
+    "commands": [
+      "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "CGO_ENABLED=0 go vet ./cmd/... ./internal/..."
+    ],
+    "result": "pass",
+    "reason": "Production code, dependencies, and configuration remain unchanged."
+  },
+  "limits": [
+    "Chromium uses the local HTTPS origin for noema.kevinpei.com. Cloudflare edge access is not covered.",
+    "The fixture remains completed. No pending schedule was left.",
+    "Initial driver attempts used incorrect control labels, event endpoint, and terminal stage. Corrected drivers passed without production changes."
+  ]
+}

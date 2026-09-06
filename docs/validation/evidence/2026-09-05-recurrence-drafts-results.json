@@ -1,0 +1,57 @@
+{
+  "origin": "https://noema.kevinpei.com",
+  "checks": [
+    {
+      "action": "document-stale-recovery",
+      "result": "pass",
+      "saved": {
+        "recurrenceId": "recurrence:98d5e69ac1be8feb9524c623a1752f45",
+        "revision": 3,
+        "taskDocument": "# Recoverable stale draft\n\ncafé 日本語 🧭.",
+        "cronExpression": "0 12 * * *",
+        "startsAt": "2026-09-06T12:00:00Z",
+        "timeZone": "UTC",
+        "nextRunAt": "2026-09-07T12:00:00Z",
+        "lifecycle": "ACTIVE"
+      }
+    },
+    {
+      "action": "document-stale-recovery",
+      "result": "pass",
+      "saved": {
+        "recurrenceId": "recurrence:98d5e69ac1be8feb9524c623a1752f45",
+        "revision": 5,
+        "taskDocument": "# Recoverable stale draft\n\ncafé 日本語 🧭.",
+        "cronExpression": "0 12 * * *",
+        "startsAt": "2026-09-06T12:00:00Z",
+        "timeZone": "UTC",
+        "nextRunAt": "2026-09-07T12:00:00Z",
+        "lifecycle": "ACTIVE"
+      }
+    },
+    {
+      "action": "schedule-stale-preservation",
+      "result": "pass",
+      "saved": {
+        "recurrenceId": "recurrence:98d5e69ac1be8feb9524c623a1752f45",
+        "revision": 7,
+        "taskDocument": "# Recoverable stale draft\n\ncafé 日本語 🧭.",
+        "cronExpression": "0 13 * * *",
+        "startsAt": "2026-09-06T12:00:00Z",
+        "timeZone": "UTC",
+        "nextRunAt": "2026-09-06T13:00:00Z",
+        "lifecycle": "ACTIVE"
+      },
+      "error": "the authoritative Task revision is stale"
+    }
+  ],
+  "taskId": "task:d1485f72cf0223458968f9d6579ec23c",
+  "recurrenceId": "recurrence:98d5e69ac1be8feb9524c623a1752f45",
+  "cleanup": {
+    "lifecycle": "ENDED",
+    "taskDocument": "# Recoverable stale draft\n\ncafé 日本語 🧭.",
+    "nextRunAt": null,
+    "originalTaskCancelled": true,
+    "noRunsStarted": true
+  }
+}

@@ -14,7 +14,8 @@ import { TasksTaskEditFieldsDocument } from "@/generated/graphql";
 import { composerDraftInlineSize, measureComposerDraftInlineSize } from "@/components/Composer";
 import { snapshotTaskSubject, taskSubjectChanged } from "./semanticCommand";
 import { TaskScheduleDialog } from "./TaskScheduleDialog";
-import { TaskSettingsDialog } from "./TaskSettingsDialog";
+import { useTaskEditFlush } from "./TaskDocumentFields";
+import { TaskOptions } from "./TaskOptions";
 
 type ActiveCommand = {
   action: string;
@@ -24,6 +25,10 @@ type ActiveCommand = {
 type TaskEditField = "TITLE" | "DOCUMENT" | "SETTINGS";
 
 export type TaskInlineEditController = {
+  flush: () => Promise<boolean>;
+  registerFlush: (flush: (() => Promise<boolean>) | null) => void;
+  options: React.ReactNode;
+  timing: React.ReactNode;
   field: Exclude<TaskEditField, "SETTINGS"> | null;
   task: TaskCommandSubject;
   canEdit: boolean;
@@ -59,6 +64,7 @@ export function TaskActions({
   children
 }: TaskActionsProps) {
   const [activeCommand, setActiveCommand] = React.useState<ActiveCommand | null>(null);
+  const { flush, registerFlush } = useTaskEditFlush();
   const [editField, setEditField] = React.useState<TaskEditField | null>(null);
   const [scheduleAction, setScheduleAction] = React.useState<"SCHEDULE" | "RESCHEDULE" | "UNSCHEDULE" | null>(null);
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
@@ -93,7 +99,7 @@ export function TaskActions({
           ? "Optional retry guidance"
           : "Type your answer";
   const commandActions = orderTaskActions(validActions.filter(
-    (action) => !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
+    (action) => !["EDIT", "SCHEDULE", "RESCHEDULE", "UNSCHEDULE"].includes(action) && !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
   ));
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
   const requiresAcknowledgement = liveSubjectChanged || commands.requiresAcknowledgement;
@@ -143,8 +149,10 @@ export function TaskActions({
   const openEdit = React.useCallback(async (field: TaskEditField) => {
     commands.clearError();
     setEditLoadError(null);
-    if (!canEdit || activeCommand || scheduleAction) return;
-    if (task.taskDocument !== undefined) {
+    if (!canEdit || scheduleAction) return;
+    const handoff = activeCommand?.action === "EDIT" && editField !== field;
+    if (activeCommand && (!handoff || !(await flush()))) return;
+    if (!handoff && task.taskDocument !== undefined) {
       setEditField(field);
       setActiveCommand({ action: "EDIT", subject: snapshotTaskSubject(task) });
       return;
@@ -157,9 +165,16 @@ export function TaskActions({
     } catch {
       setEditLoadError("Task details could not be loaded for editing.");
     }
-  }, [activeCommand, canEdit, commands, loadEditTask, scheduleAction, task]);
+  }, [activeCommand, canEdit, commands, editField, flush, loadEditTask, scheduleAction, task]);
 
   const openAction = React.useCallback(async (action: string) => {
+    let actionTask = task;
+    if (activeCommand?.action === "EDIT") {
+      if (!(await flush())) return;
+      const latest = await loadEditTask({ variables: { taskId: task.taskId } });
+      if (!latest.data?.task) return;
+      actionTask = { ...task, ...latest.data.task };
+    }
     commands.clearError();
     setEditLoadError(null);
     if (action === "SCHEDULE" || action === "RESCHEDULE" || action === "UNSCHEDULE") {
@@ -167,7 +182,7 @@ export function TaskActions({
       return;
     }
     if (action === "QUEUE" || action === "RUN_NOW") {
-      await commands.run(action).catch(() => undefined);
+      await commands.run(action, {}, actionTask).catch(() => undefined);
       return;
     }
     if (action === "EDIT") {
@@ -175,9 +190,10 @@ export function TaskActions({
       return;
     }
     if (action !== "EDIT") {
-      setActiveCommand({ action, subject: snapshotTaskSubject(task) });
+      setActiveCommand({ action, subject: snapshotTaskSubject(actionTask) });
     }
-  }, [commands, openEdit, task]);
+  }, [activeCommand, commands, flush, loadEditTask, openEdit, task]);
+
 
   const acknowledgeLatest = React.useCallback(async () => {
     if (!activeCommand) return;
@@ -210,6 +226,10 @@ export function TaskActions({
   }, [actionUnavailable, commandTask, commands, requiresAcknowledgement]);
 
   const editController = React.useMemo<TaskInlineEditController>(() => ({
+    flush,
+    registerFlush,
+    options: <TaskOptions readOnly={!canEdit} task={commandTask} projects={projects} busy={commands.busy !== null || (activeCommand !== null && editField !== "SETTINGS")} requiresAcknowledgement={requiresAcknowledgement} error={editField === "SETTINGS" ? commands.error : null} onAcknowledge={acknowledgeLatest} onSubmit={async (draft) => { setEditField("SETTINGS"); setActiveCommand({ action: "EDIT", subject: snapshotTaskSubject(commandTask) }); await saveEdit(draft); }} />,
+    timing: <span>{["SCHEDULE", "RESCHEDULE", "UNSCHEDULE"].filter((action) => validActions.includes(action)).map((action) => <Button key={action} size="sm" variant="ghost" icon={taskCommandIcon(action, { "aria-hidden": true, size: 15, strokeWidth: 2 })} label={action === "SCHEDULE" ? "Schedule" : action === "RESCHEDULE" ? "Reschedule" : "Remove schedule"} isDisabled={commands.busy !== null || activeCommand !== null} onClick={() => void openAction(action)} />)}</span>,
     field: editField === "TITLE" || editField === "DOCUMENT" ? editField : null,
     task: commandTask,
     canEdit,
@@ -223,11 +243,11 @@ export function TaskActions({
     saveTitle: async (title) => saveEdit({ title }),
     saveDocument: async (taskDocument) => saveEdit({ taskDocument }),
     acknowledge: acknowledgeLatest
-  }), [acknowledgeLatest, actionUnavailable, activeCommand, canEdit, cancelEdit, commandTask, commands.busy, commands.error, editField, editLoad.loading, editLoadError, openEdit, requiresAcknowledgement, saveEdit, scheduleAction]);
+  }), [acknowledgeLatest, actionUnavailable, activeCommand, canEdit, cancelEdit, commandTask, commands, editField, editLoad.loading, editLoadError, openEdit, requiresAcknowledgement, saveEdit, scheduleAction, projects, validActions, openAction, flush, registerFlush]);
 
   const controls = (
     <TaskControlsRow
-      busy={commands.busy !== null || editLoad.loading || activeCommand !== null || scheduleAction !== null}
+      busy={(commands.busy !== null && activeCommand?.action !== "EDIT") || editLoad.loading || (activeCommand !== null && activeCommand.action !== "EDIT") || scheduleAction !== null}
       commandActions={commandActions}
       onCommand={openAction}
     />
@@ -355,22 +375,6 @@ export function TaskActions({
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
     </div>
   ) : null;
-  const settingsDialog = activeAction === "EDIT" && editField === "SETTINGS" ? (
-    <TaskSettingsDialog
-      task={commandTask}
-      projects={projects}
-      busy={commands.busy !== null}
-      acknowledging={editLoad.loading}
-      requiresAcknowledgement={requiresAcknowledgement}
-      actionUnavailable={actionUnavailable}
-      error={editLoadError ?? commands.error}
-      onAcknowledge={() => acknowledgeLatest().catch(() => setEditLoadError("The latest task details could not be loaded."))}
-      onCancel={cancelEdit}
-      onSubmit={async (draft) => {
-        await saveEdit(draft);
-      }}
-    />
-  ) : null;
 
   return (
     <>
@@ -378,7 +382,6 @@ export function TaskActions({
         <>{controls}{actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null}</>
       )}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
-      {settingsDialog}
       <TaskActionDialog
         key={activeAction ?? "closed"}
         action={activeAction === "EDIT" ? null : activeAction}

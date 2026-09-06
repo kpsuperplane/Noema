@@ -1,0 +1,5 @@
+import {chromium} from '/tmp/bunx-0-playwright@latest/node_modules/playwright/index.mjs';
+import {readFile} from 'node:fs/promises';
+const root='/var/tmp/noema-suite-run-20260905',source=JSON.parse(await readFile(root+'/project-browser-results.json','utf8'));
+const browser=await chromium.launch({headless:true,args:['--no-sandbox','--host-resolver-rules=MAP noema.kevinpei.com 127.0.0.1']});
+try {for(const width of [1280,390]){const c=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block',storageState:'/var/tmp/noema-audit-credentials/browser-session.json'});const p=await c.newPage();await p.goto(source.route);await p.getByRole('button',{name:'Edit PROJECT.md',exact:true}).click();await p.getByRole('button',{name:'Edit source',exact:true}).click();await p.getByRole('textbox',{name:'Project document Markdown source',exact:true}).waitFor();await p.waitForTimeout(500);await p.screenshot({path:root+'/project-edit-'+width+'.png',fullPage:true});await c.close();}}finally{await browser.close();}

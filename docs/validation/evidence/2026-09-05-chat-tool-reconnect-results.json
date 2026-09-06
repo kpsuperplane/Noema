@@ -1,0 +1,83 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "provider": "codex",
+  "projectId": "project:eb7e02135a057b326b0863dbccf19894",
+  "droppedCallId": "tool_call:turn:d889a2361c3df9bf98bbaad9e966e66d:0:1",
+  "connections": 3,
+  "turn": [
+    {
+      "itemId": "item:39feb133001ac4e3132edfd01b0d2c44",
+      "turnId": "turn:d889a2361c3df9bf98bbaad9e966e66d",
+      "item": {
+        "__typename": "UserText",
+        "text": "Migration audit CHAT-03 tool reconnect. Use project.read to read Project project:eb7e02135a057b326b0863dbccf19894. Do not change anything or create Tasks. Report its exact name and document, then explain in three short paragraphs what the document currently says. End with AUDIT_TOOL_RECONNECT_COMPLETE_42."
+      }
+    },
+    {
+      "itemId": "item:4a45ba53118ac3a37e2b92b732384b80",
+      "turnId": "turn:d889a2361c3df9bf98bbaad9e966e66d",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: project.read",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d889a2361c3df9bf98bbaad9e966e66d:0:1",
+            "name": "project.read",
+            "payload": {
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894"
+            },
+            "provider_call_id": "call_6cdEwy847oHXr48YGxz5K562",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c9510553c87d186538a23cc50252e",
+            "provider_name": "read"
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 27
+        }
+      }
+    },
+    {
+      "itemId": "item:a1a91f677e930c2c411a26995367370e",
+      "turnId": "turn:d889a2361c3df9bf98bbaad9e966e66d",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: project.read",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d889a2361c3df9bf98bbaad9e966e66d:0:1",
+            "name": "project.read",
+            "payload": {
+              "archived": false,
+              "description": "",
+              "digest": "03544c87a05850611c0d166aee2cebbe64a6be66cadfac568d5b9c5248cb559c",
+              "folder": "/var/lib/noema-dev/audit-shared-20260905",
+              "name": "Migration audit Project café 日本語",
+              "project_document": "# Browser Project context\n\nAccepted café 日本語 🧭 context.\n",
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "revision": 9
+            },
+            "provider_call_id": "call_6cdEwy847oHXr48YGxz5K562",
+            "provider_name": "read",
+            "success": true
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 27
+        }
+      }
+    },
+    {
+      "itemId": "item:b95583a43c7706ad232b0cc048bd3019",
+      "turnId": "turn:d889a2361c3df9bf98bbaad9e966e66d",
+      "item": {
+        "__typename": "AssistantText",
+        "text": "Name: Migration audit Project café 日本語\n\nDocument:\n```markdown\n# Browser Project context\n\nAccepted café 日本語 🧭 context.\n```\n\nThe document establishes this as a browser-focused Project context.\n\nIt explicitly preserves the text “café 日本語 🧭”.\n\nIt contains no other requirements, instructions, or credentials.\n\nAUDIT_TOOL_RECONNECT_COMPLETE_42"
+      }
+    }
+  ],
+  "result": "pass"
+}

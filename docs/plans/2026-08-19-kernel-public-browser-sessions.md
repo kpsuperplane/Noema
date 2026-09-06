@@ -1,7 +1,7 @@
 # Kernel Public Browser Sessions
 
-- **Status:** Draft execution plan
-- **Mode:** Implement in ordered units after approval
+- **Status:** Implemented in Go on 2026-09-05
+- **Mode:** Reference record
 - **Date:** 2026-08-19
 - **Provider id:** `kernel`
 - **Initial scope:** Public interactive browser sessions
@@ -9,6 +9,9 @@
 
 This plan adds Kernel as an explicit browser provider. It does not change the
 model-visible browser tools. It does not replace Obscura.
+
+`internal/webtool/kernel_browser.go` and `docs/harness/web-browsing.md` are the
+current authorities. Rust paths below record the original design only.
 
 ## 1. Outcome
 

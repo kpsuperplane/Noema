@@ -179,7 +179,10 @@ struct ChatReadyView: View {
   private var timelineRows: [TimelineRow] {
     let taskProjection = taskReferenceProjection
     let visibleMessages = latestA2UISurfaces(model.messages).filter { message in
-      guard case let .activity(_, _, _, _, activityKind) = message.kind else { return true }
+      guard case let .activity(_, _, status, _, activityKind) = message.kind else { return true }
+      if nestedString(metadataObject(for: message), path: ["action", "name"]) == "noema.present_multiple_choice" {
+        return status == "FAILED"
+      }
       return activityKind.replacingOccurrences(of: "_", with: "").lowercased() != "hostedwebsearch"
     }
     let toolPairs = correlatedToolPairs(in: visibleMessages)

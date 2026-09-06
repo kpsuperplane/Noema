@@ -22,7 +22,9 @@ describe("settings shell navigation", () => {
         "Execution",
         "System",
         "Local Models",
-        "Providers"
+        "Providers",
+        "Notifications",
+        "Clients"
       ]
     );
   });
@@ -121,6 +123,22 @@ describe("settings shell navigation", () => {
             itemId: "settings.system.providers",
             label: "Providers",
             route: { kind: "settings", section: "system-providers" }
+          }
+        },
+        {
+          kind: "item",
+          item: {
+            itemId: "settings.system.notifications",
+            label: "Notifications",
+            route: { kind: "settings", section: "system-notifications" }
+          }
+        },
+        {
+          kind: "item",
+          item: {
+            itemId: "settings.system.clients",
+            label: "Clients",
+            route: { kind: "settings", section: "system-clients" }
           }
         }
       ]

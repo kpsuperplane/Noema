@@ -1,0 +1,65 @@
+diff --git a/internal/webtool/audit_real_worker_test.go b/internal/webtool/audit_real_worker_test.go
+new file mode 100644
+index 00000000..f07d3cdf
+--- /dev/null
++++ b/internal/webtool/audit_real_worker_test.go
+@@ -0,0 +1,59 @@
++package webtool
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"os"
++	"strings"
++	"syscall"
++	"testing"
++	"time"
++)
++
++func TestAuditRealObscuraBrowserLifecycle(t *testing.T) {
++	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
++	defer cancel()
++	p, err := startBrowserProcess(ctx, "/var/lib/noema-dev/system/tools/obscura/v0.2.2/linux-amd64/obscura", 1024)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer p.close()
++	session := &browserSession{process: p, publicRevision: 0}
++	run := func(name string, args map[string]any, want string) *browseProviderResponse {
++		t.Helper()
++		result, failure := executeObscuraBrowser(ctx, session, name, args)
++		if failure != nil {
++			t.Fatalf("%s: %#v diagnostic=%+v", name, failure, failure.diagnostic)
++		}
++		if !strings.Contains(fmt.Sprintf("%+v", result.Snapshot), want) {
++			t.Fatalf("%s missing %q: %+v", name, want, result)
++		}
++		return result
++	}
++	run(BrowseOpenName, map[string]any{"url": "https://example.com", "wait_until": "load"}, "Example Domain")
++	if err := p.evaluate(ctx, `document.body.innerHTML='<p id="state">Before café 日本語</p><button id="change">Change audit state</button>'; document.getElementById('change').onclick=()=>{document.getElementById('state').textContent='After café 日本語'}; true`, nil); err != nil {
++		t.Fatal(err)
++	}
++	first := run(BrowseSnapshotName, map[string]any{}, "Before café 日本語")
++	var button string
++	for _, element := range first.Snapshot.Elements {
++		if element.Name == "Change audit state" {
++			button = element.Reference
++		}
++	}
++	if button == "" {
++		t.Fatal("button reference missing")
++	}
++	run(BrowseInteractName, map[string]any{"action": "click", "ref": button}, "After café 日本語")
++	run(BrowseWaitName, map[string]any{"condition": map[string]any{"text": "After café 日本語"}, "timeout_ms": 1000}, "After café 日本語")
++	run(BrowseOpenName, map[string]any{"url": "https://example.org", "wait_until": "load"}, "Example Domain")
++	run(BrowseHistoryName, map[string]any{"action": "back"}, "Example Domain")
++	run(BrowseHistoryName, map[string]any{"action": "forward"}, "Example Domain")
++	command := p.command
++	p.close()
++	if command.ProcessState == nil || !errors.Is(command.Process.Signal(syscall.Signal(0)), os.ErrProcessDone) {
++		t.Fatal("worker process did not exit")
++	}
++	t.Log("Real worker open, snapshot, click, wait, back, forward, and process closure passed")
++}

@@ -1,0 +1,26 @@
+{
+  "baseRevision": "27f0c9b2a858763f09b596a36d0141b3a4180b5c",
+  "command": "CGO_ENABLED=0 go test ./internal/runtime -run '^TestAuditProjectTaskSharedReadsAndFreshContext$' -v",
+  "output": "=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/planner_current_Project_context\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/planner_shared_read\n    audit_project_access_test.go:80: permitted Project read success=false payload={\"code\":\"unavailable\",\"message\":\"Task file is unavailable\"}\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/planner_outside_read\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/executor_current_Project_context\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/executor_shared_read\n    audit_project_access_test.go:80: permitted Project read success=false payload={\"code\":\"unavailable\",\"message\":\"Task file is unavailable\"}\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/executor_outside_read\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/reviewer_current_Project_context\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/reviewer_shared_read\n    audit_project_access_test.go:80: permitted Project read success=false payload={\"code\":\"unavailable\",\"message\":\"Task file is unavailable\"}\n=== RUN   TestAuditProjectTaskSharedReadsAndFreshContext/reviewer_outside_read\n--- FAIL: TestAuditProjectTaskSharedReadsAndFreshContext (0.23s)\n    --- PASS: TestAuditProjectTaskSharedReadsAndFreshContext/planner_current_Project_context (0.00s)\n    --- FAIL: TestAuditProjectTaskSharedReadsAndFreshContext/planner_shared_read (0.00s)\n    --- PASS: TestAuditProjectTaskSharedReadsAndFreshContext/planner_outside_read (0.00s)\n    --- PASS: TestAuditProjectTaskSharedReadsAndFreshContext/executor_current_Project_context (0.00s)\n    --- FAIL: TestAuditProjectTaskSharedReadsAndFreshContext/executor_shared_read (0.00s)\n    --- PASS: TestAuditProjectTaskSharedReadsAndFreshContext/executor_outside_read (0.00s)\n    --- PASS: TestAuditProjectTaskSharedReadsAndFreshContext/reviewer_current_Project_context (0.00s)\n    --- FAIL: TestAuditProjectTaskSharedReadsAndFreshContext/reviewer_shared_read (0.00s)\n    --- PASS: TestAuditProjectTaskSharedReadsAndFreshContext/reviewer_outside_read (0.00s)\nFAIL\nFAIL\tgithub.com/kpsuperplane/noema/internal/runtime\t0.234s\nFAIL\n",
+  "setup": "A real Project uses the temporary tasks directory as its configured folder. The linked Task directory is inside that folder. A shared file sits in its parent Project folder.",
+  "cases": {
+    "PROJECT-03": {
+      "result": "Pass · controlled role context",
+      "verified": "Planner, Executor, and Reviewer each receive the exact current Project document after separate edits."
+    },
+    "RUN-15": {
+      "result": "Fail · controlled tool handler",
+      "defect": "AUDIT-04",
+      "verified": "Each role rejects reads outside the Project and through an outside symlink. Shared source content remains exact.",
+      "finding": "Each role also rejects ../shared.md although it is inside the configured Project folder."
+    },
+    "PROJECT-01": {
+      "result": "Fail · shared file access",
+      "defect": "AUDIT-04",
+      "finding": "Project creation and folder selection work, but linked Task roles cannot read permitted shared files."
+    }
+  },
+  "contract": "docs/tasks.md: Project Tasks can read shared files within the project boundary. Relative parent paths can reach those files.",
+  "fixStatus": "Deferred to the Task file-access batch.",
+  "normalSuiteChanges": false
+}

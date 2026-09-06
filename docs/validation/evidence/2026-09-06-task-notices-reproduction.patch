@@ -1,0 +1,157 @@
+diff --git a/internal/runtime/audit_task_notices_test.go b/internal/runtime/audit_task_notices_test.go
+new file mode 100644
+index 00000000..073a2b57
+--- /dev/null
++++ b/internal/runtime/audit_task_notices_test.go
+@@ -0,0 +1,151 @@
++package runtime
++
++import (
++	"context"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/provider"
++	"github.com/kpsuperplane/noema/internal/store"
++)
++
++func TestAuditTaskNoticesAndSuppressedCompletion(t *testing.T) {
++	for _, notify := range []bool{true, false} {
++		name := "notify"
++		if !notify {
++			name = "suppress"
++		}
++		t.Run(name, func(t *testing.T) {
++			fixture, db, conversation := chatFixture(t)
++			if err := fixture.Close(); err != nil {
++				t.Fatal(err)
++			}
++			ctx := t.Context()
++			prompts := []string{}
++			generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
++				prompt := request.Messages[len(request.Messages)-1].Content
++				prompts = append(prompts, prompt)
++				if len(request.Tools) != 0 || request.HostedWebSearch {
++					t.Error("notice enabled tools or hosted search")
++				}
++				return provider.GenerationResult{Text: "Audit notice café 日本語", Model: "model-a"}, nil
++			})
++			chat := &Chat{ctx: ctx, database: db, home: fixture.home, openRouter: generator, codex: generator, openAI: generator}
++			task := createQueuedRuntimeTask(t, db, fixture.home, "# Task\nExact request café 日本語\n")
++			drain := func() {
++				t.Helper()
++				if err := chat.drainPrimaryNotifications(); err != nil {
++					t.Fatal(err)
++				}
++			}
++			drain()
++			items, err := db.ConversationProviderItems(ctx, conversation.ID)
++			if err != nil || len(items) != 1 || items[0].Kind != store.ConversationTaskReference || items[0].Payload["task_id"] != task.ID {
++				t.Fatalf("capture = %#v, %v", items, err)
++			}
++			claim := func() store.TaskRun {
++				t.Helper()
++				_, run, found, err := db.ClaimTaskExecution(ctx, time.Now())
++				if err != nil || !found {
++					t.Fatal("claim failed", err)
++				}
++				if err = db.StartTaskExecution(ctx, run.ID, run.Generation, time.Now()); err != nil {
++					t.Fatal(err)
++				}
++				return run
++			}
++			run := claim()
++			if err = db.BlockTaskExecution(ctx, run.ID, run.Generation, "clarification", "Choose café 日本語", "Target is missing.", nil, time.Now()); err != nil {
++				t.Fatal(err)
++			}
++			drain()
++			if len(prompts) != 1 || !strings.Contains(prompts[0], "Choose café 日本語") {
++				t.Fatalf("waiting prompt = %#v", prompts)
++			}
++			resolve := func(key string) {
++				t.Helper()
++				current, err := db.Task(ctx, task.ID)
++				if err != nil {
++					t.Fatal(err)
++				}
++				if _, err = db.ResolveTaskGate(ctx, task.ID, current.ActiveGateID, current.Revision, current.Generation, "Continue café 日本語", "answer", nil, runtimeTaskCommand("answer_task", key), time.Now()); err != nil {
++					t.Fatal(err)
++				}
++			}
++			resolve("waiting")
++			run = claim()
++			if err = db.FailTaskExecution(ctx, run.ID, run.Generation, "provider_request_failed", "Controlled unavailable provider", false, time.Now()); err != nil {
++				t.Fatal(err)
++			}
++			drain()
++			if len(prompts) != 2 || !strings.Contains(prompts[1], "Event: task_recovery") {
++				t.Fatalf("recovery prompt = %#v", prompts)
++			}
++			resolve("recovery")
++			for _, role := range []string{"planner", "executor", "reviewer"} {
++				run = claim()
++				if run.Kind != role {
++					t.Fatalf("role=%s expected=%s", run.Kind, role)
++				}
++				switch role {
++				case "planner":
++					err = db.FinishTaskPlanning(ctx, run.ID, run.Generation, "simple", time.Now())
++				case "executor":
++					if err = home.WriteTaskFile(fixture.home, task.ID, "RESULT.md", "Unchanged result café 日本語"); err != nil {
++						t.Fatal(err)
++					}
++					err = db.FinishTaskExecution(ctx, run.ID, run.Generation, false, time.Now())
++				case "reviewer":
++					err = db.FinishTaskReview(ctx, run.ID, run.Generation, "approve", "Exact result accepted", notify, time.Now())
++				}
++				if err != nil {
++					t.Fatal(err)
++				}
++			}
++			drain()
++			expected := 2
++			if notify {
++				expected = 3
++			}
++			if len(prompts) != expected {
++				t.Errorf("narrations=%d expected=%d", len(prompts), expected)
++			}
++			if notify && !strings.Contains(prompts[2], "Unchanged result café 日本語") {
++				t.Error("completion ignored current result")
++			}
++			current, err := db.Task(ctx, task.ID)
++			if err != nil || current.StageKey != "done" {
++				t.Fatalf("completion = %#v, %v", current, err)
++			}
++			items, err = db.ConversationProviderItems(ctx, conversation.ID)
++			if err != nil {
++				t.Fatal(err)
++			}
++			before := len(items)
++			kinds := map[string]int{}
++			for _, item := range items {
++				kind, _ := item.Metadata["notification_kind"].(string)
++				kinds[kind]++
++				if item.Kind != store.ConversationTaskReference && item.Kind != store.ConversationAssistantText {
++					t.Errorf("run transcript leaked into Chat: %s", item.Kind)
++				}
++				if item.Kind == store.ConversationTaskReference && item.Payload["task_id"] != task.ID {
++					t.Error("wrong Task reference")
++				}
++			}
++			if kinds["task_created"] != 1 || kinds["task_waiting"] != 1 || kinds["task_recovery"] < 1 {
++				t.Errorf("notice kinds=%v", kinds)
++			}
++			if notify && kinds["task_completed"] < 1 || !notify && kinds["task_completed"] != 0 {
++				t.Errorf("completion notices=%v", kinds)
++			}
++			drain()
++			items, err = db.ConversationProviderItems(ctx, conversation.ID)
++			if err != nil || len(items) != before || len(prompts) != expected {
++				t.Errorf("repeated drain duplicated output: items=%d previous=%d prompts=%d error=%v", len(items), before, len(prompts), err)
++			}
++		})
++	}
++}

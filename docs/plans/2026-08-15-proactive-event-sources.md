@@ -286,14 +286,14 @@ Use one read-only adversarial review and one correction pass for each server uni
 
 | Unit | Outcome | Production budget | Required proof |
 | --- | --- | ---: | --- |
-| Gmail wake and sync | One governed proactive message | 1,200–1,800 Rust lines | OIDC, durable receipt, restart, cursor, missed wake, recovery, renewal, revocation, projection |
+| Gmail wake and sync | One governed proactive message | 1,200–1,800 Go lines | OIDC, durable receipt, restart, cursor, missed wake, recovery, renewal, revocation, projection |
 | Web configuration | Gmail setup and one rule | 250–500 TypeScript lines | Empty, pending, active, failed, and revoked states |
-| Slack direct event | Signed event through one application endpoint | 250–500 Rust lines | HMAC, replay time, routing, challenge, and deduplication |
-| Dropbox shared wake | Independent progress for each account | 250–450 Rust lines | Challenge, batches, duplicates, cursor expiry, and HTTP 200 |
+| Slack direct event | Signed event through one application endpoint | 250–500 Go lines | HMAC, replay time, routing, challenge, and deduplication |
+| Dropbox shared wake | Independent progress for each account | 250–450 Go lines | Challenge, batches, duplicates, cursor expiry, and HTTP 200 |
 | Compatibility closure | Proven protocol variations only | Net-negative where possible | Compiler and sandbox cases at authoritative boundaries |
 
-Gmail can add at most ten Rust tests.
-Slack and Dropbox can each add four to six focused Rust tests.
+Gmail can add at most ten Go tests.
+Slack and Dropbox can each add four to six focused Go tests.
 Do not add UI tests unless requested.
 
 Use `noema-product-ui` before Web design work.
@@ -326,11 +326,11 @@ Do not repeat the same behavior through every layer.
 
 ## 10. Validation and Release Gates
 
-Use the unit budgets with the Rust size report at each milestone.
+Use the unit budgets with the Go size count at each milestone.
 Stop when growth exceeds its estimate by 50 percent or 500 lines.
 
-Run the standard Rust gates before each server commit.
-Use `cargo validate` for focused unit tests.
+Run the standard Go gates before each server commit.
+Use package-scoped `go test` commands for focused unit tests.
 Do not run smoke or fixture tests without approval.
 
 For Web work, run `bun run lint` and `bun run build` from `apps/web`.
@@ -350,7 +350,7 @@ Release acceptance requires these proofs:
 9. Saved chat text exactly matches notification text.
 10. Settings explains renewal, sync, recovery, and gaps.
 11. Secrets stay protected, and authorized private event data stays intact.
-12. Required Rust and Web gates pass, except documented baseline failures.
+12. Required Go and Web gates pass, except documented baseline failures.
 
 Live acceptance needs isolated test accounts and human provider access.
 Do not claim live compatibility from fixtures alone.

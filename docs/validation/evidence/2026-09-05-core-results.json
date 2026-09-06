@@ -1,0 +1,47 @@
+[
+  {
+    "id": "SETUP-02-client-command",
+    "result": "pass",
+    "detail": "Reading proposed choices leaves setup incomplete. Confirming the complete selection enables the app."
+  },
+  {
+    "id": "TASK-02-inbox",
+    "result": "pass",
+    "detail": "Browser Add to Inbox saves an exact Unicode Task without starting execution."
+  },
+  {
+    "id": "TASK-03-client-command",
+    "result": "pass",
+    "detail": "Renaming preserves the Task directory. The exact edited document remains stored."
+  },
+  {
+    "id": "TASK-04-server",
+    "result": "pass",
+    "detail": "A competing stale document save is rejected and preserves current content."
+  },
+  {
+    "id": "TASK-10-capture",
+    "result": "pass",
+    "detail": "Repeating the same accepted capture returns its original Task."
+  },
+  {
+    "id": "TASK-11",
+    "result": "pass",
+    "detail": "Equal Unicode titles allocate distinct directories and preserve existing documents."
+  },
+  {
+    "id": "PROJECT-02-server",
+    "result": "pass",
+    "detail": "Project edits persist. A competing stale save cannot replace current content."
+  },
+  {
+    "id": "PROJECT-04-server",
+    "result": "pass",
+    "detail": "Archive preserves readable context and refuses edits. Reopen restores active state."
+  },
+  {
+    "id": "HOME-05-partial",
+    "result": "pass",
+    "detail": "Complete stopped-home restore preserves passkey access, Task content, Project context, and model selections."
+  }
+]

@@ -1,0 +1,72 @@
+[
+  {
+    "call_id": "call_fake_1",
+    "name": "code.run_lua",
+    "payload": {
+      "value": {
+        "label": "café 日本語 🧭",
+        "percent": 25,
+        "remaining": 1800,
+        "values": [
+          null,
+          1,
+          {
+            "x": true
+          }
+        ]
+      }
+    },
+    "provider_name": "run_lua",
+    "success": true
+  },
+  {
+    "call_id": "call_fake_3",
+    "name": "code.run_lua",
+    "payload": {
+      "code": "execution_failed",
+      "message": "Sandboxed Lua execution failed"
+    },
+    "provider_name": "run_lua",
+    "success": false
+  },
+  {
+    "call_id": "call_fake_5",
+    "name": "code.run_lua",
+    "payload": {
+      "code": "execution_failed",
+      "message": "Sandboxed Lua execution failed"
+    },
+    "provider_name": "run_lua",
+    "success": false
+  },
+  {
+    "call_id": "call_fake_7",
+    "name": "code.run_lua",
+    "payload": {
+      "code": "execution_failed",
+      "message": "Sandboxed Lua execution failed"
+    },
+    "provider_name": "run_lua",
+    "success": false
+  },
+  {
+    "call_id": "call_fake_9",
+    "name": "code.run_lua",
+    "payload": {
+      "code": "execution_failed",
+      "message": "Sandboxed Lua execution failed"
+    },
+    "provider_name": "run_lua",
+    "success": false
+  },
+  {
+    "call_id": "call_fake_11",
+    "name": "code.run_lua",
+    "payload": {
+      "code": "execution_failed",
+      "message": "Sandboxed Lua execution failed"
+    },
+    "provider_name": "run_lua",
+    "success": false
+  }
+]

@@ -1,0 +1,117 @@
+diff --git a/internal/notification/audit_two_devices_test.go b/internal/notification/audit_two_devices_test.go
+new file mode 100644
+index 00000000..3d620b22
+--- /dev/null
++++ b/internal/notification/audit_two_devices_test.go
+@@ -0,0 +1,111 @@
++package notification
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/base64"
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func TestAuditTwoDevicesSuppressAndLogoutIndependently(t *testing.T) {
++	ctx, now := t.Context(), time.Now()
++	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	root, err := paths.Open()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer root.Close()
++	db, err := store.Open(ctx, paths.Database())
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	firstSession := addNotificationSession(t, db, now)
++	anonymous := sha256.Sum256([]byte("audit-second-anonymous"))
++	secondSession := sha256.Sum256([]byte("audit-second-authenticated"))
++	if err := db.CreateAnonymousSession(ctx, anonymous, now); err != nil {
++		t.Fatal(err)
++	}
++	if err := db.AuthenticatePasskey(ctx, base64.RawURLEncoding.EncodeToString([]byte("push-passkey")), `{}`, `{}`, anonymous, secondSession, now); err != nil {
++		t.Fatal(err)
++	}
++	service, err := New(paths, db, "https://noema.example")
++	if err != nil {
++		t.Fatal(err)
++	}
++	key, auth := notificationSubscriptionMaterial(t)
++	first, err := service.Register(ctx, firstSession, "https://push.example/audit-first", key, auth)
++	if err != nil {
++		t.Fatal(err)
++	}
++	second, err := service.Register(ctx, secondSession, "https://push.example/audit-second", key, auth)
++	if err != nil {
++		t.Fatal(err)
++	}
++	conversation, err := db.EnsurePrimaryConversation(ctx, "openrouter", "", now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := service.reconcilePrimary(ctx); err != nil {
++		t.Fatal(err)
++	}
++	presence, cancel := context.WithCancel(ctx)
++	defer cancel()
++	lease, err := service.Presence(presence, firstSession, first)
++	if err != nil {
++		t.Fatal(err)
++	}
++	<-lease
++	produce := func(label string) string {
++		t.Helper()
++		turn, _, err := db.BeginConversationTurn(ctx, conversation.ID, label, nil, time.Now())
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := db.CompleteConversationTurn(ctx, turn, "Audit café 日本語", "", nil, time.Now()); err != nil {
++			t.Fatal(err)
++		}
++		if err := service.reconcilePrimary(ctx); err != nil {
++			t.Fatal(err)
++		}
++		return "chat-turn:" + turn.ID
++	}
++	check := func(event string) {
++		t.Helper()
++		delivery, err := db.ClaimDueWebPushDelivery(ctx, time.Now().Add(time.Minute))
++		if err != nil || delivery == nil {
++			t.Fatal("eligible device has no delivery")
++		}
++		if delivery.Subscription.ID != second || delivery.Notification.EventKey != event || delivery.Notification.Body != "Audit café 日本語" || delivery.Notification.NavigatePath != "/" {
++			t.Fatal("wrong recipient or notification content")
++		}
++		if err := db.FinishWebPushDelivery(ctx, *delivery, store.WebPushDelivered, "", time.Now()); err != nil {
++			t.Fatal(err)
++		}
++		extra, err := db.ClaimDueWebPushDelivery(ctx, time.Now().Add(time.Minute))
++		if err != nil || extra != nil {
++			t.Fatal("unexpected extra delivery")
++		}
++	}
++	check(produce("Focused-device suppression"))
++	cancel()
++	<-lease
++	if err := db.DeleteBrowserSession(ctx, firstSession); err != nil {
++		t.Fatal(err)
++	}
++	if owned, err := db.OwnsWebPushSubscription(ctx, "human:local", firstSession, first); err != nil || owned {
++		t.Fatal("logged-out registration remains owned")
++	}
++	if owned, err := db.OwnsWebPushSubscription(ctx, "human:local", secondSession, second); err != nil || !owned {
++		t.Fatal("other registration was removed")
++	}
++	check(produce("After first-device logout"))
++	t.Log("Only the unfocused device receives the first event; logout removes only the first registration; the second device receives the next exact Unicode alert")
++}

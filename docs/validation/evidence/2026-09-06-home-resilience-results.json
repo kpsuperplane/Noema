@@ -1,0 +1,21 @@
+{
+  "commit": "ba66b02f",
+  "date": "2026-09-06",
+  "environment": "Linux x86_64; disposable Go homes and controlled SQLite, Memory, and Task fixtures",
+  "command": "CGO_ENABLED=0 go test -count=1 ./internal/store ./internal/runtime ./internal/memory -run 'Test(StoreReopensFreshGoSchema|TaskLifecycleSchemaConvergesFromVersion|ConversationTurnSerializesAndRecovers|TaskRuntimeRestartResumesEachRole|MemoryRecoversStagedPublication|Artifact|WALConcurrentWritesSurviveColdReopen)'",
+  "result": "passed",
+  "cases": {
+    "HOME-04": {
+      "tests": ["TestStoreReopensFreshGoSchema", "TestTaskLifecycleSchemaConvergesFromVersionFourteen", "TestConversationTurnSchemaFreshAndVersionSixUpgrade"],
+      "scope": "Fresh and supported prior Go schemas converge while stored records remain readable."
+    },
+    "HOME-07": {
+      "tests": ["TestTaskRuntimeRestartResumesEachRole", "TestConversationTurnSerializesAndRecovers", "TestMemoryRecoversStagedPublication", "TestArtifactSchemaOwnerChecksAndImmutableVersions"],
+      "scope": "Interrupted Task, conversation, Memory, and Artifact state recovers without duplicate committed work."
+    }
+  },
+  "limits": [
+    "This is disposable-home backend evidence. A full live backup restore and active model-helper termination remain pending.",
+    "HOME-08 unwritable and disk-full behavior remains untested."
+  ]
+}

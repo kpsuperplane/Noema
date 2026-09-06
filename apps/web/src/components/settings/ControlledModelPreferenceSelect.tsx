@@ -271,6 +271,7 @@ function modelPresentation(providerKind: string, label: string) {
 const styles = stylex.create({
   field: {
     minWidth: 0,
+    width: "100%",
     justifyContent: "flex-end",
     "@media (max-width: 620px)": {
       width: "100%",
@@ -278,7 +279,9 @@ const styles = stylex.create({
     }
   },
   controls: {
-    width: "min(100%, 38rem)",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto auto",
+    width: "100%",
     justifyContent: "flex-end",
     "@media (max-width: 620px)": {
       width: "100%",
@@ -286,8 +289,10 @@ const styles = stylex.create({
     }
   },
   modelControl: {
-    minWidth: "8rem",
-    flex: "1 1 8rem"
+    gridColumn: { default: "auto", "@media (max-width: 620px)": "1 / -1" },
+    minWidth: 0,
+    flex: "1 1 16rem",
+    "@media (max-width: 620px)": { flexBasis: "100%" }
   },
   effortControl: {
     width: "6rem",

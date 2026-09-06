@@ -1,0 +1,30 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "scope": "Keyboard activation with existing virtual passkey. Physical authenticator prompts are not tested.",
+  "clients": [
+    {
+      "width": 1440,
+      "tabSteps": 2,
+      "focus": {
+        "focusVisible": true,
+        "outline": "rgb(184, 74, 40) solid 2px"
+      },
+      "loginStatus": 204,
+      "chatComposerVisible": true,
+      "authenticatedReload": true,
+      "cleanupStatus": 204
+    },
+    {
+      "width": 390,
+      "tabSteps": 2,
+      "focus": {
+        "focusVisible": true,
+        "outline": "rgb(184, 74, 40) solid 2px"
+      },
+      "loginStatus": 204,
+      "chatComposerVisible": true,
+      "authenticatedReload": true,
+      "cleanupStatus": 204
+    }
+  ]
+}

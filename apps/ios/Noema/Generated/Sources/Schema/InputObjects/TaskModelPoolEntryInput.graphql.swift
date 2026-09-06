@@ -20,7 +20,6 @@ nonisolated public struct TaskModelPoolEntryInput: InputObject {
     modelProfile: GraphQLNullable<String> = nil,
     reasoningEffort: GraphQLNullable<GraphQLEnum<ReasoningEffort>> = nil,
     fastMode: Bool,
-    enabled: Bool,
     sortOrder: Int32
   ) {
     __data = InputDict([
@@ -32,7 +31,6 @@ nonisolated public struct TaskModelPoolEntryInput: InputObject {
       "modelProfile": modelProfile,
       "reasoningEffort": reasoningEffort,
       "fastMode": fastMode,
-      "enabled": enabled,
       "sortOrder": sortOrder
     ])
   }
@@ -83,12 +81,6 @@ nonisolated public struct TaskModelPoolEntryInput: InputObject {
   public var fastMode: Bool {
     get { __data["fastMode"] }
     set { __data["fastMode"] = newValue }
-  }
-
-  /// Whether this entry can be selected for new tasks.
-  public var enabled: Bool {
-    get { __data["enabled"] }
-    set { __data["enabled"] = newValue }
   }
 
   /// Human-controlled ordering within its tier.

@@ -13,7 +13,7 @@ const styles = stylex.create({
     maxWidth: 720,
     minWidth: 0,
     alignItems: "flex-end",
-    "@container chat-transcript (width < 600px)": {
+    "@container (width < 600px)": {
       width: "100%",
       gap: "var(--spacing-0)"
     }

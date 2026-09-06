@@ -1,0 +1,16 @@
+{
+  "baseRevision": "acb30aea",
+  "instance": "https://noema.kevinpei.com",
+  "command": "node docs/validation/evidence/2026-09-06-pwa-navigation-draft.mjs",
+  "result": "passed",
+  "cases": ["PWA-01", "PWA-02"],
+  "defect": "AUDIT-17",
+  "setup": "Chromium with standalone mode emulated, real service worker, cache, and IndexedDB.",
+  "verified": [
+    "The service worker activates and an authenticated snapshot is saved.",
+    "The Chat draft survives Memory and Settings navigation.",
+    "The draft survives offline reload, offline Memory navigation, and reconnect.",
+    "The offline Send message control remains disabled."
+  ],
+  "humanLater": "Install from iPhone Safari and repeat the core-surface and draft checks."
+}

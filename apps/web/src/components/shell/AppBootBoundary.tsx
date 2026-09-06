@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Button } from "@astryxdesign/core/Button";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
-import { ErrorMarker } from "@/components/ErrorMarker";
+import { SetupFrame, SetupCard, SetupActions } from "./SetupFrame";
 import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 import {
   pageWaveLeadingTransition,
@@ -100,23 +100,11 @@ function AppLoadError({
   onAction: () => void;
 }) {
   return (
-    <main {...stylex.props(styles.root)} aria-label="Noema status">
-      <div {...stylex.props(styles.errorFrame)}>
-        <img
-          src={`${import.meta.env.BASE_URL}pwa-192x192.png`}
-          width="36"
-          height="36"
-          alt=""
-        />
-        <ErrorMarker message="Noema could not load." recoverable={false} />
-        <Button
-          type="button"
-          variant="secondary"
-          label={actionLabel}
-          onClick={onAction}
-        />
-      </div>
-    </main>
+    <SetupFrame>
+      <SetupCard title="Noema could not load" intro="Try opening it again.">
+        <SetupActions><Button variant="primary" label={actionLabel} onClick={onAction} /></SetupActions>
+      </SetupCard>
+    </SetupFrame>
   );
 }
 
@@ -142,18 +130,5 @@ const styles = stylex.create({
   },
   bootGlimmerWave: {
     zIndex: 100
-  },
-  root: {
-    display: "grid",
-    minHeight: "100dvh",
-    placeItems: "center",
-    backgroundColor: "var(--background)",
-    padding: "var(--spacing-6)"
-  },
-  errorFrame: {
-    display: "grid",
-    width: "min(520px, 100%)",
-    justifyItems: "center",
-    gap: "calc(var(--spacing-4) + var(--spacing-0-5))"
   }
 });

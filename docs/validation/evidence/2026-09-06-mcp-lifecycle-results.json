@@ -1,0 +1,26 @@
+{
+  "baseRevision": "35ff605c626d6933c9eab32019b093e1c19049fc",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/mcp -run '^TestAuditMCPLifecycle$' -v",
+  "output": "=== RUN   TestAuditMCPLifecycle\n=== RUN   TestAuditMCPLifecycle/discovery_and_exact_result\n=== RUN   TestAuditMCPLifecycle/policy_changes_and_input_boundary\n=== RUN   TestAuditMCPLifecycle/changed_remote_metadata\n=== RUN   TestAuditMCPLifecycle/deletion_after_restart\n=== RUN   TestAuditMCPLifecycle/remote_disconnect\n--- PASS: TestAuditMCPLifecycle (0.27s)\n    --- PASS: TestAuditMCPLifecycle/discovery_and_exact_result (0.01s)\n    --- PASS: TestAuditMCPLifecycle/policy_changes_and_input_boundary (0.02s)\n    --- PASS: TestAuditMCPLifecycle/changed_remote_metadata (0.01s)\n    --- PASS: TestAuditMCPLifecycle/deletion_after_restart (0.01s)\n    --- PASS: TestAuditMCPLifecycle/remote_disconnect (0.00s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/mcp\t0.273s\n",
+  "scope": "Production MCP service with two local SDK HTTP servers and real SQLite. Reconstruction uses the same database. This check excludes browser presentation and OAuth attempts.",
+  "setupCorrection": "The first attempt omitted required connection policy. No bindings appeared. The corrected fixture saves policy before requesting bindings.",
+  "passedAssertions": [
+    "Both discovered services return exact Unicode content through their own bindings.",
+    "A complete behavior override changes the current review route and rejects the old binding.",
+    "Reset restores source hints and rejects the previous binding.",
+    "Both review-required and read bindings reject wrong-type input before remote execution.",
+    "Disabled tools reject saved calls. Re-enabling restores calls without affecting the other service.",
+    "Changed remote metadata rejects the saved call before execution. The other service remains usable.",
+    "Deletion survives service reconstruction and rejects the deleted binding. The other service remains usable.",
+    "Remote disconnect rejects the call and marks that service unhealthy."
+  ],
+  "cases": {
+    "MCP-01": "Partial: service setup and calls pass; browser result association remains pending.",
+    "MCP-03": "Pass · controlled HTTP service: changed metadata rejects saved authority before remote execution.",
+    "MCP-04": "Partial: policy controls and source input checks pass; full review execution remains pending.",
+    "MCP-05": "Partial: disconnect and service health pass; invalid results and browser errors remain pending.",
+    "MCP-07": "Partial: deletion and reconstruction pass; pending authentication removal remains pending."
+  },
+  "temporaryTestLines": 161,
+  "normalSuiteChanges": false
+}

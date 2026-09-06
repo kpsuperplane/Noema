@@ -154,10 +154,10 @@ Run a static design review before build validation:
 - Does the same information order survive at mobile width without overflow or
   accidental whitespace?
 
-For nontrivial visual changes, request browser-inspection permission early if
-the user has not granted it. When authorized, inspect the real affected flow at
-representative desktop and mobile widths and fix hierarchy, grouping, density,
-overflow, and responsive composition. A passing build does not prove the
+UI requests grant browser-inspection permission unless the user explicitly restricts it.
+Follow `docs/frontend/browser-inspection.md` for private socket access.
+Inspect the real affected flow at representative desktop and mobile widths.
+For implementation work, fix hierarchy, grouping, density, overflow, and responsive composition. A passing build does not prove the
 design is correct. When browser inspection is not authorized, say explicitly
 that the change received static and build validation only.
 

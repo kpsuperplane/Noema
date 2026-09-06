@@ -1,0 +1,25 @@
+schema:
+  - graphql/schema.graphql
+
+exec:
+  filename: internal/graphql/generated.go
+  package: graphql
+
+model:
+  filename: internal/graphql/model/models_gen.go
+  package: model
+
+resolver:
+  layout: follow-schema
+  dir: internal/graphql
+  package: graphql
+  filename_template: "{name}.resolvers.go"
+
+models:
+  JSON:
+    model:
+      - github.com/99designs/gqlgen/graphql.Map
+  ProviderInteractionActionInput:
+    fields:
+      dataModel:
+        type: github.com/kpsuperplane/noema/internal/graphql/model.JSONValue

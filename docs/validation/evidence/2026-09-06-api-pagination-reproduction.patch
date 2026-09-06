@@ -1,0 +1,157 @@
+diff --git a/internal/adapter/audit_pagination_test.go b/internal/adapter/audit_pagination_test.go
+new file mode 100644
+index 00000000..80b2eeb5
+--- /dev/null
++++ b/internal/adapter/audit_pagination_test.go
+@@ -0,0 +1,151 @@
++package adapter
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++)
++
++func TestAuditAPIPaginationAndResponseBoundaries(t *testing.T) {
++	var failNext atomic.Bool
++	calls := atomic.Int64{}
++	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls.Add(1)
++		w.Header().Set("Content-Type", "application/json")
++		switch {
++		case strings.HasSuffix(r.URL.Path, "/empty"):
++			fmt.Fprint(w, `{"items":[],"next":null}`)
++		case strings.HasSuffix(r.URL.Path, "/malformed"):
++			fmt.Fprint(w, `{"items":`)
++		case strings.HasSuffix(r.URL.Path, "/wrong"):
++			fmt.Fprint(w, `{"items":42,"next":null}`)
++		case strings.HasSuffix(r.URL.Path, "/oversized"):
++			fmt.Fprintf(w, `{"items":[%q],"next":null}`, strings.Repeat("x", 65))
++		case r.URL.Query().Get("cursor") == "page-two":
++			if failNext.Swap(false) {
++				w.WriteHeader(503)
++				fmt.Fprint(w, `{"error":"retry later"}`)
++				return
++			}
++			fmt.Fprint(w, `{"items":["second café 日本語"],"next":null}`)
++		default:
++			fmt.Fprint(w, `{"items":["first café 日本語"],"next":"page-two"}`)
++		}
++	}))
++	t.Cleanup(server.Close)
++	// Keep this transport override local to the temporary, nonparallel audit test.
++	previous := http.DefaultTransport
++	transport := previous.(*http.Transport).Clone()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
++		return (&tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}).DialContext(ctx, network, server.Listener.Addr().String())
++	}
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous; transport.CloseIdleConnections() })
++	service, _ := newOAuthService(t, "http://127.0.0.1:3737/adapter/oauth/callback")
++	manifest := testManifest()
++	manifest.Origin = "https://1.1.1.1/"
++	limit, count, closed := 64, 10, false
++	operation := &manifest.Operations[0]
++	operation.Response.Transform = &Transform{Language: "lua", Source: `return function(response) local value = json.decode(response.body); return { items = value.items } end`}
++	operation.Pagination = Pagination{Kind: "response_token", ResponsePointer: "/next", RequestArgument: "cursor"}
++	operation.Response.OutputSchema = OutputSchema{Type: "object", Properties: map[string]OutputSchema{"items": {Type: "array", MaxItems: &count, Items: &OutputSchema{Type: "string", MaxBytes: &limit}}}, Required: []string{"items"}, AdditionalProperties: &closed}
++	second := *operation
++	second.OperationID = "other"
++	manifest.Operations = append(manifest.Operations, second)
++	definition, err := service.files.installDefinition(manifest, "https://example.com/audit", nil, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err = service.Approve(t.Context(), definition.SemanticDigest); err != nil {
++		t.Fatal(err)
++	}
++	snapshot, err := service.Snapshot()
++	if err != nil || len(snapshot.Connections) != 1 {
++		t.Fatal("setup failed", err)
++	}
++	connection := snapshot.Connections[0]
++	if _, err = service.SaveConnectionPolicy(t.Context(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask"); err != nil {
++		t.Fatal(err)
++	}
++	bindings, err := service.Bindings()
++	if err != nil || len(bindings) != 2 {
++		t.Fatal("bindings failed", err)
++	}
++	var lookup, other Binding
++	for _, binding := range bindings {
++		if binding.OperationID == "lookup" {
++			lookup = binding
++		} else {
++			other = binding
++		}
++	}
++	call := func(binding Binding, args map[string]any) (map[string]any, bool, error) {
++		raw, _ := json.Marshal(args)
++		payload, ok, err := service.Call(t.Context(), binding, raw)
++		var value map[string]any
++		_ = json.Unmarshal(payload, &value)
++		return value, ok, err
++	}
++	t.Run("empty", func(t *testing.T) {
++		value, ok, err := call(lookup, map[string]any{"id": "empty"})
++		items, _ := value["items"].([]any)
++		if err != nil || !ok || items == nil || len(items) != 0 || value["continuation"] != nil {
++			t.Fatalf("empty result=%v success=%t error=%v", value, ok, err)
++		}
++	})
++	t.Run("pages and failed-page retry", func(t *testing.T) {
++		first, ok, err := call(lookup, map[string]any{"id": "pages"})
++		if err != nil || !ok {
++			t.Fatal("first page failed", err)
++		}
++		reference, _ := first["continuation"].(string)
++		if reference == "" {
++			t.Fatal("missing continuation")
++		}
++		if fmt.Sprint(first["items"]) != "[first café 日本語]" {
++			t.Error("first page changed", first)
++		}
++		for _, attempt := range []struct {
++			binding Binding
++			id      string
++		}{{lookup, "changed"}, {other, "pages"}} {
++			before := calls.Load()
++			_, ok, err := call(attempt.binding, map[string]any{"id": attempt.id, "continuation": reference})
++			if ok || err == nil || calls.Load() != before {
++				t.Error("invalid continuation reached HTTP")
++			}
++		}
++		failNext.Store(true)
++		_, ok, err = call(lookup, map[string]any{"id": "pages", "continuation": reference})
++		if ok {
++			t.Error("failed page reported success")
++		}
++		next, ok, err := call(lookup, map[string]any{"id": "pages", "continuation": reference})
++		if err != nil || !ok || fmt.Sprint(next["items"]) != "[second café 日本語]" || next["continuation"] != nil {
++			t.Errorf("retry result=%v success=%t error=%v", next, ok, err)
++		}
++		before := calls.Load()
++		_, ok, err = call(lookup, map[string]any{"id": "pages", "continuation": reference})
++		if ok || err == nil || calls.Load() != before {
++			t.Error("consumed continuation reached HTTP")
++		}
++	})
++	for _, id := range []string{"malformed", "wrong", "oversized"} {
++		t.Run(id, func(t *testing.T) {
++			value, ok, err := call(lookup, map[string]any{"id": id})
++			if ok || value["items"] != nil {
++				t.Errorf("invalid response accepted: %v %v", value, err)
++			}
++		})
++	}
++}

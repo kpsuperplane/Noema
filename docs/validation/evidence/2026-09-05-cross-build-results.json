@@ -1,0 +1,27 @@
+{
+  "source": "af0c239869c6cd3e8624bb0a4bd905ff300eb6ca with overrides recorded in 2026-09-05-oauth-response-fix.json",
+  "command": "CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> go build -trimpath -buildvcs=false -tags noema_release ./cmd/noema",
+  "results": [
+    {
+      "target": "linux/arm64",
+      "exit_code": 0,
+      "sha256": "a4179c3adbba340af3e35ab3fee85eed05c3bd6b84421cca7653625dc9b72918"
+    },
+    {
+      "target": "darwin/amd64",
+      "exit_code": 0,
+      "sha256": "b118139654ca22538513524135f670bf29793764d23ef20986717bf8638b3726"
+    },
+    {
+      "target": "darwin/arm64",
+      "exit_code": 0,
+      "sha256": "7487ce1bd441ceb19d8826b0096f84121aaf6d03b496386213ead0b72d3fd159"
+    },
+    {
+      "target": "windows/amd64",
+      "exit_code": 0,
+      "sha256": "b0aec1ae06fe4f87bcf8001a84a89c46b4d6088407da1794c0d1e9f4b0e666a9"
+    }
+  ],
+  "native_execution": false
+}

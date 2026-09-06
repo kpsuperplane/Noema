@@ -54,6 +54,25 @@ transport, runtime, and policy internals outside the default flow. The current
 shell restores Chat, Tasks, Memory, and Settings after setup. Do not hide these
 destinations to preserve an obsolete staged rollout.
 
+Supporting flows reuse `SetupFrame`, `SetupCard`, and the existing animated avatar.
+The avatar centre meets the card edge. The title position stays fixed.
+`theme/supporting.css` owns the shared card geometry, wash, spacing, and actions.
+Desktop action pairs use equal columns. The primary action follows the secondary action.
+Provider choices reuse `ListCardButton`. Model review groups resolved model names by their jobs.
+The Customize disclosure keeps all nine assignments and their existing preference controls.
+
+`internal/publicpage` renders consent and callback pages without authenticated JavaScript.
+Its stylesheet resolves the current Vite entry CSS through `/assets/supporting.css`.
+This avoids a second theme snapshot. Public pages use a static avatar fallback.
+Run `bun scripts/render-public-buttons.tsx` from `apps/web` after an Astryx upgrade.
+This regenerates public form controls from the installed Button component.
+
+Recovery keeps its own state during native authorization and PWA reauthentication.
+Browser Back restores passkey focus. Forward restores recovery field focus.
+Native handoff does not claim that token exchange has completed.
+A saved adapter grant with failed activation remains a partial setup result.
+Human intervention cards remain part of their existing Chat flow.
+
 ## State authorities
 
 - SQLite owns durable conversations, transcript items, tasks, provider and tool
@@ -71,8 +90,8 @@ destinations to preserve an obsolete staged rollout.
 - Browser code never receives credential material. Provider-auth redirects and
   callbacks remain server-governed flows.
 - Tauri keeps the origin, client identifier, and rotating refresh credential
-  in the operating system credential store. Access tokens remain in Rust
-  memory. Its webview receives connection state and the validated server origin.
+  in the operating system credential store. Access tokens remain in its native
+  process. Its webview receives connection state and the validated server origin.
 
 ## Interaction contracts
 
@@ -80,6 +99,11 @@ Chat reconstructs its transcript from durable pages and merges live events by
 stable item identity. After reconnect, the client refetches active reads and
 reconciles durable transcript state before treating later live completion as
 authoritative.
+
+Multiple-choice option IDs belong to one question. Web caches each option inside its question or selection.
+A successful question display finishes the Chat turn without another model response.
+The saved question keeps usage information. Later selections arrive as normal user messages.
+Web and iOS omit the question tool marker unless it failed.
 
 The installed PWA follows [pwa.md](pwa.md): only complete releases and complete
 Apollo snapshots become offline authorities, and mutations remain locked until
@@ -100,7 +124,7 @@ product shell available. Transcript items, human intervention cards, detail
 rails, sidebars, and the rich Task editor fail within their local surfaces.
 Error boundaries do not replace explicit query, mutation, or connection errors.
 
-The desktop app runs one embedded local instance or one connected remote server.
+The desktop app runs one packaged Go sidecar or one connected remote server.
 A connection link carries only the validated server origin. Rust opens the
 system browser for OAuth with PKCE and recent passkey approval. Remote mode uses
 HTTPS GraphQL and authenticated `graphql-transport-ws` through Tauri IPC.
@@ -163,6 +187,9 @@ surface abstraction.
 The web app uses Astryx and StyleX. Generated GraphQL types are the client
 contract; do not add hand-maintained mirrors for generated query shapes.
 
+Transcript styles use unnamed size queries against the nearest container.
+StyleX 0.19 runtime injection retains only the first rule for each named container query.
+
 Task detail shows `Workspace` and `Transcript`.
 Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Transcript.
 The wide layout keeps a top boundary and a vertical divider between the views.
@@ -181,32 +208,38 @@ file parser for supported spreadsheets. Raster images and PDFs use authorized
 inline routes. HTML runs only in a sandbox after Noema removes active elements,
 navigation, event handlers, and external resources. SVG remains download-only.
 
-Task and project documents use one shared Markdown viewer, Milkdown Crepe editor, and inline edit behavior.
-Both use explicit edit, source, save, cancel, loading, error, and stale-reload controls.
-Task creation uses the `/tasks/new` route and the normal Task detail area.
-The Tasks list remains visible beside creation when the detail layout has room.
-Creation presents a chromeless Task title and document above one bottom options row.
-Without a schedule, the primary action runs immediately. Its attached menu can save the Task to Inbox.
-Project creation appears as a name-only project row below Personal.
-The human can set its folder through Edit project after creation.
-Creation does not use a separate form dialog.
-Inbox titles and descriptions expose adjacent pencil controls and edit in place without changing the surrounding layout.
-Project and Executor editing remains in a focused settings dialog.
-For a selected project, `PROJECT.md` is the first Tasks list row.
-It opens in the existing detail rail and renders Markdown before editing starts.
-Document saves use revision and digest fences.
-Stale saves preserve the local draft while the human reloads the latest authority and retries.
-Archived projects keep this document read-only until reopening.
-The editor includes source mode and falls back to source when rich parsing fails.
-iPhone and iPad use full-screen Markdown source editors for the same Task fields.
-Both clients send the transient document digest with human updates.
+Task and project documents share the Markdown viewer and Milkdown editor.
+Task creation uses `/tasks/new` and the normal detail area beside the Tasks list.
+The title and instructions have accessible names without visible field labels.
+The instructions fill the remaining height in rich text and source modes.
+Project and Schedule controls use visible labels. Add to Inbox and Run now remain visible together.
+Advanced capture controls sit above the action row.
 
-Recurrence detail reads its separate template `TASK.md`.
-Recurring titles and template descriptions use the same field-adjacent pencil controls.
-The cadence has its own adjacent schedule control. The template always identifies its future-run scope.
-Template saves affect only future occurrences and show local save or stale-draft status.
-Occurrence history groups runs by local day. Template editing remains separate from schedule editing.
-Task routes have no dormant text-search parameter or description-search behavior.
+Existing task and recurrence fields save on blur. Both reuse the capture title and Markdown editor.
+The editor reads current text before saving, changing source mode, starting, or leaving a task.
+Failed saves preserve drafts and prevent navigation. Stale saves require acknowledgement before retry.
+Document saves retain revision and digest fences. Active tasks follow server-provided edit availability.
+Project documents retain their existing explicit editing controls.
+The source editor remains available when rich parsing fails. iOS retains its native source editor.
+
+Task details keep a compact title, close control, and Workspace/Transcript tabs above scrolling content.
+The header and selected tab remain stable from Inbox through Queued and Running.
+Project and Task agent choices appear in the Workspace body. Working folder and repeated revision/source metadata are omitted.
+Timing appears beside Schedule or Reschedule. Lifecycle controls remain in the existing floating bar.
+An Inbox task says Ready when you are. No separate Progress section appears.
+Task list groups show their names and counts without explanatory description rows.
+
+Recurrence detail reads its separate template `TASK.md`. Edits apply to future runs.
+Missed-run and overlap controls remain visible before Run history.
+History reuses task list cards and linked task status. Skipped slots do not imply an existing task.
+A recurring template remains selected when it creates a run. Opening that run remains separate navigation.
+Schedule editing recognizes supported presets and preserves unmatched cron expressions.
+Task confirmations and schedule dialogs reuse task cards. Footers keep equal-width actions reachable, with the primary action on the right.
+Cancellation does not ask for a reason. Start task remains a direct action.
+
+Agent and task model settings keep model, reasoning, and Fast controls visible.
+Task models use provider availability without a separate enable setting.
+Device notification settings precede server delivery setup. Provider detail headers align with the list header.
 
 The Tasks list reads recurring authorities directly. A recurrence remains in
 Scheduled when all of its Task instances are terminal. Instances provide run

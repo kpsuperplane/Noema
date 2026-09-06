@@ -1,0 +1,19 @@
+{
+  "revision": "dbadaa53e33c25b65fe39ff10cae67c2866a36da",
+  "cases": [
+    "NOTE-03",
+    "NOTE-07"
+  ],
+  "result": "Pass at registration and durable queue boundaries",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/notification -run '^TestAuditTwoDevicesSuppressAndLogoutIndependently$' -v",
+  "output": "=== RUN   TestAuditTwoDevicesSuppressAndLogoutIndependently\n    audit_two_devices_test.go:110: Only the unfocused device receives the first event; logout removes only the first registration; the second device receives the next exact Unicode alert\n--- PASS: TestAuditTwoDevicesSuppressAndLogoutIndependently (0.21s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t0.219s\n",
+  "assertions": [
+    "Two separately authenticated sessions own independent registrations.",
+    "Focused presence suppresses only the first registration.",
+    "The second registration receives the exact Unicode final-answer preview and Chat route.",
+    "Logging out the first session removes its registration only.",
+    "The second registration receives the next event without duplicates."
+  ],
+  "scope": "Production authentication store, registration, presence lease, reconciliation, and delivery queue. No browser focus events, push transport, or physical alerts.",
+  "normalSuiteChanges": false
+}

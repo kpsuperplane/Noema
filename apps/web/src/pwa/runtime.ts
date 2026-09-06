@@ -208,12 +208,12 @@ class PwaRuntime {
     this.update({ state: "checking", canMutate: false });
     try {
       await this.checkForApplicationUpdate();
-      this.generation += 1;
-      this.baselineCache = (this.client?.extract() as NormalizedCacheObject | undefined) ?? null;
-      this.update({ state: "reconciling", canMutate: false });
     } catch {
-      this.goOffline();
+      // The active release remains usable when its background update check fails.
     }
+    this.generation += 1;
+    this.baselineCache = (this.client?.extract() as NormalizedCacheObject | undefined) ?? null;
+    this.update({ state: "reconciling", canMutate: false });
   }
 
   async finishReconciliation() {
@@ -235,6 +235,7 @@ class PwaRuntime {
 
   goOffline() {
     if (!this.snapshot.installed) return;
+    void this.persistNow();
     this.update({ state: "offline", updating: false, canMutate: false });
   }
 

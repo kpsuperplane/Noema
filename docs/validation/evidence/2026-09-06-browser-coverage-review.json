@@ -1,0 +1,76 @@
+{
+  "reviewedRevision": "4c6c0e2bc3f0fd07b8e184dc79ef2c05697105e6",
+  "testedRevision": "56f3a1346595b6a0ca9ae59bfee104d9cc1a6476",
+  "reusedEvidence": "2026-09-06-role-runtime-restart-validation.json",
+  "reusedChecks": [
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": "ok  \tgithub.com/kpsuperplane/noema/cmd/noema\t(cached)\nok  \tgithub.com/kpsuperplane/noema/cmd/noema-dev\t(cached)\n?   \tgithub.com/kpsuperplane/noema/cmd/noema-model-evals\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/acp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/adapter\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/artifact\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/auth\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/childenv\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/diagnostics\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/documents\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/graphql\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/graphql/model\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/home\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/localmodel\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/mcp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/memory\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/modeleval\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/netpolicy\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/project\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/provider\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/publicpage\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t21.469s\nok  \tgithub.com/kpsuperplane/noema/internal/schedule\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/script\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/store\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/web\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t(cached)\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": ""
+    }
+  ],
+  "reuseBasis": "Tracked Go source, tests, and module dependencies are unchanged. Source assertions were inspected. No new test execution is claimed.",
+  "cases": {
+    "WEB-04": {
+      "tests": [
+        "TestBrowserWorkerProtocolPolicyAndLifecycle",
+        "TestKernelRouteSwitchReusesRemoteSessionAndPublicRevisions"
+      ],
+      "scope": "Controlled worker and Kernel lifecycle checks cover open, snapshot, interaction, wait failure, history rejection, and close. Real-provider paths remain pending.",
+      "result": "Partial"
+    },
+    "WEB-05": {
+      "tests": [
+        "TestPrepareObscuraInstallsAndReusesVerifiedWorker"
+      ],
+      "scope": "Controlled verified archive installs and reuses with one download. Public release installation and offline reuse remain pending.",
+      "result": "Partial"
+    },
+    "WEB-06": {
+      "tests": [
+        "TestKernelRouteSwitchReusesRemoteSessionAndPublicRevisions"
+      ],
+      "scope": "Controlled failed first open permits a switch. Failed-switch preservation and model-driven recovery remain pending.",
+      "result": "Partial"
+    },
+    "WEB-08": {
+      "tests": [
+        "TestBrowserWorkerProtocolPolicyAndLifecycle"
+      ],
+      "scope": "Old snapshot revision and replacement-session authority are rejected. Real changed-page targeting remains pending.",
+      "result": "Partial"
+    },
+    "WEB-11": {
+      "tests": [
+        "TestKernelInteractionMarksMainDocumentAndLostResponsesUncertain"
+      ],
+      "scope": "Controlled main-document and lost-response errors remain uncertain. Read-only snapshot recovery passes. Full commit reconciliation remains pending.",
+      "result": "Partial"
+    },
+    "WEB-13": {
+      "tests": [
+        "TestKernelUploadBindsOneExactTaskArtifactBeforeTransmission"
+      ],
+      "scope": "Review binds version, filename, and bytes before transmission. Generated upload data contains exact bytes. Destination receipt remains pending.",
+      "result": "Partial"
+    },
+    "WEB-14": {
+      "tests": [
+        "TestBrowserWorkerProtocolPolicyAndLifecycle"
+      ],
+      "scope": "Unsupported upload returns retry_later without success. Supported route-switch recovery remains pending.",
+      "result": "Partial"
+    }
+  },
+  "sha256": {
+    "internal/webtool/browser_test.go": "0326d1e14a258474a7dab159005eabf17d132c9f3be9a9f9ced61b43b36b8bc9",
+    "internal/webtool/kernel_browser_test.go": "b7751cc28d9e0c8780a8c364c39dc2ab90b062248d59a87e0d29a12f3cdd4b28",
+    "internal/webtool/obscura_install_test.go": "17db85150640ba8ac448241edd8cbf75d8c0885369d5c4ab1a274d7cc6dcf08b"
+  },
+  "normalSuiteChanges": false
+}

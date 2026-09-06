@@ -49,7 +49,12 @@ export function renderableTranscriptEntries(
   collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
   const visibleEntries = attachTaskNotificationTasks(
-    latestA2UISurfaces(entries).filter((entry) => entry.type !== "activity" || entry.item.activity_kind !== "hosted_web_search")
+    latestA2UISurfaces(entries).filter((entry) => {
+      if (entry.type !== "activity") return true;
+      if (entry.item.activity_kind === "hosted_web_search") return false;
+      const action = recordValue(recordValue(entry.item.metadata)?.action);
+      return action?.name !== "noema.present_multiple_choice" || entry.item.status === "FAILED";
+    })
   );
   const renderedEntries = collapseConsecutiveToolCalls
     ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(visibleEntries))

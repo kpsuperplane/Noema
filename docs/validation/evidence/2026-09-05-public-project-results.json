@@ -1,0 +1,22 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "transport": "Development Unix socket for the same instance",
+  "projectId": "project:eb7e02135a057b326b0863dbccf19894",
+  "evidence": [
+    {
+      "id": "PROJECT-01-settings",
+      "result": "pass",
+      "detail": "Create and rename preserve the configured shared folder. Task role reads remain pending."
+    },
+    {
+      "id": "PROJECT-02-server",
+      "result": "pass",
+      "detail": "A stale save fails and the exact current Project document remains readable. Browser draft retention remains pending."
+    },
+    {
+      "id": "PROJECT-04-server",
+      "result": "pass",
+      "detail": "Archive keeps the document readable and rejects edits. Reopen permits a new edit."
+    }
+  ]
+}

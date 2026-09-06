@@ -1,0 +1,130 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "provider": "codex",
+  "turn": [
+    {
+      "itemId": "item:2fa922e36e41c93d704b6f1d2dc2739f",
+      "turnId": "turn:32d38e5e885bbe4587feb4130418dc8e",
+      "item": {
+        "__typename": "UserText",
+        "text": "Migration audit CHAT-12. Test A2UI validation with two deliberately invalid fixtures. Call noema.present_a2ui once for each exact argument below. Do not repair or retry either fixture. Do not call other tools. After both results, summarize the actual validation failures and end with AUDIT_A2UI_INVALID_COMPLETE_42.\n[{\"jsonl\":\"{\\\"version\\\":\\\"v0.9.1\\\",\\\"createSurface\\\":{\\\"surfaceId\\\":\\\"audit-invalid-component\\\",\\\"catalogId\\\":\\\"com.noema.a2ui/catalog/v0.9.1\\\"}}\\n{\\\"version\\\":\\\"v0.9.1\\\",\\\"updateComponents\\\":{\\\"surfaceId\\\":\\\"audit-invalid-component\\\",\\\"components\\\":[{\\\"id\\\":\\\"root\\\",\\\"component\\\":\\\"Image\\\",\\\"url\\\":\\\"https://example.com/audit.png\\\"}]}}\"},{\"jsonl\":\"{\\\"version\\\":\\\"v0.9.1\\\",\\\"createSurface\\\":{\\\"surfaceId\\\":\\\"audit-invalid-html\\\",\\\"catalogId\\\":\\\"com.noema.a2ui/catalog/v0.9.1\\\"}}\\n{\\\"version\\\":\\\"v0.9.1\\\",\\\"updateComponents\\\":{\\\"surfaceId\\\":\\\"audit-invalid-html\\\",\\\"components\\\":[{\\\"id\\\":\\\"root\\\",\\\"component\\\":\\\"Text\\\",\\\"text\\\":\\\"<script>window.auditA2UIExecuted=true</script>\\\"}]}}\"}]"
+      }
+    },
+    {
+      "itemId": "item:0a802aaa51886e38768089b49b28763f",
+      "turnId": "turn:32d38e5e885bbe4587feb4130418dc8e",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: noema.present_a2ui",
+        "status": "FAILED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:32d38e5e885bbe4587feb4130418dc8e:0:1",
+            "name": "noema.present_a2ui",
+            "payload": {
+              "jsonl": "{\"version\":\"v0.9.1\",\"createSurface\":{\"surfaceId\":\"audit-invalid-component\",\"catalogId\":\"com.noema.a2ui/catalog/v0.9.1\"}}\n{\"version\":\"v0.9.1\",\"updateComponents\":{\"surfaceId\":\"audit-invalid-component\",\"components\":[{\"id\":\"root\",\"component\":\"Image\",\"url\":\"https://example.com/audit.png\"}]}}"
+            },
+            "provider_call_id": "call_JR62rQK3dSxLWVBB5Wd51Pvl",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c92f86dd487d18acb14d6dc2089ba",
+            "provider_name": "present_a2ui"
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 22
+        }
+      }
+    },
+    {
+      "itemId": "item:281172b6ac49adf7a6dcc107e210f916",
+      "turnId": "turn:32d38e5e885bbe4587feb4130418dc8e",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: noema.present_a2ui",
+        "status": "FAILED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:32d38e5e885bbe4587feb4130418dc8e:0:1",
+            "name": "noema.present_a2ui",
+            "payload": {
+              "code": "unsupported_catalog",
+              "line": 2,
+              "message": "unsupported component",
+              "path": "component",
+              "status": "VALIDATION_FAILED"
+            },
+            "provider_call_id": "call_JR62rQK3dSxLWVBB5Wd51Pvl",
+            "provider_name": "present_a2ui",
+            "success": false
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 22
+        }
+      }
+    },
+    {
+      "itemId": "item:ae4862cc1f24fef61aa37dd86462d3f3",
+      "turnId": "turn:32d38e5e885bbe4587feb4130418dc8e",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: noema.present_a2ui",
+        "status": "FAILED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:32d38e5e885bbe4587feb4130418dc8e:1:0",
+            "name": "noema.present_a2ui",
+            "payload": {
+              "jsonl": "{\"version\":\"v0.9.1\",\"createSurface\":{\"surfaceId\":\"audit-invalid-html\",\"catalogId\":\"com.noema.a2ui/catalog/v0.9.1\"}}\n{\"version\":\"v0.9.1\",\"updateComponents\":{\"surfaceId\":\"audit-invalid-html\",\"components\":[{\"id\":\"root\",\"component\":\"Text\",\"text\":\"<script>window.auditA2UIExecuted=true</script>\"}]}}"
+            },
+            "provider_call_id": "call_P6t01boMuF9eGkJy9cf09P4D",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c92fdfcd087d19039efab9db10f74",
+            "provider_name": "present_a2ui"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 22
+        }
+      }
+    },
+    {
+      "itemId": "item:aea7089e619c4e3406a913935d817607",
+      "turnId": "turn:32d38e5e885bbe4587feb4130418dc8e",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: noema.present_a2ui",
+        "status": "FAILED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:32d38e5e885bbe4587feb4130418dc8e:1:0",
+            "name": "noema.present_a2ui",
+            "payload": {
+              "code": "unsafe_content",
+              "line": 2,
+              "message": "raw HTML rejected",
+              "status": "VALIDATION_FAILED"
+            },
+            "provider_call_id": "call_P6t01boMuF9eGkJy9cf09P4D",
+            "provider_name": "present_a2ui",
+            "success": false
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 22
+        }
+      }
+    },
+    {
+      "itemId": "item:b248ba427066323d0eeef660559d82ec",
+      "turnId": "turn:32d38e5e885bbe4587feb4130418dc8e",
+      "item": {
+        "__typename": "AssistantText",
+        "text": "- `audit-invalid-component` failed validation on line 2: `unsupported_catalog` — unsupported component (`Image`).\n- `audit-invalid-html` failed validation on line 2: `unsafe_content` — raw HTML rejected.\n\nAUDIT_A2UI_INVALID_COMPLETE_42"
+      }
+    }
+  ],
+  "result": "pass"
+}

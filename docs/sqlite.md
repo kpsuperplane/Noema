@@ -3,7 +3,7 @@
 SQLite owns Noema's stored structured state. The database file lives at:
 
 ```text
-${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3
+${NOEMA_HOME:-$HOME/.noema}/noema.sqlite3
 ```
 
 SQLite owns Noema records such as humans, agents, provider accounts, provider
@@ -19,8 +19,7 @@ Memory-related Noema home layout:
 
 ```text
 ~/.noema/
-  db/
-    noema.sqlite3
+  noema.sqlite3
   memory/
     human/
       root.md
@@ -30,19 +29,24 @@ Memory-related Noema home layout:
       memory.sqlite3
 ```
 
+## Go row mapping
+
+Bun maps Tasks, Task runs, Task events, and Agents into their existing Go types.
+It uses the existing ncruces SQLite driver and connection pool. Transactions keep
+immediate locking and exact current-run checks. Explicit SQL owns state transitions.
+
+Mapped time fields retain integer milliseconds through bounded model configuration.
+No ORM schema generation runs. Persisted schema changes still need forward migrations.
+
 ## Schema migrations
 
-The database uses ordered, forward-only `rusqlite_migration` steps
-and records its current version in SQLite's `PRAGMA user_version`. Store startup
-validates the recorded version and exact schema shape before applying pending
-migrations transactionally. A database created from the final pre-migration v9
-schema is adopted in place without rewriting application rows.
+The Go store uses ordered, forward-only migrations. SQLite records the current
+version in `PRAGMA user_version`. Store startup applies pending migrations in one transaction.
 
-The v9 baseline and every applied migration are immutable history. A schema
-change appends one migration to `store_migrations` in
-`crates/noema-store/src/schema.rs`, increments `STORE_SCHEMA_VERSION`, and adds
-focused coverage for the data or invariant at risk. Unknown, structurally
-modified, and newer schemas are rejected without mutation.
+`internal/store/store.go` owns one ordered migration list. Its length is the
+current version. Fresh databases and upgrades use this same list.
+`internal/store/schema_v*.go` owns each immutable migration. A schema change
+adds one immutable migration to the list and tests upgrades plus fresh convergence.
 
-No SurrealDB migration path is maintained, and SQLite schemas older than or
-different from the exact v9 baseline still require an explicit reset or restore.
+The Go server uses a fresh Noema home. It does not open or convert a Rust home.
+Unknown and newer schema versions fail without mutation.

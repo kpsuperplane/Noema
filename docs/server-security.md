@@ -165,25 +165,27 @@ The operator must keep the edge private while using this mode for recovery.
 Before public access returns, the operator must review passkeys and native
 grants, disable the mode, restart, and verify passkey login.
 
-### Local Codex GraphQL
+### Local Codex web access
 
 `web.local_graphql_socket` defaults to `false`. When enabled, Noema creates
 `${NOEMA_HOME}/run/graphql.sock` for local Codex development.
 
-The socket uses HTTP GraphQL requests over a Unix domain socket. Its parent
+The socket uses HTTP requests over a Unix domain socket. Its parent
 directory uses mode `0700`, and the socket uses mode `0600`.
 
-Each socket request authenticates as `human:local`. It bypasses passkey login,
-recent-passkey checks, browser sessions, and the zero-passkey setup barrier.
+Socket requests bypass public passkey admission and the zero-passkey setup barrier.
+They do not create browser sessions. Shared GraphQL resolver checks still apply.
+Operations that require browser-session context can remain unavailable.
 
-The socket exposes only GraphQL POST requests. It does not expose GraphiQL,
-WebSockets, assets, artifacts, recovery, OAuth, or other HTTP routes.
+The socket exposes GraphQL POST requests, GraphQL WebSockets, app pages, and static assets.
+`GET /auth/status` reports authenticated socket access without creating a browser session.
+GraphiQL, the schema endpoint, artifacts, recovery, and OAuth routes remain unavailable.
 
-A separate socket router constructs the `human:local` principal at its boundary
-and calls the shared GraphQL schema. No header, path, Host value, source address,
-or public-listener middleware branch can select this authority.
+A separate socket router calls the shared GraphQL schema.
+No header, path, Host value, source address, or public-listener branch selects this socket authority.
 
-The normal GraphQL authorization and resource limits still apply. The stdio MCP
+The normal GraphQL authorization and resource limits still apply.
+GraphQL POST bodies remain limited to 64 KiB. The stdio MCP
 flag remains independent and continues to guard process creation.
 
 Enabling the socket does not change setup state, create browser sessions, or
@@ -191,6 +193,9 @@ authorize any TCP request. Its bypass exists only for each socket request.
 
 The public listener and reverse proxy must never route this socket. Noema does
 not provide an unauthenticated TCP fallback or a local bearer token.
+
+Browser inspection tools can forward requests directly through this socket.
+Keep that forwarding inside the inspection process, without an unauthenticated TCP relay.
 
 Local Codex can use any Unix-socket HTTP client. For example:
 
@@ -208,6 +213,16 @@ The relay supports restricted local development sessions that cannot traverse
 the `noema-dev` home. Its directory uses mode `0700`, and its socket uses mode
 `0600`. It forwards only to the existing local GraphQL socket and has no TCP
 listener. The supervisor creates and removes the relay with the server session.
+
+The same supervisor starts an authenticated loopback inspection relay for the Linux Codex sandbox.
+The sandbox can use its network proxy but cannot create a direct Unix socket.
+The inspection relay binds only `127.0.0.1` and forwards only to `/tmp/noema-codex/graphql.sock`.
+It requires a generated credential for HTTP requests and WebSocket upgrades.
+Its protected credential store is `/tmp/noema-codex/inspection-credential.json`, with mode `0600` under the existing `0700` directory.
+The relay strips inspection credentials, authorization headers, and browser cookies before forwarding.
+The inspection helper supplies the credential internally and continues to reject mutations.
+Normal shutdown stops the relay and removes its credential. No unauthenticated TCP route is added.
+See [browser inspection](frontend/browser-inspection.md) for profile usage and validation.
 
 ## 6. Passkeys
 
@@ -387,6 +402,7 @@ only rebuildable image data under `${NOEMA_HOME}/system/cache/favicons/`.
 Browser responses use a restrictive CSP, `frame-ancestors 'none'`,
 `base-uri 'none'`, `form-action 'self'`, `nosniff`, no-referrer policy, and a
 minimal Permissions Policy.
+The application permits bundled fonts from its origin and data URLs.
 
 ## 9. Native Client OAuth
 
@@ -458,8 +474,8 @@ Sign-out clears protected private caches after server revocation.
 The operating-system account and device lock protect retained native data.
 Server revocation cannot erase private data from an offline device.
 
-The desktop Rust host owns remote credentials and transport. The packaged
-webview never receives bearer credentials or executes remote server content.
+The desktop Rust shell owns remote credentials and transport. Its local mode
+starts the packaged Go sidecar. The webview never receives bearer credentials.
 Privileged IPC validates its caller origin and command arguments.
 
 Native sign-out revokes the family before local deletion. Noema supports
@@ -468,8 +484,9 @@ individual and global native-client revocation.
 Family revocation and expiry close related WebSockets and disable related push
 registrations. Every request checks current token and family state.
 
-Noema uses a maintained Rust OAuth server library. Desktop uses a maintained
-Rust OAuth client library. Noema must not implement OAuth from scratch.
+Noema uses a maintained OAuth server library. The Go server uses
+`github.com/go-oauth2/oauth2/v4`. Desktop uses a maintained Rust OAuth client
+library. Noema must not implement OAuth from scratch.
 Noema owns durable token state, rotation, replay, and revocation. iOS uses the
 platform authentication session and networking APIs.
 
@@ -589,10 +606,6 @@ edge.
 Tauri reads the installed macOS `Info.plist` during application restart.
 Public server requests do not provide this XML. Modifying the installed file
 already requires local package control, which is outside this threat model.
-
-`cargo audit` also reports `RUSTSEC-2023-0071` for `rsa 0.9.10` through
-`web-push-native`. Noema creates and loads only ES256 VAPID keys. It performs no
-RSA private-key operation, so the reported timing path is not reachable.
 
 `bun audit` reports 12 advisories in `brace-expansion`, `js-yaml`, `nanoid`,
 and `postcss`. These packages run in the web build, lint, and generation tools.

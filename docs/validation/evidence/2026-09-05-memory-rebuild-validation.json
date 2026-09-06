@@ -1,0 +1,34 @@
+{
+  "testedRevision": "eb7a57a7a7d21625cd61b437bf25e388a8cbb8c2",
+  "productionChanges": 0,
+  "driverHashes": {
+    "memory-rebuild.mjs": "01b17d8d94138c4717b89824ea8e7fa8976dc60302aa54e38fe6e9d5beb50fd1",
+    "memory-rebuild-before.json": "b267576fb1d2e47dee772873f6eadee8a4f4e16d98d683cbe4b20af4ec25cc68",
+    "memory-rebuild-after.json": "733cc8c042c6ecec88ae08a381963c2d943c17e9d0ed0384916b92c332b448c5",
+    "memory-rebuild-process.json": "44ab9b3befd1fb735ddb50309c261880a77ca1e23ba374e48ada125a9210618d"
+  },
+  "sourceHashes": {
+    "internal/memory/memory.go": "d7dcbfe2f99a3a19b51e206e22af3d0a7c9a36f1d358ea979050524a01c933de",
+    "internal/memory/search.go": "20f901033452193baaf128f1548c968fa7c5b1be38dd4d3e7d1e3b81499f2861",
+    "internal/memory/publish.go": "f277ee49467a7e4ae7adfe3da79750642c3f4c7cef1842acace5b627fb3c1960"
+  },
+  "results": {
+    "articles": 3,
+    "sourceFiles": 4,
+    "queries": [
+      "travel notes",
+      "stargazing"
+    ],
+    "comparison": "Exact search results, article content, icons, hashes, citations, hierarchy, and source-file hashes match across restart."
+  },
+  "rebuildAuthority": "Store.initialize reconstructs searchPages from the Markdown pages. Publication also rebuilds searchPages. No SQLite search database is used.",
+  "validationReuse": {
+    "revision": "c7f8785d",
+    "commands": [
+      "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "CGO_ENABLED=0 go vet ./cmd/... ./internal/..."
+    ],
+    "result": "pass",
+    "reason": "Production code and dependencies remain unchanged. This unit adds live restart evidence and corrects documentation."
+  }
+}

@@ -105,6 +105,8 @@ export function TasksList({
               })}
             />
             <TasksHistory
+              firstTask={tasks.length === 0 && recurrences.length === 0 && terminal === "all" && !projectId}
+              terminal={terminal}
               connection={rootResult.data?.taskHistory}
               error={Boolean(rootResult.error)}
               loading={rootResult.loading}
@@ -337,17 +339,18 @@ function SectionHeader({ id, title, count, attention = false }: { id: string; ti
   );
 }
 
-function TaskCard({ taskId = "", recurrenceId, title, note, project, status, statusLabel, timestamp, listItem = true, attached = false }: {
+export function TaskCard({ taskId = "", recurrenceId, title, note, project, status, statusLabel, timestamp, listItem = true, attached = false, onClick }: {
   taskId?: string;
   recurrenceId?: string;
   title: string;
   note?: string | null;
   project?: string | null;
-  status: TaskStatus;
-  statusLabel: string;
-  timestamp: string;
+  status?: TaskStatus;
+  statusLabel?: string;
+  timestamp?: string;
   listItem?: boolean;
   attached?: boolean;
+  onClick?: () => void;
 }) {
   const link = (
     <ListCardLink
@@ -356,18 +359,19 @@ function TaskCard({ taskId = "", recurrenceId, title, note, project, status, sta
       search={(current) => normalizeTasksSearch(current)}
       activeOptions={{ exact: true, includeSearch: false }}
       activeProps={{ selected: true, "aria-current": "page" }}
+      onClick={onClick}
       xstyle={[styles.taskCardLayout, attached && styles.attachedTaskCard]}
     >
       <div {...stylex.props(styles.cardHeading)}>
         <strong {...stylex.props(styles.cardTitle)}>{title}</strong>
-        <time dateTime={timestamp} title={timestampLabel(timestamp)} {...stylex.props(styles.cardTime)}>{relativeTime(timestamp)}</time>
+        {timestamp ? <time dateTime={timestamp} title={timestampLabel(timestamp)} {...stylex.props(styles.cardTime)}>{relativeTime(timestamp)}</time> : null}
       </div>
       {note ? <span {...stylex.props(styles.cardPreview)}>{note}</span> : null}
       <HStack gap={1} align="center" className={stylex.props(styles.cardMeta).className}>
-        <TaskStatusBadge status={status} label={statusLabel} />
+        {status && statusLabel ? <TaskStatusBadge status={status} label={statusLabel} /> : null}
         {project ? (
           <>
-            <span aria-hidden="true">·</span>
+            {status && statusLabel ? <span aria-hidden="true">·</span> : null}
             <span {...stylex.props(styles.cardProject)}>{project}</span>
           </>
         ) : null}
@@ -377,7 +381,9 @@ function TaskCard({ taskId = "", recurrenceId, title, note, project, status, sta
   return listItem ? <li {...stylex.props(styles.cardListItem)}>{link}</li> : link;
 }
 
-function TasksHistory({ connection, error, loading, onRefetch, onLoadMore }: {
+function TasksHistory({ connection, error, loading, onRefetch, onLoadMore, firstTask, terminal }: {
+  firstTask: boolean;
+  terminal: "all" | "completed" | "cancelled";
   connection?: TasksOverviewQuery["taskHistory"];
   error: boolean;
   loading: boolean;
@@ -386,10 +392,10 @@ function TasksHistory({ connection, error, loading, onRefetch, onLoadMore }: {
 }) {
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
-    <VStack as="section" aria-labelledby="tasks-history" gap={1.5} className={stylex.props(styles.taskGroup).className}>
-      <SectionHeader id="tasks-history" title="History" count={tasks.length} />
+    <VStack as="section" aria-label="Task history" gap={2} className={stylex.props(styles.taskGroup).className}>
+      {!firstTask || tasks.length ? <SectionHeader id="tasks-history" title="History" count={tasks.length} /> : null}
       {!connection ? <ListMessage loading={loading} error={error} retry={onRefetch} label="history" /> : null}
-      {connection && !tasks.length ? <ListEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
+      {connection && !tasks.length ? <ListEmpty title={firstTask ? "Your first task starts here" : terminal === "cancelled" ? "No cancelled tasks yet" : "No completed tasks yet"} detail={firstTask ? "Choose New task to get started." : "Finished tasks will appear here."} /> : null}
       <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
       </VStack>

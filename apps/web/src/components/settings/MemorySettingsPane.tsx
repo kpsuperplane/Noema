@@ -64,17 +64,17 @@ export function MemorySettingsPane() {
   const warning = settings ? selectedPreferenceWarning(preference, options, "MEMORY_CONSOLIDATION") : null;
 
   return (
-    <SettingsSection title="Background updates" titleId="memory-settings-title" summary="Local human only">
+    <SettingsSection title="Background updates" titleId="memory-settings-title">
       {loading ? <SettingsSectionInset><p {...stylex.props(styles.mutedText)}>Loading memory settings...</p></SettingsSectionInset> : !settings ? (
         <SettingsSectionInset>
-          <p role="alert" {...stylex.props(styles.mutedText)}>The model choices for native memory updates could not be loaded.</p>
+          <p role="alert" {...stylex.props(styles.mutedText)}>Memory settings could not be loaded.</p>
           <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void settingsResult.refetch()} />
         </SettingsSectionInset>
       ) : <>
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
             mobileEndContentFullWidth
-            label="Consolidation model"
+            label="Memory update model"
             endContent={
               <SettingsRowActions>
                 <ModelPreferenceSelect

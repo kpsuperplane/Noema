@@ -1,0 +1,21 @@
+{
+  "revision": "35d2c9aba2d1b92a5ea201363d964fff34b3abc1",
+  "case": "WEB-09",
+  "defect": "AUDIT-12",
+  "result": "Fail",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/webtool -run '^TestAuditRealBrowserFormReview$' -v",
+  "output": "=== RUN   TestAuditRealBrowserFormReview\n    audit_form_review_test.go:80: protected control value appears in model snapshot\n    audit_form_review_test.go:80: protected control value appears in model snapshot\n    audit_form_review_test.go:80: protected control value appears in stored snapshot\n    audit_form_review_test.go:80: protected control value appears in stored snapshot\n    audit_form_review_test.go:84: Form was inspected without submission; visible values and protected-control exclusions were checked\n--- FAIL: TestAuditRealBrowserFormReview (0.84s)\nFAIL\nFAIL\tgithub.com/kpsuperplane/noema/internal/webtool\t0.845s\nFAIL\n",
+  "passed": [
+    "Review shows the exact public submission destination and POST method.",
+    "Review preserves the visible café 日本語 field and clicked submit value.",
+    "Review omits hidden, password, and file controls, with omitted count three.",
+    "Review JSON excludes both synthetic protected-control sentinel values."
+  ],
+  "failed": [
+    "Model snapshot includes hidden and password control values.",
+    "Stored snapshot includes hidden and password control values."
+  ],
+  "sourceFinding": "browserSnapshotScript includes all inputs. Element names fall back to element.value without excluding protected input types.",
+  "scope": "Real Obscura worker with synthetic form controls. No submission and no actual credentials. Full rendered approval review and Kernel execution remain untested.",
+  "normalSuiteChanges": false
+}

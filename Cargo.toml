@@ -1,25 +1,5 @@
 [workspace]
-members = [
-    "crates/noema-artifacts",
-    "crates/noema-api",
-    "crates/noema-capabilities",
-    "crates/noema-capabilities/adapters",
-    "crates/noema-capabilities/mcp",
-    "crates/noema-conversations",
-    "crates/noema-dev",
-    "crates/noema-desktop",
-    "crates/noema-home",
-    "crates/noema-host",
-    "crates/noema-memory",
-    "crates/noema-model-evals",
-    "crates/noema-providers",
-    "crates/noema-runtime",
-    "crates/noema-server",
-    "crates/noema-store",
-    "crates/noema-tasks",
-    "crates/noema-workspaces",
-]
-default-members = ["crates/noema-server"]
+members = ["crates/noema-desktop"]
 resolver = "3"
 
 [workspace.package]
@@ -29,70 +9,16 @@ repository = "https://github.com/kpsuperplane/Noema"
 rust-version = "1.96"
 
 [workspace.dependencies]
-async-trait = "0.1"
-async-graphql = "7"
-async-graphql-axum = "7.2.1"
-async-stream = "0.3"
-agent-client-protocol = "2.0.0"
-anydoc = "=0.1.9"
-axum = "0.8.9"
 base64 = "0.22"
-bigdecimal = "0.4"
-bytes = "1"
-cap-std = "4.0.2"
-chrono = "0.4.45"
-cronexpr = "=1.6.0"
-jiff = "=0.2.35"
-jsonschema = { version = "0.49.8", default-features = false }
-figment = { version = "0.10", features = ["env", "yaml"] }
 futures-util = "0.3"
-fs2 = "0.4"
-http = "1"
-image = { version = "0.25.9", default-features = false, features = ["gif", "ico", "jpeg", "png", "webp"] }
-libc = "0.2"
-mlua = { version = "0.12", default-features = false, features = ["luau", "vendored"] }
 oauth2 = { version = "5", default-features = false }
-oxide-auth = "0.6.1"
-openssl = { version = "0.10", features = ["vendored"] }
-obscura-browser = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
-obscura-js = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
-openapiv3 = "2.2"
-process-wrap = { version = "9.1", default-features = false, features = ["creation-flags", "job-object", "kill-on-drop", "process-group", "tokio1"] }
-psl = "2"
-pulldown-cmark = { version = "0.13.4", default-features = false }
 reqwest = { version = "0.13", default-features = false, features = ["form", "http2", "json", "rustls"] }
-readabilityrs = "0.1.3"
 ring = "0.17"
-rmcp = { version = "2.0.0", default-features = false, features = ["auth", "client", "reqwest", "transport-child-process", "transport-streamable-http-client-reqwest"] }
-rusqlite = { version = "0.37", features = ["bundled", "time"] }
-rusqlite_migration = "=2.3.0"
-rustix = { version = "1", features = ["process"] }
-scraper = "0.25"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_path_to_error = "0.1"
-serde_yaml = "0.9"
-sse-stream = "0.2.3"
-sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 tempfile = "3"
-thiserror = "2"
-time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-util = { version = "0.7", features = ["rt"] }
-toml = "1"
-tower = { version = "0.5", features = ["limit", "util"] }
-tower-http = { version = "0.6.11", features = ["limit", "set-header"] }
-tower-sessions = { version = "0.15.0", default-features = false, features = ["axum-core", "memory-store", "private"] }
-ts-rs = "12.0"
 url = "2.5"
-unicode-segmentation = "1"
-webauthn-rs = { version = "0.5.5", default-features = false }
-web-push-native = "0.5"
-
-[patch.crates-io]
-# Obscura's render feature uses these source-controlled renderer fixes.
-cosmic-text = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
-taffy = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -117,7 +43,3 @@ incremental = false
 [profile.test]
 debug = 1
 incremental = false
-
-[profile.dev-launcher]
-inherits = "dev"
-debug = 1

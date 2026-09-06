@@ -1,0 +1,121 @@
+diff --git a/internal/adapter/audit_http_outcomes_test.go b/internal/adapter/audit_http_outcomes_test.go
+new file mode 100644
+index 00000000..84627cd6
+--- /dev/null
++++ b/internal/adapter/audit_http_outcomes_test.go
+@@ -0,0 +1,115 @@
++package adapter
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++)
++
++func TestAuditAPIReadRetryRateLimitAndUncertainWrite(t *testing.T) {
++	var reads, writes, limited atomic.Int64
++	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		if strings.HasSuffix(r.URL.Path, "/limited") {
++			limited.Add(1)
++			w.Header().Set("Retry-After", "60")
++			w.WriteHeader(429)
++			fmt.Fprint(w, `{"error":"rate limit"}`)
++			return
++		}
++		disconnect := false
++		if r.Method == "POST" {
++			writes.Add(1)
++			disconnect = true
++		} else {
++			disconnect = reads.Add(1) == 1
++		}
++		if disconnect {
++			connection, _, err := w.(http.Hijacker).Hijack()
++			if err != nil {
++				t.Error(err)
++				return
++			}
++			_ = connection.Close()
++			return
++		}
++		fmt.Fprint(w, `{"name":"Retried café 日本語"}`)
++	}))
++	t.Cleanup(server.Close)
++	previous := http.DefaultTransport
++	transport := previous.(*http.Transport).Clone()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
++		return (&tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}).DialContext(ctx, network, server.Listener.Addr().String())
++	}
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous; transport.CloseIdleConnections() })
++	service, _ := newOAuthService(t, "http://127.0.0.1:3737/adapter/oauth/callback")
++	manifest := testManifest()
++	manifest.Origin = "https://1.1.1.1/"
++	write := manifest.Operations[0]
++	write.OperationID = "write"
++	write.Method = "POST"
++	write.Retry = "never"
++	no := false
++	write.Behavior.ReadOnly.Value = &no
++	write.Behavior.Idempotent.Value = &no
++	manifest.Operations = append(manifest.Operations, write)
++	definition, err := service.files.installDefinition(manifest, "https://example.com/audit", nil, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err = service.Approve(t.Context(), definition.SemanticDigest); err != nil {
++		t.Fatal(err)
++	}
++	snapshot, err := service.Snapshot()
++	if err != nil || len(snapshot.Connections) != 1 {
++		t.Fatal("setup failed", err)
++	}
++	connection := snapshot.Connections[0]
++	if _, err = service.SaveConnectionPolicy(t.Context(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask"); err != nil {
++		t.Fatal(err)
++	}
++	bindings, err := service.Bindings()
++	if err != nil || len(bindings) != 2 {
++		t.Fatal("bindings failed", err)
++	}
++	var readBinding, writeBinding Binding
++	for _, binding := range bindings {
++		if binding.OperationID == "lookup" {
++			readBinding = binding
++		} else {
++			writeBinding = binding
++		}
++	}
++	t.Run("safe read retry", func(t *testing.T) {
++		payload, ok, err := service.Call(t.Context(), readBinding, json.RawMessage(`{"id":"retry"}`))
++		var value map[string]any
++		_ = json.Unmarshal(payload, &value)
++		if err != nil || !ok || value["name"] != "Retried café 日本語" || reads.Load() != 2 {
++			t.Errorf("read success=%t calls=%d error=%v", ok, reads.Load(), err)
++		}
++	})
++	t.Run("rate limit", func(t *testing.T) {
++		payload, ok, err := service.Call(t.Context(), readBinding, json.RawMessage(`{"id":"limited"}`))
++		if ok || err != nil || limited.Load() != 1 || !strings.Contains(string(payload), "429") {
++			t.Errorf("rate limit success=%t calls=%d payload=%s error=%v", ok, limited.Load(), payload, err)
++		}
++	})
++	t.Run("uncertain write", func(t *testing.T) {
++		_, ok, err := service.Call(t.Context(), writeBinding, json.RawMessage(`{"id":"uncertain"}`))
++		if ok || !errors.Is(err, ErrOutcomeUncertain) || writes.Load() != 1 {
++			t.Errorf("write success=%t calls=%d uncertain=%t", ok, writes.Load(), errors.Is(err, ErrOutcomeUncertain))
++		}
++	})
++}

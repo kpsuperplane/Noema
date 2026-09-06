@@ -1,0 +1,21 @@
+{
+  "revision": "cc1830f6c5dc50059b7ef782ba16b355babe0f0e",
+  "case": "WEB-15",
+  "result": "Partial",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/webtool -run '^TestAuditRealBrowserBlocksPrivateNavigation$' -v",
+  "output": "=== RUN   TestAuditRealBrowserBlocksPrivateNavigation\n    audit_browser_network_test.go:51: six prohibited direct targets rejected; public control passed; page navigation error=CDP Runtime.evaluate failed (-32601) snapshot_success=false local_requests=0\n--- PASS: TestAuditRealBrowserBlocksPrivateNavigation (0.85s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t0.856s\n",
+  "passed": [
+    "Direct loopback IPv4, localhost, loopback IPv6, private IPv4, metadata address, and file URLs are rejected.",
+    "The local HTTP counter records no requests.",
+    "The real worker opens example.com with expected public content."
+  ],
+  "inconclusive": [
+    "Page-script navigation returns CDP Runtime.evaluate error -32601. No local request occurs, but this does not establish redirect enforcement."
+  ],
+  "remaining": [
+    "Controlled public HTTP redirect to a private destination.",
+    "Kernel navigation and redirect execution."
+  ],
+  "scope": "Production browser service and real Linux Obscura worker. No private content was read.",
+  "normalSuiteChanges": false
+}

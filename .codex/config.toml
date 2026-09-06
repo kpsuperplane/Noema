@@ -4,11 +4,14 @@ default_permissions = "noema-build"
 enabled = true
 
 [permissions.noema-build]
-description = "Build Noema with the shared sccache service inside the sandbox."
+description = "Build and commit Noema with shared sccache and authenticated local inspection."
 extends = ":workspace"
 
 [permissions.noema-build.filesystem]
 "/root/.cache/sccache" = "write"
+
+[permissions.noema-build.filesystem.":workspace_roots"]
+".git" = "write"
 
 [permissions.noema-build.network]
 enabled = true

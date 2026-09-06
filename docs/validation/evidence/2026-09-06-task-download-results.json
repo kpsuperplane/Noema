@@ -1,0 +1,14 @@
+{
+  "revision": "a6a705c987a2079221305c725954c49a59231bd5",
+  "case": "FILE-01",
+  "result": "Fail",
+  "defect": "AUDIT-09",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/runtime -run '^TestAuditExecutorDownloadCapability$' -v",
+  "output": "=== RUN   TestAuditExecutorDownloadCapability\n    audit_task_download_test.go:35: Executor catalog omits file.download\n    audit_task_download_test.go:44: download dispatch result: {\"code\":\"unsupported_tool\",\"message\":\"Tool is unavailable for this Task role\"}\n    audit_task_download_test.go:46: Executor dispatcher rejects file.download\n--- FAIL: TestAuditExecutorDownloadCapability (0.23s)\nFAIL\nFAIL\tgithub.com/kpsuperplane/noema/internal/runtime\t0.237s\nFAIL\n",
+  "contract": "docs/tasks.md permits file.download for the Executor within the Task directory.",
+  "observed": "The Executor catalog omits file.download. The dispatcher returns unsupported_tool.",
+  "scope": "Real queued Task and claimed Executor with the production catalog and dispatcher. The rejected call performs no network request.",
+  "fixBatch": "Task capabilities",
+  "temporaryTestLines": 48,
+  "normalSuiteChanges": false
+}

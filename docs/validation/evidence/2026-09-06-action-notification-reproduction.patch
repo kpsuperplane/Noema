@@ -1,0 +1,86 @@
+diff --git a/internal/notification/audit_action_preview_test.go b/internal/notification/audit_action_preview_test.go
+new file mode 100644
+index 00000000..17e29fe2
+--- /dev/null
++++ b/internal/notification/audit_action_preview_test.go
+@@ -0,0 +1,80 @@
++package notification
++
++import (
++	"encoding/json"
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestAuditPendingActionQueuesSafeNotification(t *testing.T) {
++	ctx, now := t.Context(), time.Now()
++	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	root, err := paths.Open()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer root.Close()
++	db, err := store.Open(ctx, paths.Database())
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	session := addNotificationSession(t, db, now)
++	conversation, err := db.EnsurePrimaryConversation(ctx, "openrouter", "", now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	service, err := New(paths, db, "https://noema.example")
++	if err != nil {
++		t.Fatal(err)
++	}
++	key, auth := notificationSubscriptionMaterial(t)
++	if _, err := service.Register(ctx, session, "https://push.example/audit-action", key, auth); err != nil {
++		t.Fatal(err)
++	}
++	if err := service.reconcilePrimary(ctx); err != nil {
++		t.Fatal(err)
++	}
++	turn, _, err := db.BeginConversationTurn(ctx, conversation.ID, "Prepare an audit action", nil, now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	arguments := json.RawMessage(`{"path":"audit-raw-argument-marker","value":"café 日本語"}`)
++	items, err := db.StartConversationToolRound(ctx, turn, store.ConversationToolRound{Provider: "openrouter", Call: store.ConversationToolCallInput{ProviderRound: 0, OutputIndex: 0, ProviderCallID: "audit-call", ProviderName: "audit.write", Name: "audit.write", Arguments: arguments}}, now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	action, err := db.CreateActionRequest(ctx, store.NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: items[len(items)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "audit.write", OperationToken: "audit.write", ReviewRoute: store.ActionHumanReview, Behavior: store.ActionBehavior{OpenWorld: true}, Arguments: arguments, InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"browser_review_context": map[string]any{"hidden": "audit-hidden-marker"}}, SafeSummary: "Review the audit write"}, now)
++	if err != nil || action.State != store.ActionAwaitingApproval {
++		t.Fatal("pending approval setup failed")
++	}
++	if err := service.reconcilePrimary(ctx); err != nil {
++		t.Fatal(err)
++	}
++	if err := service.reconcileTasks(ctx); err != nil {
++		t.Fatal(err)
++	}
++	delivery, err := db.ClaimDueWebPushDelivery(ctx, time.Now().Add(time.Minute))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if delivery == nil {
++		t.Fatal("pending human action approval produced no notification")
++	}
++	payload, _ := json.Marshal(delivery.Notification)
++	for _, marker := range []string{"audit-raw-argument-marker", "audit-hidden-marker"} {
++		if strings.Contains(string(payload), marker) {
++			t.Fatal("notification includes raw action data")
++		}
++	}
++	if delivery.Notification.NavigatePath != "/" {
++		t.Fatal("approval notification route differs")
++	}
++}

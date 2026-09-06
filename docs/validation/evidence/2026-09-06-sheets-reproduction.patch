@@ -1,0 +1,44 @@
+diff --git a/internal/runtime/audit_sheets_test.go b/internal/runtime/audit_sheets_test.go
+new file mode 100644
+index 00000000..8d0a1282
+--- /dev/null
++++ b/internal/runtime/audit_sheets_test.go
+@@ -0,0 +1,38 @@
++package runtime
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestAuditSpreadsheetProductionParse(t *testing.T) {
++	const cwd = "/var/tmp/noema-suite-run-20260905/sheets"
++	for _, test := range []struct {
++		name   string
++		values []string
++	}{{"audit.xls", []string{"0.3402777777777778"}}, {"audit.xlsx", []string{"2026-09-06", "$1,234.50", "42", "## Data", "## Archive"}}, {"audit.ods", []string{"Label café 日本語", "2026-09-06", "$1,234.50", "42"}}} {
++		t.Run(test.name, func(t *testing.T) {
++			before, err := os.ReadFile(filepath.Join(cwd, test.name))
++			if err != nil {
++				t.Fatal(err)
++			}
++			args, _ := json.Marshal(map[string]any{"path": test.name, "max_chars": 20000})
++			result, err := parseConversationFile(t.Context(), cwd, args)
++			if err != nil || result.Status != "converted" || result.Content == nil {
++				t.Fatalf("parse status=%s error=%v", result.Status, err)
++			}
++			for _, want := range test.values {
++				if !strings.Contains(*result.Content, want) {
++					t.Errorf("missing expected display %q; output=%s", want, *result.Content)
++				}
++			}
++			after, err := os.ReadFile(filepath.Join(cwd, test.name))
++			if err != nil || string(before) != string(after) {
++				t.Fatal("source changed", err)
++			}
++		})
++	}
++}

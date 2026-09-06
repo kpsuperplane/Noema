@@ -266,7 +266,7 @@ function runBoundaryEntries(run: TaskRun, now: number): TranscriptEntry[] {
     `run-start:${run.id}`,
     "task_run_start",
     run,
-    `${role} · Running`,
+    `${role} · ${runStatusLabel(run)}`,
     { presentation: { tone: "neutral" }, instance_name: run.instanceName }
   );
   if (!isTerminalRun(run)) {
@@ -294,6 +294,15 @@ function runBoundaryEntries(run: TaskRun, now: number): TranscriptEntry[] {
 
 function runStatusLabel(run: TaskRun): string {
   switch (run.status) {
+    case "queued":
+      return "Queued";
+    case "leased":
+    case "running":
+      return "Running";
+    case "waiting_for_approval":
+      return "Waiting for approval";
+    case "completed":
+      return "Completed";
     case "failed":
       return "Failed";
     case "cancelled":

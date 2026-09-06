@@ -6,6 +6,7 @@ import { MarkdownContent } from "@/components/MarkdownContent";
 import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 
 export type MarkdownEditorProps = {
+  readValueRef?: React.RefObject<(() => string) | null>;
   value: string; onChange: (value: string) => void;
   label?: string; density?: "default" | "inline"; sourceMode?: boolean;
   placeholder?: string; onSourceModeChange?: (sourceMode: boolean) => void; onReady?: () => void;

@@ -1,0 +1,55 @@
+{
+  "case": "RUN-05",
+  "result": "Pass \u00b7 controlled store/runtime/browser",
+  "baseRevision": "4b719c37",
+  "fix": "Unwrap the Task result field and prefer its readable message over the error code.",
+  "browser": {
+    "origin": "https://noema.kevinpei.com",
+    "viewports": [
+      {
+        "width": 1440,
+        "height": 1000
+      },
+      {
+        "width": 390,
+        "height": 844
+      }
+    ],
+    "controlledResponse": true,
+    "liveTaskDataChanged": false,
+    "message": "Task cancelled. The external action may have completed.",
+    "assertions": [
+      "The failed tool control expands.",
+      "Exactly one readable uncertainty message is visible.",
+      "The message fits both viewport widths."
+    ]
+  },
+  "checks": [
+    {
+      "command": "bun run check:generated",
+      "result": "pass"
+    },
+    {
+      "command": "bun run lint",
+      "result": "pass"
+    },
+    {
+      "command": "NOEMA_DEV_ASSET_DIR=/run/noema-dev/web-assets bun run build",
+      "result": "pass"
+    }
+  ],
+  "sha256": {
+    "apps/web/src/components/chatDetail/task/taskRunItemMapper.ts": "d5ef45291052ed746940ff5abd3d8973202e616ef91004a4996d90ba82e98759",
+    "apps/web/src/components/transcript/markerModel.ts": "1aaee6dd1f20f10d31b023e599c1e85e2cea41911c647ce143e53c8d474b9534"
+  },
+  "netLines": {
+    "frontendProduction": 0,
+    "tests": 0
+  },
+  "limits": [
+    "The browser uses controlled transcript responses on the requested instance.",
+    "Separate store and MCP runtime tests prove cancellation and saved outcomes.",
+    "The underlying live Task remains completed; its completion footer is not part of this fixture check."
+  ],
+  "followup": "Completed run headers display Running. Inspect their status mapping next."
+}

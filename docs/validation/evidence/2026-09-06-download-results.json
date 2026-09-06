@@ -1,0 +1,19 @@
+{
+  "revision": "03fb580a91c5da2e938cec2be73acc1f53ca9ea9",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/runtime -run '^TestAuditDownloadBytesAndBoundaries$' -v",
+  "output": "=== RUN   TestAuditDownloadBytesAndBoundaries\n=== RUN   TestAuditDownloadBytesAndBoundaries/exact_bytes\n=== RUN   TestAuditDownloadBytesAndBoundaries/existing_file\n=== RUN   TestAuditDownloadBytesAndBoundaries/escaping_paths\n=== RUN   TestAuditDownloadBytesAndBoundaries/private_redirect\n--- PASS: TestAuditDownloadBytesAndBoundaries (0.01s)\n    --- PASS: TestAuditDownloadBytesAndBoundaries/exact_bytes (0.01s)\n    --- PASS: TestAuditDownloadBytesAndBoundaries/existing_file (0.00s)\n    --- PASS: TestAuditDownloadBytesAndBoundaries/escaping_paths (0.00s)\n    --- PASS: TestAuditDownloadBytesAndBoundaries/private_redirect (0.00s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t0.025s\n",
+  "scope": "Production download function with a controlled TLS service and temporary working directory. TLS dialing is redirected to the fixture. Production network routing and Task review are outside this check.",
+  "cases": {
+    "FILE-01": "Partial: exact bytes and filename pass; Task placement and review remain pending.",
+    "FILE-02": "Pass · controlled TLS service"
+  },
+  "assertions": [
+    "Exact Unicode bytes are saved under the requested nested Unicode filename.",
+    "Existing destinations fail before network access and retain their bytes.",
+    "Parent, absolute, and outside symlink paths fail before network access.",
+    "The outside file remains unchanged.",
+    "A private-address redirect fails without publishing the destination."
+  ],
+  "temporaryTestLines": 101,
+  "normalSuiteChanges": false
+}

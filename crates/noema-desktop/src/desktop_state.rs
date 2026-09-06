@@ -1,14 +1,16 @@
 //! Managed local and remote desktop runtime state.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, process::Stdio, sync::Arc, time::Duration};
 
-use noema_api::graphql::{self, GraphqlSchema};
-use noema_host::{
-    NoemaHost, RuntimeHostError, start_from_process_env_with_local_model_runtime_root,
-};
-use serde::Serialize;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::rand::{SecureRandom as _, SystemRandom};
+use serde::{Deserialize, Serialize};
 use tauri::async_runtime::JoinHandle;
-use tokio::sync::{Mutex, watch};
+use tokio::{
+    io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader},
+    process::{Child, ChildStdin, Command},
+    sync::{Mutex, watch},
+};
 
 use crate::{
     desktop_profile::{DesktopProfileStore, DesktopSelection},
@@ -20,12 +22,6 @@ pub(crate) struct DesktopState {
     inner: Mutex<DesktopLifecycle<DesktopRuntime>>,
     profiles: Arc<DesktopProfileStore>,
     pending_connection: Mutex<Option<PendingConnection>>,
-}
-
-#[derive(Clone)]
-pub(crate) enum GraphqlTarget {
-    Local(GraphqlSchema),
-    Remote(RemoteGraphql),
 }
 
 #[derive(Clone, Serialize)]
@@ -50,12 +46,13 @@ impl DesktopState {
 
     pub(crate) async fn initialize(
         &self,
-        local_model_runtime_root: Option<PathBuf>,
-    ) -> Result<(), RuntimeHostError> {
+        server_path: PathBuf,
+        local_model_runtime_root: PathBuf,
+    ) -> Result<(), String> {
         let backend = match self.profiles.load() {
-            DesktopSelection::Local => {
-                DesktopBackend::Local(Box::new(start_local(local_model_runtime_root).await?))
-            }
+            DesktopSelection::Local => DesktopBackend::Local(Box::new(
+                start_local(server_path, local_model_runtime_root).await?,
+            )),
             DesktopSelection::Remote(profile) => {
                 match RemoteGraphql::new(profile, self.profiles.clone()) {
                     Ok(remote) => DesktopBackend::Remote(remote),
@@ -75,19 +72,17 @@ impl DesktopState {
         }
         drop(inner);
         runtime.shutdown().await;
-        Err(RuntimeHostError::Composition(
-            "desktop runtime initialization raced with shutdown".to_string(),
-        ))
+        Err("Desktop runtime initialization raced with shutdown.".to_string())
     }
 
-    pub(crate) async fn graphql_target(&self) -> Result<GraphqlTarget, String> {
+    pub(crate) async fn graphql_target(&self) -> Result<(RemoteGraphql, bool), String> {
         let inner = self.inner.lock().await;
         let DesktopLifecycle::Running(runtime) = &*inner else {
             return Err("Noema lost connection to its app service.".to_string());
         };
         match &runtime.backend {
-            DesktopBackend::Local(local) => Ok(GraphqlTarget::Local(local.schema.clone())),
-            DesktopBackend::Remote(remote) => Ok(GraphqlTarget::Remote(remote.clone())),
+            DesktopBackend::Local(local) => Ok((local.transport.clone(), true)),
+            DesktopBackend::Remote(remote) => Ok((remote.clone(), false)),
             DesktopBackend::Recovery { message, .. } => Err(message.clone()),
         }
     }
@@ -113,13 +108,22 @@ impl DesktopState {
             runtime.backend.status_target()
         };
         match backend {
-            StatusTarget::Local => DesktopConnectionStatus {
-                mode: "local",
-                state: "ready",
-                origin: None,
-                message: None,
-                pending_connection_origin,
-            },
+            StatusTarget::Local(local) => {
+                let (state, message) = match local.health().await {
+                    Ok(()) => ("ready", None),
+                    Err(_) => (
+                        "unavailable",
+                        Some("Noema lost connection to its local app service.".to_string()),
+                    ),
+                };
+                DesktopConnectionStatus {
+                    mode: "local",
+                    state,
+                    origin: None,
+                    message,
+                    pending_connection_origin,
+                }
+            }
             StatusTarget::Remote(remote) => {
                 let (state, message) = match remote.health().await {
                     Ok(()) => ("ready", None),
@@ -221,7 +225,9 @@ impl DesktopState {
             return Err("Noema lost connection to its app service.".to_string());
         };
         match &runtime.backend {
-            DesktopBackend::Local(local) => Ok(local.mcp_oauth_callback_url.clone()),
+            DesktopBackend::Local(local) => {
+                Ok(format!("{}/mcp/oauth/callback", local.transport.origin()))
+            }
             DesktopBackend::Remote(remote) => Ok(format!("{}/mcp/oauth/callback", remote.origin())),
             DesktopBackend::Recovery { message, .. } => Err(message.clone()),
         }
@@ -290,24 +296,60 @@ fn remote_allows_local(result: Result<(), RemoteError>) -> Result<(), String> {
 }
 
 async fn start_local(
-    local_model_runtime_root: Option<PathBuf>,
-) -> Result<LocalRuntime, RuntimeHostError> {
-    let host =
-        start_from_process_env_with_local_model_runtime_root(local_model_runtime_root).await?;
-    let graphql_state = graphql::GraphqlState::from_host_services(host.services());
-    let (graphql_state, oauth_callback_urls, mcp_oauth_callback_server) =
-        match crate::mcp_oauth_callback::start(graphql_state.clone()).await {
-            Ok(callback) => callback,
-            Err(error) => {
-                host.shutdown().await;
-                return Err(RuntimeHostError::Composition(error));
-            }
-        };
+    server_path: PathBuf,
+    local_model_runtime_root: PathBuf,
+) -> Result<LocalRuntime, String> {
+    let token = desktop_token()?;
+    let mut child = Command::new(server_path)
+        .arg("--desktop-sidecar")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|_| "Noema could not start its local app service.".to_string())?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Noema could not open its local app service.".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Noema could not open its local app service.".to_string())?;
+    let startup = serde_json::to_vec(&SidecarStartup {
+        token: &token,
+        runtime_root: &local_model_runtime_root,
+    })
+    .map_err(|_| "Noema could not prepare its local app service.".to_string())?;
+    if stdin.write_all(&startup).await.is_err()
+        || stdin.write_all(b"\n").await.is_err()
+        || stdin.flush().await.is_err()
+    {
+        let _ = child.kill().await;
+        return Err("Noema could not start its local app service.".to_string());
+    }
+    let mut lines = BufReader::new(stdout).lines();
+    let ready = match tokio::time::timeout(Duration::from_secs(30), lines.next_line()).await {
+        Ok(Ok(Some(line))) if line.len() <= 4096 => {
+            serde_json::from_str::<SidecarReady>(&line).ok()
+        }
+        _ => None,
+    };
+    let Some(ready) = ready.filter(|ready| ready.kind == "ready") else {
+        let _ = child.kill().await;
+        return Err("Noema could not start its local app service.".to_string());
+    };
+    let transport = match RemoteGraphql::new_local(ready.origin, token) {
+        Ok(transport) => transport,
+        _ => {
+            let _ = child.kill().await;
+            return Err("Noema could not start its local app service.".to_string());
+        }
+    };
     Ok(LocalRuntime {
-        host,
-        schema: graphql::build_schema(graphql_state),
-        mcp_oauth_callback_url: oauth_callback_urls.mcp,
-        mcp_oauth_callback_server,
+        transport,
+        child,
+        stdin,
     })
 }
 
@@ -334,7 +376,7 @@ enum DesktopBackend {
 impl DesktopBackend {
     fn status_target(&self) -> StatusTarget {
         match self {
-            Self::Local(_) => StatusTarget::Local,
+            Self::Local(local) => StatusTarget::Local(local.transport.clone()),
             Self::Remote(remote) => StatusTarget::Remote(remote.clone()),
             Self::Recovery { message } => StatusTarget::Recovery {
                 message: message.clone(),
@@ -344,23 +386,50 @@ impl DesktopBackend {
 }
 
 enum StatusTarget {
-    Local,
+    Local(RemoteGraphql),
     Remote(RemoteGraphql),
     Recovery { message: String },
 }
 
 struct LocalRuntime {
-    host: NoemaHost,
-    schema: GraphqlSchema,
-    mcp_oauth_callback_url: String,
-    mcp_oauth_callback_server: JoinHandle<()>,
+    transport: RemoteGraphql,
+    child: Child,
+    stdin: ChildStdin,
 }
 
 impl LocalRuntime {
-    async fn shutdown(self) {
-        self.mcp_oauth_callback_server.abort();
-        self.host.shutdown().await;
+    async fn shutdown(mut self) {
+        drop(self.stdin);
+        if tokio::time::timeout(Duration::from_secs(12), self.child.wait())
+            .await
+            .is_err()
+        {
+            let _ = self.child.kill().await;
+            let _ = self.child.wait().await;
+        }
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SidecarStartup<'a> {
+    token: &'a str,
+    runtime_root: &'a PathBuf,
+}
+
+#[derive(Deserialize)]
+struct SidecarReady {
+    #[serde(rename = "type")]
+    kind: String,
+    origin: String,
+}
+
+fn desktop_token() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| "Noema could not create its local app credential.".to_string())?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 enum DesktopLifecycle<T> {

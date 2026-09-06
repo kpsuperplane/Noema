@@ -1,0 +1,60 @@
+{
+  "origin": "https://noema.kevinpei.com",
+  "conversationId": "conversation:9a8adece587d96886957b3a308c694b1",
+  "turn": [
+    {
+      "itemId": "item:0318ac8fd16bc62830ebd2abc2a5a0d8",
+      "turnId": "turn:d863d93a922252b6ac8a26dd790ee421",
+      "item": {
+        "__typename": "UserText",
+        "text": "Migration audit WEB-04. Use your interactive browser tools, not web.fetch, to open https://example.com/. Inspect its current snapshot, follow the Learn more link, inspect the resulting IANA page, navigate back, inspect the returned page, and close the browser session. Report which steps succeeded and any failures. Do not create a Task. End your final answer with AUDIT_BROWSER_LIFECYCLE_DONE."
+      }
+    },
+    {
+      "itemId": "item:037685ee699fcf9308c6cd3999d47b1c",
+      "turnId": "turn:d863d93a922252b6ac8a26dd790ee421",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: web.browse.open",
+        "status": "COMPLETED"
+      }
+    },
+    {
+      "itemId": "item:796393f817c9be57ebf708697b0f0d81",
+      "turnId": "turn:d863d93a922252b6ac8a26dd790ee421",
+      "item": {
+        "__typename": "Activity",
+        "title": "Approval requested",
+        "status": "COMPLETED"
+      }
+    },
+    {
+      "itemId": "item:fa8c786858885f423e2bd327c4118b0e",
+      "turnId": "turn:d863d93a922252b6ac8a26dd790ee421",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: web.browse.open",
+        "status": "COMPLETED"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "itemId": "item:2559ec16b33e7542295018418660e50f",
+      "turnId": "turn:4a79351593459339cd4d4da77fa0b5b1",
+      "item": {
+        "__typename": "ErrorNotice",
+        "message": "The provider request failed.",
+        "recoverable": false
+      }
+    }
+  ],
+  "revision": "ad70ea1731f62f0894f6e83c666383c279a56f55",
+  "case": "WEB-04",
+  "result": "Fail · live Chat",
+  "defect": "AUDIT-10",
+  "observed": "Browser open completed after approval. The resumed Chat turn failed with The provider request failed. No requested link, history, or close step completed.",
+  "diagnostic": "runtime.chat_failed records continuation turn:4a79351593459339cd4d4da77fa0b5b1 without provider detail.",
+  "cause": "Unresolved. This may be a provider or continuation failure.",
+  "remaining": "Inspect cause, then retry full browser lifecycle. The opened browser session was not explicitly closed by this turn."
+}

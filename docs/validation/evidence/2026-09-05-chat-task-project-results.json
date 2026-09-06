@@ -1,0 +1,557 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "projectId": "project:eb7e02135a057b326b0863dbccf19894",
+  "taskId": "task:54ff6e97796d9c837f5409d3133743ae",
+  "turn": [
+    {
+      "itemId": "item:6ad996fb0984852f9991bf816e59a66f",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "UserText",
+        "text": "Migration audit. Find the existing Project named Migration audit Project café 日本語. List its current Tasks, including cancelled Tasks. Capture exactly one new Inbox Task in that Project. Do not run the Task, create another Project, or access external services. Use these exact JSON values for its title and task_document:\n{\"title\":\"Migration audit — bounded Chat capture\",\"task_document\":\"# Chat capture audit\\n\\nPreserve café 日本語 🧭 in this Inbox request.\\n\"}"
+      }
+    },
+    {
+      "itemId": "item:021c73311bbeedb5fc8dd766da0feae8",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: project.read",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:0:1",
+            "name": "project.read",
+            "payload": {
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894"
+            },
+            "provider_call_id": "call_jt5UBtabaPrHQJJuHqCYdLVn",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a1c908087d1a009e4c996846184",
+            "provider_name": "read"
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:98e47ca684f2e7315f066f68ce18b869",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: project.read",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:0:1",
+            "name": "project.read",
+            "payload": {
+              "archived": false,
+              "description": "",
+              "digest": "03544c87a05850611c0d166aee2cebbe64a6be66cadfac568d5b9c5248cb559c",
+              "folder": "/var/lib/noema-dev/audit-shared-20260905",
+              "name": "Migration audit Project café 日本語",
+              "project_document": "# Browser Project context\n\nAccepted café 日本語 🧭 context.\n",
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "revision": 9
+            },
+            "provider_call_id": "call_jt5UBtabaPrHQJJuHqCYdLVn",
+            "provider_name": "read",
+            "success": true
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:08c6c3530149fa992eba4031a1fc2718",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:1:0",
+            "name": "task.list",
+            "payload": {
+              "attention_only": false,
+              "limit": 100,
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "stage_behavior": "intake"
+            },
+            "provider_call_id": "call_UoZ4RejgEOlUnAgKj01QZlRu",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a2109d087d19bd0589ecb625342",
+            "provider_name": "list_9"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:73ffb2a7836ae6a6c4e0b10b66978f5f",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:1:0",
+            "name": "task.list",
+            "payload": {
+              "end_cursor": "Njc2MmUxMjNlY2VjNDllZDFiYzZhM2IyNjZkZDlkMWZjY2Y2ODVlZTZmMjYyMmFlM2QwOWRkZjFjODY1ZDljMgAxNzg4NjQzODI4ODY0AHRhc2s6ZmVkMTllZTY0OGE1ZjgwODQ4OGRmY2I2Y2VjN2JhOTc",
+              "has_next_page": false,
+              "tasks": [
+                {
+                  "attention": null,
+                  "cwd_override": null,
+                  "executor_agent_id": "agent:task-executor",
+                  "generation": 1,
+                  "missed_run_policy": null,
+                  "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                  "recurrence_id": null,
+                  "recurrence_revision": null,
+                  "recurrence_scheduled_for": null,
+                  "revision": 1,
+                  "schedule_time_zone": null,
+                  "scheduled_for": null,
+                  "stage_id": "stage:personal:inbox",
+                  "task_document_preview": "# Chat capture audit\n\nPreserve café 日本語 🧭 in this Inbox request.\n\nDo not run the Task, create another Project, or access external services.",
+                  "task_id": "task:fed19ee648a5f808488dfcb6cec7ba97",
+                  "title": "Migration audit — captured from Chat",
+                  "valid_actions": [
+                    "edit",
+                    "queue",
+                    "schedule",
+                    "cancel"
+                  ]
+                }
+              ]
+            },
+            "provider_call_id": "call_UoZ4RejgEOlUnAgKj01QZlRu",
+            "provider_name": "list_9",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:cacc5591c3dad6ec3443fffd53927b5b",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:2:0",
+            "name": "task.list",
+            "payload": {
+              "attention_only": false,
+              "limit": 100,
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "stage_behavior": "dispatch"
+            },
+            "provider_call_id": "call_qnKKvzzUpNHPf446YiWmU2qm",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a2632d087d188fc1cbaa2952515",
+            "provider_name": "list_9"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:19e20946ca769e485589851c08adfa84",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:2:0",
+            "name": "task.list",
+            "payload": {
+              "end_cursor": null,
+              "has_next_page": false,
+              "tasks": []
+            },
+            "provider_call_id": "call_qnKKvzzUpNHPf446YiWmU2qm",
+            "provider_name": "list_9",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:0b0527145db8e14c8a006bb69624eb4d",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:3:0",
+            "name": "task.list",
+            "payload": {
+              "attention_only": false,
+              "limit": 100,
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "stage_behavior": "active"
+            },
+            "provider_call_id": "call_EPwM56T93kLCFTl0zJu3MR4c",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a2b5a9087d198d5c52e256f1a84",
+            "provider_name": "list_9"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:04ad246ebed83118c6cf9e0dc5c4a521",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:3:0",
+            "name": "task.list",
+            "payload": {
+              "end_cursor": null,
+              "has_next_page": false,
+              "tasks": []
+            },
+            "provider_call_id": "call_EPwM56T93kLCFTl0zJu3MR4c",
+            "provider_name": "list_9",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:c27f2beb081362ffb9d6de710a385ec3",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:4:0",
+            "name": "task.list",
+            "payload": {
+              "attention_only": false,
+              "limit": 100,
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "stage_behavior": "human_gate"
+            },
+            "provider_call_id": "call_W1avE3wrIYQnwumNp9bXcE6j",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a2f2b6087d1b03502d5ece316a0",
+            "provider_name": "list_9"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:7e89e8ad2ee940e5a69767179aa67a9f",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:4:0",
+            "name": "task.list",
+            "payload": {
+              "end_cursor": null,
+              "has_next_page": false,
+              "tasks": []
+            },
+            "provider_call_id": "call_W1avE3wrIYQnwumNp9bXcE6j",
+            "provider_name": "list_9",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:f076f9d1ee4737841c100a09bc260da9",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:5:0",
+            "name": "task.list",
+            "payload": {
+              "attention_only": false,
+              "limit": 100,
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "stage_behavior": "terminal_success"
+            },
+            "provider_call_id": "call_0kIPUow4QvorLs5Di0BbEM5p",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a346b1487d1aabd54bc656ec4bc",
+            "provider_name": "list_9"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:ee6ef81b9c83426d5332ce75d1ce1458",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:5:0",
+            "name": "task.list",
+            "payload": {
+              "end_cursor": null,
+              "has_next_page": false,
+              "tasks": []
+            },
+            "provider_call_id": "call_0kIPUow4QvorLs5Di0BbEM5p",
+            "provider_name": "list_9",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:f9f093d3897d2bea62dbd9018a92ddb5",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:6:0",
+            "name": "task.list",
+            "payload": {
+              "attention_only": false,
+              "limit": 100,
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "stage_behavior": "terminal_cancelled"
+            },
+            "provider_call_id": "call_zQHKzmroC3emSE4uw8OSSXCj",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a38e12087d1b7db8ca0733a892c",
+            "provider_name": "list_9"
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:5c5cc6cad5f9d7c64377a551b2e15246",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: task.list",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:6:0",
+            "name": "task.list",
+            "payload": {
+              "end_cursor": "ZjYxZjUyYTIxNTkxOTZhNmIzYTFkNDNlMDg0N2I3MWE2Yjc0NWVkNjM5ZTQxNzBjY2IwMTUxMmNlMjQ3OTU2ZAAxNzg4NjQzNDI4OTM4AHRhc2s6NDhiYzE4ZGNlNTRmN2E4NGRhOGU5MGYyODA1ZDE3MWM",
+              "has_next_page": false,
+              "tasks": [
+                {
+                  "attention": null,
+                  "cwd_override": null,
+                  "executor_agent_id": "agent:task-executor",
+                  "generation": 2,
+                  "missed_run_policy": null,
+                  "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                  "recurrence_id": null,
+                  "recurrence_revision": null,
+                  "recurrence_scheduled_for": null,
+                  "revision": 2,
+                  "schedule_time_zone": null,
+                  "scheduled_for": null,
+                  "stage_id": "stage:personal:cancelled",
+                  "task_document_preview": "# View audit\n\nControlled view fixture. Do not execute this Task.",
+                  "task_id": "task:48bc18dce54f7a84da8e90f2805d171c",
+                  "title": "Migration audit — Project view",
+                  "valid_actions": [
+                    "reopen"
+                  ]
+                }
+              ]
+            },
+            "provider_call_id": "call_zQHKzmroC3emSE4uw8OSSXCj",
+            "provider_name": "list_9",
+            "success": true
+          },
+          "display": {},
+          "output_index": 0,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:4e69871e8c6685befeb1fea4bd3df81b",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool call: task.capture",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "id": "tool_call:turn:d558e38161507516afa368959128a69f:7:1",
+            "name": "task.capture",
+            "payload": {
+              "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+              "task_document": "# Chat capture audit\n\nPreserve café 日本語 🧭 in this Inbox request.\n",
+              "title": "Migration audit — bounded Chat capture"
+            },
+            "provider_call_id": "call_yspiVMI4E5jt9RoCXLtCmvMh",
+            "provider_item_id": "fc_0e38263667cf9ef7016a9c8a3e48f887d198fccaaea2b8fe40",
+            "provider_name": "capture"
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:ece14a72c2b7a354b8828eefe84c1ea5",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "Activity",
+        "title": "Tool result: task.capture",
+        "status": "COMPLETED",
+        "metadata": {
+          "action": {
+            "call_id": "tool_call:turn:d558e38161507516afa368959128a69f:7:1",
+            "name": "task.capture",
+            "payload": {
+              "event_id": "event:aea57c5cb6b7c2b544e49c23783abddc",
+              "event_sequence": 132,
+              "gate_id": null,
+              "project": {
+                "archived": false,
+                "description": "",
+                "name": "Migration audit Project café 日本語",
+                "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                "revision": 9
+              },
+              "recurrence_authority": null,
+              "recurrence_id": null,
+              "replayed": false,
+              "run_id": null,
+              "task": {
+                "cwd_override": null,
+                "executor_agent_id": "agent:task-executor",
+                "generation": 1,
+                "missed_run_policy": null,
+                "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                "recurrence_id": null,
+                "recurrence_revision": null,
+                "recurrence_scheduled_for": null,
+                "revision": 1,
+                "schedule_time_zone": null,
+                "scheduled_for": null,
+                "stage_id": "stage:personal:inbox",
+                "task_id": "task:54ff6e97796d9c837f5409d3133743ae",
+                "title": "Migration audit — bounded Chat capture"
+              }
+            },
+            "provider_call_id": "call_yspiVMI4E5jt9RoCXLtCmvMh",
+            "provider_name": "capture",
+            "success": true
+          },
+          "display": {},
+          "output_index": 1,
+          "provider": "codex",
+          "turn_index": 13
+        }
+      }
+    },
+    {
+      "itemId": "item:79a6e00c0b69b6c8a586ef1554be4d49",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "AssistantText",
+        "text": "Found **Migration audit Project café 日本語**.\n\nCurrent Tasks before this capture:\n- **Inbox:** *Migration audit — captured from Chat*\n- **Cancelled:** *Migration audit — Project view*\n\nCaptured exactly one new **Inbox** Task in that Project:\n- **Migration audit — bounded Chat capture**\n\nIt was not run. No additional Project was created, and no external services were accessed."
+      }
+    },
+    {
+      "itemId": "item:0496a142ad764c23d2b99795c823d67b",
+      "turnId": "turn:d558e38161507516afa368959128a69f",
+      "item": {
+        "__typename": "TaskReference",
+        "taskId": "task:54ff6e97796d9c837f5409d3133743ae"
+      }
+    }
+  ],
+  "turnId": "turn:d558e38161507516afa368959128a69f",
+  "projectInspection": "pass",
+  "toolPairing": {
+    "result": "pass",
+    "calls": 8,
+    "results": 8,
+    "provider": "codex"
+  },
+  "visibleTaskReferences": 1,
+  "capture": "pass",
+  "detail": "Chat created one exact Inbox Task in the existing Project, without execution or a duplicate Project. Its Chat reference opens the correct request."
+}

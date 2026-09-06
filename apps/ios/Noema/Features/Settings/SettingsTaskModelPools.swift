@@ -13,7 +13,6 @@ struct SettingsTaskModelPool: Identifiable, Hashable {
   let reasoningEffort: String?
   let selectionMode: String
   let fastMode: Bool
-  let enabled: Bool
   let sortOrder: Int
 
   var displayName: String {
@@ -54,8 +53,7 @@ extension SettingsModel {
 
   func updateTaskModelPool(
     _ pool: SettingsTaskModelPool,
-    preference: SettingsPreference? = nil,
-    enabled: Bool? = nil
+    preference: SettingsPreference? = nil
   ) async -> Bool {
     guard canMutate, let client else { return false }
     let next = preference ?? pool.preference
@@ -71,7 +69,6 @@ extension SettingsModel {
       modelProfile: SettingsModel.optional(next.modelProfile),
       reasoningEffort: SettingsModel.reasoning(from: next.reasoningEffort),
       fastMode: next.fastMode,
-      enabled: enabled ?? pool.enabled,
       sortOrder: Int32(clamping: pool.sortOrder)
     )
     isMutating = true

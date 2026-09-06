@@ -22,7 +22,7 @@ const stylexPlugin = [
 ];
 
 const pwaReleaseId = process.env.NOEMA_PWA_RELEASE ?? randomUUID();
-const assetOutDir = process.env.NOEMA_DEV_ASSET_DIR ?? "../../crates/noema-server/target/web-assets";
+const assetOutDir = process.env.NOEMA_DEV_ASSET_DIR ?? "../../target/web-assets";
 
 const serviceReadableAssets = {
   name: "service-readable-assets",
@@ -114,7 +114,7 @@ export default defineConfig({
   build: {
     outDir: assetOutDir,
     manifest: true,
-    emptyOutDir: true,
+    emptyOutDir: !process.env.NOEMA_DEV_WATCH,
     cssCodeSplit: false,
     rollupOptions: {
       output: {

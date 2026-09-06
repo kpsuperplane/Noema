@@ -146,10 +146,10 @@ export function Transcript({
   );
   const [textAnimatingMessageIds, setTextAnimatingMessageIds] = React.useState<ReadonlySet<string>>(() => new Set());
   const [debugTarget, setDebugTarget] = React.useState<RuntimeDebugTarget | null>(null);
-  const restoredScrollRef = React.useRef(
+  const [restoredScroll] = React.useState(() =>
     readTranscriptScrollSnapshot(scrollRestoration, scrollRestorationKey, density)
   );
-  const followBottomRef = React.useRef(restoredScrollRef.current?.followBottom ?? true);
+  const followBottomRef = React.useRef(restoredScroll?.followBottom ?? true);
   const scrollKey = transcriptScrollKey(renderedEntries);
   const arrivalMessageIds = transcriptArrivalMessageIds(renderedEntries, seenArrivalMessageIds);
   const arrivalMessageIdsJson = JSON.stringify(arrivalMessageIds);
@@ -313,7 +313,7 @@ export function Transcript({
         arrivalScrollKey={arrivalScrollKey}
         arrivalMessageIdsJson={arrivalMessageIdsJson}
         followBottomRef={followBottomRef}
-        restoreInitialScroll={restoredScrollRef.current !== null}
+        restoreInitialScroll={restoredScroll !== null}
         onArrivalSettled={markArrivalsSettled}
         sentMessageScrollRequest={sentMessageScrollRequest}
         scrollKey={scrollKey}

@@ -18,11 +18,11 @@ export function providerStatusLabel(status: ProviderSettingsAccount["status"]) {
 
 export function providerAuthMethodLabel(method: ProviderSettingsAccount["authMethod"]) {
   const labels: Record<string, string> = {
-    external_manual: "External manual",
-    none: "None",
-    oauth_device_code: "OAuth device code",
-    oauth_pkce: "OAuth with PKCE",
-    secret_input: "Secret input"
+    external_manual: "Managed externally",
+    none: "No sign-in needed",
+    oauth_device_code: "Provider sign-in",
+    oauth_pkce: "Provider sign-in",
+    secret_input: "API key"
   };
   return labels[method] ?? method;
 }
@@ -39,7 +39,7 @@ export function providerTechnicalRows(account: ProviderSettingsAccount): Provide
   return [
     { label: "Provider kind", value: account.providerKind },
     { label: "Account key", value: account.accountKey },
-    { label: "Auth method", value: providerAuthMethodLabel(account.authMethod) },
+    { label: "Auth method", value: account.authMethod },
     { label: "Status", value: providerStatusLabel(account.status) },
     { label: "Active", value: yesNo(account.isActive) },
     { label: "Default", value: yesNo(account.isDefault) },

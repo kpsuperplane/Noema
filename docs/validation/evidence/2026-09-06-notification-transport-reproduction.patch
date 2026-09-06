@@ -1,0 +1,111 @@
+diff --git a/internal/notification/audit_transport_test.go b/internal/notification/audit_transport_test.go
+new file mode 100644
+index 00000000..42eeea10
+--- /dev/null
++++ b/internal/notification/audit_transport_test.go
+@@ -0,0 +1,105 @@
++package notification
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"fmt"
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestAuditWebPushTransportOutcomes(t *testing.T) {
++	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		code, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/"))
++		if code == 0 {
++			conn, _, err := w.(http.Hijacker).Hijack()
++			if err == nil {
++				_ = conn.Close()
++			}
++			return
++		}
++		w.WriteHeader(code)
++	}))
++	defer server.Close()
++	old := http.DefaultTransport
++	transport := old.(*http.Transport).Clone()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
++		return (&tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}).DialContext(ctx, network, server.Listener.Addr().String())
++	}
++	http.DefaultTransport = transport
++	defer func() { http.DefaultTransport = old; transport.CloseIdleConnections() }()
++	for _, test := range []struct {
++		status  int
++		outcome store.WebPushDeliveryOutcome
++		code    string
++	}{{201, store.WebPushDelivered, ""}, {404, store.WebPushExpired, "expired"}, {410, store.WebPushExpired, "expired"}, {429, store.WebPushRetry, "remote_retry"}, {503, store.WebPushRetry, "remote_retry"}, {400, store.WebPushFailed, "remote_rejected"}, {0, store.WebPushRetry, "transport_unavailable"}} {
++		t.Run(fmt.Sprint(test.status), func(t *testing.T) {
++			ctx, now := t.Context(), time.Now().UTC().Truncate(time.Millisecond)
++			paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
++			if err != nil {
++				t.Fatal(err)
++			}
++			root, err := paths.Open()
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer root.Close()
++			db, err := store.Open(ctx, paths.Database())
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer db.Close()
++			session := addNotificationSession(t, db, now)
++			service, err := New(paths, db, "https://noema.example")
++			if err != nil {
++				t.Fatal(err)
++			}
++			key, auth := notificationSubscriptionMaterial(t)
++			id, err := service.Register(ctx, session, fmt.Sprintf("https://1.1.1.1/%d", test.status), key, auth)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := service.queue(ctx, store.WebPushNotification{EventKey: "audit:transport", Title: "Audit", Body: "café 日本語", NavigatePath: "/", Urgency: "normal", TTLSeconds: 3600}); err != nil {
++				t.Fatal(err)
++			}
++			claimTime := time.Now().Add(time.Second)
++			delivery, err := db.ClaimDueWebPushDelivery(ctx, claimTime)
++			if err != nil || delivery == nil {
++				t.Fatal("delivery missing")
++			}
++			outcome, code := service.send(ctx, *delivery)
++			if outcome != test.outcome || code != test.code {
++				t.Fatalf("outcome=%s code=%s", outcome, code)
++			}
++			if err := db.FinishWebPushDelivery(ctx, *delivery, outcome, code, claimTime); err != nil {
++				t.Fatal(err)
++			}
++			owned, err := db.OwnsWebPushSubscription(ctx, "human:local", session, id)
++			if err != nil || owned == (outcome == store.WebPushExpired) {
++				t.Fatal("registration retention differs")
++			}
++			next, err := db.NextWebPushDelivery(ctx)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if outcome == store.WebPushRetry {
++				if next == nil || next.Sub(claimTime.Truncate(time.Millisecond)) != time.Minute {
++					t.Fatal("first retry deadline differs")
++				}
++			} else if next != nil {
++				t.Fatal("terminal outcome retained pending delivery")
++			}
++		})
++	}
++}

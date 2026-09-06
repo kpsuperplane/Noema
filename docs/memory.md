@@ -46,15 +46,15 @@ Current implementation direction:
 - Child pages expose their ordered filesystem ancestors so the shell title row
   can render a deeply nested, client-side breadcrumb using source titles.
 - SQLite stores the selected Memory model and source
-  conversations. A separate SQLite FTS database under `system/indexes/` is a
-  disposable projection rebuilt from Markdown.
+  conversations. Search uses a lexical index in process memory. The server
+  rebuilds it from Markdown at startup and after publication.
 - Every ordinary primary-conversation turn receives the bounded root page.
   `read_memory_page` and `search_memory` retrieve deeper pages on demand.
 - Context compaction and the explicit Memory-page action schedule a separate,
   single-flight background update over the primary conversation's existing
   `sequence_index` order. The model receives every page body while the lean tree
   fits; beyond that point it receives a whole-tree catalog plus the root,
-  FTS-ranked relevant pages, and their ancestors. Catalog-only page content
+  pages ranked by matching terms, and their ancestors. Catalog-only page content
   cannot be mutated, while icon metadata and new pages remain available.
 - The normal update response can use `metadata_updates` to change an existing
   page icon without reproducing its article body or provenance. The server

@@ -1,0 +1,24 @@
+{
+  "revision": "90ec601b908a6a940b5592f87aabd03b7ce9b228",
+  "case": "WEB-04",
+  "result": "Pass for direct Obscura protocol; live Chat remains failed",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/webtool -run '^TestAuditRealObscuraBrowserLifecycle$' -v",
+  "output": "=== RUN   TestAuditRealObscuraBrowserLifecycle\n    audit_real_worker_test.go:58: Real worker open, snapshot, click, wait, back, forward, and process closure passed\n--- PASS: TestAuditRealObscuraBrowserLifecycle (2.16s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t2.167s\n",
+  "executable": "/var/lib/noema-dev/system/tools/obscura/v0.2.2/linux-amd64/obscura",
+  "executableSHA256": "0e30b1ee35e3f3f291fed3cc55f7284964c8c741dcc24de1b171fcefa3444cdf",
+  "assertions": [
+    "Production startup attaches to the installed real worker.",
+    "Public example.com opens with expected content.",
+    "Synthetic DOM content preserves caf\u00e9 and \u65e5\u672c\u8a9e.",
+    "The returned button reference changes the expected DOM text.",
+    "Wait returns the changed text.",
+    "A second public page opens. Back and forward return expected page text.",
+    "Production closure reaps the browser process."
+  ],
+  "setupCorrections": [
+    "Local HTTP navigation returned CDP Page.navigate error -32000. The completed check uses public pages and synthetic DOM content.",
+    "The initial closure assertion required a normal exit. Production uses signals. The final assertion verifies the reaped process."
+  ],
+  "scope": "Direct production Obscura protocol calls with the installed Linux worker. No live app configuration or data changed. No network policy, route selection, Kernel service, or Chat continuation claim.",
+  "normalSuiteChanges": false
+}

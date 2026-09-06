@@ -8,6 +8,13 @@
 - Product UI design guidance: `docs/frontend/product-design.md`
 
 ## Communication
+- Explain work through what the user can see or do. Start with the problem, the change, or the result.
+- Use everyday language in progress updates and final answers. Assume no knowledge of the code or internal design.
+- Short sentences alone are not enough. Replace technical shorthand with a concrete explanation of its effect on the user.
+- Include implementation details only when requested or needed to explain a decision, limitation, or failure.
+- When a technical term is necessary, explain its meaning on first use. Do not stack technical terms in one sentence.
+- Describe checks by the behavior they verified. Keep command lists, internal names, and detailed counts in linked evidence when possible.
+- For example: "I’ll prevent clicks on changed buttons. I’ll keep passwords out of page summaries. Actions you declined will require your approval."
 - Use `docs/development/terms.md` for Noema terms in new prose and changed identifiers.
 - Use the current issue of ASD-STE100 Simplified Technical English for all user communication and all prose that you write.
 - Use short sentences, active voice, and one topic in each sentence. Use no more than 20 words in an instruction and 25 words in a descriptive sentence.
@@ -46,7 +53,9 @@
 - For architecture, memory, harness, frontend IA, or workflow work, read `docs/project.md`, `docs/context/current.md`, and the closest relevant docs first.
 - For nontrivial work, make the task mode explicit before proceeding: explore only, plan only, implement, adversarial review, or ship.
 - Before nontrivial implementation, state the observable outcome, non-goals, reuse/consolidation target, expected files, production/test code budget, planned tests with the unique risk each covers, and stop conditions. Do not edit until that brief is coherent.
-- Measure the patch with `bun run scripts/report-rust-size.ts --base <ref>` at milestone boundaries and before commit. Apply the task budget with `--max-production-net`, `--max-test-net`, and `--max-new-tests`; use `--require-net-negative` for refactors. Stop when the patch exceeds its production or test estimate by 50% or 500 lines, whichever is smaller.
+- Measure Go server patches as production, tests, generated GraphQL, and inclusive tracked lines. Keep both migration ratios below 80%.
+- For retained Rust patches, use `bun run scripts/report-rust-size.ts --base <ref>`. Apply its budget options and use `--require-net-negative` for refactors.
+- Stop when a patch exceeds its production or test estimate by 50% or 500 lines, whichever is smaller.
 - Split long work at milestone boundaries. After a major commit or completed phase, summarize durable context into `docs/context/current.md` before continuing.
 - Keep `docs/context/current.md` below 300 lines. Replace stale material instead of appending milestone history; move durable subsystem decisions to the closest authoritative document and rely on Git history for completed execution detail.
 - Make a commit after finishing each unit of work unless explicitly instructed not to.
@@ -58,7 +67,10 @@
 - Treat Noema as a dense product interface, not a marketing page. Do not add whitespace, cards, headings, icons, metadata, columns, or motion merely to make a screen feel designed; every structural device must communicate a relationship, priority, state, or action.
 - Use Astryx components and spacing tokens before one-off controls or raw spacing values. Reuse the existing shell, detail, transcript, and domain patterns instead of creating a parallel presentation for the same concept.
 - When editing a field, use either inline editing that saves without a separate Save button, or an actual dialog with an explicit Save button and the first input automatically focused. Do not place an explicit Save flow inline on the page.
-- For nontrivial visual work, ask for browser-inspection permission early when it has not already been granted. If visual inspection is not authorized, complete static and build validation but state that the layout was not visually verified.
+- UI requests grant implicit permission for visual browser inspection unless the user explicitly restricts it. Do not request inspection permission again.
+- Follow `docs/frontend/browser-inspection.md` for browser access and visual review. Use the private development socket when browser authentication is unavailable.
+- Use `scripts/route-browser-inspection.mjs` with Playwright for read-only socket inspection. Do not expose the socket through an unauthenticated TCP listener.
+- Inspection permission does not authorize changes to live product data. State any limits when rendered states remain unavailable.
 
 ## Review And Subagents
 - Keep changes expected to touch fewer than roughly 1,000 lines or two architectural areas inline when delegation overhead would exceed the work.
@@ -83,18 +95,21 @@
 - Use additional analysis tools when a named risk or explicit task requirement needs them. Existing CI requirements still apply.
 - Never circumvent, disable, bypass, unset, or otherwise interfere with the `sccache` build cache.
 - Never modify `CARGO_BUILD_RUSTC_WRAPPER` or attempt to work around the configured Rust compiler wrapper. Doing so invalidates shared cache state, causes 15min+ builds, and can break other agents building in parallel.
-- Broad Rust validation:
+- Broad Go server validation:
+  - `CGO_ENABLED=0 go test ./cmd/... ./internal/...`
+  - `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`
+- Broad retained Rust validation:
   - `cargo fmt --all --check`
   - `cargo check-workspace`
   - `cargo gate-lint`
   - `cargo gate-test`
 - Frontend code validation: run `bun run lint` and `bun run build` from `apps/web`.
-- Run focused Cargo commands through `cargo validate <cargo-command> [arguments]`, for example `cargo validate test -p noema-capability-adapters --lib`.
+- Run focused Cargo commands through `scripts/validate-rust <cargo-command> [arguments]`, for example `scripts/validate-rust test -p noema-capability-adapters --lib`.
 - Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
-- Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new Rust tests requires a written risk and redundancy justification before implementation continues.
+- Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new tests requires a written risk and redundancy justification before implementation continues.
 - Do not test derives, getters, constructors, enum mirrors, pass-through mappings/resolvers, or mock interactions unless they enforce an external compatibility or security contract. Do not repeat the same behavior through domain, store, API, and runtime layers unless each boundary owns materially different logic.
 - Do not write tests for UI/frontend work unless explicitly requested.
-- For frontend or UI work, do not inspect with browser tools unless explicitly requested.
+- For frontend or UI work, inspect relevant rendered states at desktop and phone widths. Apply the browser permission rules above.
 
 ## Ship Checklist
 - Before committing or pushing, run:

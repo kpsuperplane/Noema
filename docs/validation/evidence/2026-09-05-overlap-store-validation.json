@@ -1,0 +1,73 @@
+{
+  "baseRevision": "4d6b83b080b31632e0049eb9b124735f2020f9a2",
+  "testedChanges": {
+    "internal/store/task_schedules.go": "fc6d0b05f78c0f3b0953cee69629cd2d39475a57e8fbce4dc88363f06100b374",
+    "internal/store/task_schedules_test.go": "99e03ccd2d0883b4d6d936238eae38c095b00dc3c0dce69fa0bbe037207f0656"
+  },
+  "case": "TIME-10",
+  "result": "pass",
+  "scope": "Production store scheduling with real SQLite and controlled active Task state.",
+  "failure": "After two slots passed during active work, queue_one released a catch-up Task and then another Task for an older slot.",
+  "fix": "The pending release transaction advances an expired next slot. A future next slot remains unchanged.",
+  "test": "TestRecurrenceOverlapPoliciesAcrossActiveSlots",
+  "cases": [
+    {
+      "name": "skip",
+      "newTasksWhileActive": 0,
+      "newTasksAfterCompletion": 0,
+      "totalTasks": 1
+    },
+    {
+      "name": "queue_one",
+      "newTasksWhileActive": 0,
+      "newTasksAfterCompletion": 1,
+      "totalTasks": 2
+    },
+    {
+      "name": "allow",
+      "newTasksWhileActive": 2,
+      "newTasksAfterCompletion": 0,
+      "totalTasks": 3
+    },
+    {
+      "name": "queue_one preserves future skip",
+      "result": "A future next slot set by Skip next survives pending release."
+    }
+  ],
+  "productionLinesAdded": 8,
+  "testLinesAdded": 114,
+  "newTestFunctions": 1,
+  "newTableCases": 4,
+  "goSize": {
+    "production": 78256,
+    "tests": 25315,
+    "generatedGraphQL": 79612,
+    "inclusive": 183183,
+    "productionRatio": 0.4497729754583597,
+    "inclusiveRatio": 0.7638162667934252
+  },
+  "validation": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/store -run ^TestRecurrenceOverlapPoliciesAcrossActiveSlots$ -v",
+      "before": "fail",
+      "beforeLog": "=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots\n=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots/skip\n=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots/queue_one\n    task_schedules_test.go:244: release wake 1 = []store.DueTask{store.DueTask{TaskID:\"task:a9f8e75b2dc5fc159c914c6c52860fab\", RecurrenceID:\"recurrence:b06994eafae466a7ec76b7ad398d80e6\"}}, <nil>; want 0 new Tasks\n=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots/allow\n--- FAIL: TestRecurrenceOverlapPoliciesAcrossActiveSlots (0.62s)\n    --- PASS: TestRecurrenceOverlapPoliciesAcrossActiveSlots/skip (0.20s)\n    --- FAIL: TestRecurrenceOverlapPoliciesAcrossActiveSlots/queue_one (0.22s)\n    --- PASS: TestRecurrenceOverlapPoliciesAcrossActiveSlots/allow (0.20s)\nFAIL\nFAIL\tgithub.com/kpsuperplane/noema/internal/store\t0.623s\nFAIL\n",
+      "after": "pass",
+      "afterLog": "=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots\n=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots/skip\n=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots/queue_one\n=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots/allow\n=== RUN   TestRecurrenceOverlapPoliciesAcrossActiveSlots/queue_one_preserves_future_skip\n--- PASS: TestRecurrenceOverlapPoliciesAcrossActiveSlots (0.92s)\n    --- PASS: TestRecurrenceOverlapPoliciesAcrossActiveSlots/skip (0.22s)\n    --- PASS: TestRecurrenceOverlapPoliciesAcrossActiveSlots/queue_one (0.25s)\n    --- PASS: TestRecurrenceOverlapPoliciesAcrossActiveSlots/allow (0.24s)\n    --- PASS: TestRecurrenceOverlapPoliciesAcrossActiveSlots/queue_one_preserves_future_skip (0.21s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/store\t0.920s\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "logSha256": "3ee271b946e8fbfa60f507387fcb49e262fe59450a306b757f44b8718d653e0f"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "limits": [
+    "The policy cases use controlled instants and production store commands. They do not change the live server clock.",
+    "The tests verify occurrence counts and release behavior. Provider execution is covered separately by the live deadline tests.",
+    "The existing recovery test remains because startup recovery owns a different scheduling path."
+  ]
+}

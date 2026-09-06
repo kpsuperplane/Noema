@@ -73,7 +73,8 @@ export type WebToolSettings = {
 
 export function WebSettingsPane() {
   const rootResult = useQuery<WebSettingsRootQuery>(WebSettingsRootDocument, {
-    fetchPolicy: "cache-and-network"
+    fetchPolicy: "cache-and-network",
+    pollInterval: 2000
   });
   const [saveWebFetchPreference, saveWebFetchResult] = useMutation<
     SaveWebFetchSummarizerPreferenceMutation,

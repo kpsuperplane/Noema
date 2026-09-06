@@ -1,0 +1,102 @@
+diff --git a/internal/notification/audit_apns_replace_test.go b/internal/notification/audit_apns_replace_test.go
+new file mode 100644
+index 00000000..91768383
+--- /dev/null
++++ b/internal/notification/audit_apns_replace_test.go
+@@ -0,0 +1,96 @@
++package notification
++
++import (
++	"encoding/json"
++	"fmt"
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestAuditAPNSReplacementReloadAndRemoval(t *testing.T) {
++	ctx := t.Context()
++	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	root, err := paths.Open()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer root.Close()
++	db, err := store.Open(ctx, paths.Database())
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	service, err := New(paths, db, "https://noema.example")
++	if err != nil {
++		t.Fatal(err)
++	}
++	firstKey, secondKey := testAPNSKey(t), testAPNSKey(t)
++	first, err := service.ConfigureAPNS("TEAM123456", "KEYID12345", firstKey, 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	second, err := service.ConfigureAPNS("TEAM654321", "KEYID54321", secondKey, first.Revision)
++	if err != nil || !second.Configured || second.Revision != 2 || second.KeyFingerprint == nil || first.KeyFingerprint == nil || *second.KeyFingerprint == *first.KeyFingerprint {
++		t.Fatal("replacement state differs")
++	}
++	if second.TeamID == nil || *second.TeamID != "TEAM654321" || second.KeyID == nil || *second.KeyID != "KEYID54321" || second.Topic != apnsTopic {
++		t.Fatal("ordinary provider metadata changed")
++	}
++	assertSafe := func(status APNSProviderStatus) {
++		t.Helper()
++		data, err := json.Marshal(status)
++		if err != nil {
++			t.Fatal(err)
++		}
++		credential, err := readAPNSCredential(paths.APNSProvider())
++		if err != nil {
++			t.Fatal(err)
++		}
++		for _, value := range []string{string(data), fmt.Sprintf("%v", credential), fmt.Sprintf("%#v", credential)} {
++			if strings.Contains(value, firstKey) || strings.Contains(value, secondKey) || strings.Contains(value, "PRIVATE KEY") {
++				t.Fatal("status or diagnostic exposed key material")
++			}
++		}
++	}
++	assertSafe(second)
++	recreated, err := New(paths, db, "https://noema.example")
++	if err != nil {
++		t.Fatal(err)
++	}
++	restored, err := recreated.APNSProviderStatus()
++	if err != nil || restored.Revision != 2 || restored.KeyFingerprint == nil || *restored.KeyFingerprint != *second.KeyFingerprint {
++		t.Fatal("reload lost replacement")
++	}
++	if _, err := recreated.ConfigureAPNS("TEAM123456", "KEYID12345", firstKey, 1); err == nil {
++		t.Fatal("stale replacement accepted")
++	}
++	unchanged, err := recreated.APNSProviderStatus()
++	if err != nil || unchanged.KeyFingerprint == nil || *unchanged.KeyFingerprint != *second.KeyFingerprint || unchanged.Revision != 2 {
++		t.Fatal("stale change altered current configuration")
++	}
++	removed, err := recreated.RemoveAPNS(ctx, 2)
++	if err != nil || removed.Configured || removed.Revision != 3 {
++		t.Fatal("removal state differs")
++	}
++	assertSafe(removed)
++	data, err := os.ReadFile(paths.APNSProvider())
++	if err != nil || strings.Contains(string(data), "PRIVATE KEY") {
++		t.Fatal("removed configuration retains key")
++	}
++	recreated, err = New(paths, db, "https://noema.example")
++	if err != nil {
++		t.Fatal(err)
++	}
++	final, err := recreated.APNSProviderStatus()
++	if err != nil || final.Configured || final.Revision != 3 {
++		t.Fatal("reload restored removed configuration")
++	}
++	t.Log("Replacement and removal survive reload; stale changes preserve current state; ordinary metadata stays intact and keys stay out of status and diagnostics")
++}

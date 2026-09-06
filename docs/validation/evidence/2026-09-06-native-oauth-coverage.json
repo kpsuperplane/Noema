@@ -1,0 +1,41 @@
+{
+  "revision": "f634522b18ac1a799900479e93d964a11333413b",
+  "mode": "Source coverage review; no new test execution",
+  "reusedValidation": {
+    "revision": "56f3a134",
+    "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+    "result": "pass",
+    "evidence": "2026-09-06-role-runtime-restart-validation.json",
+    "unchangedInputsCheck": "git diff --quiet 56f3a134 -- '*.go' go.mod go.sum",
+    "unchangedInputsResult": "exit 0"
+  },
+  "cases": {
+    "NATIVE-01": {
+      "tests": [
+        "TestNativeAuthorizationRequestValidationMatchesCurrentClients",
+        "TestNativeConsentResumesAfterPasskeyAndConsumesCSRFOnce"
+      ],
+      "scope": "Desktop and iOS authorization requests validate. Consent resumes after passkey authentication and returns the expected state. Connection-link parsing and native browser return remain pending."
+    },
+    "NATIVE-02": {
+      "tests": [
+        "TestNativeAuthorizationRequestValidationMatchesCurrentClients",
+        "TestNativeConsentResumesAfterPasskeyAndConsumesCSRFOnce",
+        "TestNativeOAuthCodeExchangeIsDigestOnlyAndAtomic"
+      ],
+      "scope": "Invalid return targets, malformed PKCE, wrong verifier, reused consent, and foreign consent origins fail. Cancellation returns access_denied. Expired code and native retry UI remain pending."
+    },
+    "NATIVE-03": {
+      "tests": [
+        "TestNativeRefreshRetrySurvivesRestartAndMismatchRevokes",
+        "TestNativeOAuthRefreshProofAndReplayRevokeTheFamily"
+      ],
+      "scope": "Concurrent saved-request retries return the same credentials after auth-service reconstruction. Mismatched retries revoke access. Legacy retry passes at 60 seconds and fails at 61 seconds. Native protected-storage recovery remains pending."
+    }
+  },
+  "sourceSHA256": {
+    "internal/auth/auth_test.go": "e504dc7446422603a59c37f0c71cabfc6d7c8f461347b48d72e4afb1a2a04110",
+    "internal/store/native_oauth_test.go": "e0c7faa67de2cfe52b3a96f1971f4c73dd239e7655339a6d3178610bfa9cb476"
+  },
+  "normalSuiteChanges": false
+}

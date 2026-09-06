@@ -1,0 +1,102 @@
+{
+  "origin": "https://noema.kevinpei.com",
+  "initialTaskId": "task:7a383211def681bcb585a92ca20e8bce",
+  "recurrenceId": "recurrence:900d7fd5491fd4f92c10d4a21bb34270",
+  "before": {
+    "recurrenceId": "recurrence:900d7fd5491fd4f92c10d4a21bb34270",
+    "revision": 1,
+    "lifecycle": "ACTIVE",
+    "nextRunAt": "2026-09-07T12:00:00Z",
+    "taskDocument": "# Recurrence history audit\n\nCalculate 8 \u00d7 9. Write only 72 to RESULT.md. Do not access external services. Do not change files outside this Task.",
+    "occurrences": [
+      {
+        "taskId": "task:7a383211def681bcb585a92ca20e8bce",
+        "trigger": "SCHEDULED",
+        "resolution": "MATERIALIZED",
+        "scheduledFor": "2026-09-06T12:00:00Z",
+        "recurrenceRevision": 1
+      }
+    ]
+  },
+  "manualTaskId": "task:614a8814ff8b8aea754ba7e94fb35e74",
+  "afterManual": {
+    "recurrenceId": "recurrence:900d7fd5491fd4f92c10d4a21bb34270",
+    "revision": 1,
+    "lifecycle": "ACTIVE",
+    "nextRunAt": "2026-09-07T12:00:00Z",
+    "taskDocument": "# Recurrence history audit\n\nCalculate 8 \u00d7 9. Write only 72 to RESULT.md. Do not access external services. Do not change files outside this Task.",
+    "occurrences": [
+      {
+        "taskId": "task:614a8814ff8b8aea754ba7e94fb35e74",
+        "trigger": "MANUAL",
+        "resolution": "MATERIALIZED",
+        "scheduledFor": "2026-09-05T23:04:07.817Z",
+        "recurrenceRevision": 1
+      },
+      {
+        "taskId": "task:7a383211def681bcb585a92ca20e8bce",
+        "trigger": "SCHEDULED",
+        "resolution": "MATERIALIZED",
+        "scheduledFor": "2026-09-06T12:00:00Z",
+        "recurrenceRevision": 1
+      }
+    ]
+  },
+  "completed": {
+    "taskId": "task:614a8814ff8b8aea754ba7e94fb35e74",
+    "stage": {
+      "key": "done"
+    },
+    "completedAt": "2026-09-05T23:05:05.537Z",
+    "resultDocument": "72",
+    "runs": [
+      {
+        "runId": "run:170921e3948928a1352b200af7ba05c0",
+        "kind": "REVIEWER",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:5cb169256876e3eb9b00143d6c8f44e7",
+        "kind": "EXECUTOR",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:1e791f3393ebd23e40678b931ccbf79b",
+        "kind": "PLANNER",
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  "visibleAfterCompletion": true,
+  "historyOpensResult": true,
+  "ended": {
+    "recurrenceId": "recurrence:900d7fd5491fd4f92c10d4a21bb34270",
+    "revision": 2,
+    "lifecycle": "ENDED",
+    "nextRunAt": null,
+    "taskDocument": "# Recurrence history audit\n\nCalculate 8 \u00d7 9. Write only 72 to RESULT.md. Do not access external services. Do not change files outside this Task.",
+    "occurrences": [
+      {
+        "taskId": "task:614a8814ff8b8aea754ba7e94fb35e74",
+        "trigger": "MANUAL",
+        "resolution": "MATERIALIZED",
+        "scheduledFor": "2026-09-05T23:04:07.817Z",
+        "recurrenceRevision": 1
+      },
+      {
+        "taskId": "task:7a383211def681bcb585a92ca20e8bce",
+        "trigger": "SCHEDULED",
+        "resolution": "MATERIALIZED",
+        "scheduledFor": "2026-09-06T12:00:00Z",
+        "recurrenceRevision": 1
+      }
+    ]
+  },
+  "initialTerminal": {
+    "taskId": "task:7a383211def681bcb585a92ca20e8bce",
+    "stage": {
+      "key": "cancelled"
+    },
+    "runs": []
+  }
+}

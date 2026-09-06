@@ -1,0 +1,59 @@
+{
+  "baseRevision": "f4da8cec47a15fc4b57a665796cc905766797ec9",
+  "cases": [
+    "OPS-02",
+    "OPS-03"
+  ],
+  "scope": "Controlled configuration, public admission, GraphiQL handler, Unix listener, and MCP process boundaries. A full application startup with every configuration remains untested.",
+  "newCheck": {
+    "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/auth -run '^TestAuditOptionalAccessFlagsAndPublicAuthority$' -v",
+    "result": "pass",
+    "output": "PASS\nok  \tgithub.com/kpsuperplane/noema/internal/auth\t0.238s\n",
+    "test": "TestAuditOptionalAccessFlagsAndPublicAuthority",
+    "temporaryLines": 65,
+    "assertions": [
+      "All three optional paths default to disabled.",
+      "Each option enables without enabling another option or dev_no_auth.",
+      "Loopback source address and forged local or forwarding headers do not admit an unauthenticated public GraphQL request. The application handler is not called."
+    ]
+  },
+  "reusedChecks": [
+    {
+      "record": "2026-09-06-role-runtime-restart-validation.json",
+      "testedRevision": "56f3a134",
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "tests": [
+        "TestGraphQLSupportServesOnlyEnabledProtectedResources",
+        "TestLocalSocketIsPrivateAndRemoved",
+        "TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing"
+      ],
+      "coverage": [
+        "Disabled GraphiQL returns 404. Enabled HTML and schema use restrictive policy and no-store schema delivery.",
+        "Normal authentication rejects private routes before application handling.",
+        "The Unix listener has a 0700 directory and 0600 socket. It rejects excluded routes and oversized bodies, serves allowed routes, and removes the socket at shutdown."
+      ]
+    },
+    {
+      "record": "2026-09-06-mcp-stdio-results.json",
+      "testedRevision": "507898a6ac09de13eb6d17da206e6f183f523b0c",
+      "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/mcp -run '^TestAuditMCPStdioAccess$' -v",
+      "result": "pass",
+      "coverage": [
+        "Disabled stdio starts no process or saved server.",
+        "Enabled stdio starts the controlled SDK service, discovers tools, and executes approved calls with bounded environment access."
+      ]
+    }
+  ],
+  "sourceVerification": "Tracked Go code and dependencies are unchanged from 56f3a134. MCP source and dependencies are unchanged from its recorded revision. Main passes the loaded flags to GraphiQL and MCP and creates the Unix listener only when enabled.",
+  "sha256": {
+    "internal/auth/config.go": "7630dd82f7acff9f229308bc8ae6c488c63f62ab94866ee5bd2c639b156c18f7",
+    "internal/auth/handler.go": "048022b1bddcb3814753b9e16fcec974e573096578560bd5c0c90a9caadf1c75",
+    "internal/auth/auth_test.go": "e504dc7446422603a59c37f0c71cabfc6d7c8f461347b48d72e4afb1a2a04110",
+    "internal/web/assets_test.go": "63530732178252236aa08d66924fd52f26ba66d64eb0f039e0b743738f293013",
+    "internal/web/local_graphql_unix_test.go": "05a19228082c3186a3d22e263a6b162125dbe8f390601b23912b44f1a49e456e",
+    "cmd/noema/main.go": "a28af905cd28e1094b913b29f98896c4cbe4f9b75820b2fd57666a1e0c432f5c",
+    "internal/mcp/secrets_test.go": "a37532dc6878d8764989049d98020466a5d875dd230af44815593b8973fb6f02"
+  },
+  "normalSuiteChanges": false
+}

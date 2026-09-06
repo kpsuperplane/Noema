@@ -1,0 +1,54 @@
+diff --git a/internal/runtime/audit_task_download_test.go b/internal/runtime/audit_task_download_test.go
+new file mode 100644
+index 00000000..16645421
+--- /dev/null
++++ b/internal/runtime/audit_task_download_test.go
+@@ -0,0 +1,48 @@
++package runtime
++
++import (
++	"encoding/json"
++	"testing"
++	"time"
++)
++
++func TestAuditExecutorDownloadCapability(t *testing.T) {
++	chat, db, _ := chatFixture(t)
++	ctx := t.Context()
++	now := time.Now()
++	createQueuedRuntimeTask(t, db, chat.home, "Download the requested public report.")
++	_, planner, found, err := db.ClaimTaskExecution(ctx, now)
++	if err != nil || !found {
++		t.Fatal("planner unavailable", err)
++	}
++	if err = db.StartTaskExecution(ctx, planner.ID, planner.Generation, now); err != nil {
++		t.Fatal(err)
++	}
++	if err = db.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", now); err != nil {
++		t.Fatal(err)
++	}
++	task, executor, found, err := db.ClaimTaskExecution(ctx, now)
++	if err != nil || !found {
++		t.Fatal("executor unavailable", err)
++	}
++	present := false
++	for _, tool := range taskExecutionTools("executor") {
++		if tool.Name == fileDownloadName {
++			present = true
++		}
++	}
++	if !present {
++		t.Error("Executor catalog omits file.download")
++	}
++	runtime := &TaskExecution{database: db, root: chat.home}
++	payload, _, _, _ := runtime.executeTaskTool(ctx, task, executor, fileDownloadName, json.RawMessage(`{"url":"https://example.com/report.txt","path":"report.txt"}`), true)
++	var result map[string]any
++	if err = json.Unmarshal(payload, &result); err != nil {
++		t.Fatal(err)
++	}
++	encoded, _ := json.Marshal(result)
++	t.Logf("download dispatch result: %s", encoded)
++	if !taskToolAllowed("executor", fileDownloadName) {
++		t.Error("Executor dispatcher rejects file.download")
++	}
++}

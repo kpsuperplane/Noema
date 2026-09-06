@@ -1,0 +1,125 @@
+diff --git a/internal/adapter/audit_oauth_failures_test.go b/internal/adapter/audit_oauth_failures_test.go
+new file mode 100644
+index 00000000..6a1683ab
+--- /dev/null
++++ b/internal/adapter/audit_oauth_failures_test.go
+@@ -0,0 +1,119 @@
++package adapter
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"fmt"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++func TestAuditOAuthFailureRecovery(t *testing.T) {
++	var failExchange atomic.Bool
++	var exchanges atomic.Int64
++	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		exchanges.Add(1)
++		w.Header().Set("Content-Type", "application/json")
++		if failExchange.Load() {
++			w.WriteHeader(400)
++			fmt.Fprint(w, `{"error":"invalid_grant"}`)
++			return
++		}
++		fmt.Fprint(w, `{"access_token":"synthetic-access","refresh_token":"synthetic-refresh","token_type":"Bearer","expires_in":3600,"scope":"scope.read"}`)
++	}))
++	t.Cleanup(server.Close)
++	previous := http.DefaultTransport
++	transport := previous.(*http.Transport).Clone()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
++		return (&tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}).DialContext(ctx, network, server.Listener.Addr().String())
++	}
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous; transport.CloseIdleConnections() })
++	const callback = "http://127.0.0.1:3737/adapter/oauth/callback"
++	for _, outcome := range []string{"denied", "expired", "failed", "superseded"} {
++		t.Run(outcome, func(t *testing.T) {
++			service, _ := newOAuthService(t, callback)
++			document := []byte(`{"installed":{"client_id":"audit-client","client_secret":"synthetic-client"}}`)
++			application, err := service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil, document)
++			if err != nil {
++				t.Fatal(err)
++			}
++			manifest := oauthManifest()
++			manifest.Reviewed = true
++			definition, err := service.files.installDefinition(manifest, "https://example.com/audit", nil, nil)
++			if err != nil {
++				t.Fatal(err)
++			}
++			start := func() OAuthAttempt {
++				t.Helper()
++				attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
++				if err != nil {
++					t.Fatal(err)
++				}
++				return attempt
++			}
++			callbackFor := func(attempt OAuthAttempt, denied bool) string {
++				parsed, err := url.Parse(attempt.AuthorizationURL)
++				if err != nil {
++					t.Fatal(err)
++				}
++				q := url.Values{"state": {parsed.Query().Get("state")}}
++				if denied {
++					q.Set("error", "access_denied")
++				} else {
++					q.Set("code", "synthetic-code")
++				}
++				return callback + "?" + q.Encode()
++			}
++			attempt := start()
++			if outcome == "expired" {
++				service.mu.Lock()
++				for _, pending := range service.oauthAttempts {
++					pending.expires = time.Now().Add(-time.Second)
++				}
++				service.mu.Unlock()
++			}
++			if outcome == "superseded" {
++				application, err = service.ReplaceOAuthApplication(application.ApplicationID, application.Revision, document)
++				if err != nil {
++					t.Fatal(err)
++				}
++			}
++			failExchange.Store(outcome == "failed")
++			before := exchanges.Load()
++			_, err = service.CompleteOAuth(t.Context(), callbackFor(attempt, outcome == "denied"))
++			if err == nil {
++				t.Error("failed callback reported success")
++			}
++			event, found := service.OAuthAttempt(attempt.AttemptID)
++			if !found || event.Status != outcome || event.GrantID != "" {
++				t.Errorf("attempt status=%s expected=%s found=%t grantPresent=%t", event.Status, outcome, found, event.GrantID != "")
++			}
++			if outcome != "failed" && exchanges.Load() != before {
++				t.Error("rejected callback reached token endpoint")
++			}
++			snapshot, err := service.OAuthSnapshot()
++			if err != nil || len(snapshot.Grants) != 0 {
++				t.Fatal("failed callback created a grant", err)
++			}
++			bindings, err := service.Bindings()
++			if err != nil || len(bindings) != 0 {
++				t.Fatal("failed callback exposed tools", err)
++			}
++			failExchange.Store(false)
++			fresh := start()
++			completed, err := service.CompleteOAuth(t.Context(), callbackFor(fresh, false))
++			if err != nil || completed.Status != "completed" || completed.GrantID == "" {
++				t.Fatal("fresh attempt could not recover", err)
++			}
++		})
++	}
++}

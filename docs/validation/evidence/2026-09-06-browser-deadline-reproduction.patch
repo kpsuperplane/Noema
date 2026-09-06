@@ -1,0 +1,71 @@
+diff --git a/internal/webtool/audit_browser_deadline_test.go b/internal/webtool/audit_browser_deadline_test.go
+new file mode 100644
+index 00000000..869382b9
+--- /dev/null
++++ b/internal/webtool/audit_browser_deadline_test.go
+@@ -0,0 +1,65 @@
++package webtool
++
++import (
++	"context"
++	"encoding/json"
++	"strings"
++	"syscall"
++	"testing"
++	"time"
++)
++
++func TestAuditBrowserDeadlineAllowsFreshSession(t *testing.T) {
++	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Second)
++	defer cancel()
++	fixture := newKernelTestFixture(t, "https://unused.example", true)
++	service := fixture.service
++	service.browserPath = "/var/lib/noema-dev/system/tools/obscura/v0.2.2/linux-amd64/obscura"
++	owner := "conversation:audit-browser-deadline"
++	open := func() {
++		t.Helper()
++		result := service.ExecuteBrowser(ctx, owner, BrowseOpenName, json.RawMessage(`{"url":"https://example.com"}`), "audit:open")
++		if !result.Success {
++			t.Fatal("public open failed")
++		}
++	}
++	open()
++	session := currentBrowserSession(t, service, owner)
++	pid := session.process.command.Process.Pid
++	// Stop only the separate process group created by production startup for this test.
++	if err := syscall.Kill(-pid, syscall.SIGSTOP); err != nil {
++		t.Fatal(err)
++	}
++	defer func() {
++		session.mu.Lock()
++		defer session.mu.Unlock()
++		if session.process != nil {
++			session.process.close()
++		}
++	}()
++	start := time.Now()
++	result := service.ExecuteBrowser(ctx, owner, BrowseSnapshotName, json.RawMessage(`{}`), "audit:stalled")
++	elapsed := time.Since(start)
++	if result.Success || elapsed < 29*time.Second || elapsed > 35*time.Second {
++		t.Fatalf("deadline success=%t elapsed=%s", result.Success, elapsed)
++	}
++	if !strings.Contains(string(result.Model), "unavailable") {
++		t.Fatalf("missing failure diagnostic: %s", result.Model)
++	}
++	service.browserMu.Lock()
++	remaining := service.browsers[owner]
++	service.browserMu.Unlock()
++	if remaining != nil {
++		t.Fatal("stalled session remains registered")
++	}
++	open()
++	replacement := currentBrowserSession(t, service, owner)
++	if replacement == session || replacement.process.command.Process.Pid == pid {
++		t.Fatal("stalled process was reused")
++	}
++	closed := service.ExecuteBrowser(ctx, owner, BrowseCloseName, json.RawMessage(`{}`), "audit:close")
++	if !closed.Success {
++		t.Fatal("replacement closure failed")
++	}
++	t.Logf("deadline=%s diagnostic=%s; fresh session opened and closed", elapsed, result.Model)
++}

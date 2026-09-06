@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly repository="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly asset_source="${repository}/target/web-assets"
+readonly asset_stage="${repository}/internal/web/release-assets"
+readonly output="${1:-${repository}/target/go/noema}"
+
+cd -- "${repository}/apps/web"
+bun run build:web-assets
+for required in index.html graphiql.html favicon.ico manifest.webmanifest sw.js apple-touch-icon.png pwa-192x192.png pwa-512x512.png; do
+  if [[ ! -f "${asset_source}/${required}" ]]; then
+    echo "missing release web asset: ${required}" >&2
+    exit 1
+  fi
+done
+
+find "${asset_stage}" -mindepth 1 -maxdepth 1 ! -name .gitkeep -delete
+find "${asset_source}" -mindepth 1 -maxdepth 1 -type f -exec cp -- '{}' "${asset_stage}/" ';'
+mkdir -p -- "$(dirname -- "${output}")"
+cd -- "${repository}"
+CGO_ENABLED=0 go build -trimpath -buildvcs=false -tags noema_release -o "${output}" ./cmd/noema
+readonly goos="${GOOS:-$(go env GOOS)}"
+readonly goarch="${GOARCH:-$(go env GOARCH)}"
+"${repository}/scripts/build-foundation-bridge" "${goos}" "${goarch}" "$(dirname -- "${output}")"

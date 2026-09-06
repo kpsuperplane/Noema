@@ -1,0 +1,60 @@
+{
+  "baseRevision": "27837f45",
+  "case": "DIAG-02",
+  "result": "Pass \u00b7 controlled browser authentication failure",
+  "unit": {
+    "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/webtool -run '^TestAuditBrowserAuthenticationDiagnosticKeepsSafeFields$' -v",
+    "test": "TestAuditBrowserAuthenticationDiagnosticKeepsSafeFields",
+    "result": "pass",
+    "output": "--- PASS: TestAuditBrowserAuthenticationDiagnosticKeepsSafeFields (0.20s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t0.207s\n",
+    "temporaryLines": 53,
+    "assertions": [
+      "The protected fixture credential reaches the controlled provider.",
+      "The provider rejects it with HTTP 401 and echoes it in its response body.",
+      "Both model and stored results exclude the echoed credential and provider response text.",
+      "Both results retain kernel, playwright_execute, credential rejected, and unauthenticated."
+    ],
+    "safeResult": {
+      "diagnostic": {
+        "provider": "kernel",
+        "stage": "playwright_execute",
+        "detail": "credential rejected"
+      },
+      "error": "unauthenticated",
+      "message": "Kernel browser request failed"
+    }
+  },
+  "browserCommand": "node /var/tmp/noema-suite-run-20260905/browser-diagnostic-view.mjs",
+  "browser": {
+    "instance": "https://noema.kevinpei.com",
+    "setup": "Browser-only Task transcript replacement using the safe result from the controlled provider test. No live Task or provider change.",
+    "safeResult": {
+      "diagnostic": {
+        "provider": "kernel",
+        "stage": "playwright_execute",
+        "detail": "credential rejected"
+      },
+      "error": "unauthenticated",
+      "message": "Kernel browser request failed"
+    },
+    "results": [
+      {
+        "width": 1440,
+        "passed": true,
+        "replaced": 1,
+        "technicalRecord": "Technical record\nweb.browse.open\nCORRELATION\naudit:browser-auth-call\nINPUT\n{\n  \"url\": \"https://example.com/a?authorization_status=ready&port=8080\"\n}\nSUCCESS\nfalse\nERROR\n{\n  \"diagnostic\": {\n    \"provider\": \"kernel\",\n    \"stage\": \"playwright_execute\",\n    \"detail\": \"credential rejected\"\n  },\n  \"error\": \"unauthenticated\",\n  \"message\": \"Kernel browser request failed\"\n}"
+      },
+      {
+        "width": 390,
+        "passed": true,
+        "replaced": 1,
+        "technicalRecord": "Technical record\nTechnical record\nweb.browse.open\nCORRELATION\naudit:browser-auth-call\nINPUT\n{\n  \"url\": \"https://example.com/a?authorization_status=ready&port=8080\"\n}\nSUCCESS\nfalse\nERROR\n{\n  \"diagnostic\": {\n    \"provider\": \"kernel\",\n    \"stage\": \"playwright_execute\",\n    \"detail\": \"credential rejected\"\n  },\n  \"error\": \"unauthenticated\",\n  \"message\": \"Kernel browser request failed\"\n}"
+      }
+    ]
+  },
+  "remaining": [
+    "Other browser-provider error classes and native technical-record rendering are not covered by this check."
+  ],
+  "validation": "The temporary test is archived and removed. Normal tracked Go code and dependencies remain unchanged from 56f3a134. No broad application check was repeated. Browser syntax and its affected behavior passed.",
+  "normalSuiteChanges": false
+}

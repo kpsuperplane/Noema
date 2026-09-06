@@ -1,0 +1,49 @@
+{
+  "revision": "042f9c93399fe8ce48aa3abe146aa8952510eaa8",
+  "case": "WEB-03",
+  "result": "Partial",
+  "mode": "Source coverage review with reused successful validation",
+  "reusedValidation": {
+    "revision": "56f3a134",
+    "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+    "result": "pass",
+    "evidence": "2026-09-06-role-runtime-restart-validation.json",
+    "unchangedInputsCheck": "git diff --quiet 56f3a134 -- '*.go' go.mod go.sum",
+    "unchangedInputsResult": "exit 0"
+  },
+  "coverage": [
+    {
+      "test": "TestWebToolContractsProvidersAndExtraction",
+      "assertions": [
+        "Saving the search binding sends the next search to the configured Exa fixture.",
+        "Saving the fetch binding sends the next fetch to its configured endpoint.",
+        "Search returns ranked results. Fetch returns page content and final URL.",
+        "Unavailable bound provider returns explicit fallback metadata."
+      ]
+    },
+    {
+      "test": "TestWebToolSchemaBindingsAndObservedURLs",
+      "assertions": [
+        "Saved search binding reads back from fresh and upgraded schemas."
+      ]
+    },
+    {
+      "test": "TestKernelRouteSwitchReusesRemoteSessionAndPublicRevisions",
+      "assertions": [
+        "The saved Obscura-first route opens Obscura and switches to Kernel.",
+        "The active route remains Kernel on later calls.",
+        "A reversed route starts Kernel and permits Obscura recovery after failed open."
+      ]
+    }
+  ],
+  "remaining": [
+    "Edit all three settings through the live product UI.",
+    "Verify saved changes after reload and service reconstruction."
+  ],
+  "sourceSHA256": {
+    "internal/webtool/web_test.go": "0cdbf836fa3282677ac563f2d17fcd2066a4cc0723b8b494569f3dd14da92621",
+    "internal/store/web_tools_test.go": "daf2dc07b435fcf97b6061a8e7f970c05bc6032965542f5eb57099d7acf757e7",
+    "internal/webtool/kernel_browser_test.go": "b7751cc28d9e0c8780a8c364c39dc2ab90b062248d59a87e0d29a12f3cdd4b28"
+  },
+  "normalSuiteChanges": false
+}

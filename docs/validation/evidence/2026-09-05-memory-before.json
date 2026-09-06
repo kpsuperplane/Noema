@@ -1,0 +1,44 @@
+{
+  "data": {
+    "memoryTree": {
+      "root": {
+        "id": "memory:human:root.md",
+        "path": "root.md",
+        "title": "Kevin",
+        "body": "Kevin is the local human. He calls his assistant Momo.[^1]\n\n## Identity\nKevin is the name to use when addressing him.[^1]\n\n## Assistant relationship\nMomo is the name Kevin chose for his assistant.[^1]",
+        "citations": [
+          {
+            "sources": [
+              {
+                "source": "item:a016e54ac3affff884096483188a87b6",
+                "kind": "HUMAN_MESSAGE",
+                "excerpt": "Kevin!",
+                "createdAt": "2026-09-05T17:56:23.077Z"
+              },
+              {
+                "source": "item:f6e032f9d1691e90377ecd5eb0a4c697",
+                "kind": "HUMAN_MESSAGE",
+                "excerpt": "Momo!",
+                "createdAt": "2026-09-05T17:55:54.889Z"
+              }
+            ]
+          }
+        ]
+      },
+      "pages": [
+        {
+          "id": "memory:human:root.md",
+          "path": "root.md",
+          "title": "Kevin"
+        }
+      ],
+      "pendingCount": 3,
+      "updateStatus": {
+        "state": "idle",
+        "active": false,
+        "lastConsolidatedSequence": 160,
+        "error": null
+      }
+    }
+  }
+}

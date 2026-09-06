@@ -17,6 +17,10 @@ export type TaskCommandSubject = {
   revision: number;
   generation: number;
   title: string;
+  updatedAt?: string;
+  taskDocumentPreview?: string;
+  stage?: { behavior: import("@/generated/graphql").WorkflowStageBehavior; name: string };
+  currentRun?: { kind: string } | null;
   taskDocument?: string;
   taskDocumentDigest?: string;
   project?: { projectId: string; name?: string } | null;
@@ -59,23 +63,25 @@ export function useTaskCommands({
   const [reopen] = useMutation(TasksReopenTaskDocument);
   const [runScheduledNow] = useMutation(TasksRunScheduledTaskNowDocument);
   const [updateInbox] = useMutation(TasksUpdateInboxTaskDocument);
+  const busyRef = React.useRef<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState("");
   const [requiresAcknowledgement, setRequiresAcknowledgement] = React.useState(false);
 
   const run = React.useCallback(
-    async (action: string, draft: TaskCommandDraft = {}) => {
-      if (busy || requiresAcknowledgement) return;
+    async (action: string, draft: TaskCommandDraft = {}, subject = task) => {
+      if (busyRef.current || requiresAcknowledgement) return;
+      busyRef.current = action;
       setBusy(action);
       setError(null);
-      const base = {
-        taskId: task.taskId,
-        expectedRevision: task.revision,
-        expectedGeneration: task.generation,
-        clientMutationId: createClientId()
-      };
       try {
+        const base = {
+        taskId: subject.taskId,
+        expectedRevision: subject.revision,
+        expectedGeneration: subject.generation,
+        clientMutationId: createClientId()
+        };
         switch (action) {
           case "EDIT": {
             const nextProjectId = draft.projectId ?? null;
@@ -85,7 +91,7 @@ export function useTaskCommands({
                   ...base,
                   title: draft.title,
                   taskDocument: draft.taskDocument,
-                  expectedTaskDocumentDigest: task.taskDocumentDigest,
+                  expectedTaskDocumentDigest: subject.taskDocumentDigest,
                   projectId: nextProjectId,
                   clearProject: nextProjectId === null,
                   executorAgentId: draft.executorAgentId,
@@ -107,7 +113,7 @@ export function useTaskCommands({
               variables: {
                 input: {
                   ...base,
-                  gateId: requiredGate(task),
+                  gateId: requiredGate(subject),
                   answerMarkdown: requiredMessage(draft.message),
                   approvalDecision: draft.approvalDecision
                 }
@@ -117,7 +123,7 @@ export function useTaskCommands({
           case "RETRY":
             await retry({
               variables: {
-                input: { ...base, gateId: requiredGate(task), retryNote: draft.message || null }
+                input: { ...base, gateId: requiredGate(subject), retryNote: draft.message || null }
               }
             });
             break;
@@ -149,10 +155,11 @@ export function useTaskCommands({
         }
         throw caught;
       } finally {
+        busyRef.current = null;
         setBusy(null);
       }
     },
-    [answer, busy, cancel, onUpdated, queue, reopen, requiresAcknowledgement, retry, runScheduledNow, task, updateInbox]
+    [answer, cancel, onUpdated, queue, reopen, requiresAcknowledgement, retry, runScheduledNow, task, updateInbox]
   );
 
   const acknowledge = React.useCallback(() => {

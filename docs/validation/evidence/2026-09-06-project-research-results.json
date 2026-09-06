@@ -1,0 +1,402 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "projectId": "project:c2c27d78eb4faa3996745261b5fd3800",
+  "taskId": "task:ad3dcfcbbcaf01237c43f04046766e41",
+  "currentContext": {
+    "content": "# Research context\n\nAudience: software team.\nRelease label: AUDIT_RESEARCH_CURRENT.\nKeep the report below 350 words.",
+    "digest": "e598a7c9779ab812d34dd542b839b9f8ac0ef82a968deada5613d34cac63a025"
+  },
+  "observerTimeouts": 1,
+  "final": {
+    "taskId": "task:ad3dcfcbbcaf01237c43f04046766e41",
+    "stage": {
+      "key": "done"
+    },
+    "resultDocument": "# Result\n\nCompleted the review correction for the HTTP GET vs. HEAD semantics research and republished the corrected `REPORT.md`.\n\n- **Corrected Artifact:** `artifact:2d34de8e8d60c93c987493e0fd06be7f`\n- **Corrected version:** `artifact_version:98bb4042a72487f262c53eee27af6902`\n- **Word count:** 259\n- **Primary sources read:** 2 (RFC 9110 and RFC 9111), after search\n- **Release label verified:** `AUDIT_RESEARCH_CURRENT`\n- **Correction verified:** HEAD-specific claims now map to https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.2\n- **Source URLs included in corrected report:**\n  - https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.1\n  - https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.2\n  - https://www.rfc-editor.org/rfc/rfc9110.html#section-18.2\n  - https://www.rfc-editor.org/rfc/rfc9111.html#section-4.3.5\n\nThe corrected Artifact was read back and its identity verified. No external writes were performed.\n",
+    "resultMetadata": {},
+    "reviewDocument": "Approved. The current REPORT.md is present and published as Artifact artifact:2d34de8e8d60c93c987493e0fd06be7f (version artifact_version:98bb4042a72487f262c53eee27af6902). It is concise (reported at 259 words), targets a software team, includes the exact release label AUDIT_RESEARCH_CURRENT, and provides a clear GET/HEAD comparison. Material claims are mapped to authoritative RFC 9110 sections 9.3.1, 9.3.2, and 18.2, plus RFC 9111 section 4.3.5, with exact URLs. The execution evidence records search before reading and only two primary sources read, within the three-source limit; the corrected HEAD URL is present. The final result identifies the corrected Artifact and cites the sources, satisfying the acceptance checks.\n",
+    "workspaceFiles": [
+      {
+        "path": "REPORT.md",
+        "isDirectory": false,
+        "sizeBytes": 1939
+      },
+      {
+        "path": "TASK.md",
+        "isDirectory": false,
+        "sizeBytes": 4155
+      },
+      {
+        "path": "RESULT.md",
+        "isDirectory": false,
+        "sizeBytes": 935
+      },
+      {
+        "path": "REVIEW.md",
+        "isDirectory": false,
+        "sizeBytes": 729
+      }
+    ],
+    "runs": [
+      {
+        "runId": "run:bedcedcef0784ef3b4054207a09bd5a4",
+        "kind": "REVIEWER",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:111b1f0cad12025354b38b8d32d3810a",
+        "kind": "EXECUTOR",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:4e082a48d95dc4d479f18eb8ee6035a3",
+        "kind": "REVIEWER",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:ae00124e5cfdc2805d6f5c1781febbb9",
+        "kind": "EXECUTOR",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:fd6ce840b74e59c9d45784fb1a6ca91e",
+        "kind": "PLANNER",
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  "report": "# HTTP GET vs. HEAD\n\n**Release:** `AUDIT_RESEARCH_CURRENT`  \n**Audience:** Software team\n\n## Concise comparison\n\n| Aspect | GET | HEAD |\n|---|---|---|\n| Intent | Requests transfer of a representation of the target resource. | Has the same semantics as GET, except the server **MUST NOT** send content in the response. |\n| Response data | Delivers the representation when the response carries content. | Carries no response content; it is for obtaining metadata without transferring the representation data. |\n| Headers/metadata | Supplies the response fields associated with the selected representation. | The server **SHOULD** send the same header fields as it would for GET, but **MAY** omit fields whose values are determined only while generating content. Therefore, clients should not require byte-for-byte header identity. |\n| Method properties | Safe and idempotent. | Safe and idempotent. |\n\n## Engineering guidance\n\nUse GET when the client needs the representation. Use HEAD when it needs metadata\u2014for example, to check a link or determine whether a representation changed\u2014while avoiding representation transfer. Treat HEAD as a metadata-only request for the same selected representation, but allow the documented header omissions. HTTP caching also defines a HEAD response as equivalent to the corresponding GET response without content; it can be used to invalidate or update a cached GET response in specified cases.\n\n## Sources (primary)\n\n1. IETF, **RFC 9110: HTTP Semantics**, \u00a7\u00a79.3.1\u20139.3.2 and \u00a718.2:  \n   GET: https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.1  \n   HEAD: https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.2  \n   Method properties: https://www.rfc-editor.org/rfc/rfc9110.html#section-18.2\n2. IETF, **RFC 9111: HTTP Caching**, \u00a74.3.5:  \n   https://www.rfc-editor.org/rfc/rfc9111.html#section-4.3.5\n\nThe report is based on two primary sources; no secondary source was used as evidence.\n",
+  "currentContextUsed": true,
+  "artifactVerification": {
+    "version": "98bb4042a72487f262c53eee27af6902",
+    "status": 200,
+    "exactReportBytes": true,
+    "currentLabelVisible": true
+  },
+  "executionTools": [
+    {
+      "name": "task.finish_execution",
+      "success": true
+    },
+    {
+      "name": "task.files.write",
+      "success": true
+    },
+    {
+      "name": "task.finish_execution",
+      "success": false
+    },
+    {
+      "name": "task.files.write",
+      "success": true
+    },
+    {
+      "name": "task.read_artifact",
+      "success": true
+    },
+    {
+      "name": "task.list_artifacts",
+      "success": true
+    },
+    {
+      "name": "artifact.create_local_file",
+      "success": true
+    },
+    {
+      "name": "task.files.list",
+      "success": true
+    },
+    {
+      "name": "code.run_lua",
+      "success": true
+    },
+    {
+      "name": "code.run_lua",
+      "success": true
+    },
+    {
+      "name": "code.run_lua",
+      "success": false
+    },
+    {
+      "name": "task.files.write",
+      "success": true
+    },
+    {
+      "name": "task.files.read",
+      "success": true
+    },
+    {
+      "name": "task.files.write",
+      "success": true
+    },
+    {
+      "name": "task.files.write",
+      "success": true
+    },
+    {
+      "name": "task.files.read",
+      "success": true
+    },
+    {
+      "name": "task.files.list",
+      "success": true
+    }
+  ],
+  "searchEvidence": [
+    [
+      {
+        "Arguments": {},
+        "ID": "ws_057346f5424c8e78016a9cf144c5c887d1a97c8d860297477d",
+        "Index": 1,
+        "Name": "web.fetch",
+        "ProviderAction": {
+          "type": "open_page"
+        },
+        "Result": {
+          "status": "completed"
+        },
+        "Sources": null,
+        "Status": "completed"
+      }
+    ],
+    [
+      {
+        "Arguments": {
+          "query": "site:rfc-editor.org/rfc/rfc9110 HTTP GET HEAD semantics RFC 9110"
+        },
+        "ID": "ws_057346f5424c8e78016a9cf11d623c87d195aecdb65c0e11c6",
+        "Index": 1,
+        "Name": "web.search",
+        "ProviderAction": {
+          "queries": [
+            "site:rfc-editor.org/rfc/rfc9110 HTTP GET HEAD semantics RFC 9110",
+            "site:ietf.org HTTP Semantics GET HEAD RFC 9110"
+          ],
+          "query": "site:rfc-editor.org/rfc/rfc9110 HTTP GET HEAD semantics RFC 9110",
+          "sources": [
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/info/rfc9110/"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/rfc/rfc9110.pdf"
+            },
+            {
+              "type": "url",
+              "url": "https://datatracker.ietf.org/doc/rfc9110/"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/info/std97/"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/rfc/inline-errata/rfc9110.html"
+            },
+            {
+              "type": "url",
+              "url": "https://www.ietf.org/ietf-ftp/rfc/rfc9110.html"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/errata/eid8138"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/errata_search.php?rfc=9110"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/errata/eid7870"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/errata/eid7599"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/errata/eid7419"
+            },
+            {
+              "type": "url",
+              "url": "https://www.rfc-editor.org/errata/eid7105"
+            }
+          ],
+          "type": "search"
+        },
+        "Result": {
+          "query": "site:rfc-editor.org/rfc/rfc9110 HTTP GET HEAD semantics RFC 9110",
+          "status": "completed"
+        },
+        "Sources": [
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/rfc/rfc9110.html"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/info/rfc9110/"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/rfc/rfc9110.pdf"
+          },
+          {
+            "Title": "",
+            "URL": "https://datatracker.ietf.org/doc/rfc9110/"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/info/std97/"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/rfc/inline-errata/rfc9110.html"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.ietf.org/ietf-ftp/rfc/rfc9110.html"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/errata/eid8138"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/errata_search.php?rfc=9110"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/errata/eid7870"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/errata/eid7599"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/errata/eid7419"
+          },
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/errata/eid7105"
+          }
+        ],
+        "Status": "completed"
+      },
+      {
+        "Arguments": {
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "ID": "ws_057346f5424c8e78016a9cf12444b087d1a533f00bd268f11f",
+        "Index": 3,
+        "Name": "web.fetch",
+        "ProviderAction": {
+          "type": "open_page",
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "Result": {
+          "status": "completed",
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "Sources": [
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/rfc/rfc9110.html"
+          }
+        ],
+        "Status": "completed"
+      },
+      {
+        "Arguments": {
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "ID": "ws_057346f5424c8e78016a9cf126ec4c87d1bfbfe8f4825092ba",
+        "Index": 5,
+        "Name": "web.fetch",
+        "ProviderAction": {
+          "pattern": "### 9.3.1. GET",
+          "type": "find_in_page",
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "Result": {
+          "status": "completed",
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "Sources": [
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/rfc/rfc9110.html"
+          }
+        ],
+        "Status": "completed"
+      },
+      {
+        "Arguments": {
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "ID": "ws_057346f5424c8e78016a9cf12a1f9087d188ddc7a146ab93c1",
+        "Index": 7,
+        "Name": "web.fetch",
+        "ProviderAction": {
+          "type": "open_page",
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "Result": {
+          "status": "completed",
+          "url": "https://www.rfc-editor.org/rfc/rfc9110.html"
+        },
+        "Sources": [
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/rfc/rfc9110.html"
+          }
+        ],
+        "Status": "completed"
+      },
+      {
+        "Arguments": {
+          "url": "https://www.rfc-editor.org/rfc/rfc9111.html"
+        },
+        "ID": "ws_057346f5424c8e78016a9cf13065f087d19263d70dcdc65aae",
+        "Index": 9,
+        "Name": "web.fetch",
+        "ProviderAction": {
+          "pattern": "4.3.5. Freshening Stored Responses upon Validation",
+          "type": "find_in_page",
+          "url": "https://www.rfc-editor.org/rfc/rfc9111.html"
+        },
+        "Result": {
+          "status": "completed",
+          "url": "https://www.rfc-editor.org/rfc/rfc9111.html"
+        },
+        "Sources": [
+          {
+            "Title": "",
+            "URL": "https://www.rfc-editor.org/rfc/rfc9111.html"
+          }
+        ],
+        "Status": "completed"
+      }
+    ]
+  ],
+  "review": {
+    "result": "pass",
+    "observer": "The first 300-second observation timed out during correction. Resumed the same Task without requeueing.",
+    "verified": [
+      "Planner, two Executor runs, and two Reviewer runs completed.",
+      "The report uses the Project context changed after capture.",
+      "Provider events record a completed primary-source search before source reads.",
+      "Review required an exact HEAD section URL, then approved the corrected report.",
+      "The final result identifies the corrected Artifact and cites exact source URLs.",
+      "Authenticated download equals the full corrected REPORT.md bytes."
+    ],
+    "scope": "Same-hostname web origin. Current configured model and search route. No claim about every provider combination."
+  }
+}
