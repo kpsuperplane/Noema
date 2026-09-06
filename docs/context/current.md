@@ -26,6 +26,8 @@ OAuth application import now accepts a reviewed public profile document through 
 Authorization, token exchange, and refresh use that profile. Live mock OAuth acceptance remains pending.
 Fixture v3 implements synthetic consent, code exchange, expiry, and account-preserving refresh; focused tests pass.
 The public endpoint still serves v1. Deploy v3 with its protected client secret before attempting live OAuth.
+Live setup now returns the missing hosted callback address. It matches the fixture's registered redirect.
+The v3 binary is ready at `/tmp/noema-provider-fixtures-v3`; the existing host fixture needs a host-terminal restart.
 Acceptance remains pending; see [live setup evidence](../validation/2026-09-06-live-api-setup-repair.md).
 
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.

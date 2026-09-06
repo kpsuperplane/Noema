@@ -574,7 +574,7 @@ func (r *Resolver) adapterOauthState(ctx context.Context) (*model.AdapterOauthSt
 	}
 	result := &model.AdapterOauthState{Profiles: []*model.AdapterOauthProfile{}, Applications: []*model.AdapterOauthApplication{}, Accounts: []*model.AdapterExternalAccount{}, Grants: []*model.AdapterAuthorizationGrant{}}
 	profileNames := map[string]string{}
-	callbackMode := service.OAuthCallbackMode()
+	callbackMode, callbackURI := service.OAuthCallback()
 	for _, value := range snapshot.Profiles {
 		profileNames[value.ProfileDigest] = value.DisplayName
 		var setup *adapter.CredentialSetup
@@ -583,7 +583,11 @@ func (r *Resolver) adapterOauthState(ctx context.Context) (*model.AdapterOauthSt
 				setup = &value.Setups[i].Setup
 			}
 		}
-		result.Profiles = append(result.Profiles, &model.AdapterOauthProfile{ProfileDigest: value.ProfileDigest, ProfileID: value.ProfileID, DisplayName: value.DisplayName, GrantAudience: value.GrantAudience, CredentialSetup: credentialSetupValue(setup, nil)})
+		credentialSetup := credentialSetupValue(setup, nil)
+		if credentialSetup != nil && callbackMode == "hosted" {
+			credentialSetup.RedirectURI = &callbackURI
+		}
+		result.Profiles = append(result.Profiles, &model.AdapterOauthProfile{ProfileDigest: value.ProfileDigest, ProfileID: value.ProfileID, DisplayName: value.DisplayName, GrantAudience: value.GrantAudience, CredentialSetup: credentialSetup})
 	}
 	grantCount, accountCount := map[string]int{}, map[string]int{}
 	for _, grant := range snapshot.Grants {

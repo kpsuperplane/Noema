@@ -185,3 +185,19 @@ and `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`.
 These checks cover the final authored and generated Go changes in this unit.
 The inclusive tracked Go count is 187,943, below the 191,860-line limit.
 Mock OAuth service implementation and deployment remain the next live setup steps.
+
+### Callback field and deployment check
+
+The live hosted OAuth setup returned `redirectUri: null` while instructing the operator to register that address.
+The existing GraphQL field now receives the configured callback from the adapter service.
+A live query confirmed `https://noema.kevinpei.com/adapter/oauth/callback` after the rebuild.
+This matches the v3 fixture's registered redirect. No schema or sign-in behavior changed.
+Focused adapter and GraphQL tests pass. Full Go tests and vet pass with this final patch.
+The patch adds eight production lines and removes four, with no generated or test changes.
+
+The v3 fixture binary is built at `/tmp/noema-provider-fixtures-v3`.
+The public endpoint still reports v1. Both fixture ports, 3742 and 3743, have existing listeners.
+Their processes are outside this command session's process view. The host service bus returns `No data available`.
+Deployment therefore requires a host-terminal restart of the existing fixture on port 3742.
+Supply `NOEMA_FIXTURE_CLIENT_SECRET` from a protected environment; never print its value or put it in Chat.
+Keep the Noema backend and its existing home running. Do not replace either service with a test home.

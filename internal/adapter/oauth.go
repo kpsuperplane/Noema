@@ -76,11 +76,11 @@ func (s *Service) SetOAuthCallback(raw string) error {
 	s.oauthCallback = parsed.String()
 	return nil
 }
-func (s *Service) OAuthCallbackMode() string {
+func (s *Service) OAuthCallback() (string, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	parsed, _ := url.Parse(s.oauthCallback)
-	return oauthCallbackMode(parsed)
+	return oauthCallbackMode(parsed), s.oauthCallback
 }
 func oauthCallbackMode(value *url.URL) string {
 	if value == nil {
