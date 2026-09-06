@@ -1218,7 +1218,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-12 | Not run | Controlled setup pending. | — |
 | WEB-13 | Partial | Review binds version, filename, and bytes before transmission. Generated upload data contains exact bytes. Destination receipt remains pending. | — |
 | WEB-14 | Partial | Unsupported upload returns retry_later without success. Supported route-switch recovery remains pending. | — |
-| WEB-15 | Not run | Controlled setup pending. | — |
+| WEB-15 | Partial | Six prohibited direct URL variants are rejected. Public Obscura browsing passes. Page-script attempt returns a CDP error without local requests. HTTP redirects and Kernel remain pending. | [Evidence](evidence/2026-09-06-browser-network-results.json) |
 | WEB-16 | Pass · controlled Linux | A stopped real worker fails at 30 seconds with provider and operation diagnostics. Its session is removed. A fresh worker opens and closes. | [Evidence](evidence/2026-09-06-browser-deadline-results.json) |
 | FILE-01 | Fail · controlled Task runtime | Download function preserves exact bytes. AUDIT-09: Executor catalog and dispatcher omit file.download. Task placement and review cannot proceed. | — |
 | FILE-02 | Pass · controlled TLS service | Parent, absolute, and outside symlink paths fail before network access. Private redirects fail without publishing a destination. Existing bytes remain intact. | — |
