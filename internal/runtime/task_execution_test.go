@@ -1054,3 +1054,95 @@ func TestTaskMessagesSeparateRequestAndCurrentClocks(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskReviewCorrectionUsesCurrentFiles(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	request := "# Correction audit\n\nInclude both alpha and café 日本語 in the result.\n"
+	planned := request + "\nPlan: write both required values.\n"
+	feedback := "The result omits café 日本語. Preserve alpha and add the missing value."
+	task := createQueuedRuntimeTask(t, database, chat.home, request)
+	calls := map[string]int{}
+	generator := generatorFunc(func(_ context.Context, input provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		role := taskRequestRole(input.Tools)
+		calls[role]++
+		call := calls[role]
+		switch role {
+		case "planner":
+			if call == 1 {
+				return taskToolResult("plan-write", taskFilesWrite, map[string]any{"path": "TASK.md", "content": planned}), nil
+			}
+			return taskToolResult("plan-finish", taskFinishPlanning, map[string]any{"complexity": "simple"}), nil
+		case "executor":
+			if call == 4 {
+				var data string
+				for _, message := range input.Messages {
+					if message.Role == "user" {
+						data += message.Content
+					}
+				}
+				for _, required := range []string{planned, "<RESULT.md>\nalpha\n", feedback} {
+					if !strings.Contains(data, required) {
+						t.Errorf("correction context omits %q: %s", required, data)
+					}
+				}
+				current, err := database.Task(t.Context(), task.ID)
+				if err != nil || current.StageKey == "done" || current.CompletedAt != nil {
+					t.Errorf("rejected result completed Task: %#v, %v", current, err)
+				}
+			}
+			switch call {
+			case 1, 4:
+				return taskToolResult(fmt.Sprintf("progress-%d", call), taskFilesWrite, map[string]any{"path": "TASK.md", "content": planned}), nil
+			case 2:
+				return taskToolResult("incomplete-result", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "alpha\n"}), nil
+			case 5:
+				return taskToolResult("corrected-result", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "alpha\ncafé 日本語\n"}), nil
+			default:
+				return taskToolResult(fmt.Sprintf("finish-%d", call), taskFinishExecution, map[string]any{}), nil
+			}
+		default:
+			var data string
+			for _, message := range input.Messages {
+				if message.Role == "user" {
+					data += message.Content
+				}
+			}
+			expectedResult := "alpha\n"
+			if call > 1 {
+				expectedResult = "alpha\ncafé 日本語\n"
+			}
+			if !strings.Contains(data, planned) || !strings.Contains(data, "<RESULT.md>\n"+expectedResult+"\n</RESULT.md>") {
+				t.Errorf("Reviewer did not receive current request and result: %s", data)
+			}
+			if call == 1 {
+				return taskToolResult("request-correction", taskFinishReview, map[string]any{"decision": "request_changes", "feedback": feedback, "notify_human": false}), nil
+			}
+			return taskToolResult("approve-correction", taskFinishReview, map[string]any{"decision": "approve", "feedback": "Both required values are present.", "notify_human": false}), nil
+		}
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+	runs, err := database.TaskRuns(t.Context(), task.ID, 10)
+	if err != nil || len(runs) != 5 {
+		t.Fatalf("correction runs = %#v, %v", runs, err)
+	}
+	for i, kind := range []string{"reviewer", "executor", "reviewer", "executor", "planner"} {
+		if runs[i].Kind != kind || runs[i].Status != "completed" {
+			t.Fatalf("unexpected correction run: %#v", runs[i])
+		}
+		if i < 4 && runs[i].ParentRunID != runs[i+1].ID {
+			t.Fatalf("correction parent is wrong: %#v", runs[i])
+		}
+	}
+	if runs[0].ReviewRound != 2 || runs[1].ReviewRound != 2 || runs[2].ReviewRound != 1 {
+		t.Fatalf("correction rounds = %#v", runs)
+	}
+	result, err := home.ReadTaskFile(chat.home, task.ID, "RESULT.md")
+	if err != nil || result != "alpha\ncafé 日本語\n" {
+		t.Fatalf("corrected result = %q, %v", result, err)
+	}
+}

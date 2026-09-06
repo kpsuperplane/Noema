@@ -541,6 +541,18 @@ The [live results](evidence/2026-09-06-direct-delegate-results.json) preserve th
 The [validation record](evidence/2026-09-06-direct-delegate-validation.json) contains source hashes and passing focused tests, broad Go tests, and vet.
 RUN-02 passes for live Codex and Chromium. Other providers remain separate matrix cases.
 
+## Reviewer correction with current Task files
+
+The [runtime test](../../internal/runtime/task_execution_test.go) uses production Task execution and SQLite with controlled model responses.
+The first Executor writes only one of two required values. The Reviewer receives that result and requests the missing value.
+The correction Executor receives the current request, incomplete result, and exact review feedback.
+The rejected Task remains incomplete until correction and approval. The second Reviewer receives the corrected result and the current request.
+The final result preserves both required values, including Unicode text.
+Five completed runs retain their exact parent links: Planner, Executor, Reviewer, correction Executor, and final Reviewer.
+The correction runs use review round two. No production change was required.
+The [validation record](evidence/2026-09-06-review-correction-validation.json) records passing focused and broad Go checks.
+RUN-03 passes for controlled runtime responses. Live model review quality remains outside this deterministic check.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -613,7 +625,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TASK-11 | Pass · Linux | Equal Unicode titles create distinct Task directories. Exact old and new documents remain intact. | — |
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
-| RUN-03 | Not run | Controlled setup pending. | — |
+| RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
 | RUN-05 | Not run | Controlled setup pending. | — |
 | RUN-06 | Not run | Controlled setup pending. | — |
