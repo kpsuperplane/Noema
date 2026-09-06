@@ -702,6 +702,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-12 | WEB-09 | Hidden and password values appear in model and stored browser snapshots. Submission review excludes them correctly. | Browser snapshot privacy | [Result](evidence/2026-09-06-browser-form-review-results.json), [reproduction](evidence/2026-09-06-browser-form-review-reproduction.patch) |
 | AUDIT-13 | WEB-10 | A repeated browser effect becomes claimable after a human decline when a controlled reviewer permits it. | Browser decline enforcement | [Result](evidence/2026-09-06-browser-decline-results.json), [reproduction](evidence/2026-09-06-browser-decline-reproduction.patch) |
 | AUDIT-14 | NOTE-02, NOTE-12 | Pending Chat action approval produces no notification for an eligible registration. Preview checks cannot reach a payload. | Notification event coverage | [Result](evidence/2026-09-06-action-notification-results.json), [reproduction](evidence/2026-09-06-action-notification-reproduction.patch) |
+| AUDIT-15 | NOTE-01 | Emulated permission denial leaves enablement text at desktop and phone widths. Offline indicator is present; real-prompt confirmation remains pending. | Notification permission UI | [Result](evidence/2026-09-06-notification-permission-results.json), [driver](evidence/2026-09-06-notification-permission.mjs) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -1242,7 +1243,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | ART-07 | Pass | Changed, missing, and symlink files fail delivery and show a preview load error. Restoring original bytes restores the preview. Live Artifact checks above. | — |
 | ART-08 | Pass | Same URL returns 401 before login, 200 after passkey login, and 401 after logout. Authorized responses use no-store. Live Artifact checks above. | — |
 | ART-09 | Pass | A 40 KiB binary retains exact bytes, filename, media type, length, and private caching across a verified server restart. Live Artifact checks above. | — |
-| NOTE-01 | Not run | Controlled setup pending. | Not run |
+| NOTE-01 | Partial · controlled browser | Permission is requested only after the explicit control. AUDIT-15: denied status stays stale under emulation. Real prompts and successful registration remain pending. [Evidence](evidence/2026-09-06-notification-permission-results.json). | Not run |
 | NOTE-02 | Fail · controlled queue | Final-answer and Task-attention queue checks pass. AUDIT-14: pending Chat action approval produces no notification. [Evidence](evidence/2026-09-06-action-notification-results.json). | Not run |
 | NOTE-03 | Partial | Two authenticated registrations pass selective suppression at the durable queue. The unfocused registration receives the exact preview and Chat target. Browser focus and device delivery remain pending. [Evidence](evidence/2026-09-06-notification-two-devices-results.json). | Not run |
 | NOTE-04 | Not run | Controlled setup pending. | Not run |
