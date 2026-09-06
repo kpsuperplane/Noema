@@ -1,6 +1,6 @@
 # Go server user verification suite
 
-Prepared: 2026-09-05. Execution: **In progress**. See the [current results](go-server-user-verification-results.md).
+Prepared: 2026-09-05. Execution: **Controlled automatic pass complete**. See the [current results](go-server-user-verification-results.md).
 
 This suite checks user outcomes after the Rust-to-Go server replacement.
 It is a verification specification, not an execution report.

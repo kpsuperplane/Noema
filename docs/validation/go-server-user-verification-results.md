@@ -1,6 +1,6 @@
 # Go server verification results
 
-Started: 2026-09-05. Status: **First pass in progress**.
+Started: 2026-09-05. Status: **Controlled automatic pass complete; INFO-02 contract gap remains**.
 
 The [suite](go-server-user-verification.md) defines all cases and required variants.
 The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and planned fix batches.
