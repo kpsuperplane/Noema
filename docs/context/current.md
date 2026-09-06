@@ -4,6 +4,8 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
+The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.
+
 The human authorized all seven Go cleanup items. ORMs are permitted.
 The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
 One migration registry drives fresh creation and upgrades at version 36. Task model availability replaces the removed enable setting.
