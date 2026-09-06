@@ -691,6 +691,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-01 | RUN-04 | Review-limit recovery records Executor but queues Reviewer after Retry. | Task gates | [Result](evidence/2026-09-06-review-recovery-results.json), [reproduction patch](evidence/2026-09-06-review-recovery-reproduction.patch) |
 | AUDIT-02 | RUN-14 | Executor and Reviewer reject another Task that primary Chat can read for the same owner. | Task reads | [Result](evidence/2026-09-06-task-first-pass-results.json), [reproduction patch](evidence/2026-09-06-task-first-pass-reproduction.patch) |
 | AUDIT-03 | RUN-04 | Clarification and approval answers persist but are absent from resumed provider context. | Task gates | [Result](evidence/2026-09-06-task-limits-gates-results.json), [reproduction patch](evidence/2026-09-06-task-limits-gates-reproduction.patch) |
+| AUDIT-04 | RUN-15; PROJECT-01 | All three roles reject permitted parent-relative shared reads inside the configured Project folder. | Task file access | [Result](evidence/2026-09-06-project-access-results.json), [reproduction patch](evidence/2026-09-06-project-access-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Browser presentation remains pending.
@@ -703,7 +704,7 @@ AUDIT-02 records this failure. The later fix must preserve the required run-scop
 
 Task file reads, writes, and deletes reject absolute paths, parent traversal, and an outside directory symlink.
 The outside file remains exact. An allowed Task file read preserves Unicode content.
-Shared Project file reads and Project boundaries remain pending.
+The Project check below finds that permitted shared reads fail. Outside reads remain denied.
 
 Existing successful checks cover tool-limit finalization, saved progress audit recovery, and automatic retry exhaustion.
 Their source assertions were reviewed. The recorded broad Go result remains valid because its relevant inputs are unchanged.
@@ -723,6 +724,17 @@ However, neither resumed provider receives the accepted answer. AUDIT-03 records
 
 RUN-09 combines these checks with prior tool-limit, audit, retry, and review-limit evidence.
 It covers limit enforcement with controlled runtime and store inputs. Retry after a review-limit gate remains failed under RUN-04.
+
+## Shared Project access and current context
+
+The [controlled Project check](evidence/2026-09-06-project-access-results.json) creates a Project and a linked Task inside its configured folder.
+Each role receives exact current `PROJECT.md` text after a separate edit.
+Planner, Executor, and Reviewer reject paths outside the Project and a symlink to an outside file.
+
+However, all three roles also reject `../shared.md` inside the Project folder.
+The [Task contract](../tasks.md) permits this shared read.
+AUDIT-04 records the failure for the Task file-access batch.
+Project creation and folder selection remain verified, but working-folder use fails this check.
 
 ## Case results
 
@@ -808,7 +820,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-12 | Not run | Controlled setup pending. | — |
 | RUN-13 | Not run | Controlled setup pending. | — |
 | RUN-14 | Fail · controlled tool handler | AUDIT-02: Executor and Reviewer reject another Task that primary Chat can read for the same owner. | — |
-| RUN-15 | Partial | Absolute paths, parent traversal, and outside symlinks fail for Task read/write/delete. Outside content stays exact. Shared Project access remains pending. | — |
+| RUN-15 | Fail · controlled tool handler | Outside reads, writes, and deletes are denied. AUDIT-04: all three roles also reject permitted shared Project reads. | — |
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
 | TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
 | TIME-03 | Pass · live Codex/Chromium and controlled runtime | Live requests resolve tomorrow at 09:00 in Los Angeles and Tokyo. Later roles receive fresh clocks, original request timestamps, and occurrence cutoffs. | — |
@@ -821,9 +833,9 @@ A human variant remains pending even when its controlled counterpart passes.
 | TIME-10 | Pass · controlled scheduler state | Skip creates no later Task while active. Queue one releases one catch-up Task. Allow creates both due occurrences. Fixed extra queue-one catch-up work. | — |
 | TIME-11 | Pass · controlled scheduler time | Production scheduling skips the missing spring minute and creates no duplicate run for the repeated fall minute. The next valid day queues one occurrence. | — |
 | TIME-12 | Pass · controlled scheduler state | One-time and recurrence races preserve accepted timing. Replaced slots create no later work. Existing occurrences retain their revision, and each occurrence queues once. | — |
-| PROJECT-01 | Partial | Live Project creation, rename, and shared folder settings pass. Task role use of the folder remains pending. | — |
+| PROJECT-01 | Fail · shared file access | Live creation, rename, and folder selection pass. AUDIT-04: linked Task roles cannot read permitted shared files. | — |
 | PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. Live Project checks above. | — |
-| PROJECT-03 | Not run | Controlled setup pending. | — |
+| PROJECT-03 | Pass · controlled role context | Each role receives exact current PROJECT.md text after separate edits. | — |
 | PROJECT-04 | Pass · live Chromium | Archive preserves readable context and removes editing controls in both browsers. Reopen restores editing with the same content. Live Project checks above. | — |
 | PROJECT-05 | Pass · live Codex | Chat reads the existing Project and lists its Tasks, including cancelled work. It captures a request without duplicating the Project. Live Chat capture checks above. | — |
 | AGENT-01 | Not run | Controlled setup pending. | — |
