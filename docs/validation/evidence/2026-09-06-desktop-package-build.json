@@ -1,0 +1,45 @@
+{
+  "case": "DESKTOP-01",
+  "sourceRevision": "682679fc",
+  "platform": "Linux x86_64",
+  "commands": [
+    {
+      "cwd": "crates/noema-desktop",
+      "command": "bun install --frozen-lockfile",
+      "result": "pass",
+      "output": "Installed pinned @tauri-apps/cli 2.11.4."
+    },
+    {
+      "cwd": "crates/noema-desktop",
+      "command": "GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp bun run tauri build --bundles deb",
+      "result": "pass",
+      "sessionId": 57306,
+      "output": "Release build finished in 4m 18s. Debian package created."
+    }
+  ],
+  "setupCorrection": "Use the desktop crate as the build directory. Isolate Xvfb, D-Bus, and runtime paths for the unprivileged user. Wait for server startup across all app threads. Two seconds was too early for the screenshot.",
+  "trackedBuildEffect": "Equivalent Tauri dependency formatting was restored after the successful build.",
+  "compilerCache": "The configured Rust wrapper and sccache remain enabled.",
+  "scope": "Linux Debian package. macOS, Windows, and AppImage launch remain untested.",
+  "package": "target/noema-validation/release/bundle/deb/Noema_0.1.0_amd64.deb",
+  "packageSha256": "8153f12677d15733f317ff947ba8d9b56e984873a16fe3cbe20126cb485c7878",
+  "launch": {
+    "case": "DESKTOP-01",
+    "platform": "Linux x86_64",
+    "toolchainPath": "/nonexistent",
+    "packagedLocalMode": true,
+    "appPid": 3353733,
+    "server": {
+      "pid": 3353826,
+      "executable": "/var/tmp/noema-desktop-audit-20260906/package/usr/lib/Noema/binaries/noema-server"
+    },
+    "databaseCreated": true,
+    "closeMethod": "WM_DELETE_WINDOW",
+    "exitCode": 0,
+    "serverStopped": true
+  },
+  "renderedState": "After 20 seconds, the window shows Choose how Noema thinks with Local, OpenRouter, and Codex options.",
+  "screenshot": "/var/tmp/noema-desktop-audit-20260906/desktop.png",
+  "launchSetup": "Extract the Debian package. Use Xvfb and a private D-Bus session. Run the driver as noema-dev with a test directory argument.",
+  "serverBinary": "Packaged noema-server is a statically linked Linux x86_64 Go executable."
+}
