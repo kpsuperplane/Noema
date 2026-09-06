@@ -119,3 +119,32 @@ After that test-only correction, `CGO_ENABLED=0 go test ./internal/adapter` and 
 The other broad package results are reused because production code did not change.
 Current Go totals: 79,936 production, 28,194 tests, 79,556 generated GraphQL, and 187,686 inclusive lines.
 Both migration ratios remain below 80 percent.
+
+## Attachment and empty search
+
+The agent generated attachment revision `164cd0d3761119c419ec24853b36ad2b209f7e10808dacf238dbba0e3986cd7e`.
+The operator inspected and approved it as `c66bc1c200165d3faee667ed63e1a14a5d72156a24f424a8a5dbbbe9cf55a2b4`.
+Connection `7e1a192dfe8cb6c687de09a01a2e1e94` retained credential revision 1 and its existing policy.
+
+Turn `turn:49bffff30f3ba1200efa3ba44592de0b` passed attachment and empty-search checks.
+Cursor `conversation_item:1607` contains the attachment ID and filename from the message response.
+Cursor `conversation_item:1609` contains an empty message list for the submarine query.
+Cursor `conversation_item:1612` contains the complete 31-byte attachment body in base64url form.
+Its decoded bytes are `passport\ncharger\nwalking shoes\n`.
+The final answer at `conversation_item:1614` correctly reports all three items and no search matches.
+The packing-list email body remains unavailable while the public fixture runs its malformed v1 MIME record.
+
+A background preparation Task has been requested to test reuse of the saved connection outside Chat.
+
+Task `task:9420acd0191f79b948b39921ec5bb7ea` fetched the trip messages and attachment through the saved connection.
+Its saved `work/output/preparation-note.md` preserves the weekday wording, all three packing items, and the missing-body caveat.
+The first Executor failed because the progress check forced terminal submission before `RESULT.md` existed.
+The runtime now permits required result saving before an early progress-check finalization.
+Hard execution limits retain their existing behavior.
+One regression test reaches result saving and review after that early decision.
+The patch adds eight production lines and 56 test lines.
+The operator requested a retry of the same Task with its saved work.
+
+Turn `turn:eb3077a7fc7252e4c0d0d44ea676bde5` requested account B's `b-msg-001` through account A.
+The fixture recorded account A and HTTP 404. Noema reported the missing record without switching accounts.
+This verifies that read boundary, not full dual-account setup or cross-account cursor isolation.

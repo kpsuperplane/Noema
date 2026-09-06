@@ -318,6 +318,14 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 					instruction := provider.GenerationMessage{Role: "developer", Content: taskContinuationPrompt}
 					messages, incremental = append(messages, instruction), append(incremental, instruction)
 				}
+				if outcome.Decision == "finalize" && run.Kind == "executor" {
+					result, readErr := home.ReadTaskFile(r.root, task.ID, "RESULT.md")
+					if !wroteTask || readErr != nil || strings.TrimSpace(result) == "" {
+						instruction := provider.GenerationMessage{Role: "developer", Content: "The progress check found the work ready to finish. Save current progress in TASK.md and the honest result in RESULT.md, then call task.finish_execution."}
+						messages, incremental = append(messages, instruction), append(incremental, instruction)
+						outcome.Decision = "continue"
+					}
+				}
 				if outcome.Decision == "finalize" || outcome.Decision == "ask_human" {
 					reason := "progress audit requested finalization"
 					if outcome.Decision == "ask_human" {

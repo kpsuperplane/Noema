@@ -685,6 +685,62 @@ func TestTaskExecutionDoesNotRepeatIncompleteToolCall(t *testing.T) {
 	}
 }
 
+func TestProgressFinalizationAllowsExecutorToSaveResult(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	policy, err := database.TaskExecutionPolicy(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.ProgressAuditInterval = 1
+	if _, err = database.UpdateTaskExecutionPolicy(t.Context(), policy); err != nil {
+		t.Fatal(err)
+	}
+	task := createQueuedRuntimeTask(t, database, chat.home, "Save the preparation note and submit it for review.")
+	planning, execution := 0, 0
+	inExecutor := false
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		if taskRequestHasTool(request.Tools, progressAuditToolName) {
+			decision := "continue"
+			if inExecutor {
+				decision = "finalize"
+			}
+			return taskToolResult("progress", progressAuditToolName, map[string]any{"decision": decision, "user_summary": "Work is ready.", "next_goal": nil}), nil
+		}
+		if taskRequestHasTool(request.Tools, taskFinishPlanning) {
+			planning++
+			if planning == 1 {
+				return taskToolResult("plan", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Plan\nSave the preparation note."}), nil
+			}
+			return taskToolResult("planned", taskFinishPlanning, map[string]any{"complexity": "simple"}), nil
+		}
+		if taskRequestHasTool(request.Tools, taskFinishExecution) {
+			inExecutor = true
+			execution++
+			if execution == 1 {
+				return taskToolResult("progress-save", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Progress\nThe preparation note is ready."}), nil
+			}
+			if execution == 2 {
+				if !taskRequestHasTool(request.Tools, taskFilesWrite) {
+					t.Fatal("progress finalization removed the required result write")
+				}
+				return taskToolResult("result-save", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "Preparation note saved. Missing evidence remains explicit."}), nil
+			}
+			return taskToolResult("finished", taskFinishExecution, map[string]any{}), nil
+		}
+		return taskToolResult("reviewed", taskFinishReview, map[string]any{"decision": "approve", "feedback": "The saved result matches the request.", "notify_human": false}), nil
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+	result, err := home.ReadTaskFile(chat.home, task.ID, "RESULT.md")
+	if err != nil || result != "Preparation note saved. Missing evidence remains explicit." {
+		t.Fatalf("saved result = %q, %v", result, err)
+	}
+}
+
 func TestTaskExecutionPolicyTriggersProgressAuditAndTerminalFinalization(t *testing.T) {
 	chat, database, _ := chatFixture(t)
 	policy, err := database.TaskExecutionPolicy(t.Context())

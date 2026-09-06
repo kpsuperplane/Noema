@@ -19,6 +19,8 @@ Proposal objects explicitly allow fields so provider conversion preserves the co
 Compiler errors now identify the operation index and response size limit.
 Live protected setup, profile, message list, thread, and message retrieval succeeded through the approved API connector.
 Go now accepts an absent last-page token, matching Rust. Pending revisions preserve approved tools.
+Live three-page traversal, attachment retrieval, empty search, and an account-boundary rejection passed.
+The delegated Task saved its note but exposed early finalization before RESULT.md. Its correction is under live retry.
 Acceptance remains pending; see [live setup evidence](../validation/2026-09-06-live-api-setup-repair.md).
 
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.
