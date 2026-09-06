@@ -196,7 +196,7 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 	if definition.SemanticDigest == "" || definition.Superseded {
 		return nil, errors.New("adapter revision base is unavailable")
 	}
-	selected := make([]Operation, 0, len(input.OperationIDs))
+	selected := make([]map[string]any, 0, len(input.OperationIDs))
 	seen := map[string]bool{}
 	for _, id := range input.OperationIDs {
 		if seen[id] {
@@ -206,7 +206,22 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		found := false
 		for _, operation := range definition.Manifest.Operations {
 			if operation.OperationID == id {
-				selected = append(selected, operation)
+				raw, err := json.Marshal(operation)
+				if err != nil {
+					return nil, err
+				}
+				var proposal map[string]any
+				if err := json.Unmarshal(raw, &proposal); err != nil {
+					return nil, err
+				}
+				delete(proposal, "behavior")
+				delete(proposal, "retry")
+				proposal["read_only"] = *operation.Behavior.ReadOnly.Value
+				proposal["idempotent"] = *operation.Behavior.Idempotent.Value
+				proposal["destructive"] = *operation.Behavior.Destructive.Value
+				proposal["open_world"] = *operation.Behavior.OpenWorld.Value
+				proposal["response"].(map[string]any)["kind"] = "custom"
+				selected = append(selected, proposal)
 				found = true
 				break
 			}

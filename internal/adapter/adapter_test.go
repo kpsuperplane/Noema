@@ -358,6 +358,27 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalReviewed := reviewed
+	templateInput, _ := json.Marshal(map[string]any{"semantic_digest": reviewed.SemanticDigest, "operation_ids": []string{"lookup"}})
+	template, templateOK := service.ExecuteSetup(DefinitionTemplateTool, templateInput)
+	var editable struct {
+		RevisionBase struct {
+			Operations []json.RawMessage `json:"operations"`
+		} `json:"revision_base"`
+	}
+	if !templateOK || json.Unmarshal(template, &editable) != nil || len(editable.RevisionBase.Operations) != 1 {
+		t.Fatalf("revision template = %s", template)
+	}
+	var editableOperation operationProposal
+	if err := decodeExactJSON(editable.RevisionBase.Operations[0], &editableOperation); err != nil {
+		t.Fatalf("revision template cannot be submitted: %v", err)
+	}
+	rebuilt, err := editableOperation.operation()
+	rebuiltResponse, _ := json.Marshal(rebuilt.Response)
+	reviewedResponse, _ := json.Marshal(reviewed.Operations[0].Response)
+	if err != nil || rebuilt.OperationID != reviewed.Operations[0].OperationID ||
+		string(rebuiltResponse) != string(reviewedResponse) {
+		t.Fatalf("revision operation changed: %#v, %v", rebuilt, err)
+	}
 	snapshot, _ := service.Snapshot()
 	if len(snapshot.Connections) != 1 {
 		t.Fatalf("connections = %d", len(snapshot.Connections))

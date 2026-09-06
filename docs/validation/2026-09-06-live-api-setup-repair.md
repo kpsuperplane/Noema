@@ -110,3 +110,12 @@ See [the pinned fixture contract](gmail-fixture-contract.md).
 The attachment revision turn `turn:b30caf3e06f08b3b4f88244f4d1ea13f` was cancelled during the development rebuild.
 Stored turn state confirms cancellation. Its proposal did not pass validation.
 The revision template returned stored operations instead of proposal-shaped operations, which needs correction.
+
+The revision template now removes stored behavior and retry fields, supplies the four proposal behavior flags,
+and marks the response as custom. A regression check resubmits the returned operation and preserves its response contract.
+The patch adds 15 production lines and 21 test lines after deletions.
+The broad test run passed all other packages but exposed a nil-transform assumption in the new test.
+After that test-only correction, `CGO_ENABLED=0 go test ./internal/adapter` and broad vet pass.
+The other broad package results are reused because production code did not change.
+Current Go totals: 79,936 production, 28,194 tests, 79,556 generated GraphQL, and 187,686 inclusive lines.
+Both migration ratios remain below 80 percent.
