@@ -148,3 +148,18 @@ The operator requested a retry of the same Task with its saved work.
 Turn `turn:eb3077a7fc7252e4c0d0d44ea676bde5` requested account B's `b-msg-001` through account A.
 The fixture recorded account A and HTTP 404. Noema reported the missing record without switching accounts.
 This verifies that read boundary, not full dual-account setup or cross-account cursor isolation.
+
+The retried Task reached Done.
+Executor `run:9be3217a8f06fac6aaf5f425e05a749f` completed with eight tool calls.
+Reviewer `run:3f7f910d682fbb1452ed9723e3def498` completed with seven tool calls.
+The operator inspected the saved preparation note, RESULT.md, and REVIEW.md.
+They preserve the three packing items, original weekday wording, and unavailable-message caveat.
+The retry reused the saved note without repeating mailbox reads.
+The reviewer approved the result. Broad Go tests and vet pass with the finalization correction.
+
+Setup case 1 remains incomplete.
+Required next checks: deploy fixture v2, recover the packing email body, implement and test mock OAuth,
+test expiry and rate-limit recovery, and verify both account setups and cursor isolation.
+The fixture also has three threads while the plan calls for two; reconcile the seed before final acceptance.
+The public fixture runs outside this command's process namespace. Its system service bus is unavailable here.
+The public health endpoint still reports fixture v1. No live v2 pass is claimed.
