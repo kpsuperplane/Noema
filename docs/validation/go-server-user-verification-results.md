@@ -978,6 +978,15 @@ Poor recognition, source presentation, and Chat behavior remain pending.
 Evidence: [results](evidence/2026-09-06-ocr-results.json), [fixture generator](evidence/2026-09-06-ocr-fixture.py), and [reproduction patch](evidence/2026-09-06-ocr-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## Document archive boundaries
+
+A valid DOCX control returned exact ordinary text.
+Oversized input, a referenced part above 32 MiB, excess archive entries, and parent-path entries failed explicitly.
+Every parse finished within five seconds. Source files and the outside file remained unchanged.
+Earlier malformed document and path checks complete controlled FILE-09 coverage.
+Evidence: [results](evidence/2026-09-06-archives-results.json) and [reproduction patch](evidence/2026-09-06-archives-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1160,7 +1169,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-06 | Partial | XLS numeric values pass. XLSX and ODS preserve dates, currency, and cached formula values through the production parser. XLS display variants remain pending. | — |
 | FILE-07 | Partial | Installed Tesseract recovers both expected lines from a clear image. Poor recognition and source presentation remain pending. | — |
 | FILE-08 | Pass · controlled Linux | Unicode filenames and text survive Chat parsing. Invalid UTF-8 returns an explicit failure. | — |
-| FILE-09 | Partial | Malformed DOCX, parent traversal, and symbolic links are rejected. Oversized and unsafe archives remain pending. | — |
+| FILE-09 | Pass · controlled parser | Malformed documents, escaping paths, oversized input, oversized referenced parts, excess entries, and parent archive paths fail. Valid control passes; source and outside files stay intact. | — |
 | FILE-10 | Partial | Missing Tesseract returns ocr_unavailable without content. Unrelated Unicode text still parses. Chat behavior remains pending. | — |
 | CALC-01 | Pass · controlled Linux | Budget, percentage, structured JSON, nulls, and Unicode match independent values. | — |
 | CALC-02 | Pass · controlled Linux | Unbounded Lua and file, process, environment, and network access fail within 15 seconds each. | — |
