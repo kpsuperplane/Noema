@@ -287,7 +287,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
 - Go owns schema version 35, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
 - Desktop launches a Go sidecar. The former Rust backend and evaluation dependency closure are removed.
-- Obscura uses upstream releases without Cargo. Public Linux installation, executable reuse, direct worker lifecycle, and stalled-worker recovery pass. Live Chat continuation remains failed under AUDIT-10. AUDIT-11 records an old snapshot executing a changed button. AUDIT-12 records protected control values in snapshots. AUDIT-13 records a repeated declined effect becoming claimable. Use synthetic form values during further checks. Product selection remains pending. Native Windows WAL stress remains a cutover gate.
+- Obscura uses upstream releases without Cargo. Public Linux installation, executable reuse, direct worker lifecycle, and stalled-worker recovery pass. The exact live Chat `example.com` lifecycle now passes after reviewed continuations preserve the provider response and continuation tool rounds accept their running state. AUDIT-11 records an old snapshot executing a changed button. AUDIT-12 records protected control values in snapshots. AUDIT-13 records a repeated declined effect becoming claimable. Use synthetic form values during further checks. Product selection remains pending. Native Windows WAL stress remains a cutover gate.
 
 ## Validation
 
