@@ -637,7 +637,18 @@ TASK.md and RESULT.md retain their exact Unicode content. The Task keeps its new
 The old run remains cancelled, and no extra run appears.
 The [validation record](evidence/2026-09-06-reopen-late-validation.json) records passing focused tests, broad Go tests, and vet.
 The test adds 84 lines. No production fix was required.
-RUN-06 remains partial until reopening a completed Task also rejects late changes.
+The completed-Task check below completes the second reopening variant.
+
+## Late review after reopening a completed Task
+
+The [runtime test](../../internal/runtime/task_execution_test.go) completes planning, execution, and review, then reopens the Task.
+It submits the old Reviewer decision again and checks current state plus all three document files.
+Before the fix, REVIEW.md was rewritten and restored before the stale decision failed.
+The [review completion path](../../internal/runtime/task_execution.go) now checks the current generation and run before touching REVIEW.md.
+The stale decision leaves file contents and modification times unchanged. The new Executor and generation remain current.
+The [validation record](evidence/2026-09-06-reopen-review-validation.json) records the regression and passing focused tests, broad Go tests, and vet.
+The fix adds seven production lines and 69 test lines. Normal correction review remains covered by the focused checks.
+Together with the cancelled-Task test, RUN-06 passes for controlled runtime reopening.
 
 ## Case results
 
@@ -714,7 +725,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
-| RUN-06 | Partial | Reopening a cancelled Task rejects a late provider file write. Current files and the new generation remain intact. Completed-Task reopening remains pending. | — |
+| RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
 | RUN-08 | Not run | Controlled setup pending. | — |
 | RUN-09 | Not run | Controlled setup pending. | — |

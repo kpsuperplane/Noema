@@ -1450,3 +1450,72 @@ func TestReopenedTaskRejectsLateProviderFileWrite(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletedTaskReopenRejectsLateReviewWithoutFileChanges(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	task := createQueuedRuntimeTask(t, database, chat.home, "# Completed reopen\nPreserve café 日本語.\n")
+	if err := home.WriteTaskFile(chat.home, task.ID, "RESULT.md", "accepted result\n"); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &TaskExecution{database: database, root: chat.home}
+	var reviewer store.TaskRun
+	for _, kind := range []string{"planner", "executor", "reviewer"} {
+		_, run, found, err := database.ClaimTaskExecution(t.Context(), time.Now())
+		if err != nil || !found || run.Kind != kind {
+			t.Fatalf("claim %s = %#v, %t, %v", kind, run, found, err)
+		}
+		if err = database.StartTaskExecution(t.Context(), run.ID, run.Generation, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		name, raw := taskFinishPlanning, json.RawMessage(`{"complexity":"simple"}`)
+		if kind == "executor" {
+			name, raw = taskFinishExecution, json.RawMessage(`{}`)
+		}
+		if kind == "reviewer" {
+			reviewer = run
+			name, raw = taskFinishReview, json.RawMessage(`{"decision":"approve","feedback":"Accepted café 日本語.","notify_human":false}`)
+		}
+		if err = runtime.finishTaskTerminal(t.Context(), run, name, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	completed, err := database.Task(t.Context(), task.ID)
+	if err != nil || completed.StageKey != "done" {
+		t.Fatalf("completed Task = %#v, %v", completed, err)
+	}
+	complexity := "simple"
+	reopened, err := database.ReopenTask(t.Context(), task.ID, completed.Revision, completed.Generation, "Continue from accepted files", &complexity, "", runtimeTaskCommand("reopen_task", "completed-late"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{"TASK.md": "# Completed reopen\nPreserve café 日本語.\n", "RESULT.md": "accepted result\n", "REVIEW.md": "Accepted café 日本語.\n"}
+	fixed := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	for name := range paths {
+		path := filepath.Join(chat.home.Name(), "tasks", strings.TrimPrefix(task.ID, "task:"), name)
+		if err := os.Chtimes(path, fixed, fixed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = runtime.finishTaskTerminal(t.Context(), reviewer, taskFinishReview, json.RawMessage(`{"decision":"request_changes","feedback":"Stale replacement.","notify_human":false}`))
+	if !errors.Is(err, store.ErrStaleRun) {
+		t.Fatalf("late review = %v", err)
+	}
+	for name, want := range paths {
+		content, err := home.ReadTaskFile(chat.home, task.ID, name)
+		if err != nil || content != want {
+			t.Fatalf("late review changed %s: %q, %v", name, content, err)
+		}
+		info, err := os.Stat(filepath.Join(chat.home.Name(), "tasks", strings.TrimPrefix(task.ID, "task:"), name))
+		if err != nil || !info.ModTime().Equal(fixed) {
+			t.Fatalf("late review rewrote %s: %v, %v", name, info, err)
+		}
+	}
+	current, err := database.Task(t.Context(), task.ID)
+	if err != nil || current.Generation != reopened.Task.Generation || current.CurrentRunID != reopened.Task.CurrentRunID || current.StageKey != "queue" || current.CompletedAt != nil {
+		t.Fatalf("late review changed reopened Task: %#v, %v", current, err)
+	}
+	runs, err := database.TaskRuns(t.Context(), task.ID, 10)
+	if err != nil || len(runs) != 4 || runs[0].Kind != "executor" {
+		t.Fatalf("reopened runs = %#v, %v", runs, err)
+	}
+}

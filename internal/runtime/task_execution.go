@@ -1533,6 +1533,13 @@ func (r *TaskExecution) finishTaskTerminal(ctx context.Context, run store.TaskRu
 			strings.TrimSpace(input.Feedback) == "" || len(input.Feedback) > 20_000 {
 			return errors.New("invalid review terminal")
 		}
+		current, err := r.database.Task(ctx, run.TaskID)
+		if err != nil {
+			return err
+		}
+		if current.Generation != run.Generation || current.CurrentRunID != run.ID {
+			return store.ErrStaleRun
+		}
 		previous, previousErr := home.ReadTaskFile(r.root, run.TaskID, "REVIEW.md")
 		if previousErr != nil && !errors.Is(previousErr, os.ErrNotExist) {
 			return previousErr
