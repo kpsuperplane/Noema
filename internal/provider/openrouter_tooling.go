@@ -305,6 +305,17 @@ func makeOpenRouterNullable(value any) any {
 	if object == nil {
 		return value
 	}
+	if choices, ok := object["enum"].([]any); ok {
+		hasNull := false
+		for _, choice := range choices {
+			if choice == nil {
+				hasNull = true
+			}
+		}
+		if !hasNull {
+			object["enum"] = append(choices, nil)
+		}
+	}
 	switch kinds := object["type"].(type) {
 	case string:
 		object["type"] = []any{kinds, "null"}

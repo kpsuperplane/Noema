@@ -433,3 +433,36 @@ func openRouterGenerationFixture(t *testing.T, remoteURL string, key string) *Op
 	}
 	return generator
 }
+
+func TestOptionalEnumSurvivesStrictProviderConversion(t *testing.T) {
+	tools := []GenerationTool{{Name: "task.delegate", Description: "Delegate a Task.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"complexity_hint":{"type":"string","enum":["simple","medium","difficult"]}},"additionalProperties":false}`)}}
+	names, wire, err := prepareOpenRouterTools(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	converted := jsonObject(jsonObject(wire[0].Function.Parameters)["properties"])["complexity_hint"]
+	choices := jsonObject(converted)["enum"].([]any)
+	hasNull := false
+	for _, choice := range choices {
+		if choice == nil {
+			hasNull = true
+		}
+	}
+	if !hasNull {
+		t.Fatalf("optional enum excludes null: %#v", converted)
+	}
+	rule := names.providerToRule[wire[0].Function.Name]
+	sourceChoices := jsonObject(jsonObject(jsonObject(rule.sourceSchema)["properties"])["complexity_hint"])["enum"].([]any)
+	if len(sourceChoices) != 3 {
+		t.Fatalf("source enum changed: %#v", sourceChoices)
+	}
+	for _, choice := range []any{nil, "simple", "medium", "difficult"} {
+		input := map[string]any{"complexity_hint": choice}
+		restoreOpenRouterOptionalNulls(input, rule.sourceSchema)
+		actual, exists := input["complexity_hint"]
+		if choice == nil && exists || choice != nil && (!exists || actual != choice) {
+			t.Fatalf("source restoration changed meaning: %#v -> %#v", choice, input)
+		}
+	}
+}

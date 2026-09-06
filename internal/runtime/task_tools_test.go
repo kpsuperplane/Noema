@@ -172,6 +172,16 @@ func TestTaskDelegateIsAtomicAndSelectsInitialRun(t *testing.T) {
 	raw := mustToolJSON(t, map[string]any{"title": "Delegate", "task_document": "# Delegate\n",
 		"project":          map[string]any{"kind": "existing", "project_id": projectID},
 		"execution_intent": map[string]any{"request_markdown": "Do it.", "complexity": "simple"}})
+	var conflicting map[string]any
+	if err := json.Unmarshal(raw, &conflicting); err != nil {
+		t.Fatal(err)
+	}
+	conflicting["complexity_hint"] = "simple"
+	invalid, accepted := chat.executeChatTool(t.Context(), conversation, taskDelegateName,
+		mustToolJSON(t, conflicting), "delegate-call", "turn:delegate")
+	if accepted || !bytes.Contains(invalid, []byte("Omit complexity_hint when execution_intent is supplied")) {
+		t.Fatalf("conflicting delegation did not explain correction: %s", invalid)
+	}
 	payload, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName, raw, "delegate-call", "turn:delegate")
 	if !success {
 		t.Fatalf("delegate = %s", payload)

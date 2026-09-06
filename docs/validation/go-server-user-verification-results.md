@@ -527,6 +527,20 @@ The [results](evidence/2026-09-06-relative-capture-results.json) retain the requ
 The [validation record](evidence/2026-09-06-relative-capture-validation.json) links the controlled runtime checks for later role clocks and original request timestamps.
 TIME-03 passes for this combined live and controlled scope.
 
+## Direct Task delegation and optional enum conversion
+
+The [live delegation driver](evidence/2026-09-06-direct-delegate.mjs) authorized a complete calculation request for direct execution.
+The [first attempt](evidence/2026-09-06-direct-delegate-before-results.json) failed without creating a Task.
+The model supplied both complexity fields. A specific error alone did not permit a successful correction.
+Inspection found that [provider conversion](../../internal/provider/openrouter_tooling.go) required optional enum fields while excluding null from their allowed choices.
+The converter now permits null for optional enums. Source enum rules remain unchanged, and optional null placeholders are removed before source validation.
+The [provider regression test](../../internal/provider/openrouter_generation_test.go) failed before this fix and passed afterward.
+The existing delegation test also verifies a specific correction message followed by successful direct authorization.
+The [completion driver](evidence/2026-09-06-direct-delegate-completion.mjs) verified one Executor, one Reviewer, no Planner, and exact result `72` after browser reload.
+The [live results](evidence/2026-09-06-direct-delegate-results.json) preserve the request, accepted intent, Task identity, and completed runs.
+The [validation record](evidence/2026-09-06-direct-delegate-validation.json) contains source hashes and passing focused tests, broad Go tests, and vet.
+RUN-02 passes for live Codex and Chromium. Other providers remain separate matrix cases.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -598,7 +612,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | TASK-10 | Partial | A repeated capture returns the original Task identity. Lost responses for other commands remain pending. | — |
 | TASK-11 | Pass · Linux | Equal Unicode titles create distinct Task directories. Exact old and new documents remain intact. | — |
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
-| RUN-02 | Not run | Controlled setup pending. | — |
+| RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Not run | Controlled setup pending. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
 | RUN-05 | Not run | Controlled setup pending. | — |
