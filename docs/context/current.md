@@ -24,6 +24,8 @@ The delegated Task reached Done after fixing early finalization before RESULT.md
 The public fixture still runs v1; corrected v2 and OAuth/fault checks remain necessary before setup acceptance.
 OAuth application import now accepts a reviewed public profile document through the existing GraphQL mutation.
 Authorization, token exchange, and refresh use that profile. Live mock OAuth acceptance remains pending.
+Fixture v3 implements synthetic consent, code exchange, expiry, and account-preserving refresh; focused tests pass.
+The public endpoint still serves v1. Deploy v3 with its protected client secret before attempting live OAuth.
 Acceptance remains pending; see [live setup evidence](../validation/2026-09-06-live-api-setup-repair.md).
 
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.

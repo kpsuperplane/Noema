@@ -14,6 +14,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,7 +24,7 @@ import (
 )
 
 const (
-	fixtureVersion = "2026-09-06-gmail-v1-notion-mcp-v2"
+	fixtureVersion = "2026-09-06-gmail-v1-notion-mcp-v3"
 	accountAToken  = "fixture-account-a"
 	accountBToken  = "fixture-account-b"
 )
@@ -40,10 +41,11 @@ type requestTrace struct {
 type fixture struct {
 	mu       sync.Mutex
 	requests []requestTrace
+	oauth    fixtureOAuth
 }
 
 func (f *fixture) trace(r *http.Request, status int) {
-	account := requestAccount(r)
+	account := f.requestAccount(r)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests = append(f.requests, requestTrace{
@@ -52,7 +54,7 @@ func (f *fixture) trace(r *http.Request, status int) {
 	})
 }
 
-func requestAccount(r *http.Request) string {
+func (f *fixture) requestAccount(r *http.Request) string {
 	value := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(value, "Bearer ") {
 		switch strings.TrimPrefix(value, "Bearer ") {
@@ -60,6 +62,11 @@ func requestAccount(r *http.Request) string {
 			return "account-a"
 		case accountBToken:
 			return "account-b"
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if token, ok := f.oauth.tokens[strings.TrimPrefix(value, "Bearer ")]; ok && time.Now().Before(token.expires) {
+			return token.account
 		}
 	}
 	return "anonymous"
@@ -222,7 +229,7 @@ func (f *fixture) gmail(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.URL.Path, "/gmail/v1/") {
 		return
 	}
-	account := requestAccount(r)
+	account := f.requestAccount(r)
 	accounts := gmailAccounts()
 	if account != "account-a" && account != "account-b" {
 		f.trace(r, http.StatusUnauthorized)
@@ -513,10 +520,13 @@ func main() {
 		log.Fatal("port must be between 1 and 65535")
 	}
 	f := &fixture{}
+	f.oauth.secret = os.Getenv("NOEMA_FIXTURE_CLIENT_SECRET")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", f.health)
 	mux.HandleFunc("/fixture/requests", f.operatorTrace)
 	mux.HandleFunc("/gmail/docs", f.docs)
+	mux.HandleFunc("/oauth/authorize", f.authorize)
+	mux.HandleFunc("/oauth/token", f.token)
 	mux.HandleFunc("/notion/docs", f.docs)
 	mux.HandleFunc("/.well-known/mcp.json", f.notionCard)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", f.notionOAuthMetadata)
@@ -558,8 +568,12 @@ Official references:
 The public base URL is ` + "`https://noema.kevinpei.com/__pa-replay/gmail/v1`" + `.
 Every API request needs ` + "`Authorization: Bearer <access token>`" + `.
 The required scope is ` + "`https://www.googleapis.com/auth/gmail.readonly`" + `.
-The acceptance operator supplies a synthetic account token during setup.
-Do not put that token in a message, document, or report.
+Use OAuth authorization code with PKCE (S256) and client_secret_post.
+The authorization endpoint is https://noema.kevinpei.com/__pa-replay/oauth/authorize.
+The token endpoint is https://noema.kevinpei.com/__pa-replay/oauth/token.
+The operator imports the reviewed OAuth profile and protected client document.
+Select one synthetic account on the consent page. No real account is used.
+Do not put credentials in a message, document, or report.
 
 The API returns Google's JSON error envelope. Unsupported methods return 405.
 Missing or expired credentials return 401. A token without the required scope
