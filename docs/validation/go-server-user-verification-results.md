@@ -660,7 +660,20 @@ Repeated recovery creates no extra run, and a second worker cannot claim the lea
 Each recovered role can finish. The Task reaches Done with three completed runs.
 
 The [validation record](evidence/2026-09-06-role-restart-validation.json) records the test and checks.
-This checks persistent store recovery. Runtime restart coverage for all three roles remains pending.
+This checks persistent store recovery. The runtime check below extends coverage to resumed provider context.
+
+## Runtime recovery for each Task role
+
+The controlled runtime check stops the worker during an active provider call in each role.
+It closes SQLite, opens the saved database, and starts a new Task runtime.
+The resumed provider receives the exact saved Task file read result.
+Planner and Executor finish from their saved progress without another progress write.
+Each Task reaches Done with exactly three completed runs.
+The interrupted role keeps its run identifier. Task generation and exact Unicode files remain intact.
+
+The [validation record](evidence/2026-09-06-role-runtime-restart-validation.json) records the test and checks.
+RUN-08 passes for controlled runtime and database restart with synthetic provider responses.
+This does not test abrupt process termination or every external model service.
 
 ## Case results
 
@@ -739,7 +752,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
-| RUN-08 | Partial | SQLite reopening preserves all three roles, exact replay, usage, and run identity. Completion succeeds without duplicate runs. Runtime restart coverage remains pending. | — |
+| RUN-08 | Pass · controlled runtime | Restart during each role restores exact saved read results and progress. Files, generation, and run identity remain intact. Each Task finishes with three completed runs. | — |
 | RUN-09 | Not run | Controlled setup pending. | — |
 | RUN-10 | Not run | Controlled setup pending. | — |
 | RUN-11 | Not run | Controlled setup pending. | — |

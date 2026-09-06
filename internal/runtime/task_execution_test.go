@@ -1519,3 +1519,123 @@ func TestCompletedTaskReopenRejectsLateReviewWithoutFileChanges(t *testing.T) {
 		t.Fatalf("reopened runs = %#v, %v", runs, err)
 	}
 }
+
+func TestTaskRuntimeRestartResumesEachRole(t *testing.T) {
+	for _, interruptedRole := range []string{"planner", "executor", "reviewer"} {
+		t.Run(interruptedRole, func(t *testing.T) {
+			ctx := t.Context()
+			chat, database, _ := chatFixture(t)
+			const requestText = "# Task\n\nPreserve café 日本語 through restart.\n"
+			const resultText = "Accepted café 日本語\n"
+			task := createQueuedRuntimeTask(t, database, chat.home, requestText)
+			if err := home.WriteTaskFile(chat.home, task.ID, "RESULT.md", resultText); err != nil {
+				t.Fatal(err)
+			}
+			paused := make(chan struct{})
+			readRequested := false
+			written := map[string]bool{}
+			finish := func(role string) provider.GenerationResult {
+				if role != "reviewer" && !written[role] {
+					written[role] = true
+					return taskToolResult(role+"-progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": requestText})
+				}
+				switch role {
+				case "planner":
+					return taskToolResult("plan", taskFinishPlanning, map[string]any{"complexity": "simple"})
+				case "executor":
+					return taskToolResult("execute", taskFinishExecution, map[string]any{})
+				default:
+					return taskToolResult("review", taskFinishReview, map[string]any{"decision": "approve", "feedback": "Accepted café 日本語", "notify_human": false})
+				}
+			}
+			before := generatorFunc(func(ctx context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+				role := taskRequestRole(request.Tools)
+				if role != interruptedRole || role != "reviewer" && !written[role] {
+					return finish(role), nil
+				}
+				if !readRequested {
+					readRequested = true
+					return taskToolResult("saved-read", taskFilesRead, map[string]any{"path": "TASK.md"}), nil
+				}
+				close(paused)
+				<-ctx.Done()
+				return provider.GenerationResult{}, ctx.Err()
+			})
+			worker, err := NewTaskExecution(ctx, database, before, before, before, chat.home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(worker.Close)
+			select {
+			case <-paused:
+			case <-time.After(5 * time.Second):
+				t.Fatal("role did not reach the restart boundary")
+			}
+			current, err := database.Task(ctx, task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			interruptedRun := current.CurrentRunID
+			worker.Close()
+			if err = chat.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err = database.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := store.Open(ctx, filepath.Join(chat.home.Name(), "noema.sqlite3"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = reopened.Close() })
+			var resumed atomic.Bool
+			after := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+				role := taskRequestRole(request.Tools)
+				if !resumed.Load() {
+					if role != interruptedRole {
+						return provider.GenerationResult{}, fmt.Errorf("resumed %s instead of %s", role, interruptedRole)
+					}
+					found := false
+					for _, message := range request.Messages {
+						if message.ToolResult != nil {
+							var payload struct{ Path, Content string }
+							if json.Unmarshal(message.ToolResult.Payload, &payload) == nil && payload.Path == "TASK.md" && payload.Content == requestText {
+								found = true
+							}
+						}
+					}
+					if !found {
+						return provider.GenerationResult{}, errors.New("saved read result missing from resumed context")
+					}
+					resumed.Store(true)
+				}
+				return finish(role), nil
+			})
+			worker, err = NewTaskExecution(ctx, reopened, after, after, after, chat.home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(worker.Close)
+			completed := waitRuntimeTask(t, reopened, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+			worker.Close()
+			if !resumed.Load() || completed.Generation != current.Generation || completed.CompletedAt == nil {
+				t.Fatalf("restarted Task = %#v, resumed=%t", completed, resumed.Load())
+			}
+			runs, err := reopened.TaskRuns(ctx, task.ID, 10)
+			if err != nil || len(runs) != 3 {
+				t.Fatalf("restart created extra runs = %#v, %v", runs, err)
+			}
+			for _, run := range runs {
+				if run.Status != "completed" || run.Kind == interruptedRole && run.ID != interruptedRun {
+					t.Fatalf("restart changed run identity or left it active: %#v", run)
+				}
+			}
+			for name, want := range map[string]string{"TASK.md": requestText, "RESULT.md": resultText} {
+				got, err := home.ReadTaskFile(chat.home, task.ID, name)
+				if err != nil || got != want {
+					t.Fatalf("%s changed after restart: %q, %v", name, got, err)
+				}
+			}
+		})
+	}
+}
