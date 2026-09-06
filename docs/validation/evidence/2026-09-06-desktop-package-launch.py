@@ -11,11 +11,11 @@ import gi
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gdk
 root = Path(sys.argv[1])
-evidence = {'case': 'DESKTOP-01', 'platform': 'Linux x86_64', 'toolchainPath': '/nonexistent', 'packagedLocalMode': True}
+evidence = {'case': 'DESKTOP-01', 'platform': 'Linux x86_64', 'toolchainPath': os.environ.get('AUDIT_DESKTOP_PATH', '/nonexistent'), 'packagedLocalMode': True}
 app = None
 try:
-    executable = root / 'package/usr/bin/noema-desktop'
-    env = dict(os.environ, PATH='/nonexistent', NOEMA_HOME=str(root / 'home'), XDG_CONFIG_HOME=str(root / 'config'), XDG_CACHE_HOME=str(root / 'cache'))
+    executable = Path(sys.argv[2]) if len(sys.argv) > 2 else root / 'package/usr/bin/noema-desktop'
+    env = dict(os.environ, PATH=evidence['toolchainPath'], NOEMA_HOME=str(root / 'home'), XDG_CONFIG_HOME=str(root / 'config'), XDG_CACHE_HOME=str(root / 'cache'))
     log = open(root / 'launch.log', 'w')
     app = subprocess.Popen([str(executable)], env=env, stdout=log, stderr=log)
     evidence['appPid'] = app.pid
