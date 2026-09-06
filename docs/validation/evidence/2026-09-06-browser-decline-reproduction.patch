@@ -1,0 +1,70 @@
+diff --git a/internal/store/audit_browser_decline_test.go b/internal/store/audit_browser_decline_test.go
+new file mode 100644
+index 00000000..53a504f5
+--- /dev/null
++++ b/internal/store/audit_browser_decline_test.go
+@@ -0,0 +1,64 @@
++package store
++
++import (
++	"encoding/json"
++	"testing"
++	"time"
++)
++
++func TestAuditBrowserDeclineSurvivesReferenceChange(t *testing.T) {
++	database := openTestStore(t)
++	ctx, now := t.Context(), time.Now()
++	account := createReadyModelAccount(t, database)
++	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
++		t.Fatal(err)
++	}
++	id, _ := NewTaskID()
++	if _, err := database.CreateTaskWithOptions(ctx, id, "Audit browser decline", testTaskLifecycleCommand("create_task", "browser-decline"), TaskCreateOptions{ExecutorAgentID: TaskExecutorAgentID, InitialRunKind: "executor", ExecutionComplexity: "simple"}, now); err != nil {
++		t.Fatal(err)
++	}
++	_, run, found, err := database.ClaimTaskExecution(ctx, now)
++	if err != nil || !found {
++		t.Fatalf("claim: %t %v", found, err)
++	}
++	if err := database.StartTaskExecution(ctx, run.ID, run.Generation, now); err != nil {
++		t.Fatal(err)
++	}
++	create := func(reference string, revision int) ActionRequest {
++		t.Helper()
++		args := map[string]any{"ref": reference, "snapshot_revision": revision, "action": "click"}
++		if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{Kind: "tool_call", Status: "running", Payload: map[string]any{"name": "web.browse.interact", "arguments": args}}}, TaskRunUsage{}, now); err != nil {
++			t.Fatal(err)
++		}
++		items, err := database.TaskRunReplayItems(ctx, run.ID)
++		if err != nil {
++			t.Fatal(err)
++		}
++		raw, _ := json.Marshal(args)
++		review := map[string]any{"kind": "browser_interaction", "page": map[string]any{"url": "https://example.com/form", "title": "Audit form"}, "target": map[string]any{"ref": reference, "role": "button", "name": "Submit audit", "submission": map[string]any{"destination": "https://example.com/submit", "method": "POST", "fields": []any{map[string]any{"name": "value", "value": "café 日本語"}}}}}
++		action, err := database.CreateActionRequest(ctx, NewActionRequest{TaskID: id, RunID: run.ID, RunItemID: items[len(items)-1].ID, TaskGeneration: run.Generation, OwnerHumanID: "human:local", RequestingAgentID: run.AgentID, CapabilityName: "web.browse.interact", OperationToken: "web.browse.interact", ReviewRoute: ActionLLMReview, Behavior: ActionBehavior{OpenWorld: true}, Arguments: raw, InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"browser_review_context": review}, SafeSummary: "Submit the audit form"}, now)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return action
++	}
++	first := create("e1", 1)
++	first, _, err = database.RecordActionAssessment(ctx, first.ID, first.Revision, ActionAssessment{Status: "completed", Authorization: "absent", Risk: "medium", ReviewerSelection: map[string]any{"model": "audit"}, ReasonCodes: []string{"authorization_absent"}, Explanation: "Ask the human."}, now)
++	if err != nil || first.State != ActionAwaitingApproval {
++		t.Fatalf("first review: %s %v", first.State, err)
++	}
++	first, err = database.DecideActionRequest(ctx, first.ID, first.Revision, "human:local", "decline", now)
++	if err != nil || first.State != ActionDeclined {
++		t.Fatalf("decline: %s %v", first.State, err)
++	}
++	second := create("e9", 2)
++	second, _, err = database.RecordActionAssessment(ctx, second.ID, second.Revision, ActionAssessment{Status: "completed", Authorization: "explicit", Risk: "low", ReviewerSelection: map[string]any{"model": "audit"}, ReasonCodes: []string{"authorized"}, Explanation: "Controlled reviewer permits the repeated effect."}, now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	claimed, err := database.ClaimActionRequest(ctx, second.ID, second.Revision, now)
++	if err == nil {
++		t.Fatalf("equivalent declined effect became claimable: state=%s same_task_generation=%d", claimed.State, claimed.TaskGeneration)
++	}
++	t.Log("Prior human decline blocks the equivalent effect despite changed element references")
++}

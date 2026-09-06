@@ -700,6 +700,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-10 | WEB-04 | Chat continuation fails after approved browser open, before the remaining lifecycle steps. Cause is unresolved. | Browser/Chat continuation | [Live result](evidence/2026-09-06-live-browser-results.json), [driver](evidence/2026-09-06-live-browser.mjs) |
 | AUDIT-11 | WEB-08 | A saved Obscura reference executes a button whose label and action changed after the snapshot. | Browser target validation | [Result](evidence/2026-09-06-changed-browser-target-results.json), [reproduction](evidence/2026-09-06-changed-browser-target-reproduction.patch) |
 | AUDIT-12 | WEB-09 | Hidden and password values appear in model and stored browser snapshots. Submission review excludes them correctly. | Browser snapshot privacy | [Result](evidence/2026-09-06-browser-form-review-results.json), [reproduction](evidence/2026-09-06-browser-form-review-reproduction.patch) |
+| AUDIT-13 | WEB-10 | A repeated browser effect becomes claimable after a human decline when a controlled reviewer permits it. | Browser decline enforcement | [Result](evidence/2026-09-06-browser-decline-results.json), [reproduction](evidence/2026-09-06-browser-decline-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -1212,7 +1213,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-07 | Not run | Controlled setup pending. | — |
 | WEB-08 | Fail | Old revision and replacement-session checks pass. AUDIT-11: a changed DOM button executes through its saved reference and revision. | [Evidence](evidence/2026-09-06-changed-browser-target-results.json) |
 | WEB-09 | Fail | Review destination, method, visible Unicode fields, and protected-control omission pass. AUDIT-12: snapshots expose hidden and password values. | [Evidence](evidence/2026-09-06-browser-form-review-results.json) |
-| WEB-10 | Not run | Controlled setup pending. | — |
+| WEB-10 | Fail | AUDIT-13: changed references allow an equivalent declined effect to become claimable in the same Task generation. Controlled reviewer; no dispatch. | [Evidence](evidence/2026-09-06-browser-decline-results.json) |
 | WEB-11 | Partial | Controlled main-document and lost-response errors remain uncertain. Read-only snapshot recovery passes. Full commit reconciliation remains pending. | — |
 | WEB-12 | Not run | Controlled setup pending. | — |
 | WEB-13 | Partial | Review binds version, filename, and bytes before transmission. Generated upload data contains exact bytes. Destination receipt remains pending. | — |
