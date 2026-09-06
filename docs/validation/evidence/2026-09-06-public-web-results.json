@@ -1,0 +1,22 @@
+{
+  "revision": "29eff365258abed548183aeb0812466291b9d2a5",
+  "cases": {
+    "WEB-01": "Partial: default public search returns three titled HTTPS results. Live configured-model evidence handling remains pending.",
+    "WEB-02": "Partial: direct fetch preserves expected URL, title, and content. Live model summary remains pending."
+  },
+  "scope": "Production web service with temporary provider state and default public providers. Requests reach public endpoints. This does not use the live instance provider configuration.",
+  "checks": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/webtool -run '^TestAuditPublicSearchAndFetch$' -v",
+      "result": "Search subtest passed; fetch assertion failed.",
+      "output": "=== RUN   TestAuditPublicSearchAndFetch\n=== RUN   TestAuditPublicSearchAndFetch/public_search\n    audit_public_test.go:46: search result count=3\n=== RUN   TestAuditPublicSearchAndFetch/public_fetch\n    audit_public_test.go:54: fetch failed: {\"provider\":\"direct_http\",\"url\":\"https://example.com/\",\"final_url\":\"https://example.com/\",\"title\":\"Example Domain\",\"links\":[\"https://iana.org/domains/example\"],\"format\":\"markdown\",\"extraction\":\"readability_markdown\",\"content_kind\":\"raw_markdown\",\"content\":\"This domain is for use in documentation examples without needing permission. Avoid use in operations.\\n\\n[Learn more](https://iana.org/domains/example)\",\"raw_excerpt\":null,\"raw_chars\":149,\"returned_chars\":149,\"summary_model\":null,\"summary_strategy\":\"not_summarized\",\"truncated\":false}\n--- FAIL: TestAuditPublicSearchAndFetch (1.34s)\n    --- PASS: TestAuditPublicSearchAndFetch/public_search (1.13s)\n    --- FAIL: TestAuditPublicSearchAndFetch/public_fetch (0.02s)\nFAIL\nFAIL\tgithub.com/kpsuperplane/noema/internal/webtool\t1.345s\nFAIL\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/webtool -run '^TestAuditPublicSearchAndFetch$/public_fetch$' -v",
+      "result": "Pass",
+      "output": "=== RUN   TestAuditPublicSearchAndFetch\n=== RUN   TestAuditPublicSearchAndFetch/public_fetch\n    audit_public_test.go:56: fetch source=https://example.com/ content kind=raw_markdown\n--- PASS: TestAuditPublicSearchAndFetch (0.22s)\n    --- PASS: TestAuditPublicSearchAndFetch/public_fetch (0.03s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t0.226s\n"
+    }
+  ],
+  "setupCorrection": "Check the separate title field. Extracted content need not repeat the page title.",
+  "normalSuiteChanges": false
+}

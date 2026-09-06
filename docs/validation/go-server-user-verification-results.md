@@ -996,6 +996,16 @@ Evidence: [results](evidence/2026-09-06-presentations-results.json) and [reprodu
 The patch exports existing fixtures before running the parser checks. Temporary tests remain outside the normal suite.
 No production code changed.
 
+## Public search and direct fetch
+
+The production web service returned three titled HTTPS search results for a known public query.
+Direct fetch preserved the expected example.com URL, title, and relevant page content.
+These calls used temporary provider state and default public providers, not the live instance configuration.
+The search subtest passed. The corrected fetch assertion passed in a separate focused run.
+Configured-model evidence handling and page summarization remain pending.
+Evidence: [results](evidence/2026-09-06-public-web-results.json) and [reproduction patch](evidence/2026-09-06-public-web-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1154,8 +1164,8 @@ A human variant remains pending even when its controlled counterpart passes.
 | ACP-02 | Partial | Controlled runtime covers ACP approval, result files, review, and saved terminal replay. Published artifacts and equivalent file boundaries remain pending. | — |
 | ACP-03 | Partial | Controlled process cancellation and uncertain protocol failure pass existing checks. Late output after Task cancellation remains pending. | — |
 | ACP-04 | Partial | Process-start failure preserves exact files. Corrected Retry completes through approval and review without duplicate runs. Browser diagnostic review remains pending. | — |
-| WEB-01 | Not run | Controlled setup pending. | — |
-| WEB-02 | Not run | Controlled setup pending. | — |
+| WEB-01 | Partial | Default public search returns three usable titled HTTPS results. Live configured-model evidence handling remains pending. | — |
+| WEB-02 | Partial | Public direct fetch preserves expected URL, title, and relevant content. Live model summary remains pending. | — |
 | WEB-03 | Not run | Controlled setup pending. | — |
 | WEB-04 | Not run | Controlled setup pending. | — |
 | WEB-05 | Not run | Controlled setup pending. | — |
