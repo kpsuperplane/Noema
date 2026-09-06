@@ -1,0 +1,11 @@
+{
+  "command": "CGO_ENABLED=0 go test -count=3 ./internal/runtime -run TestRecurringTaskMonitorSilencesUnchangedAndReportsChangedEvidence",
+  "result": "passed",
+  "setup": "A disposable Go home uses the production recurring Task scheduler and Task execution runtime with a deterministic model generator.",
+  "verified": [
+    "The unchanged occurrence writes source revision 1 evidence and sets notify_human=false.",
+    "The changed occurrence writes source revision 2 evidence and sets notify_human=true exactly once.",
+    "The recurrence continues to its next scheduled slot after the first occurrence completes."
+  ],
+  "scope": "Controlled recurring Task monitor. Model judgment quality and physical notification delivery remain outside this check."
+}
