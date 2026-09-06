@@ -767,6 +767,21 @@ AUDIT-05 records the missing gate controls. The user-input Task remains waiting 
 - Completed limitation Task: `task:2c4aed88b9b5e0ddffdee0f99edbac59`.
 - Waiting address Task: `task:f932f3c82add0b649c3ffc5d2328e179`.
 
+## Controlled API pagination and response boundaries
+
+The [TLS service check](evidence/2026-09-06-api-pagination-results.json) uses production adapter setup, approval, policy, calls, pagination, and response transforms.
+A temporary test transport routes calls to the local fake service. It does not verify production network routing.
+
+An approved no-auth connection exposes usable tools after its policy is saved.
+Empty results remain arrays. Two pages retain exact Unicode items.
+A failed next-page request preserves its continuation for a successful retry.
+Changed arguments, another operation, and a consumed continuation fail before HTTP access.
+Cross-account continuation checks remain pending.
+Malformed JSON, wrong-type items, and an oversized string fail at the response boundary.
+The returned data cannot bypass the reviewed output schema in these cases.
+
+Direct-credential calls, browser setup, and complete OAuth flows remain pending.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -900,16 +915,16 @@ A human variant remains pending even when its controlled counterpart passes.
 | INFO-05 | Not run | Controlled setup pending. | — |
 | INFO-06 | Not run | Controlled setup pending. | — |
 | API-01 | Partial | Chat tool calls propose two definitions. Explicit client review accepts each. Controlled OAuth then creates usable API connections. | — |
-| API-02 | Not run | Controlled setup pending. | — |
+| API-02 | Partial | Approved no-auth tools execute against a controlled TLS service. Direct-credential calls and browser setup remain pending. | — |
 | API-03 | Partial | One fake browser OAuth sign-in attaches two APIs to a shared grant. Both return the same synthetic account. Independent policy variants remain pending. | Not run |
 | API-04 | Partial | Both synthetic accounts return their own records. Current labels identify model tools. OAuth attachment replies retain grant metadata. Write and identity-discovery variants remain pending. | Not run |
 | API-05 | Partial | Fake consent denial creates no token and records a denied attempt. Cancel, expiry, and other callback failures remain pending. | Not run |
 | API-06 | Not run | Controlled setup pending. | Not run |
 | API-07 | Not run | Controlled setup pending. | Not run |
 | API-08 | Pass · controlled HTTPS | Sequential browser-routed calls and concurrent production adapter calls refresh the shared token once and preserve the selected account. Real consent remains pending. | Not run |
-| API-09 | Not run | Controlled setup pending. | — |
-| API-10 | Not run | Controlled setup pending. | — |
-| API-11 | Not run | Controlled setup pending. | — |
+| API-09 | Pass · controlled TLS service | Empty arrays, two exact Unicode pages, and failed next-page retry pass. Query bounds remain enforced. | — |
+| API-10 | Partial | Changed arguments, another operation, and consumed continuation fail before HTTP. Cross-account checks remain pending. | — |
+| API-11 | Pass · controlled TLS service | Malformed JSON, wrong-type items, and oversized output fail without bypassing the reviewed schema. | — |
 | API-12 | Not run | Controlled setup pending. | — |
 | API-13 | Partial | Connection and account labels update model descriptions. Disable, re-enable, and deletion variants remain pending. | — |
 | API-14 | Pass · controlled HTTPS | Shared-grant revocation removes both tools and rejects both saved calls before delivery. Other-account access remains available. Active grants block application deletion. | — |

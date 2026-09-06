@@ -1,0 +1,31 @@
+{
+  "baseRevision": "99ff4578a8803a8cfa479787733da017520b7981",
+  "command": "CGO_ENABLED=0 go test ./internal/adapter -run '^TestAuditAPIPaginationAndResponseBoundaries$' -v",
+  "output": "=== RUN   TestAuditAPIPaginationAndResponseBoundaries\n=== RUN   TestAuditAPIPaginationAndResponseBoundaries/empty\n=== RUN   TestAuditAPIPaginationAndResponseBoundaries/pages_and_failed-page_retry\n=== RUN   TestAuditAPIPaginationAndResponseBoundaries/malformed\n=== RUN   TestAuditAPIPaginationAndResponseBoundaries/wrong\n=== RUN   TestAuditAPIPaginationAndResponseBoundaries/oversized\n--- PASS: TestAuditAPIPaginationAndResponseBoundaries (0.27s)\n    --- PASS: TestAuditAPIPaginationAndResponseBoundaries/empty (0.01s)\n    --- PASS: TestAuditAPIPaginationAndResponseBoundaries/pages_and_failed-page_retry (0.02s)\n    --- PASS: TestAuditAPIPaginationAndResponseBoundaries/malformed (0.00s)\n    --- PASS: TestAuditAPIPaginationAndResponseBoundaries/wrong (0.00s)\n    --- PASS: TestAuditAPIPaginationAndResponseBoundaries/oversized (0.01s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/adapter\t0.277s\n",
+  "scope": "Production adapter setup, approval, policy, Call, pagination, and response transforms with a local TLS fake service. A temporary nonparallel DefaultTransport override routes TLS calls to the fixture. Production network routing is not tested by this override.",
+  "fixtureCorrections": [
+    "Pagination requires a reviewed Lua response transform.",
+    "The last page uses a null token. The transform selects the reviewed items field."
+  ],
+  "cases": {
+    "API-02": {
+      "result": "Partial",
+      "verified": "An approved no-auth connection exposes usable tools after its policy is saved.",
+      "pending": "Direct-credential calls and browser setup."
+    },
+    "API-09": {
+      "result": "Pass · controlled TLS service",
+      "verified": "Empty arrays remain arrays. Two pages preserve exact Unicode items. HTTP 503 on the next page leaves its continuation usable for a successful retry."
+    },
+    "API-10": {
+      "result": "Partial",
+      "verified": "Changed arguments, another operation, and consumed continuation are rejected before HTTP access.",
+      "pending": "Another account or connection."
+    },
+    "API-11": {
+      "result": "Pass · controlled TLS service",
+      "verified": "Malformed JSON, wrong-type items, and an oversized output string fail without exposing items outside the reviewed schema."
+    }
+  },
+  "normalSuiteChanges": false
+}
