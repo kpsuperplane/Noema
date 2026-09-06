@@ -1,0 +1,37 @@
+{
+  "case": "HOME-09",
+  "scope": "Two sequential launches of the extracted Linux Debian package against the same isolated test home. No model helper was active.",
+  "first": {
+    "case": "DESKTOP-01",
+    "platform": "Linux x86_64",
+    "toolchainPath": "/nonexistent",
+    "packagedLocalMode": true,
+    "appPid": 3353408,
+    "server": {
+      "pid": 3353500,
+      "executable": "/var/tmp/noema-desktop-audit-20260906/package/usr/lib/Noema/binaries/noema-server"
+    },
+    "databaseCreated": true,
+    "closeMethod": "WM_DELETE_WINDOW",
+    "exitCode": 0,
+    "serverStopped": true
+  },
+  "second": {
+    "case": "DESKTOP-01",
+    "platform": "Linux x86_64",
+    "toolchainPath": "/nonexistent",
+    "packagedLocalMode": true,
+    "appPid": 3353733,
+    "server": {
+      "pid": 3353826,
+      "executable": "/var/tmp/noema-desktop-audit-20260906/package/usr/lib/Noema/binaries/noema-server"
+    },
+    "databaseCreated": true,
+    "closeMethod": "WM_DELETE_WINDOW",
+    "exitCode": 0,
+    "serverStopped": true
+  },
+  "result": "pass",
+  "evidence": "2026-09-06-desktop-package-build.json",
+  "limits": "Other operating systems and active local-model helper shutdown remain untested."
+}

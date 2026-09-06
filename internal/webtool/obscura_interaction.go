@@ -1,6 +1,6 @@
 package webtool
 
-func obscuraInteractionScript(arguments map[string]any) string {
+func obscuraInteractionScript(arguments map[string]any, target browseElement, pageURL string) string {
 	operation := map[string]string{
 		"click": `
             element.focus();
@@ -71,5 +71,10 @@ func obscuraInteractionScript(arguments map[string]any) string {
             emit(new Event('change', {bubbles:true}));
             `,
 	}[arguments["action"].(string)]
-	return "(() => { const ref = " + jsValue(arguments["ref"]) + "; const value = " + jsValue(arguments["value"]) + `; const element = Array.from(document.querySelectorAll('[data-noema-ref]')).find(item => item.dataset.noemaRef === ref); if (!element) return false; const emit = event => element.dispatchEvent(globalThis.__obscura_markTrusted(event)); const setValue = next => { globalThis.__obscura_setFieldValue(element, 'value', next); if (element.setSelectionRange) element.setSelectionRange(String(next).length, String(next).length); }; ` + operation + " return true; })()"
+	return "(() => { const ref = " + jsValue(arguments["ref"]) + "; const value = " + jsValue(arguments["value"]) + `; const element = Array.from(document.querySelectorAll('[data-noema-ref]')).find(item => item.dataset.noemaRef === ref); if (!element || location.href !== ` + jsValue(pageURL) + `) return false;
+ const expected = ` + jsValue(target) + `;
+ const current = (` + browserElementScript + `)(element,ref);
+ const comparable = item => [item.role,item.name,item.href||null,item.disabled,item.submission||null];
+ if (JSON.stringify(comparable(current)) !== JSON.stringify(comparable(expected))) return false;
+ const emit = event => element.dispatchEvent(globalThis.__obscura_markTrusted(event)); const setValue = next => { globalThis.__obscura_setFieldValue(element, 'value', next); if (element.setSelectionRange) element.setSelectionRange(String(next).length, String(next).length); }; ` + operation + " return true; })()"
 }

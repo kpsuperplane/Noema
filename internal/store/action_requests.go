@@ -196,6 +196,11 @@ func (s *Store) RecordActionAssessment(
 	if err := requireStoredActionOrigin(ctx, tx, action, "running"); err != nil {
 		return ActionRequest{}, nil, err
 	}
+	if repeated, err := declinedBrowserEffectTx(ctx, tx, action); err != nil {
+		return ActionRequest{}, nil, err
+	} else if repeated {
+		recommendation = "require_approval"
+	}
 	var storedSelection any
 	if assessment.Status == "completed" {
 		storedSelection = string(selection)
@@ -321,6 +326,10 @@ WHERE action_id = ? AND action_revision = ? AND state = 'approved'`, millis(now)
 		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return ActionRequest{}, err
+	} else if repeated, err := declinedBrowserEffectTx(ctx, tx, action); err != nil {
+		return ActionRequest{}, err
+	} else if repeated {
+		return ActionRequest{}, errors.New("a declined browser effect requires new human approval")
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE action_requests SET state = 'executing', updated_at_ms = ?
 WHERE action_id = ? AND revision = ? AND state = 'executable'`, millis(now), actionID, revision)
@@ -909,4 +918,50 @@ func scanActionRequest(row rowScanner) (ActionRequest, error) {
 		action.Assessment = assessment
 	}
 	return action, nil
+}
+
+// A new browser reference cannot replace a human decision about the same effect.
+func declinedBrowserEffectTx(ctx context.Context, tx bun.Tx, action ActionRequest) (bool, error) {
+	if action.CapabilityName != "web.browse.interact" {
+		return false, nil
+	}
+	effect := browserEffect(action.Arguments, action.AuthorizationContext)
+	rows, err := tx.QueryContext(ctx, `SELECT arguments_json, authorization_context_json FROM action_requests
+ WHERE state='declined' AND owner_human_id=? AND capability_name=?
+ AND ((task_id=? AND task_generation=?) OR (conversation_id=? AND turn_id=?))`,
+		action.OwnerHumanID, action.CapabilityName, action.TaskID, action.TaskGeneration, action.ConversationID, action.TurnID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var argumentsJSON, contextJSON string
+		if err := rows.Scan(&argumentsJSON, &contextJSON); err != nil {
+			return false, err
+		}
+		var arguments, context map[string]any
+		if err := json.Unmarshal([]byte(argumentsJSON), &arguments); err != nil {
+			return false, err
+		}
+		if err := json.Unmarshal([]byte(contextJSON), &context); err != nil {
+			return false, err
+		}
+		if effect == browserEffect(arguments, context) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func browserEffect(arguments, context map[string]any) string {
+	input := cloneJSONMap(arguments)
+	delete(input, "ref")
+	delete(input, "snapshot_revision")
+	review, _ := context["browser_review_context"].(map[string]any)
+	target, _ := review["target"].(map[string]any)
+	target = cloneJSONMap(target)
+	delete(target, "ref")
+	page, _ := review["page"].(map[string]any)
+	encoded, _ := json.Marshal(map[string]any{"input": input, "url": page["url"], "target": target})
+	return string(encoded)
 }

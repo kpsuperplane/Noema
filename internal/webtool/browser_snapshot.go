@@ -58,11 +58,19 @@ const browserScreenshotLimit = 900_000
 const browserSnapshotScript = `()=>{
         const clip=(value,limit)=>Array.from(String(value)).slice(0,limit).join('');
         const body=document.body?document.body.cloneNode(true):null;
-        if(body)body.querySelectorAll('noscript,script,style,template').forEach(element=>element.remove());
+        if(body)body.querySelectorAll('noscript,script,style,template,input[type=hidden],input[type=password],input[type=file]').forEach(element=>element.remove());
         const nodes=Array.from(document.querySelectorAll('a[href],button,input,textarea,select,[role="button"],[tabindex]')).slice(0,201);
         const elements=nodes.map((element,index)=>{
           const reference='e'+(index+1);element.dataset.noemaRef=reference;
-          const name=element.getAttribute('aria-label')||element.innerText||element.value||element.getAttribute('placeholder')||'';
+          return (` + browserElementScript + `)(element,reference);
+        });
+        return {url:window.location.href,title:clip(document.title,501),text:clip(body?body.innerText:'',20001),elements,width:Number(window.innerWidth)||0,height:Number(window.innerHeight)||0};
+}`
+
+const browserElementScript = `(element,reference)=>{
+ const clip=(value,limit)=>Array.from(String(value)).slice(0,limit).join('');
+          const protectedValue=['hidden','password','file'].includes(String(element.type||'').toLowerCase());
+          const name=element.getAttribute('aria-label')||element.innerText||(!protectedValue&&element.value)||element.getAttribute('placeholder')||'';
           const form=element.form||(element.closest&&element.closest('form'));let submission=null;
           if(form&&!['button','reset'].includes(String(element.type||'').toLowerCase())){
             const fields=[];let omittedControlCount=0;
@@ -78,7 +86,5 @@ const browserSnapshotScript = `()=>{
             }
             submission={destination:String(element.formAction||form.action||window.location.href),method:String(element.formMethod||form.method||'get'),fields:fields.slice(0,64),omitted_control_count:omittedControlCount,truncated:fields.length>64};
           }
-          return {reference,role:clip(element.getAttribute('role')||element.tagName.toLowerCase(),101),name:clip(String(name).trim(),501),href:element.href||null,disabled:Boolean(element.disabled||element.getAttribute('aria-disabled')==='true'),submission};
-        });
-        return {url:window.location.href,title:clip(document.title,501),text:clip(body?body.innerText:'',20001),elements,width:Number(window.innerWidth)||0,height:Number(window.innerHeight)||0};
+          return {reference,role:clip(element.getAttribute('role')||element.tagName.toLowerCase(),101),name:clip(String(name).trim(),500),href:element.href||null,disabled:Boolean(element.disabled||element.getAttribute('aria-disabled')==='true'),submission};
 }`

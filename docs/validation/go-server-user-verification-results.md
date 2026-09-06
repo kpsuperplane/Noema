@@ -19,8 +19,8 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | HOME-06 | Partial | Release startup, passkey setup, recovery, and restart work in a Unicode home with spaces. Files and helpers remain pending. | — |
 | HOME-07 | Not run | Controlled setup pending. | — |
 | HOME-08 | Not run | Controlled setup pending. | — |
-| HOME-09 | Not run | Controlled setup pending. | — |
-| HOME-10 | Not run | Requires a native Windows runner. | — |
+| HOME-09 | Partial · Linux package | Two same-home package launches close their owned server and release locks. Active model-helper shutdown remains pending. [Evidence](evidence/2026-09-06-packaged-restart-coverage.json). | — |
+| HOME-10 | Human later | Native Windows runner is unavailable. | Run concurrent Task and Chat writes on Windows; reopen and check records and SQLite integrity. |
 | AUTH-01 | Pass · Chromium virtual passkey | Initial claim admits authenticated GraphQL. Product setup follow-through remains in SETUP. | Not run |
 | AUTH-02 | Not run | Controlled setup pending. | Not run |
 | AUTH-03 | Partial | Authenticated session survives server restart. Browser close and reopen remain pending. | Not run |
@@ -130,7 +130,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | ACTION-07 | Pass · controlled Chat runtime | Provider failure and invalid typed review output each preserve one exact request awaiting human approval. Execution claims fail until a structured decision. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
 | ACTION-08 | Not run | Controlled setup pending. | — |
 | ACTION-09 | Pass · controlled Chat runtime | The ambiguous reply “Yes, go ahead.” cannot consume the saved approval or permit an execution claim. The action remains awaiting approval until its structured decision. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
-| INFO-01 | Not run | Controlled setup pending. | — |
+| INFO-01 | Pass · live private answer | Exact private invoice values and Unicode survive the answer. Source content, revision, and state remain unchanged. [Evidence](evidence/2026-09-06-private-answer-preservation.json). | — |
 | INFO-02 | Not run | Controlled setup pending. | — |
 | INFO-03 | Not run | Controlled setup pending. | — |
 | INFO-04 | Not run | Controlled setup pending. | — |
@@ -169,9 +169,9 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | WEB-05 | Partial | Public v0.2.2 installation passes on Linux. Executable reuse makes zero download requests and preserves exact bytes. Product provider selection and browser operation remain pending. | [Evidence](evidence/2026-09-06-public-obscura-install-results.json) |
 | WEB-06 | Partial | Controlled failed first open permits a switch. Failed switching preserves the usable session and route; retry succeeds after provider recovery. Model-driven recovery remains pending. | — |
 | WEB-07 | Partial | Real Obscura form, cookie, and storage values stay out of Kernel switch requests. Old snapshot is rejected before dispatch. Running Kernel state inspection remains pending. | [Evidence](evidence/2026-09-06-browser-switch-state-results.json) |
-| WEB-08 | Fail | Old revision and replacement-session checks pass. AUDIT-11: a changed DOM button executes through its saved reference and revision. | [Evidence](evidence/2026-09-06-changed-browser-target-results.json) |
-| WEB-09 | Fail | Review destination, method, visible Unicode fields, and protected-control omission pass. AUDIT-12: snapshots expose hidden and password values. | [Evidence](evidence/2026-09-06-browser-form-review-results.json) |
-| WEB-10 | Fail | AUDIT-13: changed references allow an equivalent declined effect to become claimable in the same Task generation. Controlled reviewer; no dispatch. | [Evidence](evidence/2026-09-06-browser-decline-results.json) |
+| WEB-08 | Pass · controlled browser/store | Changed saved target is rejected before its new action executes. [Fix checks](evidence/2026-09-06-browser-fixes.json). | [Evidence](evidence/2026-09-06-changed-browser-target-results.json) |
+| WEB-09 | Pass · controlled browser/store | Review and snapshots exclude password and hidden values. Visible Unicode and exact submission fields remain intact. [Fix checks](evidence/2026-09-06-browser-fixes.json). | [Evidence](evidence/2026-09-06-browser-form-review-results.json) |
+| WEB-10 | Pass · controlled browser/store | A changed reference cannot make the same declined effect executable without new human approval. [Fix checks](evidence/2026-09-06-browser-fixes.json). | [Evidence](evidence/2026-09-06-browser-decline-results.json) |
 | WEB-11 | Partial | Controlled main-document and lost-response errors remain uncertain. Read-only snapshot recovery passes. Full commit reconciliation remains pending. | — |
 | WEB-12 | Partial | Task continuation preserves the real browser session and exact active-session checkpoint. A snapshot succeeds without reopening. Model ordering and form/POST state remain pending. | [Evidence](evidence/2026-09-06-browser-continuation-results.json) |
 | WEB-13 | Partial | Review binds version, filename, and bytes before transmission. Generated upload data contains exact bytes. Destination receipt remains pending. | — |

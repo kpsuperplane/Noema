@@ -33,11 +33,18 @@ func executeObscuraBrowser(ctx context.Context, session *browserSession, name st
 		}
 	case BrowseInteractName:
 		var found bool
-		if err := p.evaluate(command, obscuraInteractionScript(arguments), &found); err != nil {
+		var target browseElement
+		for _, element := range session.elements {
+			if element.Reference == arguments["ref"] {
+				target = element
+				break
+			}
+		}
+		if err := p.evaluate(command, obscuraInteractionScript(arguments, target, session.url), &found); err != nil {
 			return failed(err)
 		}
 		if !found {
-			return nil, &browserProviderFailure{code: "element_not_found", message: "browser element is unavailable"}
+			return nil, &browserProviderFailure{code: "stale_snapshot", message: "browser element changed or is unavailable; take a new snapshot"}
 		}
 	case BrowseHistoryName:
 		action := arguments["action"]

@@ -1,0 +1,16 @@
+{
+  "base": "ee54a8ca",
+  "defects": [
+    "AUDIT-11",
+    "AUDIT-12",
+    "AUDIT-13"
+  ],
+  "command": "CGO_ENABLED=0 go test ./internal/webtool ./internal/store -run \"TestAuditChangedPageRejectsSavedInteraction|TestAuditRealBrowserFormReview|TestAuditBrowserDeclineSurvivesReferenceChange\"",
+  "result": "pass",
+  "scope": "Saved changed target rejected before execution; form review and snapshots exclude password and hidden sentinel values while preserving visible Unicode; repeated declined effect requires new human approval.",
+  "reproductions": [
+    "2026-09-06-changed-browser-target-reproduction.patch",
+    "2026-09-06-browser-form-review-reproduction.patch",
+    "2026-09-06-browser-decline-reproduction.patch"
+  ]
+}
