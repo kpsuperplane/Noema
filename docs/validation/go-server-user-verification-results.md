@@ -736,6 +736,18 @@ The [Task contract](../tasks.md) permits this shared read.
 AUDIT-04 records the failure for the Task file-access batch.
 Project creation and folder selection remain verified, but working-folder use fails this check.
 
+## Task notices and completion suppression
+
+The [controlled notice check](evidence/2026-09-06-task-notices-results.json) feeds saved Task events through the production primary Chat notice path.
+Capture, waiting, recovery, and completion produce the expected saved Chat items.
+Narration receives the exact gate question and current result. Tool execution and hosted search stay disabled during narration.
+Saved items contain assistant text and the correct Task references. Run transcripts do not enter Chat.
+Repeated processing adds no items or narration.
+
+When `notify_human` is false, the Task reaches Done without a completion notice or completion narration call.
+Both notice variants pass. These checks use controlled narration and store transitions.
+Rendered transitions and an actual unchanged recurrence remain pending.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -817,8 +829,8 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-09 | Pass · controlled runtime/store | Continuation, tool, active-time, retry, review, and audit limits reach their recorded stop states. Progress remains intact. Gate resumption defects stay under RUN-04. | — |
 | RUN-10 | Not run | Controlled setup pending. | — |
 | RUN-11 | Not run | Controlled setup pending. | — |
-| RUN-12 | Not run | Controlled setup pending. | — |
-| RUN-13 | Not run | Controlled setup pending. | — |
+| RUN-12 | Partial | Saved capture, waiting, recovery, and completion notices pass. Repeated processing adds no output. Rendered transitions remain pending. | — |
+| RUN-13 | Partial | A false notify_human decision suppresses completion narration and saved notices while the Task reaches Done. Actual unchanged recurrence remains pending. | — |
 | RUN-14 | Fail · controlled tool handler | AUDIT-02: Executor and Reviewer reject another Task that primary Chat can read for the same owner. | — |
 | RUN-15 | Fail · controlled tool handler | Outside reads, writes, and deletes are denied. AUDIT-04: all three roles also reject permitted shared Project reads. | — |
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
