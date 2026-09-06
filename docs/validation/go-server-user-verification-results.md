@@ -1015,6 +1015,15 @@ Earlier provider checks verify usable search result fields and fetched content. 
 Evidence: [live transcript](evidence/2026-09-06-live-web-chat-results.json) and [browser driver](evidence/2026-09-06-live-web-chat.mjs).
 No production code changed.
 
+## Browser provider coverage review
+
+Existing tests cover controlled worker lifecycle, stale revisions, failed-open switching, uncertain responses, and exact upload data.
+Controlled Obscura installation verifies archive bytes and avoids another download during reuse.
+These tests passed in recorded validation at `56f3a134`. Their code and module dependencies remain unchanged.
+The successful checks are reused. No new execution is claimed.
+Real-provider lifecycle, public installation, failed-switch preservation, changed-page targeting, destination receipt, and complete reconciliation remain pending.
+Evidence: [coverage map](evidence/2026-09-06-browser-coverage-review.json) and [reused validation](evidence/2026-09-06-role-runtime-restart-validation.json).
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1176,17 +1185,17 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-01 | Pass · live Chat and public provider | Live configured Chat completes search and cites IANA guidance while labeling inference. Public-provider checks verify usable titled HTTPS results. | — |
 | WEB-02 | Pass · live Chat and public provider | Live Chat fetches example.com and accurately summarizes source facts with a link. Direct-fetch checks preserve expected source identity and content. | — |
 | WEB-03 | Not run | Controlled setup pending. | — |
-| WEB-04 | Not run | Controlled setup pending. | — |
-| WEB-05 | Not run | Controlled setup pending. | — |
-| WEB-06 | Not run | Controlled setup pending. | — |
+| WEB-04 | Partial | Controlled worker and Kernel lifecycle checks cover open, snapshot, interaction, wait failure, history rejection, and close. Real-provider paths remain pending. | — |
+| WEB-05 | Partial | Controlled verified archive installs and reuses with one download. Public release installation and offline reuse remain pending. | — |
+| WEB-06 | Partial | Controlled failed first open permits a switch. Failed-switch preservation and model-driven recovery remain pending. | — |
 | WEB-07 | Not run | Controlled setup pending. | — |
-| WEB-08 | Not run | Controlled setup pending. | — |
+| WEB-08 | Partial | Old snapshot revision and replacement-session authority are rejected. Real changed-page targeting remains pending. | — |
 | WEB-09 | Not run | Controlled setup pending. | — |
 | WEB-10 | Not run | Controlled setup pending. | — |
-| WEB-11 | Not run | Controlled setup pending. | — |
+| WEB-11 | Partial | Controlled main-document and lost-response errors remain uncertain. Read-only snapshot recovery passes. Full commit reconciliation remains pending. | — |
 | WEB-12 | Not run | Controlled setup pending. | — |
-| WEB-13 | Not run | Controlled setup pending. | — |
-| WEB-14 | Not run | Controlled setup pending. | — |
+| WEB-13 | Partial | Review binds version, filename, and bytes before transmission. Generated upload data contains exact bytes. Destination receipt remains pending. | — |
+| WEB-14 | Partial | Unsupported upload returns retry_later without success. Supported route-switch recovery remains pending. | — |
 | WEB-15 | Not run | Controlled setup pending. | — |
 | WEB-16 | Not run | Controlled setup pending. | — |
 | FILE-01 | Fail · controlled Task runtime | Download function preserves exact bytes. AUDIT-09: Executor catalog and dispatcher omit file.download. Task placement and review cannot proceed. | — |
