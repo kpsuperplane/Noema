@@ -21,13 +21,13 @@ Live protected setup, profile, message list, thread, and message retrieval succe
 Go now accepts an absent last-page token, matching Rust. Pending revisions preserve approved tools.
 Live three-page traversal, attachment retrieval, empty search, and an account-boundary rejection passed.
 The delegated Task reached Done after fixing early finalization before RESULT.md. Its saved note, result, and review were inspected.
-The public fixture still runs v1; corrected v2 and OAuth/fault checks remain necessary before setup acceptance.
+The corrected packing email body now passes through the live connector. OAuth and fault checks remain necessary before setup acceptance.
 OAuth application import now accepts a reviewed public profile document through the existing GraphQL mutation.
 Authorization, token exchange, and refresh use that profile. Live mock OAuth acceptance remains pending.
 Fixture v3 implements synthetic consent, code exchange, expiry, and account-preserving refresh; focused tests pass.
-The public endpoint still serves v1. Deploy v3 with its protected client secret before attempting live OAuth.
+The public endpoint now serves v3 under the `noema-dev` account through `noema-provider-fixtures-v3.service`.
 Live setup now returns the missing hosted callback address. It matches the fixture's registered redirect.
-The v3 binary is ready at `/tmp/noema-provider-fixtures-v3`; the existing host fixture needs a host-terminal restart.
+The deployed binary is `/var/tmp/noema-provider-fixtures-v3`. A protected systemd environment file holds its synthetic client secret.
 Acceptance remains pending; see [live setup evidence](../validation/2026-09-06-live-api-setup-repair.md).
 
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.

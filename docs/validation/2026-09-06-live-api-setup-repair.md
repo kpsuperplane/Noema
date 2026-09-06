@@ -201,3 +201,18 @@ Their processes are outside this command session's process view. The host servic
 Deployment therefore requires a host-terminal restart of the existing fixture on port 3742.
 Supply `NOEMA_FIXTURE_CLIENT_SECRET` from a protected environment; never print its value or put it in Chat.
 Keep the Noema backend and its existing home running. Do not replace either service with a test home.
+
+### Fixture deployment recovered
+
+After host access changed, the operator identified the exact old fixture process on port 3742 and stopped it.
+The replacement runs as `noema-dev` in `noema-provider-fixtures-v3.service`, using `/var/tmp/noema-provider-fixtures-v3`.
+A root-only environment file supplies a generated synthetic client secret. Its value was not printed.
+The public health endpoint now reports `2026-09-06-gmail-v1-notion-mcp-v3`.
+The public authorization endpoint rejects an incomplete request with `invalid_request`, as expected.
+The private Noema socket still reports authenticated access. Noema and its existing home were not restarted or replaced.
+This removes the deployment blocker. It does not establish live OAuth acceptance.
+
+Live turn `turn:78ad661cb42d75d9cd7ef5dd0e2efc9f` reread `a-msg-007` through the existing registered Gmail connector.
+Tool result cursor 1639 reports `bodyAvailable: true`, complete attachment metadata, and the expected encoded email text.
+The final answer correctly states the email text and retains the previously read packing items.
+The attachment was not fetched again in this turn; its earlier evidence remains the source for those items.
