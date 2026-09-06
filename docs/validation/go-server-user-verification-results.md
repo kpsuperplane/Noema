@@ -951,6 +951,15 @@ Source bytes remained unchanged. Earlier DOCX, ODT, and RTF checks complete cont
 Evidence: [results](evidence/2026-09-06-doc-results.json) and [reproduction patch](evidence/2026-09-06-doc-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## PDF and EPUB parsing
+
+The production parser preserved exact PDF page text and order.
+EPUB output followed declared chapter order instead of archive order and preserved Unicode text.
+Malformed PDF input failed explicitly without content. All source files remained unchanged.
+These checks use text documents. Scanned documents remain under FILE-07.
+Evidence: [results](evidence/2026-09-06-pdf-epub-results.json), [fixture generator](evidence/2026-09-06-pdf-epub-fixtures.py), and [reproduction patch](evidence/2026-09-06-pdf-epub-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1129,7 +1138,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-02 | Pass · controlled TLS service | Parent, absolute, and outside symlink paths fail before network access. Private redirects fail without publishing a destination. Existing bytes remain intact. | — |
 | FILE-03 | Pass · controlled Linux | DOC matches its complete expected Markdown through the production parser. Earlier DOCX, ODT, and RTF checks preserve known structure through the packaged Chat tool. | — |
 | FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
-| FILE-05 | Not run | Controlled setup pending. | — |
+| FILE-05 | Pass · controlled parser | PDF page order and EPUB declared chapter order match exact expected text. Unicode stays intact. Malformed PDF fails explicitly. Source bytes remain unchanged. | — |
 | FILE-06 | Not run | Controlled setup pending. | — |
 | FILE-07 | Not run | Controlled setup pending. | — |
 | FILE-08 | Pass · controlled Linux | Unicode filenames and text survive Chat parsing. Invalid UTF-8 returns an explicit failure. | — |

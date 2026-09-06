@@ -1,0 +1,21 @@
+{
+  "revision": "d0641c205fbd60335828f1ed553b3a9a1926e058",
+  "case": "FILE-05",
+  "result": "Pass · controlled parser",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/runtime -run '^TestAuditPDFEPUBProductionParse$' -v",
+  "output": "=== RUN   TestAuditPDFEPUBProductionParse\n=== RUN   TestAuditPDFEPUBProductionParse/資料.pdf\n=== RUN   TestAuditPDFEPUBProductionParse/資料.epub\n=== RUN   TestAuditPDFEPUBProductionParse/broken.pdf\n--- PASS: TestAuditPDFEPUBProductionParse (0.02s)\n    --- PASS: TestAuditPDFEPUBProductionParse/資料.pdf (0.01s)\n    --- PASS: TestAuditPDFEPUBProductionParse/資料.epub (0.01s)\n    --- PASS: TestAuditPDFEPUBProductionParse/broken.pdf (0.01s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t0.032s\n",
+  "assertions": [
+    "PDF pages preserve exact expected text and order.",
+    "EPUB uses declared chapter order instead of archive order.",
+    "EPUB Unicode and both Unicode filenames remain intact.",
+    "Malformed PDF returns explicit failure without content.",
+    "All source bytes remain unchanged."
+  ],
+  "scope": "Synthetic text PDF and EPUB through the production file parser. Scanned documents belong to FILE-07.",
+  "fixtures": {
+    "資料.epub": "a58fb4fbcc7b359843d13acee69e87b729fd0ee5264d0c4decf237f938f33349",
+    "資料.pdf": "9776219cbf9fe325605ab2834552c022e1175131b55ce04252d54b4444882bdd",
+    "broken.pdf": "5aaecbe6da9578a66f710cad1fca792f4402d75a640498e5e031d31973a6634d"
+  },
+  "normalSuiteChanges": false
+}
