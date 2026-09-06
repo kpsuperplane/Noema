@@ -499,6 +499,11 @@ func (c *Chat) executeChatToolRounds(
 		if pending {
 			return
 		}
+		if success && call.Name == presentMultipleChoiceName {
+			c.finishGeneratedTurn(request.input, turn, assignment,
+				provider.GenerationResult{Model: result.Model}, providerRound, usage)
+			return
+		}
 		sideEffect := call.Name == updateOwnNameToolName || call.Name == fileDownloadName ||
 			call.Name == noemamcp.ConnectServiceToolName || call.Name == adapter.ProposeDefinitionTool ||
 			call.Name == projectCreateName || call.Name == projectUpdateName ||

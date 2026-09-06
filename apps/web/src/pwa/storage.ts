@@ -4,7 +4,7 @@ import { isTauriRuntime } from "@/graphql/transportMode";
 const DATABASE_NAME = "noema-pwa";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "records";
-const CACHE_SCHEMA_VERSION = 3;
+const CACHE_SCHEMA_VERSION = 4;
 
 type StoredRecord<T> = { key: string; value: T };
 

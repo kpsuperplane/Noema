@@ -457,12 +457,29 @@ func TestConversationMultipleChoiceSelectionIsAtomicAndOrdered(t *testing.T) {
 		t.Fatalf("choice publication = %#v, %v", items, err)
 	}
 	prompt := items[1]
+	if _, err := database.CompleteConversationTurn(ctx, turn, "", "", nil, now); err == nil {
+		t.Fatal("unfinished question accepted an empty final response")
+	}
+	if _, err := database.FinishConversationToolCall(ctx, turn, ConversationToolResultInput{
+		CallItemID: items[0].ID, Provider: "openrouter", ProviderRound: 0, OutputIndex: 0,
+		ProviderCallID: "call-choice", ProviderName: "present_multiple_choice", Name: "noema.present_multiple_choice",
+		Success: true, Payload: json.RawMessage(`{"status":"displayed"}`),
+	}, now); err != nil {
+		t.Fatal(err)
+	}
 	choice := ConversationChoiceSelection{PromptItemID: prompt.ID, OptionIDs: []string{"a", "b"}}
 	if _, _, err := database.BeginConversationChoiceTurn(ctx, conversation.ID, choice, nil, now); !errors.Is(err, ErrConversationTurnActive) {
 		t.Fatalf("active turn: %v", err)
 	}
-	if _, err := database.CompleteConversationTurn(ctx, turn, "Choose.", "", nil, now); err != nil {
-		t.Fatal(err)
+	completed, err := database.CompleteConversationTurn(ctx, turn, "", "", &ProviderUsage{
+		Provider: "openrouter", Model: "model", InputTokens: 5, OutputTokens: 3, TotalTokens: 8,
+	}, now)
+	if err != nil || completed.ID != prompt.ID || completed.Kind != ConversationMultipleChoicePrompt {
+		t.Fatalf("question completion = %#v, %v", completed, err)
+	}
+	usage, _ := completed.Metadata["provider_usage"].(map[string]any)
+	if usage["total_tokens"] != float64(8) {
+		t.Fatalf("question usage = %#v", usage)
 	}
 	for _, selected := range [][]string{nil, {"b", "b"}, {"missing"}} {
 		if _, _, err := database.BeginConversationChoiceTurn(ctx, conversation.ID, ConversationChoiceSelection{PromptItemID: prompt.ID, OptionIDs: selected}, nil, now); err == nil {

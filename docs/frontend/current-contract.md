@@ -100,6 +100,11 @@ stable item identity. After reconnect, the client refetches active reads and
 reconciles durable transcript state before treating later live completion as
 authoritative.
 
+Multiple-choice option IDs belong to one question. Web caches each option inside its question or selection.
+A successful question display finishes the Chat turn without another model response.
+The saved question keeps usage information. Later selections arrive as normal user messages.
+Web and iOS omit the question tool marker unless it failed.
+
 The installed PWA follows [pwa.md](pwa.md): only complete releases and complete
 Apollo snapshots become offline authorities, and mutations remain locked until
 reconciliation completes.

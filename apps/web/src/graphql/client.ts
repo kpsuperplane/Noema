@@ -32,6 +32,7 @@ export async function createApolloClient() {
       },
       CurrentRunSummary: { keyFields: ["runId"] },
       LocalModelInstallation: { keyFields: ["installationId"] },
+      MultipleChoiceOption: { keyFields: false },
       Project: { keyFields: ["projectId"] },
       ProviderAccount: { keyFields: ["providerAccountId"] },
       TaskCard: { keyFields: ["taskId"] },

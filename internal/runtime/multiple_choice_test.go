@@ -79,10 +79,13 @@ data: [DONE]
 		t.Fatalf("choice prompt events = %#v", first)
 	}
 	<-requests
-	displayed := <-requests
-	encoded, _ := json.Marshal(displayed["messages"])
-	if !bytes.Contains(encoded, []byte(`\"status\":\"displayed\"`)) {
-		t.Fatalf("display result = %s", encoded)
+	if count.Load() != 1 {
+		t.Fatalf("question display made %d provider requests", count.Load())
+	}
+	for _, event := range first {
+		if event.Item != nil && event.Item.Kind == "assistant_text" && event.Item.ContentText != "Choose." {
+			t.Fatalf("question display added assistant text: %s", event.Item.ContentText)
+		}
 	}
 	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "Another answer"}); err != nil {
 		t.Fatal(err)
@@ -94,7 +97,10 @@ data: [DONE]
 		}
 	}
 	freeRequest := <-requests
-	encoded, _ = json.Marshal(freeRequest["messages"])
+	encoded, _ := json.Marshal(freeRequest["messages"])
+	if !bytes.Contains(encoded, []byte(`\"status\":\"displayed\"`)) {
+		t.Fatalf("display result missing from later context = %s", encoded)
+	}
 	if !bytes.Contains(encoded, []byte("Which?")) || !bytes.Contains(encoded, []byte("Another answer")) {
 		t.Fatalf("free text context = %s", encoded)
 	}

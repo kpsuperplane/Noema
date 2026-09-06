@@ -34,7 +34,7 @@ type multipleChoiceArguments struct {
 func presentMultipleChoiceTool() provider.GenerationTool {
 	return provider.GenerationTool{
 		Name:        presentMultipleChoiceName,
-		Description: "Display optional multiple-choice buttons. This tool returns immediately; a selected label arrives later as a normal user message.",
+		Description: "Display a question with optional multiple-choice buttons and finish this turn. Put the complete question in prompt; do not repeat it in assistant text. A selected label arrives later as a normal user message.",
 		InputSchema: append(json.RawMessage(nil), presentMultipleChoiceSchema...),
 	}
 }

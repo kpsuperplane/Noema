@@ -350,7 +350,7 @@ func (s *Store) CompleteConversationTurnOutput(
 	providerRound int,
 	now time.Time,
 ) (ConversationItem, error) {
-	if strings.TrimSpace(text) == "" || !utf8.ValidString(text) || len(text) > maxConversationText {
+	if (text != "" && strings.TrimSpace(text) == "") || !utf8.ValidString(text) || len(text) > maxConversationText {
 		return ConversationItem{}, errors.New("assistant response is empty, invalid, or too large")
 	}
 	if providerRound < 0 || unresolvedCitationMarkers < 0 {
@@ -628,7 +628,22 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, millis(now), turn.ID); 
 	if providerContent != "" && providerContent != content {
 		storedProvider = providerContent
 	}
-	if _, err := tx.ExecContext(ctx, `
+	if kind == ConversationAssistantText && content == "" {
+		// A displayed question is the final response for this turn.
+		if err := tx.QueryRowContext(ctx, `
+SELECT prompt.item_id FROM conversation_items prompt
+JOIN conversation_items result ON result.parent_item_id = prompt.parent_item_id
+WHERE prompt.turn_id = ? AND prompt.kind = 'multiple_choice_prompt'
+  AND result.kind = 'tool_result' AND result.status = 'completed'
+ORDER BY prompt.sequence_index DESC LIMIT 1`, turn.ID).Scan(&itemID); err != nil {
+			return ConversationItem{}, errors.New("assistant response is empty without a displayed question")
+		}
+		if _, err := tx.ExecContext(ctx, `
+UPDATE conversation_items SET metadata_json = json_patch(metadata_json, ?), updated_at_ms = ?
+WHERE item_id = ?`, string(encodedMetadata), millis(now), itemID); err != nil {
+			return ConversationItem{}, fmt.Errorf("finish displayed question: %w", err)
+		}
+	} else if _, err := tx.ExecContext(ctx, `
 INSERT INTO conversation_items (
     item_id, conversation_id, turn_id, parent_item_id, sequence_index,
     kind, status, author_actor_id, content_text, provider_content_text,
