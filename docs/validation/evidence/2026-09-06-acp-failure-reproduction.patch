@@ -1,12 +1,14 @@
 diff --git a/internal/runtime/audit_acp_failure_test.go b/internal/runtime/audit_acp_failure_test.go
 new file mode 100644
-index 00000000..71ab0906
+index 00000000..9bb6e79c
 --- /dev/null
 +++ b/internal/runtime/audit_acp_failure_test.go
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,156 @@
 +package runtime
 +
 +import (
++	"context"
++	"github.com/kpsuperplane/noema/internal/provider"
 +	"os"
 +	"path/filepath"
 +	"testing"
@@ -89,7 +91,7 @@ index 00000000..71ab0906
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	corrected, err := db.UpdateAcpAgent(ctx, agent.AgentID, agent.ConnectionRevision, "Corrected ACP", executable, []string{"--audit-corrected"}, true, time.Now())
++	corrected, err := db.UpdateAcpAgent(ctx, agent.AgentID, agent.ConnectionRevision, "Corrected ACP", executable, []string{"-test.run=^TestTaskACPAgentProcess$", "--", "NOEMA_TASK_ACP_AGENT", filepath.Join(t.TempDir(), "attempt")}, true, time.Now())
 +	if err != nil {
 +		t.Fatal(err)
 +	}
@@ -99,7 +101,7 @@ index 00000000..71ab0906
 +			t.Fatal(err)
 +		}
 +	}
-+	_, retry, found, err := db.ClaimTaskExecution(ctx, time.Now())
++	retryTask, retry, found, err := db.ClaimTaskExecution(ctx, time.Now())
 +	if err != nil || !found || retry.Kind != "executor" || retry.Generation != run.Generation {
 +		t.Fatal("retry identity differs", err)
 +	}
@@ -110,4 +112,51 @@ index 00000000..71ab0906
 +	if err != nil || len(runs) != 3 {
 +		t.Fatal("duplicate retry run", err)
 +	}
++	execution.execute(ctx, retryTask, retry)
++	approvalTask, err := db.Task(ctx, id)
++	if err != nil || approvalTask.StageKey != "waiting" {
++		t.Fatal("corrected process did not request approval", err)
++	}
++	approval, err := db.TaskGate(ctx, approvalTask.ActiveGateID)
++	if err != nil || approval.Kind != "approval" {
++		t.Fatal("approval missing", err)
++	}
++	decision := "approved"
++	if _, err = db.ResolveTaskGate(ctx, id, approval.ID, approvalTask.Revision, approvalTask.Generation, "Allow exact audit action", "answer", &decision, runtimeTaskCommand("answer_task", "audit-acp-approve"), time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	approvedTask, approvedRun, found, err := db.ClaimTaskExecution(ctx, time.Now())
++	if err != nil || !found || approvedRun.Kind != "executor" {
++		t.Fatal("approved executor missing", err)
++	}
++	execution.execute(ctx, approvedTask, approvedRun)
++	reviewTask, reviewRun, found, err := db.ClaimTaskExecution(ctx, time.Now())
++	if err != nil || !found || reviewRun.Kind != "reviewer" {
++		t.Fatal("review missing", err)
++	}
++	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
++		if taskRequestRole(request.Tools) != "reviewer" {
++			t.Error("unexpected provider role")
++		}
++		return taskToolResult("audit-acp-review", taskFinishReview, map[string]any{"decision": "approve", "feedback": "Recovered ACP result is correct.", "notify_human": false}), nil
++	})
++	execution.openRouter = generator
++	execution.codex = generator
++	execution.openAI = generator
++	execution.execute(ctx, reviewTask, reviewRun)
++	done, err := db.Task(ctx, id)
++	if err != nil || done.StageKey != "done" || done.Generation != task.Generation {
++		t.Fatal("recovered Task did not complete", err)
++	}
++	for path, want := range map[string]string{"RESULT.md": "ACP result.\n", "progress.txt": "Saved café 日本語"} {
++		got, err := home.ReadTaskFile(chat.home, id, path)
++		if err != nil || got != want {
++			t.Fatal("final file differs", path, err)
++		}
++	}
++	runs, err = db.TaskRuns(ctx, id, 10)
++	if err != nil || len(runs) != 5 {
++		t.Fatal("unexpected final runs", err)
++	}
++
 +}
