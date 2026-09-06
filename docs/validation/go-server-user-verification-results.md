@@ -133,9 +133,9 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | INFO-01 | Pass · live private answer | Exact private invoice values and Unicode survive the answer. Source content, revision, and state remain unchanged. [Evidence](evidence/2026-09-06-private-answer-preservation.json). | — |
 | INFO-02 | Not run | Controlled setup pending. | — |
 | INFO-03 | Not run | Controlled setup pending. | — |
-| INFO-04 | Not run | Controlled setup pending. | — |
+| INFO-04 | Partial · controlled stores | Credential values stay in protected stores and do not enter descriptors, model tool descriptions, or SQLite. Rendered setup and live credential variants remain pending. [Evidence](evidence/2026-09-06-information-protection-results.json). | — |
 | INFO-05 | Pass · live Chat | All ordinary JSON fields and values survive exact comparison. Task source and revision remain unchanged. [Evidence](evidence/2026-09-06-ordinary-fields-chat-results.json). | — |
-| INFO-06 | Not run | Controlled setup pending. | — |
+| INFO-06 | Partial · controlled boundaries | Unauthorized Task and Project reads are denied while permitted shared reads retain exact source content. Rendered and external-account variants remain pending. [Evidence](evidence/2026-09-06-information-protection-results.json). | — |
 | API-01 | Partial | Chat tool calls propose two definitions. Explicit client review accepts each. Controlled OAuth then creates usable API connections. | — |
 | API-02 | Partial | Approved no-auth tools execute against a controlled TLS service. Direct-credential calls and browser setup remain pending. | — |
 | API-03 | Partial | One fake browser OAuth sign-in attaches two APIs to a shared grant. Both return the same synthetic account. Independent policy variants remain pending. | Not run |
