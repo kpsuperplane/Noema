@@ -1,7 +1,8 @@
 # Live Noema acceptance plan: connections and 100 assistant tasks
 
 Date: 2026-09-06
-Status: Plan only. No case in this document has a passing result yet.
+Status: The direct local CLI is implemented and validated. Provider fixtures and
+the setup and assistant cases are not yet accepted.
 
 ## Objective and numbering
 
@@ -50,26 +51,26 @@ The operator must read the substantive output. Keyword matching and process exit
 Do not place the expected answer in Noema's prompt or its accessible fixture documentation.
 Use normal conversation follow-ups. Avoid implementation instructions unless the case explicitly tests setup or recovery.
 
-## Thin GraphQL CLI
+## Direct local CLI
 
-Build a small `scripts/noema-cli.ts` command wrapper.
-The command names below are proposed interfaces, not claims about existing commands.
-Reuse current GraphQL fields and types. Do not add a production API solely for this test workflow.
+Use the existing `noema` executable as the only operator interface.
+The CLI sends GraphQL through the private local Unix socket and keeps the normal
+Noema authorization boundary. It does not create a second test API.
+The implementation and validation are in commits `3251b51a` and `f39a03b4`.
+The complete command reference is [`docs/cli.md`](../cli.md).
 
-| Proposed command | Behavior |
+| Command | Behavior |
 | --- | --- |
-| `status` | Verify connection and report current backend status. |
-| `chat send --file request.md` | Submit exactly one message; return conversation, client-message, and turn IDs. |
-| `chat read --turn ID` | Read the complete matching transcript, including errors, tool results, and Task references. |
-| `task read ID` | Return current request, result, review, stage, runs, and open gates. |
-| `task transcript ID` | Fetch all relevant run pages with tool arguments and results. |
-| `task answer ID --gate ID --file answer.md` | Answer one inspected gate with current revision and generation checks. |
-| `connections list` | Show registered API and MCP connections, status, enabled operations, and identities. |
-| `proposals list` / `proposals read ID` | Show complete API proposals and MCP setup requests, including endpoint and requested access. |
-| `proposals accept ID --revision REV` | Accept exactly one inspected proposal using its existing product mutation. |
-| `actions read ID` / `actions accept ID --revision REV` | Inspect and approve exactly one action; keep proposal and action approval distinct. |
-| `events --turn ID` / `events --task ID` | Subscribe to existing events and display changes; reconnect to the same identity. |
-| `graphql --file query.graphql --variables vars.json` | Escape hatch for current schema operations without growing command wrappers. |
+| `noema status` | Verify the running server through the private socket. |
+| `noema chat send [TEXT]` | Submit one message and stream its matching Chat events. `--file` reads the exact message. |
+| `noema chat read` / `noema chat watch` | Read a transcript page or subscribe to future conversation events. |
+| `noema tasks list/get/create/run/cancel/watch` | Inspect and change Tasks with current revision and generation checks. |
+| `noema connections list` | Show registered API definitions, connections, and MCP servers. |
+| `noema proposals list/accept DIGEST` | Inspect and accept one exact API proposal by semantic digest. |
+| `noema interventions list` | Inspect pending setup, authentication, and action requests. |
+| `noema actions list/resolve ID REVISION DECISION` | Inspect or resolve one exact governed action. |
+| `noema api [DOCUMENT]` | Execute any current GraphQL query, mutation, or subscription without adding a wrapper. |
+| `noema schema` | Print the schema exposed by the running server. |
 
 Use schema-appropriate revision fields; adapter proposals may use semantic digests rather than integer revisions.
 Return structured JSON by default. Optional summaries must link to the complete saved output.
@@ -335,13 +336,14 @@ A passing synthetic test proves its listed behavior and scope, not compatibility
 8. Keep accepted synthetic connections and marked native records available for downstream cases and later reruns.
 9. Record fixture process startup and shutdown commands. Remove temporary public routes when their services are retired.
 
-Expected implementation locations: `scripts/noema-cli.ts`, existing acceptance fixture scripts, case evidence, and the ledger.
-Start with no production Go changes. A demonstrated product defect permits a focused repair through the existing owning subsystem.
-Estimate the CLI at 150–300 lines and three focused checks. Estimate each provider fixture separately after pinning its contract.
+Expected implementation locations: the existing `cmd/noema` CLI, provider fixture commands,
+case evidence, and the ledger. Start with no additional production Go changes.
+A demonstrated product defect permits a focused repair through the existing owning subsystem.
+The CLI unit is complete; estimate each provider fixture separately after pinning its contract.
 Do not budget a generic framework for 100 outcomes. Add only the records and operations required by the current case.
 Commit each completed implementation unit and preserve unrelated worktree edits.
 Before changing production behavior, state the defect, patch budget, affected files, and focused validation.
 Use repository validation rules for each affected language. Documentation-only updates require link, coverage, and whitespace checks.
 
-This document defines the work. The CLI, faithful mocks, accepted connections, and case passes remain to be implemented and verified.
-
+This document defines the work. The CLI is complete and independently validated.
+Faithful provider fixtures, accepted connections, and case passes remain to be implemented and verified.
