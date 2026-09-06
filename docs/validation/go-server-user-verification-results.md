@@ -1284,7 +1284,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | UX-03 | Partial · web passes | Unicode claims have markers 1, 2, and 1. Sources preserves exact titles and URLs and combines repeated URLs. Desktop and phone web checks pass. [Evidence](evidence/2026-09-06-citations-favicons-results.json). | Not run · native source rendering |
 | UX-04 | Pass · controlled web favicon failure | HTTP 503 favicons do not hide claims, Sources, or the composer. The dialog remains usable and no page exception occurs at either width. Local renderer failure remains untested. [Evidence](evidence/2026-09-06-citations-favicons-results.json). | — |
 | UX-05 | Not run | Controlled setup pending. | — |
-| DIAG-01 | Not run | Controlled setup pending. | — |
+| DIAG-01 | Partial · live web | Completed and waiting run headers match stored states. Runtime details preserve exact provider and token values. Usage rows are reachable at both widths. Failed and cancelled run diagnostics remain pending. [Evidence](evidence/2026-09-06-task-diagnostics-results.json). | — |
 | DIAG-02 | Not run | Controlled setup pending. | — |
 | OPS-01 | Fail · live browser | Public callback errors render without JavaScript and preserve signed-out access denial. AUDIT-19: native Desktop cancellation is blocked by form-action policy at both widths. [Evidence](evidence/2026-09-06-public-pages-results.json). | — |
 | OPS-02 | Partial · controlled boundaries | Defaults disable all three paths. Disabled GraphiQL and MCP launches are denied. Forged local headers cannot bypass public authentication. Full application startup remains untested. [Evidence](evidence/2026-09-06-optional-access-results.json). | — |
