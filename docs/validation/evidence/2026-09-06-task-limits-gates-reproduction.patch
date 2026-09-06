@@ -1,0 +1,161 @@
+diff --git a/internal/runtime/audit_limits_gates_test.go b/internal/runtime/audit_limits_gates_test.go
+new file mode 100644
+index 00000000..926fde47
+--- /dev/null
++++ b/internal/runtime/audit_limits_gates_test.go
+@@ -0,0 +1,155 @@
++package runtime
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/provider"
++	"github.com/kpsuperplane/noema/internal/store"
++)
++
++func TestAuditTaskSeparateSafetyLimits(t *testing.T) {
++	for _, limit := range []string{"continuations", "active time", "active deadline"} {
++		t.Run(limit, func(t *testing.T) {
++			chat, db, _ := chatFixture(t)
++			policy, err := db.TaskExecutionPolicy(t.Context())
++			if err != nil {
++				t.Fatal(err)
++			}
++			policy.MaxProviderContinuations, policy.ProgressAuditInterval, policy.MaxActiveMinutes = 1, 1, 1
++			if _, err = db.UpdateTaskExecutionPolicy(t.Context(), policy); err != nil {
++				t.Fatal(err)
++			}
++			const progress = "Saved progress café 日本語"
++			task := createQueuedRuntimeTask(t, db, chat.home, progress)
++			expected := "maximum provider tool continuations reached"
++			if limit != "continuations" {
++				expected = "task active wall-time safety ceiling reached"
++				_, run, found, err := db.ClaimTaskExecution(t.Context(), time.Now())
++				if err != nil || !found {
++					t.Fatal("claim failed", err)
++				}
++				if err = db.StartTaskExecution(t.Context(), run.ID, run.Generation, time.Now()); err != nil {
++					t.Fatal(err)
++				}
++				spent := int64(60000)
++				if limit == "active deadline" {
++					spent = 59000
++				}
++				if err = db.AppendTaskRunItems(t.Context(), run.ID, run.Generation, nil, store.TaskRunUsage{ActiveMilliseconds: spent}, time.Now()); err != nil {
++					t.Fatal(err)
++				}
++			}
++			normal, terminal := 0, 0
++			generator := generatorFunc(func(ctx context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
++				if request.ToolChoice != provider.ToolChoiceRequired {
++					normal++
++					if limit == "active deadline" {
++						<-ctx.Done()
++						return provider.GenerationResult{}, ctx.Err()
++					}
++					return taskToolResult("read", taskFilesRead, map[string]any{"path": "TASK.md"}), nil
++				}
++				terminal++
++				if text := fmt.Sprint(request.Messages); !strings.Contains(text, expected) || !strings.Contains(text, progress) {
++					return provider.GenerationResult{}, fmt.Errorf("missing limit reason or saved progress: %s", text)
++				}
++				for _, tool := range request.Tools {
++					if !taskTerminalTool(tool.Name) {
++						return provider.GenerationResult{}, fmt.Errorf("nonterminal tool after limit: %s", tool.Name)
++					}
++				}
++				return taskToolResult("stop", taskReportBlocked, map[string]any{"gate_kind": "clarification", "question": "Continue from saved progress?"}), nil
++			})
++			worker, err := NewTaskExecution(t.Context(), db, generator, generator, generator, chat.home)
++			if err != nil {
++				t.Fatal(err)
++			}
++			t.Cleanup(worker.Close)
++			current := waitRuntimeTask(t, db, task.ID, func(value store.Task) bool { return value.StageKey == "waiting" })
++			worker.Close()
++			expectedNormal := 1
++			if limit == "active time" {
++				expectedNormal = 0
++			}
++			if normal != expectedNormal || terminal != 1 || current.CompletedAt != nil {
++				t.Errorf("normal=%d terminal=%d completed=%v", normal, terminal, current.CompletedAt)
++			}
++			got, err := home.ReadTaskFile(chat.home, task.ID, "TASK.md")
++			if err != nil || got != progress {
++				t.Errorf("progress=%q, %v", got, err)
++			}
++		})
++	}
++}
++
++func TestAuditTaskGateAnswerReachesResumedProvider(t *testing.T) {
++	for _, kind := range []string{"clarification", "approval"} {
++		t.Run(kind, func(t *testing.T) {
++			chat, db, _ := chatFixture(t)
++			task := createQueuedRuntimeTask(t, db, chat.home, "Ask before continuing.")
++			before := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
++				return taskToolResult("gate", taskReportBlocked, map[string]any{"gate_kind": kind, "question": "Use the selected target?", "context_markdown": "A human response is required."}), nil
++			})
++			worker, err := NewTaskExecution(t.Context(), db, before, before, before, chat.home)
++			if err != nil {
++				t.Fatal(err)
++			}
++			t.Cleanup(worker.Close)
++			waiting := waitRuntimeTask(t, db, task.ID, func(value store.Task) bool { return value.StageKey == "waiting" })
++			worker.Close()
++			gate, err := db.TaskGate(t.Context(), waiting.ActiveGateID)
++			if err != nil || gate.Kind != kind || gate.Prompt != "Use the selected target?" {
++				t.Fatal("wrong gate", gate, err)
++			}
++			const answer = "Use target café 日本語"
++			var decision *string
++			if kind == "approval" {
++				value := "approved"
++				decision = &value
++			}
++			command := runtimeTaskCommand("answer_task", "audit-answer")
++			for range 2 {
++				if _, err = db.ResolveTaskGate(t.Context(), task.ID, gate.ID, waiting.Revision, waiting.Generation, answer, "answer", decision, command, time.Now()); err != nil {
++					t.Fatal(err)
++				}
++			}
++			seen := make(chan provider.GenerateRequest, 1)
++			after := generatorFunc(func(ctx context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
++				seen <- request
++				<-ctx.Done()
++				return provider.GenerationResult{}, ctx.Err()
++			})
++			worker, err = NewTaskExecution(t.Context(), db, after, after, after, chat.home)
++			if err != nil {
++				t.Fatal(err)
++			}
++			t.Cleanup(worker.Close)
++			select {
++			case request := <-seen:
++				text := fmt.Sprint(request.Messages)
++				if !strings.Contains(text, answer) {
++					t.Errorf("accepted answer absent from resumed provider context")
++				}
++				if taskRequestRole(request.Tools) != "planner" {
++					t.Errorf("resumed wrong role")
++				}
++			case <-time.After(5 * time.Second):
++				t.Fatal("provider did not resume")
++			}
++			worker.Close()
++			runs, err := db.TaskRuns(t.Context(), task.ID, 10)
++			if err != nil || len(runs) != 2 {
++				t.Errorf("duplicate resolution created %d runs: %v", len(runs), err)
++			}
++			messages, err := db.TaskMessages(t.Context(), task.ID, 10)
++			if err != nil || len(messages) != 1 || messages[0].Body != answer {
++				t.Errorf("answer persistence failed: %#v, %v", messages, err)
++			}
++		})
++	}
++}

@@ -690,9 +690,10 @@ Keep human-only cases marked for later testing.
 | --- | --- | --- | --- | --- |
 | AUDIT-01 | RUN-04 | Review-limit recovery records Executor but queues Reviewer after Retry. | Task gates | [Result](evidence/2026-09-06-review-recovery-results.json), [reproduction patch](evidence/2026-09-06-review-recovery-reproduction.patch) |
 | AUDIT-02 | RUN-14 | Executor and Reviewer reject another Task that primary Chat can read for the same owner. | Task reads | [Result](evidence/2026-09-06-task-first-pass-results.json), [reproduction patch](evidence/2026-09-06-task-first-pass-reproduction.patch) |
+| AUDIT-03 | RUN-04 | Clarification and approval answers persist but are absent from resumed provider context. | Task gates | [Result](evidence/2026-09-06-task-limits-gates-results.json), [reproduction patch](evidence/2026-09-06-task-limits-gates-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
-Clarification and approval journeys remain pending.
+Clarification and approval context delivery fails under AUDIT-03. Browser presentation remains pending.
 
 ## Task first-pass checks
 
@@ -706,7 +707,22 @@ Shared Project file reads and Project boundaries remain pending.
 
 Existing successful checks cover tool-limit finalization, saved progress audit recovery, and automatic retry exhaustion.
 Their source assertions were reviewed. The recorded broad Go result remains valid because its relevant inputs are unchanged.
-Continuation and active-time limits still need separate checks. Review-limit recovery remains failed under AUDIT-01.
+The separate limit checks below extend this evidence. Review-limit retry remains failed under AUDIT-01.
+
+## Separate limits and human answers
+
+The [controlled checks](evidence/2026-09-06-task-limits-gates-results.json) exercise continuation and active-time limits separately.
+The continuation ceiling stops normal calls and permits one terminal-only finalization.
+An exhausted active-time budget skips normal calls.
+Active-time expiry also interrupts a blocked provider call and starts terminal-only finalization.
+Each finalization receives the correct stop reason and saved Task text. Exact Unicode files remain intact without false completion.
+
+Clarification and approval resolution each save one answer and start one new Planner run.
+Submitting the same command twice creates no duplicate run or answer.
+However, neither resumed provider receives the accepted answer. AUDIT-03 records this failure for the Task gate fix batch.
+
+RUN-09 combines these checks with prior tool-limit, audit, retry, and review-limit evidence.
+It covers limit enforcement with controlled runtime and store inputs. Retry after a review-limit gate remains failed under RUN-04.
 
 ## Case results
 
@@ -781,12 +797,12 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
-| RUN-04 | Fail · controlled store | AUDIT-01: review-limit Retry queues Reviewer instead of the recorded Executor. Clarification and approval journeys remain pending. | — |
+| RUN-04 | Fail · controlled runtime/store | AUDIT-01: review-limit Retry queues Reviewer. AUDIT-03: saved clarification and approval answers do not reach the resumed provider. | — |
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
 | RUN-08 | Pass · controlled runtime | Restart during each role restores exact saved read results and progress. Files, generation, and run identity remain intact. Each Task finishes with three completed runs. | — |
-| RUN-09 | Partial | Tool-limit finalization, saved audit recovery, and automatic retry exhaustion pass existing checks. Separate continuation and active-time limits remain pending. | — |
+| RUN-09 | Pass · controlled runtime/store | Continuation, tool, active-time, retry, review, and audit limits reach their recorded stop states. Progress remains intact. Gate resumption defects stay under RUN-04. | — |
 | RUN-10 | Not run | Controlled setup pending. | — |
 | RUN-11 | Not run | Controlled setup pending. | — |
 | RUN-12 | Not run | Controlled setup pending. | — |
