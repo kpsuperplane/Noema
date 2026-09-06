@@ -965,6 +965,22 @@ func (r *TaskExecution) taskMessages(ctx context.Context, task store.Task, run s
 		messages = append(messages, taskDataMessage("PROJECT.md", projectDocument.Content))
 	}
 	messages = append(messages, taskDataMessage("TASK.md", document.Content))
+	answers, err := r.database.TaskMessages(ctx, task.ID, 100)
+	if err != nil {
+		return nil, false, err
+	}
+	for index := len(answers) - 1; index >= 0; index-- {
+		answer := answers[index]
+		if answer.Generation != task.Generation {
+			continue
+		}
+		content := answer.Body
+		if answer.ApprovalDecision != nil {
+			content += "\nApproval decision: " + *answer.ApprovalDecision
+		}
+		messages = append(messages, taskDataMessage("human_answer", content))
+	}
+
 	for _, name := range taskRoleFiles(run.Kind) {
 		if content, readErr := home.ReadTaskFile(r.root, task.ID, name); readErr == nil {
 			messages = append(messages, taskDataMessage(name, content))
@@ -1194,18 +1210,8 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		}
 		return json.RawMessage(`{"deleted":true}`), true, false, false
 	case taskInspectName:
-		var input struct {
-			TaskID string `json:"task_id"`
-		}
-		if decodeExactTaskTool(raw, &input, []string{"task_id"}, nil) != nil || input.TaskID != task.ID {
-			return failure("task.inspect arguments are invalid")
-		}
-		document, err := home.ReadTaskDocument(r.root, task.ID)
-		if err != nil {
-			return toolFailure("unavailable", "Task is unavailable"), false, false, false
-		}
-		payload, _ := json.Marshal(map[string]any{"task_id": task.ID, "title": task.Title, "task_document": document.Content, "stage": task.StageKey, "generation": task.Generation, "revision": task.Revision})
-		return payload, true, false, false
+		payload, success := (&Chat{database: r.database, home: r.root}).inspectTask(ctx, raw)
+		return payload, success, false, false
 	case taskFinishPlanning:
 		var input struct {
 			Complexity string `json:"complexity"`

@@ -436,7 +436,7 @@ resolved_at_ms=?, resolution_message_id=? WHERE gate_id=? AND gate_state='open'`
 				parent.Status, parent.EndedAt, parent.UpdatedAt = "completed", timeAddress(now.UTC()), now.UTC()
 			}
 		}
-		if parent != nil {
+		if parent != nil && gate.RetryRunKind == nil {
 			kind = parent.Kind
 		}
 		run, err := insertQueuedTaskRun(ctx, tx, task, kind, parent, now)

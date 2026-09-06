@@ -7,9 +7,9 @@ Group fixes by cause and subsystem. Recheck affected cases after each fix batch.
 
 | Defect | Cases | Observed failure | Fix batch | Evidence |
 | --- | --- | --- | --- | --- |
-| AUDIT-01 | RUN-04 | Review-limit recovery records Executor but queues Reviewer after Retry. | Task gates | [Result](evidence/2026-09-06-review-recovery-results.json), [reproduction patch](evidence/2026-09-06-review-recovery-reproduction.patch) |
-| AUDIT-02 | RUN-14 | Executor and Reviewer reject another Task that primary Chat can read for the same owner. | Task reads | [Result](evidence/2026-09-06-task-first-pass-results.json), [reproduction patch](evidence/2026-09-06-task-first-pass-reproduction.patch) |
-| AUDIT-03 | RUN-04 | Clarification and approval answers persist but are absent from resumed provider context. | Task gates | [Result](evidence/2026-09-06-task-limits-gates-results.json), [reproduction patch](evidence/2026-09-06-task-limits-gates-reproduction.patch) |
+| AUDIT-01 · Fixed | RUN-04 | Review-limit recovery records Executor but queues Reviewer after Retry. | Task gates | [Result](evidence/2026-09-06-review-recovery-results.json), [reproduction patch](evidence/2026-09-06-review-recovery-reproduction.patch) |
+| AUDIT-02 · Fixed | RUN-14 | Executor and Reviewer reject another Task that primary Chat can read for the same owner. | Task reads | [Result](evidence/2026-09-06-task-first-pass-results.json), [reproduction patch](evidence/2026-09-06-task-first-pass-reproduction.patch) |
+| AUDIT-03 · Fixed | RUN-04 | Clarification and approval answers persist but are absent from resumed provider context. | Task gates | [Result](evidence/2026-09-06-task-limits-gates-results.json), [reproduction patch](evidence/2026-09-06-task-limits-gates-reproduction.patch) |
 | AUDIT-04 | RUN-15; PROJECT-01 | All three roles reject permitted parent-relative shared reads inside the configured Project folder. | Task file access | [Result](evidence/2026-09-06-project-access-results.json), [reproduction patch](evidence/2026-09-06-project-access-reproduction.patch) |
 | AUDIT-05 | RUN-04 | Live clarification Task detail has no visible question or response control in Workspace or Transcript at either width. | Task gate UI | [Browser result](evidence/2026-09-06-impossible-block-results.json) |
 | AUDIT-06 | API-14 | Application deletion remains blocked after its only grant is revoked. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-flow-results.json), [reproduction patch](evidence/2026-09-06-oauth-flow-reproduction.patch) |

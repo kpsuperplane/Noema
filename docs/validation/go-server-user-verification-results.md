@@ -77,7 +77,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
-| RUN-04 | Fail · controlled runtime/live browser | AUDIT-01: wrong retry role. AUDIT-03: missing answer context. AUDIT-05: missing visible gate question and response controls. | — |
+| RUN-04 | Fail · Task gate UI | AUDIT-01 and AUDIT-03 are fixed. Retry role and answer context pass. AUDIT-05 still needs visible response controls. [Checks](evidence/2026-09-06-task-gate-fixes.json). | — |
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
@@ -87,7 +87,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | RUN-11 | Not run | Controlled setup pending. | — |
 | RUN-12 | Partial | Saved capture, waiting, recovery, and completion notices pass. Repeated processing adds no output. Rendered transitions remain pending. | — |
 | RUN-13 | Partial | A false notify_human decision suppresses completion narration and saved notices while the Task reaches Done. Actual unchanged recurrence remains pending. | — |
-| RUN-14 | Fail · controlled tool handler | AUDIT-02: Executor and Reviewer reject another Task that primary Chat can read for the same owner. | — |
+| RUN-14 | Pass · controlled runtime | Executor and Reviewer read the same permitted Task and exact document as primary Chat. [Checks](evidence/2026-09-06-task-gate-fixes.json). | — |
 | RUN-15 | Fail · controlled tool handler | Outside reads, writes, and deletes are denied. AUDIT-04: all three roles also reject permitted shared Project reads. | — |
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
 | TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
@@ -134,7 +134,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | INFO-02 | Not run | Controlled setup pending. | — |
 | INFO-03 | Not run | Controlled setup pending. | — |
 | INFO-04 | Not run | Controlled setup pending. | — |
-| INFO-05 | Not run | Controlled setup pending. | — |
+| INFO-05 | Pass · live Chat | All ordinary JSON fields and values survive exact comparison. Task source and revision remain unchanged. [Evidence](evidence/2026-09-06-ordinary-fields-chat-results.json). | — |
 | INFO-06 | Not run | Controlled setup pending. | — |
 | API-01 | Partial | Chat tool calls propose two definitions. Explicit client review accepts each. Controlled OAuth then creates usable API connections. | — |
 | API-02 | Partial | Approved no-auth tools execute against a controlled TLS service. Direct-credential calls and browser setup remain pending. | — |
