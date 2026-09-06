@@ -101,3 +101,75 @@ func TestActionRequestFencesReviewDecisionAndSingleExecutionClaim(t *testing.T) 
 		t.Fatalf("recovered actions = %#v, %v", recovered, err)
 	}
 }
+
+func TestTaskCancellationPreservesUncertainActionOutcome(t *testing.T) {
+	database := openTestStore(t)
+	ctx, now := t.Context(), time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
+	account := createReadyModelAccount(t, database)
+	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := NewTaskID()
+	_, err := database.CreateTaskWithOptions(ctx, id, "External cancellation", testTaskLifecycleCommand("create_task", "external"), TaskCreateOptions{ExecutorAgentID: TaskExecutorAgentID, InitialRunKind: "executor", ExecutionComplexity: "simple"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found {
+		t.Fatalf("claim = %t, %v", found, err)
+	}
+	if err = database.StartTaskExecution(ctx, run.ID, run.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{Kind: "tool_call", Status: "running", Payload: map[string]any{"name": "audit.write", "arguments": map[string]any{"value": "café 日本語"}}}}, TaskRunUsage{}, now); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("call = %#v, %v", items, err)
+	}
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{TaskID: id, RunID: run.ID, RunItemID: items[len(items)-1].ID, TaskGeneration: run.Generation, OwnerHumanID: "human:local", RequestingAgentID: run.AgentID, CapabilityName: "audit.write", OperationToken: "audit.write", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{OpenWorld: true}, Arguments: json.RawMessage(`{"value":"café 日本語"}`), InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"source": "audit"}, SafeSummary: "Write the audit value"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err = database.DecideActionRequest(ctx, action.ID, action.Revision, "human:local", "approve", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err = database.ClaimActionRequest(ctx, action.ID, action.Revision, now)
+	if err != nil || action.State != ActionExecuting {
+		t.Fatalf("action claim = %#v, %v", action, err)
+	}
+	task, err := database.Task(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := database.CancelTask(ctx, id, task.Revision, task.Generation, "Stop", testTaskLifecycleCommand("cancel_task", "external"), now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := database.ActionRequest(ctx, action.ID, action.Revision)
+	if err != nil || after.State != ActionOutcomeUncertain {
+		t.Fatalf("cancelled external outcome = %#v, %v", after, err)
+	}
+	if after.Arguments["value"] != "café 日本語" {
+		t.Fatalf("cancellation changed exact arguments: %#v", after.Arguments)
+	}
+	if _, err = database.FinishActionRequest(ctx, action.ID, action.Revision, ActionSucceeded, json.RawMessage(`{"ok":true}`), "", now.Add(2*time.Second)); err == nil {
+		t.Fatal("late success replaced the uncertain outcome")
+	}
+	if _, err = database.ClaimActionRequest(ctx, action.ID, action.Revision, now.Add(2*time.Second)); err == nil {
+		t.Fatal("cancelled action was claimed again")
+	}
+	if _, err = database.RecoverTaskActionRequests(ctx, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	after, err = database.ActionRequest(ctx, action.ID, action.Revision)
+	if err != nil || after.State != ActionOutcomeUncertain {
+		t.Fatalf("recovery lost uncertainty: %#v, %v", after, err)
+	}
+	task, err = database.Task(ctx, id)
+	if err != nil || task.StageKey != "cancelled" || task.Generation != cancelled.Task.Generation {
+		t.Fatalf("late outcome changed cancellation: %#v, %v", task, err)
+	}
+}

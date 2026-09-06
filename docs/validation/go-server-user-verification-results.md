@@ -561,7 +561,18 @@ A waiting clarification gate becomes superseded. Late planning completion and tr
 A later worker claim finds no work. Rejected late changes preserve the accepted cancellation revision and generation.
 The [validation record](evidence/2026-09-06-cancel-states-validation.json) records passing focused tests, broad Go tests, and vet.
 No production fix was needed. The test adds 76 lines.
-RUN-05 remains partial until cancellation during an external action proves explicit outcome uncertainty.
+The action-state checks below address stored outcome uncertainty. Runtime and rendered checks with a controlled external service remain pending.
+
+## Cancelled external actions retain uncertainty
+
+The [action test](../../internal/store/action_requests_test.go) creates an authorized Task action and claims it for execution before cancelling the Task.
+Before the fix, the action remained marked executing. Recovery excluded its cancelled Task generation.
+The [cancellation transaction](../../internal/store/task_lifecycle.go) now marks executing actions as outcome uncertain and saves the matching action event.
+The exact action arguments remain intact, including Unicode text. Late success and a second claim are rejected.
+Recovery preserves uncertainty. The Task remains cancelled with the accepted generation.
+The [validation record](evidence/2026-09-06-cancel-action-validation.json) records the regression and passing focused and broad Go checks.
+The fix adds 28 production lines and 72 test lines. No schema change was required.
+RUN-05 remains partial until a controlled external service verifies runtime cancellation and its displayed outcome.
 
 ## Case results
 
@@ -637,7 +648,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
-| RUN-05 | Partial | Controlled cancellation covers queued, running, and waiting Tasks. Old generation writes and claims fail. External-effect uncertainty remains pending. | — |
+| RUN-05 | Partial | Cancellation covers queued, running, and waiting Tasks. Executing actions now retain uncertainty after cancellation. Controlled external-service and rendered checks remain pending. | — |
 | RUN-06 | Not run | Controlled setup pending. | — |
 | RUN-07 | Not run | Controlled setup pending. | — |
 | RUN-08 | Not run | Controlled setup pending. | — |

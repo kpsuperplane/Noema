@@ -277,6 +277,34 @@ func (s *Store) CancelTask(ctx context.Context, id string, revision, generation 
 		if task.StageKey == "done" || task.StageKey == "cancelled" {
 			return TaskCommandResult{}, ErrInvalidTransition
 		}
+		rows, err := tx.QueryContext(ctx, `UPDATE action_requests SET state='outcome_uncertain',
+ failure_code='outcome_uncertain',completed_at_ms=?,updated_at_ms=?
+ WHERE task_id=? AND task_generation=? AND state='executing' RETURNING action_id`, millis(now), millis(now), id, generation)
+		if err != nil {
+			return TaskCommandResult{}, err
+		}
+		var interrupted []string
+		for rows.Next() {
+			var actionID string
+			if err = rows.Scan(&actionID); err != nil {
+				rows.Close()
+				return TaskCommandResult{}, err
+			}
+			interrupted = append(interrupted, actionID)
+		}
+		if err = rows.Err(); err != nil {
+			rows.Close()
+			return TaskCommandResult{}, err
+		}
+		if err = rows.Close(); err != nil {
+			return TaskCommandResult{}, err
+		}
+		for _, actionID := range interrupted {
+			if err = insertActionEvent(ctx, tx, actionID, "outcome_uncertain", "actor:human:local",
+				map[string]any{"failure_code": "outcome_uncertain", "reason": "task_cancelled"}, now); err != nil {
+				return TaskCommandResult{}, err
+			}
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='cancelled', ended_at_ms=?, updated_at_ms=?
 WHERE task_id=? AND status IN ('queued','leased','running','waiting_for_approval')`, millis(now), millis(now), id)
 		if err != nil {
