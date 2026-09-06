@@ -1,0 +1,82 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "taskId": "task:9496e6cdadbccf4f2f4b0ebe64002590",
+  "scope": "Controlled viewport reduction and doubled rendered text sizes. This is not native browser zoom or a physical on-screen keyboard.",
+  "states": [
+    {
+      "width": 1440,
+      "height": 1000,
+      "textScale": 1,
+      "beforeFont": "14px",
+      "afterFont": "14px",
+      "input": {
+        "width": 742,
+        "height": 120,
+        "left": 633.5,
+        "right": 1375.5,
+        "top": 235,
+        "bottom": 355,
+        "viewportWidth": 1440,
+        "viewportHeight": 1000
+      },
+      "draftPreserved": true,
+      "save": {
+        "visible": true,
+        "hit": true
+      },
+      "cancelPreservesOriginal": true
+    },
+    {
+      "width": 320,
+      "height": 480,
+      "textScale": 1,
+      "beforeFont": "14px",
+      "afterFont": "14px",
+      "input": {
+        "width": 254,
+        "height": 120,
+        "left": 33,
+        "right": 287,
+        "top": 231.5,
+        "bottom": 351.5,
+        "viewportWidth": 320,
+        "viewportHeight": 480
+      },
+      "draftPreserved": true,
+      "save": {
+        "visible": true,
+        "hit": true
+      },
+      "cancelPreservesOriginal": true
+    },
+    {
+      "width": 320,
+      "height": 480,
+      "textScale": 2,
+      "beforeFont": "14px",
+      "afterFont": "28px",
+      "input": {
+        "width": 321,
+        "height": 240,
+        "left": 0,
+        "right": 321,
+        "top": 201.5,
+        "bottom": 441.5,
+        "viewportWidth": 320,
+        "viewportHeight": 480
+      },
+      "draftPreserved": true,
+      "save": {
+        "visible": true,
+        "hit": true
+      },
+      "cancelPreservesOriginal": true
+    }
+  ],
+  "review": {
+    "result": "partial",
+    "verified": "Save is visible and receives pointer hits in all three states. The exact draft survives text enlargement. Cancel restores the original document.",
+    "observation": "At doubled text size, the source editor measures 321 pixels in a 320-pixel viewport. The bottom status surface reduces the visible document area.",
+    "remaining": "Native text resizing and zoom, physical on-screen keyboard, and pending-decision reflow. Controlled enlargement does not establish a native resizing defect."
+  }
+}
