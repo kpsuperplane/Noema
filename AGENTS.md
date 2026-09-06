@@ -8,6 +8,13 @@
 - Product UI design guidance: `docs/frontend/product-design.md`
 
 ## Communication
+- Explain work through what the user can see or do. Start with the problem, the change, or the result.
+- Use everyday language in progress updates and final answers. Assume no knowledge of the code or internal design.
+- Short sentences alone are not enough. Replace technical shorthand with a concrete explanation of its effect on the user.
+- Include implementation details only when requested or needed to explain a decision, limitation, or failure.
+- When a technical term is necessary, explain its meaning on first use. Do not stack technical terms in one sentence.
+- Describe checks by the behavior they verified. Keep command lists, internal names, and detailed counts in linked evidence when possible.
+- For example: "I’ll prevent clicks on changed buttons. I’ll keep passwords out of page summaries. Actions you declined will require your approval."
 - Use `docs/development/terms.md` for Noema terms in new prose and changed identifiers.
 - Use the current issue of ASD-STE100 Simplified Technical English for all user communication and all prose that you write.
 - Use short sentences, active voice, and one topic in each sentence. Use no more than 20 words in an instruction and 25 words in a descriptive sentence.
