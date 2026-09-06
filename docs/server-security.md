@@ -214,8 +214,9 @@ the `noema-dev` home. Its directory uses mode `0700`, and its socket uses mode
 `0600`. It forwards only to the existing local GraphQL socket and has no TCP
 listener. The supervisor creates and removes the relay with the server session.
 
-The same supervisor starts an authenticated loopback inspection relay for the Linux Codex sandbox.
-The sandbox can use its network proxy but cannot create a direct Unix socket.
+The same supervisor starts an authenticated loopback inspection relay for Codex profiles that require the network proxy.
+Those profiles cannot create direct Unix sockets on Codex 0.153.2 for Linux.
+The default `noema-build` profile disables that proxy and uses the private Unix socket directly.
 The inspection relay binds only `127.0.0.1` and forwards only to `/tmp/noema-codex/graphql.sock`.
 It requires a generated credential for HTTP requests and WebSocket upgrades.
 Its protected credential store is `/tmp/noema-codex/inspection-credential.json`, with mode `0600` under the existing `0700` directory.
@@ -223,6 +224,13 @@ The relay strips inspection credentials, authorization headers, and browser cook
 The inspection helper supplies the credential internally and continues to reject mutations.
 Normal shutdown stops the relay and removes its credential. No unauthenticated TCP route is added.
 See [browser inspection](frontend/browser-inspection.md) for profile usage and validation.
+
+The Linux root launcher also mounts a read-only `bindfs` view of the complete development home at `/tmp/noema-codex/home`.
+The view maps file ownership to root without changing source files or their permissions.
+It includes protected stores and newly created files. Its parent directory permits access only to root.
+The mount rejects writes, including root writes. Normal launcher shutdown unmounts it.
+Use the private relay socket for browser requests; the filesystem view does not forward socket connections.
+See [development permissions](development/codex-permissions.md) for setup and checks.
 
 ## 6. Passkeys
 

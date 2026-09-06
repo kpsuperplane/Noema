@@ -1,21 +1,26 @@
 default_permissions = "noema-build"
 
 [features.network_proxy]
-enabled = true
+# Codex 0.153.2 on Linux blocks Unix sockets when this proxy is enabled.
+# Direct networking permits Go socket tests and private development inspection.
+enabled = false
 
 [permissions.noema-build]
-description = "Build and commit Noema with shared sccache and authenticated local inspection."
+description = "Build and merge Noema with shared caches and private socket inspection. Network access is unrestricted."
 extends = ":workspace"
 
 [permissions.noema-build.filesystem]
 "/root/.cache/sccache" = "write"
+"/root/.cache/go-build" = "write"
+"/root/go/pkg/mod" = "write"
+"/var/tmp" = "write"
+"/tmp/noema-codex/home" = "read"
 
 [permissions.noema-build.filesystem.":workspace_roots"]
 ".git" = "write"
+# Git merges must also update tracked agent instructions and project settings.
+".agents" = "write"
+".codex" = "write"
 
 [permissions.noema-build.network]
 enabled = true
-allow_local_binding = true
-
-[permissions.noema-build.network.domains]
-"127.0.0.1" = "allow"

@@ -9,15 +9,20 @@ Keep product data unchanged unless the user also authorized data changes.
 
 ## Private socket access
 
-The development server must be running with `web.local_graphql_socket` enabled.
+Start the development session with `./attach` from the host terminal. The server must have `web.local_graphql_socket` enabled.
 The root development supervisor normally provides `/tmp/noema-codex/graphql.sock`.
 The direct socket is `${NOEMA_HOME}/run/graphql.sock`.
 
-The Linux `noema-build` profile uses the authenticated inspection relay.
-Codex 0.153.2 blocks direct Unix-socket creation in this profile.
-Its Linux network proxy also reports Unix-socket forwarding as unsupported.
-Adding a Unix allow entry alone does not make direct socket calls work.
-The [Codex permission reference](https://learn.chatgpt.com/docs/permissions) describes the supported proxy controls.
+The Linux `noema-build` profile permits direct Unix socket access.
+It disables the Codex network proxy because Codex 0.153.2 blocks Unix socket creation when that proxy is active.
+Filesystem limits remain active. Network access has no domain filter.
+This also permits Go tests that create Unix sockets.
+The complete development home is readable at `/tmp/noema-codex/home`; this live view rejects writes.
+See [development permissions](../development/codex-permissions.md) for Git access, caches, and session reload instructions.
+
+When another profile requires the Codex network proxy, use the authenticated inspection relay.
+A Unix socket allow entry alone does not enable socket forwarding on this Linux version.
+The [Codex permission reference](https://learn.chatgpt.com/docs/permissions) describes the proxy controls.
 
 The development supervisor starts `scripts/noema-inspection-relay.mjs` beside the existing Unix relay.
 It binds only `127.0.0.1` and forwards to the fixed private socket.
@@ -28,7 +33,7 @@ The relay removes its credential during normal shutdown.
 When `HTTP_PROXY` or `http_proxy` is set, `routeBrowserInspection` uses this relay through the Codex proxy.
 The helper loads the credential internally. It never passes that credential to the browser or the Noema backend.
 Do not print the credential file or copy its values into commands, screenshots, logs, or conversation context.
-The existing `127.0.0.1` domain permission permits this route without disabling the sandbox or domain checks.
+A profile with domain filtering must allow `127.0.0.1` for this route.
 
 Run an inspection script inside the actual profile:
 
@@ -40,7 +45,7 @@ The profile check passed HTTP access, a GraphQL query, mutation denial, and WebS
 The relay unit checks use `node --test scripts/noema-inspection-relay.test.mjs`.
 They cover denied access, HTTP/WebSocket forwarding, ordinary-data preservation, credential protection, and shutdown.
 
-Outside the Codex sandbox, check direct socket availability:
+With `noema-build`, check direct socket availability:
 
 ```sh
 curl --unix-socket /tmp/noema-codex/graphql.sock http://localhost/auth/status
