@@ -91,3 +91,22 @@ These observations prevent a full content-quality pass.
 Broad Go tests and vet pass with all four repair commits' code changes.
 The final pending-review correction is included in this document's commit.
 No production build or test changes followed those successful checks.
+
+## Remaining setup checks
+
+Turn `turn:fbc6a5766f01e3d64c0a2f722398b50e` retrieved all seven IDs in batches of three, three, and one.
+The fixture recorded `page-2` and `page-3` requests under account A.
+The assistant preserved weekday-only dates without adding calendar dates.
+It correctly identified missing attachment IDs in the approved message operation.
+
+The trace exposed duplicate `maxResults` arguments from caller input and configured pagination.
+The request encoder now uses the configured page size only when the caller supplies none.
+Its regression check verifies both explicit and default page sizes. Broad Go tests and vet pass.
+
+Fixture v2 corrects multipart text placement and caps each page at three records.
+Its two protocol checks pass; the public process still reports v1.
+See [the pinned fixture contract](gmail-fixture-contract.md).
+
+The attachment revision turn `turn:b30caf3e06f08b3b4f88244f4d1ea13f` was cancelled during the development rebuild.
+Stored turn state confirms cancellation. Its proposal did not pass validation.
+The revision template returned stored operations instead of proposal-shaped operations, which needs correction.

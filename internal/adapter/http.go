@@ -111,7 +111,7 @@ func encodeRequest(definition Definition, operation CompiledOperation, raw json.
 	if strings.ContainsAny(path, "{}") {
 		return encodedRequest{}, nil, errors.New("adapter path is invalid")
 	}
-	if operation.Pagination.PageSize != nil {
+	if operation.Pagination.PageSize != nil && !query.Has(operation.Pagination.PageSize.RequestArgument) {
 		query.Add(operation.Pagination.PageSize.RequestArgument, strconv.Itoa(operation.Pagination.PageSize.Value))
 	}
 	if cursor != "" {

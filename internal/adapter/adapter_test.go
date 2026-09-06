@@ -255,6 +255,25 @@ func TestRequestEncodingKeepsReviewedOriginAndTypedValues(t *testing.T) {
 	}
 }
 
+func TestPaginationKeepsOneRequestedPageSize(t *testing.T) {
+	definition, err := Compile(testManifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := definition.Operations[0]
+	operation.Arguments = append(operation.Arguments, Argument{Name: "maxResults", Location: "query", Type: "integer"})
+	operation.Pagination = Pagination{Kind: "response_token", ResponsePointer: "/nextPageToken", RequestArgument: "pageToken", PageSize: &PageSize{RequestArgument: "maxResults", Value: 8}}
+	for _, check := range []struct{ input, want string }{
+		{`{"id":"record","maxResults":3}`, "https://api.example.com/v1/items/record?maxResults=3"},
+		{`{"id":"record"}`, "https://api.example.com/v1/items/record?maxResults=8"},
+	} {
+		request, _, err := encodeRequest(definition, operation, json.RawMessage(check.input), "")
+		if err != nil || request.rawURL != check.want {
+			t.Fatalf("page request = %s, %v", request.rawURL, err)
+		}
+	}
+}
+
 func TestLuaResponseTransformAndPaginationAreBounded(t *testing.T) {
 	limit, closed := 16, false
 	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: `return function(response) local value = json.decode(response.body); return { name = value.value } end`},
