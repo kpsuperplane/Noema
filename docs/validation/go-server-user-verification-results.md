@@ -701,6 +701,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-11 | WEB-08 | A saved Obscura reference executes a button whose label and action changed after the snapshot. | Browser target validation | [Result](evidence/2026-09-06-changed-browser-target-results.json), [reproduction](evidence/2026-09-06-changed-browser-target-reproduction.patch) |
 | AUDIT-12 | WEB-09 | Hidden and password values appear in model and stored browser snapshots. Submission review excludes them correctly. | Browser snapshot privacy | [Result](evidence/2026-09-06-browser-form-review-results.json), [reproduction](evidence/2026-09-06-browser-form-review-reproduction.patch) |
 | AUDIT-13 | WEB-10 | A repeated browser effect becomes claimable after a human decline when a controlled reviewer permits it. | Browser decline enforcement | [Result](evidence/2026-09-06-browser-decline-results.json), [reproduction](evidence/2026-09-06-browser-decline-reproduction.patch) |
+| AUDIT-14 | NOTE-02, NOTE-12 | Pending Chat action approval produces no notification for an eligible registration. Preview checks cannot reach a payload. | Notification event coverage | [Result](evidence/2026-09-06-action-notification-results.json), [reproduction](evidence/2026-09-06-action-notification-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -1242,7 +1243,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | ART-08 | Pass | Same URL returns 401 before login, 200 after passkey login, and 401 after logout. Authorized responses use no-store. Live Artifact checks above. | — |
 | ART-09 | Pass | A 40 KiB binary retains exact bytes, filename, media type, length, and private caching across a verified server restart. Live Artifact checks above. | — |
 | NOTE-01 | Not run | Controlled setup pending. | Not run |
-| NOTE-02 | Partial | Final-answer preview and native Task attention routing pass at the queue boundary. Background delivery and device navigation remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
+| NOTE-02 | Fail · controlled queue | Final-answer and Task-attention queue checks pass. AUDIT-14: pending Chat action approval produces no notification. [Evidence](evidence/2026-09-06-action-notification-results.json). | Not run |
 | NOTE-03 | Partial | Two authenticated registrations pass selective suppression at the durable queue. The unfocused registration receives the exact preview and Chat target. Browser focus and device delivery remain pending. [Evidence](evidence/2026-09-06-notification-two-devices-results.json). | Not run |
 | NOTE-04 | Not run | Controlled setup pending. | Not run |
 | NOTE-05 | Partial | Web Push historical suppression and pending retry state survive SQLite/service restart. Delivered events do not replay. Native restart remains pending. [Evidence](evidence/2026-09-06-notification-restart-results.json). | — |
@@ -1252,7 +1253,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | NOTE-09 | Not run | Controlled setup pending. | Not run |
 | NOTE-10 | Partial | Three Tasks share one activity. Completion reduces active counts and ends that activity without duplicate deliveries. Physical display remains pending. [Evidence](evidence/2026-09-06-live-aggregate-results.json). | Not run |
 | NOTE-11 | Partial | Dismissal and disable survive restart without delivery. Registration creates one fresh activity; another restart does not duplicate start. Device reconciliation remains pending. [Evidence](evidence/2026-09-06-live-restart-results.json). | Not run |
-| NOTE-12 | Not run | Controlled setup pending. | — |
+| NOTE-12 | Blocked by AUDIT-14 | No approval notification payload exists. Preview exclusion assertions remain unexecuted. [Evidence](evidence/2026-09-06-action-notification-results.json). | — |
 | CLIENT-01 | Not run | Controlled setup pending. | Not run |
 | CLIENT-02 | Not run | Controlled setup pending. | — |
 | CLIENT-03 | Not run | Controlled setup pending. | — |

@@ -1,0 +1,22 @@
+{
+  "revision": "3ba185e83016a4384b108d6dc477dd263fc98510",
+  "cases": [
+    "NOTE-02",
+    "NOTE-12"
+  ],
+  "defect": "AUDIT-14",
+  "result": "Fail: pending Chat action approval has no notification",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/notification -run '^TestAuditPendingActionQueuesSafeNotification$' -v",
+  "output": "=== RUN   TestAuditPendingActionQueuesSafeNotification\n    audit_action_preview_test.go:69: pending human action approval produced no notification\n--- FAIL: TestAuditPendingActionQueuesSafeNotification (0.22s)\nFAIL\nFAIL\tgithub.com/kpsuperplane/noema/internal/notification\t0.236s\nFAIL\n",
+  "observed": [
+    "An authenticated unfocused registration is eligible for Web Push.",
+    "A real Chat tool call creates an action in awaiting_approval state.",
+    "Primary and Task notification reconciliation produce no delivery."
+  ],
+  "sourceFinding": "Primary reconciliation handles final-answer items. Task reconciliation handles Task gates and completion. Neither handles pending action approval.",
+  "scope": "Real Chat/action store and notification reconciliation. Synthetic action data. No live product mutations.",
+  "unexecuted": [
+    "Notification payload exclusions and navigation assertions cannot run because no delivery exists."
+  ],
+  "normalSuiteChanges": false
+}
