@@ -32,5 +32,5 @@ Group fixes by cause and subsystem. Recheck affected cases after each fix batch.
 | AUDIT-23 · Fixed | RUN-11 | The Task worker waited for one active run before claiming another queued Task. | Task worker concurrency | [Result](evidence/2026-09-06-remaining-boundary-coverage-results.json) |
 | AUDIT-24 · Fixed | HOME-08 | The audit harness could not model an unwritable home while running as root. | Storage fault fixture | [Result](evidence/2026-09-06-home-unwritable-results.json) |
 | AUDIT-25 · Contract gap | INFO-02 | The current tool catalogs have no external disclosure action with selected private fields and a recipient. | Disclosure capability or case contract | — |
-| AUDIT-26 · Open | PWA-05 | The browser harness has no controlled two-release service-worker deployment. | PWA release fixture | — |
+| AUDIT-26 · Fixed | PWA-05 | The browser harness lacked a controlled two-release service-worker deployment. | PWA release fixture | [Result](evidence/2026-09-06-pwa-two-release-results.json), [driver](evidence/2026-09-06-pwa-two-release.mjs) |
 | AUDIT-27 · Open | JOURNEY-07 | The Go audit has no populated fake monitor source and model fixture for changed-versus-unchanged recurrence output. | Monitor fixture | — |

@@ -1,0 +1,98 @@
+{
+  "instance": "https://noema.kevinpei.com:44443",
+  "setup": "Local HTTPS fixture serves release A, switches to generated release B, and proxies authenticated API requests to noema.kevinpei.com.",
+  "results": [
+    {
+      "check": "Release A worker active",
+      "passed": true
+    },
+    {
+      "check": "Release A cache",
+      "before": {
+        "active": "https://noema.kevinpei.com:44443/assets/sw.js",
+        "caches": [
+          "noema-pwa-a-precache-v2-https://noema.kevinpei.com:44443/"
+        ],
+        "controller": "https://noema.kevinpei.com:44443/assets/sw.js"
+      }
+    },
+    {
+      "check": "Draft saved before release switch",
+      "passed": true
+    },
+    {
+      "check": "Release B installed before safe activation",
+      "prepared": {
+        "waiting": "installed",
+        "installing": null,
+        "caches": [
+          "noema-pwa-a-precache-v2-https://noema.kevinpei.com:44443/",
+          "noema-pwa-b-precache-v2-https://noema.kevinpei.com:44443/"
+        ]
+      }
+    },
+    {
+      "check": "Release B update activates and preserves draft",
+      "passed": true,
+      "after": {
+        "active": "https://noema.kevinpei.com:44443/assets/sw.js",
+        "waiting": null,
+        "caches": [
+          "noema-pwa-b-precache-v2-https://noema.kevinpei.com:44443/"
+        ],
+        "controller": "https://noema.kevinpei.com:44443/assets/sw.js"
+      },
+      "reloads": 3
+    }
+  ],
+  "releaseCounts": {
+    "a": 192,
+    "b": 191
+  },
+  "proxied": [
+    {
+      "path": "/auth/status",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    },
+    {
+      "path": "/auth/status",
+      "status": 200
+    },
+    {
+      "path": "/auth/status",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "command": "NOEMA_PWA_RELEASE=pwa-a NOEMA_DEV_ASSET_DIR=/var/tmp/noema-pwa-release-a bun run build:web-assets && NOEMA_PWA_RELEASE=pwa-b NOEMA_DEV_ASSET_DIR=/var/tmp/noema-pwa-release-b bun run build:web-assets && bun docs/validation/evidence/2026-09-06-pwa-two-release.mjs",
+  "fixture": "Two stable generated releases. Release A serves first. The fixture switches to release B, then the app activates the waiting worker through its online update path.",
+  "scope": "Controlled Chromium PWA update. Physical installation and public edge cache behavior remain outside this check."
+}
