@@ -1,0 +1,11 @@
+import {startPlanningSources} from '/root/noema/docs/validation/evidence/2026-09-06-planning-sources.mjs';
+import {chromium} from '/tmp/bunx-0-playwright@latest/node_modules/playwright/index.mjs';
+import {writeFile} from 'node:fs/promises';
+const fake=await startPlanningSources();
+const b=await chromium.launch({headless:true,args:['--no-sandbox','--host-resolver-rules=MAP noema.kevinpei.com 127.0.0.1']});
+const c=await b.newContext({serviceWorkers:'block',storageState:'/var/tmp/noema-audit-credentials/browser-session.json'}),p=await c.newPage();await p.goto('https://noema.kevinpei.com');
+const response=await p.evaluate(async url=>await(await fetch('/graphql',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query:'mutation($input:CreateMcpServerInput!){createMcpServer(input:$input){setupStatus discoveredToolCount setupError server{mcpServerId connectionRevision policyRevision displayName healthStatus toolCount pendingToolCount}}}',variables:{input:{displayName:'Migration audit planning sources',transportKind:'streamable_http',http:{url}}}})})).json(),fake.url);
+await writeFile('/var/tmp/noema-suite-run-20260905/planning-source-live.json',JSON.stringify({url:fake.url,response},null,2)+'\n');console.log(JSON.stringify(response));
+await b.close();
+process.on('SIGTERM',async()=>{await fake.close();process.exit(0);});
+setInterval(async()=>{await writeFile('/var/tmp/noema-suite-run-20260905/planning-source-receipts.json',JSON.stringify(fake.receipts,null,2)+'\n');},1000);
