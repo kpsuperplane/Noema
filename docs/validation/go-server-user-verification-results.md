@@ -1299,6 +1299,6 @@ A human variant remains pending even when its controlled counterpart passes.
 | JOURNEY-07 | Not run | Controlled setup pending. | — |
 | JOURNEY-08 | Not applicable | Physical device journey. | Not run |
 | JOURNEY-09 | Not run | Controlled setup pending. | Not run |
-| JOURNEY-10 | Not run | Controlled setup pending. | — |
+| JOURNEY-10 | Pass · live web | The prior correction remains stored with its exact human source. A later three-step plan reads current Memory, uses French for its note template, and includes conditional stargazing. Spanish does not control the plan. Only Memory search and read tools run; saved Memory stays unchanged. [Plan evidence](evidence/2026-09-06-memory-later-plan-results.json), [driver](evidence/2026-09-06-memory-later-plan.mjs), [reused correction](evidence/2026-09-05-memory-correction-results.json). | — |
 | JOURNEY-11 | Not run | Controlled setup pending. | — |
 | JOURNEY-12 | Not run | Controlled setup pending. | — |
