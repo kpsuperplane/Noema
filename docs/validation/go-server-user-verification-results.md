@@ -675,6 +675,24 @@ The [validation record](evidence/2026-09-06-role-runtime-restart-validation.json
 RUN-08 passes for controlled runtime and database restart with synthetic provider responses.
 This does not test abrupt process termination or every external model service.
 
+## Remaining audit workflow
+
+Run the remaining cases before applying batches of fixes.
+Record failures with evidence, reproduction steps, and affected cases.
+Group fixes by shared cause and subsystem. Recheck failed cases after each fix batch.
+Run broad validation once for each completed code batch.
+Interrupt the first pass only when a defect blocks further testing or risks test data.
+Keep human-only cases marked for later testing.
+
+### Deferred defects
+
+| Defect | Cases | Observed failure | Fix batch | Evidence |
+| --- | --- | --- | --- | --- |
+| AUDIT-01 | RUN-04 | Review-limit recovery records Executor but queues Reviewer after Retry. | Task gates | [Result](evidence/2026-09-06-review-recovery-results.json), [reproduction patch](evidence/2026-09-06-review-recovery-reproduction.patch) |
+
+The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
+Clarification and approval journeys remain pending.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -748,7 +766,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
-| RUN-04 | Not run | Controlled setup pending. | — |
+| RUN-04 | Fail · controlled store | AUDIT-01: review-limit Retry queues Reviewer instead of the recorded Executor. Clarification and approval journeys remain pending. | — |
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
