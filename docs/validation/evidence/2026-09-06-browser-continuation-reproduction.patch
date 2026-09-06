@@ -1,0 +1,100 @@
+diff --git a/internal/runtime/audit_browser_continuation_test.go b/internal/runtime/audit_browser_continuation_test.go
+new file mode 100644
+index 00000000..55e4c4f3
+--- /dev/null
++++ b/internal/runtime/audit_browser_continuation_test.go
+@@ -0,0 +1,94 @@
++package runtime
++
++import (
++	"encoding/json"
++	"github.com/kpsuperplane/noema/internal/provider"
++	"github.com/kpsuperplane/noema/internal/webtool"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestAuditTaskContinuationKeepsBrowserSession(t *testing.T) {
++	chat, db, _ := chatFixture(t)
++	ctx := t.Context()
++	accountService, err := provider.NewAccountService(chat.home.Name(), db)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := accountService.Initialize(ctx, time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	web, err := webtool.New(db, accountService, nil, nil, chat.home.Name(), "/var/lib/noema-dev/system/tools/obscura/v0.2.2/linux-amd64/obscura", 2, 1024)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer web.Close()
++	checkpoint := "# Browser continuation\nActive browser session: example.com is open. Inspect the existing session before opening another URL.\n"
++	task := createQueuedRuntimeTask(t, db, chat.home, checkpoint)
++	_, planner, found, err := db.ClaimTaskExecution(ctx, time.Now())
++	if err != nil || !found {
++		t.Fatal("planner claim failed")
++	}
++	if err := db.StartTaskExecution(ctx, planner.ID, planner.Generation, time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	if err := db.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	task, run, found, err := db.ClaimTaskExecution(ctx, time.Now())
++	if err != nil || !found {
++		t.Fatal("executor claim failed")
++	}
++	if err := db.StartTaskExecution(ctx, run.ID, run.Generation, time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	owner := taskBrowserOwner(task.ID, run.Generation)
++	opened := web.ExecuteBrowser(ctx, owner, webtool.BrowseOpenName, json.RawMessage(`{"url":"https://example.com"}`), "audit:open")
++	if !opened.Success {
++		t.Fatal("browser open failed")
++	}
++	var first struct {
++		Snapshot struct {
++			Revision uint64 `json:"snapshot_revision"`
++		} `json:"snapshot"`
++	}
++	if err := json.Unmarshal(opened.Model, &first); err != nil {
++		t.Fatal(err)
++	}
++	execution := &TaskExecution{database: db, root: chat.home, web: web}
++	if err := execution.finishTaskTerminal(ctx, run, taskContinueExecution, json.RawMessage(`{}`)); err != nil {
++		t.Fatal(err)
++	}
++	task, next, found, err := db.ClaimTaskExecution(ctx, time.Now())
++	if err != nil || !found || next.ParentRunID != run.ID || next.Generation != run.Generation {
++		t.Fatal("continuation claim differs")
++	}
++	if err := db.StartTaskExecution(ctx, next.ID, next.Generation, time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	messages, _, err := execution.taskMessages(ctx, task, next)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var contextText string
++	for _, message := range messages {
++		contextText += message.Content
++	}
++	if !strings.Contains(contextText, checkpoint) {
++		t.Fatal("active browser checkpoint missing")
++	}
++	result := web.ExecuteBrowser(ctx, taskBrowserOwner(task.ID, next.Generation), webtool.BrowseSnapshotName, json.RawMessage(`{}`), "audit:resume-snapshot")
++	if !result.Success || !strings.Contains(string(result.Model), "Example Domain") {
++		t.Fatal("continuation lost active browser session")
++	}
++	var after struct {
++		Snapshot struct {
++			Revision uint64 `json:"snapshot_revision"`
++		} `json:"snapshot"`
++	}
++	if err := json.Unmarshal(result.Model, &after); err != nil || after.Snapshot.Revision <= first.Snapshot.Revision {
++		t.Fatal("snapshot revision did not advance")
++	}
++	t.Log("Continuation keeps Task generation, active browser session, and exact checkpoint; snapshot succeeds without reopening")
++}

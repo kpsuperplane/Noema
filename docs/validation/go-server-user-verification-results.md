@@ -1215,7 +1215,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-09 | Fail | Review destination, method, visible Unicode fields, and protected-control omission pass. AUDIT-12: snapshots expose hidden and password values. | [Evidence](evidence/2026-09-06-browser-form-review-results.json) |
 | WEB-10 | Fail | AUDIT-13: changed references allow an equivalent declined effect to become claimable in the same Task generation. Controlled reviewer; no dispatch. | [Evidence](evidence/2026-09-06-browser-decline-results.json) |
 | WEB-11 | Partial | Controlled main-document and lost-response errors remain uncertain. Read-only snapshot recovery passes. Full commit reconciliation remains pending. | — |
-| WEB-12 | Not run | Controlled setup pending. | — |
+| WEB-12 | Partial | Task continuation preserves the real browser session and exact active-session checkpoint. A snapshot succeeds without reopening. Model ordering and form/POST state remain pending. | [Evidence](evidence/2026-09-06-browser-continuation-results.json) |
 | WEB-13 | Partial | Review binds version, filename, and bytes before transmission. Generated upload data contains exact bytes. Destination receipt remains pending. | — |
 | WEB-14 | Partial | Unsupported upload returns retry_later without success. Supported route-switch recovery remains pending. | — |
 | WEB-15 | Partial | Six prohibited direct URL variants are rejected. Public Obscura browsing passes. Page-script attempt returns a CDP error without local requests. HTTP redirects and Kernel remain pending. | [Evidence](evidence/2026-09-06-browser-network-results.json) |
