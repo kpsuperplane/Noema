@@ -872,6 +872,16 @@ Browser next actions and complete pending-call resumption remain pending.
 Evidence: [results](evidence/2026-09-06-mcp-oauth-results.json) and [reproduction patch](evidence/2026-09-06-mcp-oauth-reproduction.patch).
 The temporary failing test is outside the normal suite. No production code changed.
 
+## ACP coverage review
+
+Existing controlled tests cover probe metadata, authentication, configuration changes, deletion, and references that prevent deletion.
+Runtime checks cover exact ACP approval, result files, Reviewer completion, and terminal replay without relaunch.
+Process checks cover cancellation, blocked prompt writes, protocol failures, and uncertainty after approval.
+These checks passed in the recorded Go validation at `56f3a134`.
+Tracked Go source, tests, and module dependencies remain unchanged. The successful results are reused; no new execution is claimed.
+All four ACP cases remain partial. Their remaining checks are listed in the evidence map.
+Evidence: [coverage map](evidence/2026-09-06-acp-coverage-review.json) and [reused validation](evidence/2026-09-06-role-runtime-restart-validation.json).
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1026,10 +1036,10 @@ A human variant remains pending even when its controlled counterpart passes.
 | MCP-05 | Partial | Disconnect rejects the call and marks the service unhealthy. Invalid results and browser errors remain pending. | — |
 | MCP-06 | Pass · controlled Linux process | Disabled setup starts no process. Enabled setup calls the configured service with explicit environment bindings and protected credentials. Parent-only values stay absent. | — |
 | MCP-07 | Partial | Deletion survives service reconstruction and rejects saved calls. The other service remains usable. Pending authentication removal remains pending. | — |
-| ACP-01 | Not run | Controlled setup pending. | Not run |
-| ACP-02 | Not run | Controlled setup pending. | — |
-| ACP-03 | Not run | Controlled setup pending. | — |
-| ACP-04 | Not run | Controlled setup pending. | — |
+| ACP-01 | Partial | Controlled probe, authentication, configuration revisions, and deletion pass existing checks. Browser settings and post-deletion Task assignment remain pending. | Not run |
+| ACP-02 | Partial | Controlled runtime covers ACP approval, result files, review, and saved terminal replay. Published artifacts and equivalent file boundaries remain pending. | — |
+| ACP-03 | Partial | Controlled process cancellation and uncertain protocol failure pass existing checks. Late output after Task cancellation remains pending. | — |
+| ACP-04 | Partial | Controlled protocol failures and saved terminal replay pass existing checks. Process-start failure and complete recovery retry remain pending. | — |
 | WEB-01 | Not run | Controlled setup pending. | — |
 | WEB-02 | Not run | Controlled setup pending. | — |
 | WEB-03 | Not run | Controlled setup pending. | — |

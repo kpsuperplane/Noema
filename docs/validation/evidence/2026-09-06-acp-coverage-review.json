@@ -1,0 +1,66 @@
+{
+  "reviewedRevision": "169ddfb2e41f2e2b65e57ea8f924ab2ce713b977",
+  "testedRevision": "56f3a1346595b6a0ca9ae59bfee104d9cc1a6476",
+  "reusedEvidence": "2026-09-06-role-runtime-restart-validation.json",
+  "reusedChecks": [
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": "ok  \tgithub.com/kpsuperplane/noema/cmd/noema\t(cached)\nok  \tgithub.com/kpsuperplane/noema/cmd/noema-dev\t(cached)\n?   \tgithub.com/kpsuperplane/noema/cmd/noema-model-evals\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/acp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/adapter\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/artifact\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/auth\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/childenv\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/diagnostics\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/documents\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/graphql\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/graphql/model\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/home\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/localmodel\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/mcp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/memory\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/modeleval\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/netpolicy\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/project\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/provider\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/publicpage\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t21.469s\nok  \tgithub.com/kpsuperplane/noema/internal/schedule\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/script\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/store\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/web\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t(cached)\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": ""
+    }
+  ],
+  "reuseBasis": "Tracked Go source, tests, go.mod, and go.sum are unchanged from the tested revision. No new execution is claimed. Current source assertions were inspected against each ACP case.",
+  "cases": {
+    "ACP-01": {
+      "tests": [
+        "TestProbePreservesAdvertisedMetadata",
+        "TestAuthenticateUsesNamedMethodAndCallerContext",
+        "TestAcpAgentConfigurationRevisionAndAuthentication",
+        "TestTaskPlacementSnapshotsAcpRevisionAndGuardsDeletion"
+      ],
+      "proved": "Probe metadata, authentication success and cancellation, configuration revisions, deletion, and references preventing deletion.",
+      "pending": "Browser settings and Task assignment after deletion."
+    },
+    "ACP-02": {
+      "tests": [
+        "TestACPTaskExecutionUsesRootedWorkspaceExactPermissionAndClientEvidence",
+        "TestACPTaskExecutionReplaysRecordedTerminalWithoutRelaunch"
+      ],
+      "proved": "Planner, ACP execution, exact approval, result file, Reviewer completion, and saved terminal replay without relaunch.",
+      "pending": "Published artifacts and equivalent file access boundaries."
+    },
+    "ACP-03": {
+      "tests": [
+        "TestExecutorCancellationStopsDescendants",
+        "TestExecutorCancellationStopsBlockedPromptWrite",
+        "TestExecutorProtocolFailureAfterApprovalIsUncertain",
+        "TestACPTaskRunCapturesLaunchAndRecovers"
+      ],
+      "proved": "Cancellation stops process descendants and blocked prompt writes. Protocol failure after approval remains uncertain. Recovery preserves launch and session evidence.",
+      "pending": "Late ACP output after cancellation of a real Task generation."
+    },
+    "ACP-04": {
+      "tests": [
+        "TestProbeRejectsProtocolFailuresAndTimesOut",
+        "TestExecutorProtocolFailureAfterApprovalIsUncertain",
+        "TestACPTaskExecutionReplaysRecordedTerminalWithoutRelaunch"
+      ],
+      "proved": "Protocol and timeout diagnostics, uncertainty after approval, and replay of a saved terminal result.",
+      "pending": "Process-start failure with preserved Task progress and a complete recovery retry."
+    }
+  },
+  "sha256": {
+    "internal/acp/client_test.go": "40a87508c6ef3932720b2b8edb87a5b5031b31e94f115e4001dd46e68eba8c94",
+    "internal/acp/executor_test.go": "d6dbc63a2f6226f20bffeb47dfa9c819b7184fd851e57bd94dcaccbd69f3d68f",
+    "internal/runtime/task_execution_test.go": "28a9f6ed8a2d55037509280484a77beef35eff40e304ea7b2cbad205ada2d9ac",
+    "internal/store/agents_test.go": "13c4254b58952b3d70678195f9902cfc4caa0079169fcfd51f37605acef65973",
+    "internal/store/task_execution_test.go": "22759221b2482a4e2dbd4964116bf87c521e9355b5476a3191fb378daad4149d",
+    "internal/store/task_schedules_test.go": "09a5cd65603818f9b152fcf2709c663e91a4424aee2651e29fee4523918f6978"
+  },
+  "normalSuiteChanges": false
+}
