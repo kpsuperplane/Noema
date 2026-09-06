@@ -1,0 +1,25 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "conversationId": "conversation:9a8adece587d96886957b3a308c694b1",
+  "promptItemId": "item:f5787985ff25a9e7a90e521662251bda",
+  "promptTurnId": "turn:df528ecf4ecab352216635048e504dd4",
+  "selectionTurnId": "turn:330228dae7d6a7f43592ba83a9be3aad",
+  "selectedOptions": [
+    {
+      "id": "beta",
+      "label": "Audit Beta"
+    }
+  ],
+  "assistantItemId": "item:78a5d72704a97ce974d1ffccd4fb9760",
+  "assistantTurnId": "turn:330228dae7d6a7f43592ba83a9be3aad",
+  "assistantText": "AUDIT_CHOICE_SELECTED Audit Beta",
+  "normalMessageSelection": true,
+  "composerEnabledAfterSelection": true,
+  "staleSubmissionErrors": [
+    "multiple-choice prompt already has a selection"
+  ],
+  "staleSubmissionRejected": true,
+  "promptUnchanged": true,
+  "selectionUnchanged": true,
+  "result": "pass"
+}
