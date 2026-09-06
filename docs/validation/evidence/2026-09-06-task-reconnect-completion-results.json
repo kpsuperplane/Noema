@@ -1,0 +1,666 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "clients": [
+    {
+      "width": 1440,
+      "events": [
+        {
+          "phase": "initial",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "initial",
+          "type": "ack"
+        },
+        {
+          "phase": "initial",
+          "type": "taskEvent",
+          "kind": "task.queued"
+        },
+        {
+          "phase": "initial",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "initial",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "initial",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "initial",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "reconnected",
+          "type": "ack"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "task.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "task.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        }
+      ],
+      "completedHeaderVisible": true,
+      "exactResultVisible": true
+    },
+    {
+      "width": 390,
+      "events": [
+        {
+          "phase": "initial",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "initial",
+          "type": "ack"
+        },
+        {
+          "phase": "initial",
+          "type": "taskEvent",
+          "kind": "task.queued"
+        },
+        {
+          "phase": "initial",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "initial",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "initial",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "initial",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "offline",
+          "type": "close"
+        },
+        {
+          "phase": "reconnected",
+          "type": "ack"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.queued"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.started"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "run.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "task.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskDetail",
+          "status": 200
+        },
+        {
+          "phase": "reconnected",
+          "type": "taskEvent",
+          "kind": "task.completed"
+        },
+        {
+          "phase": "reconnected",
+          "type": "query",
+          "operation": "TasksTaskRunItems",
+          "status": 200
+        }
+      ],
+      "completedHeaderVisible": true,
+      "exactResultVisible": true
+    }
+  ],
+  "scope": "Live synthetic Task; same-hostname origin access.",
+  "taskId": "task:bdd6806069bde215fb73e252b3b98e13",
+  "beforeGap": {
+    "taskId": "task:bdd6806069bde215fb73e252b3b98e13",
+    "revision": 3,
+    "generation": 1,
+    "stage": {
+      "key": "doing"
+    },
+    "resultDocument": null,
+    "runs": [
+      {
+        "runId": "run:ffb25886d60079fc7338adfeb51bd44a",
+        "kind": "PLANNER",
+        "status": "RUNNING"
+      }
+    ]
+  },
+  "duringGap": {
+    "taskId": "task:bdd6806069bde215fb73e252b3b98e13",
+    "revision": 5,
+    "generation": 1,
+    "stage": {
+      "key": "doing"
+    },
+    "resultDocument": null,
+    "runs": [
+      {
+        "runId": "run:a14fde7f9607ee661bf547b4ffea3773",
+        "kind": "EXECUTOR",
+        "status": "RUNNING"
+      },
+      {
+        "runId": "run:ffb25886d60079fc7338adfeb51bd44a",
+        "kind": "PLANNER",
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  "completed": {
+    "taskId": "task:bdd6806069bde215fb73e252b3b98e13",
+    "revision": 8,
+    "generation": 1,
+    "stage": {
+      "key": "done"
+    },
+    "resultDocument": "323",
+    "runs": [
+      {
+        "runId": "run:3087adb9d4a5d4e6652305d6a9411ea2",
+        "kind": "REVIEWER",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:a14fde7f9607ee661bf547b4ffea3773",
+        "kind": "EXECUTOR",
+        "status": "COMPLETED"
+      },
+      {
+        "runId": "run:ffb25886d60079fc7338adfeb51bd44a",
+        "kind": "PLANNER",
+        "status": "COMPLETED"
+      }
+    ]
+  }
+}
