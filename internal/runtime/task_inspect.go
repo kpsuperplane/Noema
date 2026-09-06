@@ -748,7 +748,7 @@ func (c *Chat) persistChatToolRound(
 		return payload, success, false, nil
 	}
 	if webtool.IsBrowserTool(call.Name) {
-		result, approval, err := c.prepareChatBrowser(request.conversation, turn, callItem, assignment, providerRound, call.Name, call.Payload)
+		result, approval, err := c.prepareChatBrowser(request.conversation, turn, callItem, assignment, providerRound, generation.ID, call.Name, call.Payload)
 		if err != nil {
 			return nil, false, false, err
 		}

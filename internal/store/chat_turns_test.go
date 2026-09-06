@@ -429,6 +429,38 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	}
 }
 
+func TestConversationContinuationAcceptsInitialToolRound(t *testing.T) {
+	database := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 5, 0, 0, 0, time.UTC)
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Open the page", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trigger, err := database.CompleteConversationTurn(ctx, turn, "The page is ready.", "", nil, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	continuation, err := database.BeginConversationContinuation(ctx, conversation.ID, trigger.ID, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.StartConversationToolRound(ctx, continuation, ConversationToolRound{
+		Provider: "openrouter",
+		Call: ConversationToolCallInput{
+			ProviderRound: 0, OutputIndex: 0, ProviderCallID: "continuation-call",
+			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:one"}`),
+		},
+	}, now.Add(3*time.Second))
+	if err != nil || len(items) != 1 || items[0].Kind != ConversationToolCall {
+		t.Fatalf("continuation tool round = %#v, %v", items, err)
+	}
+}
+
 func TestConversationMultipleChoiceSelectionIsAtomicAndOrdered(t *testing.T) {
 	database := openTestStore(t)
 	ctx := context.Background()

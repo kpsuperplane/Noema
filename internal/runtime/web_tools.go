@@ -24,7 +24,7 @@ func browserBehavior(name string) store.ActionBehavior {
 }
 
 func (c *Chat) prepareChatBrowser(conversation store.Conversation, turn store.ConversationTurn,
-	call store.ConversationItem, assignment store.ModelAssignment, providerRound int, name string, arguments json.RawMessage,
+	call store.ConversationItem, assignment store.ModelAssignment, providerRound int, responseID string, name string, arguments json.RawMessage,
 ) (webtool.BrowserResult, *store.ConversationItem, error) {
 	if c.web == nil {
 		return webtool.BrowserResult{Stored: toolFailure("unavailable", "browser is unavailable"), Model: toolFailure("unavailable", "browser is unavailable")}, nil, nil
@@ -45,6 +45,7 @@ func (c *Chat) prepareChatBrowser(conversation store.Conversation, turn store.Co
 	contextValue := map[string]any{"origin": "primary_conversation", "conversation_id": conversation.ID,
 		"execution_decision": "llm_review", "browser_authority": authority,
 		"browser_review_context": c.web.BrowserActionContext(owner, name, arguments),
+		"provider_response_id":   responseID,
 		"provider_selection":     modelAssignmentValue(assignment), "provider_round": providerRound,
 		"destination": map[string]any{"service_id": "public_web", "connection_id": authority.ProviderAccountID, "revision": authority.CredentialRevision}}
 	action, err := c.database.CreateActionRequest(c.ctx, store.NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID,

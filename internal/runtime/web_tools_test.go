@@ -120,9 +120,13 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, browserApproval, err := browserChat.prepareChatBrowser(browserConversation, browserTurn, browserItems[len(browserItems)-1], browserAssignment, 0, webtool.BrowseOpenName, json.RawMessage(`{"url":"https://1.1.1.1/browser"}`))
+	result, browserApproval, err := browserChat.prepareChatBrowser(browserConversation, browserTurn, browserItems[len(browserItems)-1], browserAssignment, 0, "response-browser", webtool.BrowseOpenName, json.RawMessage(`{"url":"https://1.1.1.1/browser"}`))
 	if err != nil || result.Success || browserApproval == nil {
 		t.Fatalf("reviewed browser = %#v, %#v, %v", result, browserApproval, err)
+	}
+	pending, err := browserDatabase.PendingActionRequests(context.Background(), "human:local", &browserConversation.ID, nil, 10)
+	if err != nil || len(pending) != 1 || textValue(pending[0].AuthorizationContext["provider_response_id"]) != "response-browser" {
+		t.Fatalf("browser continuation context = %#v, %v", pending, err)
 	}
 }
 

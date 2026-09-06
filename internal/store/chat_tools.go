@@ -300,7 +300,7 @@ func (s *Store) StartConversationToolRound(
 	}
 	defer func() { _ = tx.Rollback() }()
 	expectedStatus := "running"
-	if round.Call.ProviderRound == 0 {
+	if round.Call.ProviderRound == 0 && turn.Status == "input_received" {
 		expectedStatus = "input_received"
 	}
 	if err := requireActiveTurnTx(ctx, tx, turn, expectedStatus); err != nil {
