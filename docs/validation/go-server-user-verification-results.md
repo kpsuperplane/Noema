@@ -903,6 +903,16 @@ Successful process probing, authentication, and Task assignment after deletion r
 Evidence: [results](evidence/2026-09-06-acp-settings-results.json) and [browser driver](evidence/2026-09-06-acp-settings.mjs).
 Screenshots were inspected at both widths. Their hashes are recorded; image files remain outside the repository.
 
+## Live ACP authentication with a controlled process
+
+The browser successfully probed a controlled Python ACP service at desktop and phone widths.
+Each authentication action invoked the selected `audit` method once.
+After reload, the authentication action was no longer required.
+Both synthetic entries were edited and deleted through the browser.
+Task assignment after deletion remains pending. Real external authentication remains a later human check.
+Evidence: [results](evidence/2026-09-06-acp-auth-settings-results.json), [browser driver](evidence/2026-09-06-acp-auth-settings.mjs), and [controlled process](evidence/2026-09-06-acp-browser-service.py).
+Screenshots were inspected at both widths. Their hashes are recorded; image files remain outside the repository.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1057,7 +1067,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | MCP-05 | Partial | Disconnect rejects the call and marks the service unhealthy. Invalid results and browser errors remain pending. | — |
 | MCP-06 | Pass · controlled Linux process | Disabled setup starts no process. Enabled setup calls the configured service with explicit environment bindings and protected credentials. Parent-only values stay absent. | — |
 | MCP-07 | Partial | Deletion survives service reconstruction and rejects saved calls. The other service remains usable. Pending authentication removal remains pending. | — |
-| ACP-01 | Partial | Browser create, failed probe, edit, and delete pass at desktop and phone widths. Successful browser probe, authentication, and post-deletion Task assignment remain pending. | Not run |
+| ACP-01 | Partial | Browser create, successful and failed probes, named authentication, edit, and delete pass at both widths. Post-deletion Task assignment remains pending. | Not run |
 | ACP-02 | Partial | Controlled runtime covers ACP approval, result files, review, and saved terminal replay. Published artifacts and equivalent file boundaries remain pending. | — |
 | ACP-03 | Partial | Controlled process cancellation and uncertain protocol failure pass existing checks. Late output after Task cancellation remains pending. | — |
 | ACP-04 | Partial | Process-start failure preserves exact files. Corrected Retry completes through approval and review without duplicate runs. Browser diagnostic review remains pending. | — |
