@@ -541,7 +541,7 @@ These checks verify existing interactions. They do not request a UI redesign.
 | --- | --- | --- | --- | --- |
 | UX-01 | P1 | Auto + human later | Complete login, capture, editing, and approval with keyboard or native accessibility controls. | Controls have names, focus remains visible, and essential actions remain reachable. |
 | UX-02 | P1 | Auto + human later | Use narrow screens, large text, and the on-screen keyboard. | The current decision, document, and primary action remain readable and reachable. |
-| UX-03 | P1 | Auto | Open Sources for text containing Unicode and repeated source URLs. | Markers attach to the correct claims. Source numbering, titles, and exact URLs agree across clients. |
+| UX-03 | P1 | Auto + human later | Open Sources for text containing Unicode and repeated source URLs. | Markers attach to the correct claims. Source numbering, titles, and exact URLs agree across clients. |
 | UX-04 | P2 | Auto | Fail a favicon or one local content renderer. | Missing decoration or one failed item does not hide the surrounding conversation or Task controls. |
 | UX-05 | P1 | Auto | Trigger query, save, authentication, and provider failures separately. | Each failure shows its correct recovery action without losing the current user draft. |
 | DIAG-01 | P2 | Auto | Inspect a completed, failed, waiting, and cancelled Task run. | Tool outcomes, timing, usage, and errors explain that run. Terminal work does not remain falsely active. |

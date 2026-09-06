@@ -1281,8 +1281,8 @@ A human variant remains pending even when its controlled counterpart passes.
 | DESKTOP-03 | Not run | Controlled setup pending. | Not run |
 | UX-01 | Not run | Controlled setup pending. | Not run |
 | UX-02 | Not run | Controlled setup pending. | Not run |
-| UX-03 | Not run | Controlled setup pending. | — |
-| UX-04 | Not run | Controlled setup pending. | — |
+| UX-03 | Partial · web passes | Unicode claims have markers 1, 2, and 1. Sources preserves exact titles and URLs and combines repeated URLs. Desktop and phone web checks pass. [Evidence](evidence/2026-09-06-citations-favicons-results.json). | Not run · native source rendering |
+| UX-04 | Pass · controlled web favicon failure | HTTP 503 favicons do not hide claims, Sources, or the composer. The dialog remains usable and no page exception occurs at either width. Local renderer failure remains untested. [Evidence](evidence/2026-09-06-citations-favicons-results.json). | — |
 | UX-05 | Not run | Controlled setup pending. | — |
 | DIAG-01 | Not run | Controlled setup pending. | — |
 | DIAG-02 | Not run | Controlled setup pending. | — |
