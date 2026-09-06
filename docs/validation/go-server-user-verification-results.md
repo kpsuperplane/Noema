@@ -55,14 +55,14 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | CHAT-13 | Not run | Controlled setup pending. | — |
 | CHAT-14 | Not run | Controlled setup pending. | — |
 | CHAT-15 | Pass · live Codex/Chromium | A repeated title creates a distinct requested Task with fresh tool evidence. The older Task remains unchanged. The new Chat reference opens the new document. | — |
-| MODEL-01 | Not run | Controlled setup pending. | — |
-| MODEL-02 | Not run | Controlled setup pending. | — |
-| MODEL-03 | Not run | Controlled setup pending. | — |
-| MODEL-04 | Not run | Controlled setup pending. | — |
-| MODEL-05 | Not run | Controlled setup pending. | — |
-| MODEL-06 | Not run | Controlled setup pending. | — |
-| MODEL-07 | Not run | Controlled setup pending. | — |
-| MODEL-08 | Not run | Controlled setup pending. | — |
+| MODEL-01 | Partial · controlled providers | Text, tool generation, Chat continuation, and Task role lineage pass against controlled OpenAI, OpenRouter, and Codex HTTP fixtures. Rendered and real-provider variants remain pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
+| MODEL-02 | Partial · controlled providers | Hosted search metadata and citation normalization pass. Rendered Sources and real-provider variants remain pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
+| MODEL-03 | Partial · controlled providers | WebSocket reuse, fallback replay, ordered events, and duplicate-call prevention pass. Full browser recovery remains pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
+| MODEL-04 | Not run | Controlled request-setting setup pending. | — |
+| MODEL-05 | Partial · controlled providers | Continuation identity and hosted URL credential rules pass. Expired live provider state remains pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
+| MODEL-06 | Partial · controlled providers | Invalid tool input is rejected before dispatch. Rendered error handling remains pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
+| MODEL-07 | Partial · controlled providers | Rate limits, bounded errors, fragmented streams, and cancellation pass. Full rendered recovery remains pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
+| MODEL-08 | Partial · controlled providers | Usage and provider diagnostics stay associated with generated responses. Full rendered diagnostics remain pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
 | TASK-01 | Pass · live Chromium | Chat captures one exact Inbox request in the existing Project. The Task keeps its conversation source and opens from Chat. [Evidence](evidence/2026-09-05-chat-task-project-results.json). | — |
 | TASK-02 | Pass · live Linux/Chromium | Add to Inbox preserves the exact request without execution. Run Now starts a Task that completes through review. | — |
 | TASK-03 | Pass · live Chromium | Browser title and exact Unicode Markdown edits survive reload. Renaming preserves the allocated directory. [Evidence](evidence/2026-09-05-task-edit-browser-results.json). | — |
