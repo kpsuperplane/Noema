@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/home"
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -161,6 +162,153 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 	current := waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
 	if current.State != store.TaskCompleted || remoteCalls != 1 {
 		t.Fatalf("completed Task = %#v; remote calls = %d", current, remoteCalls)
+	}
+}
+
+func TestTaskExecutionCreatesReviewedPrivatePacketAndUploadsOnce(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	packet := "# Private Invoice Packet\n\n- Reference: INVOICE-AUDIT-42\n- Client: Café 日本語 Workshop\n- Quantity: 3\n- Unit price: EUR 125.50\n- Handling: EUR 40.00\n- Calculated amount: EUR 416.50\n- Tax: Not supplied; not included.\n"
+	remoteCalls := 0
+	var received struct {
+		Destination       string `json:"destination"`
+		ArtifactID        string `json:"artifact_id"`
+		ArtifactVersionID string `json:"artifact_version_id"`
+		Packet            string `json:"packet_markdown"`
+	}
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "packet-sink", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "audit_upload_packet", Description: "Upload one approved packet",
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: false, IdempotentHint: false, OpenWorldHint: runtimeBool(true)}},
+		func(_ context.Context, _ *mcpsdk.CallToolRequest, input struct {
+			Destination       string `json:"destination"`
+			ArtifactID        string `json:"artifact_id"`
+			ArtifactVersionID string `json:"artifact_version_id"`
+			Packet            string `json:"packet_markdown"`
+		}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			remoteCalls++
+			received.Destination, received.ArtifactID, received.ArtifactVersionID, received.Packet = input.Destination, input.ArtifactID, input.ArtifactVersionID, input.Packet
+			return nil, map[string]any{"receipt": "packet-receipt-42"}, nil
+		})
+	httpServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(httpServer.Close)
+	paths, err := home.FromRoot(chat.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpService, err := noemamcp.NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mcpService.Close)
+	setup, err := mcpService.Create(t.Context(), noemamcp.SetupInput{DisplayName: "Packet sink", TransportKind: "streamable_http",
+		URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("MCP setup = %#v, %v", setup, err)
+	}
+	if _, err = mcpService.SaveConnectionPolicy(t.Context(), setup.Server.ID, setup.Server.ConnectionRevision, 0,
+		"allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := mcpService.Bindings(t.Context())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("MCP bindings = %#v, %v", bindings, err)
+	}
+	task := createQueuedRuntimeTask(t, database, chat.home, "Prepare the private invoice packet and upload it once.\n\n"+packet)
+	roleCalls := map[string]int{}
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		role := taskRequestRole(request.Tools)
+		roleCalls[role]++
+		switch role {
+		case "planner":
+			if roleCalls[role] == 1 {
+				return taskToolResult("packet-plan", taskFilesWrite, map[string]any{"path": "TASK.md", "content": packet}), nil
+			}
+			return taskToolResult("packet-plan-finish", taskFinishPlanning, map[string]any{"complexity": "simple"}), nil
+		case "executor":
+			switch roleCalls[role] {
+			case 1:
+				return taskToolResult("packet-create", artifactCreateLocalName, map[string]any{
+					"title": "Private Invoice Packet", "artifact_kind": "document", "filename": "invoice-packet.md",
+					"media_type": "text/markdown", "versions": []any{map[string]any{"content": packet}},
+				}), nil
+			case 2:
+				var artifactID, versionID string
+				for _, messages := range [][]provider.GenerationMessage{request.Messages, request.ReplayMessages} {
+					for _, message := range messages {
+						if message.ToolResult == nil || message.ToolResult.Name != artifactCreateLocalName || !message.ToolResult.Success {
+							continue
+						}
+						var value map[string]any
+						if json.Unmarshal(message.ToolResult.Payload, &value) == nil {
+							artifactID, _ = value["artifact_id"].(string)
+							versionID, _ = value["artifact_version_id"].(string)
+						}
+					}
+				}
+				if artifactID == "" || versionID == "" {
+					t.Fatalf("artifact result missing from Task replay: messages=%#v replay=%#v", request.Messages, request.ReplayMessages)
+				}
+				payload, _ := json.Marshal(map[string]any{"destination": "audit-packet-box", "artifact_id": artifactID,
+					"artifact_version_id": versionID, "packet_markdown": packet})
+				return provider.GenerationResult{ID: "response:packet-upload", Model: "model-a", FinishReason: "tool_calls",
+					ToolCalls: []provider.GenerationToolCall{{ProviderItemID: "item:packet-upload", ProviderCallID: "call:packet-upload",
+						ProviderName: bindings[0].Name, Name: bindings[0].Name, Payload: payload}}}, nil
+			case 3:
+				return taskToolResult("packet-progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": packet + "\nStatus: uploaded once.\n"}), nil
+			case 4:
+				return taskToolResult("packet-result", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "Uploaded packet-receipt-42 once.\n"}), nil
+			case 5:
+				return taskToolResult("packet-finish", taskFinishExecution, map[string]any{}), nil
+			}
+		default:
+			return taskToolResult("packet-review", taskFinishReview, map[string]any{"decision": "approve", "feedback": "The packet and receipt are exact.", "notify_human": false}), nil
+		}
+		return provider.GenerationResult{Text: "unexpected"}, nil
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home, mcpService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	var action store.ActionRequest
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		actions, loadErr := database.PendingActionRequests(t.Context(), "human:local", nil, &task.ID, 10)
+		if loadErr == nil && len(actions) == 1 {
+			action = actions[0]
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if action.TaskID != task.ID || remoteCalls != 0 || action.State != store.ActionAwaitingApproval {
+		t.Fatalf("pending packet action = %#v; remote calls = %d", action, remoteCalls)
+	}
+	if action.Arguments["destination"] != "audit-packet-box" || action.Arguments["packet_markdown"] != packet ||
+		action.Arguments["artifact_id"] == "" || action.Arguments["artifact_version_id"] == "" {
+		t.Fatalf("review packet arguments = %#v", action.Arguments)
+	}
+	approved, err := runtime.ResolveActionRequest(t.Context(), action.ID, action.Revision, "human:local", "approve")
+	if err != nil || approved.State != store.ActionSucceeded {
+		t.Fatalf("approved packet action = %#v, %v", approved, err)
+	}
+	completed := waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+	if completed.State != store.TaskCompleted || remoteCalls != 1 {
+		t.Fatalf("completed packet Task = %#v; remote calls = %d", completed, remoteCalls)
+	}
+	if received.Destination != "audit-packet-box" || received.ArtifactID != action.Arguments["artifact_id"] ||
+		received.ArtifactVersionID != action.Arguments["artifact_version_id"] || received.Packet != packet {
+		t.Fatalf("upload receipt = %#v; action = %#v", received, action.Arguments)
+	}
+	artifacts, err := database.ArtifactsForOwner(t.Context(), store.ArtifactOwner{ObjectType: "task", ObjectID: task.ID}, 10)
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("Task artifacts = %#v, %v", artifacts, err)
+	}
+	artifactService, err := artifact.New(chat.home, database, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := artifactService.Read(artifacts[0].Artifact, artifacts[0].CurrentVersion)
+	if err != nil || string(file.Bytes) != packet {
+		t.Fatalf("published packet = %q, %v", file.Bytes, err)
 	}
 }
 

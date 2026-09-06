@@ -94,6 +94,115 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 	}
 }
 
+func TestPrimaryChatDisclosesOnlySelectedPrivateFieldsAfterReview(t *testing.T) {
+	original, database, conversation := chatFixture(t)
+	if err := original.Close(); err != nil {
+		t.Fatal(err)
+	}
+	source := "Reference: INVOICE-42\nClient: Café 日本語 Workshop\nAccount: SECRET-ACCOUNT\nInternal note: do not disclose\nTotal: EUR 416.50\n"
+	if err := original.home.WriteFile("private-source.md", []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var remoteCalls int
+	var received struct {
+		Recipient string   `json:"recipient"`
+		Selected  []string `json:"selected_fields"`
+		Packet    string   `json:"packet"`
+	}
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "disclosure", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "disclose_selected_fields", Description: "Send selected fields to an approved recipient",
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: false, IdempotentHint: false, OpenWorldHint: runtimeBool(true)}},
+		func(_ context.Context, _ *mcpsdk.CallToolRequest, input struct {
+			Recipient string   `json:"recipient"`
+			Selected  []string `json:"selected_fields"`
+			Packet    string   `json:"packet"`
+		}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			remoteCalls++
+			received.Recipient, received.Selected, received.Packet = input.Recipient, input.Selected, input.Packet
+			return nil, map[string]any{"receipt": "disclosure-receipt-42"}, nil
+		})
+	httpServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	defer httpServer.Close()
+	paths, err := home.FromRoot(original.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpService, err := noemamcp.NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mcpService.Close)
+	setup, err := mcpService.Create(context.Background(), noemamcp.SetupInput{DisplayName: "Disclosure",
+		TransportKind: "streamable_http", URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("setup = %#v, %v", setup, err)
+	}
+	if _, err := mcpService.SaveConnectionPolicy(context.Background(), setup.Server.ID,
+		setup.Server.ConnectionRevision, 0, "allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := mcpService.Bindings(context.Background())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("bindings = %#v, %v", bindings, err)
+	}
+	requests := 0
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		requests++
+		if requests == 1 {
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "disclose-1",
+				ProviderName: bindings[0].Name, Name: bindings[0].Name, Payload: json.RawMessage(`{"recipient":"audit-recipient@example.test","selected_fields":["reference","client","total"],"packet":"INVOICE-42; Café 日本語 Workshop; EUR 416.50"}`)}}}, nil
+		}
+		return provider.GenerationResult{Text: "The approved disclosure was sent."}, nil
+	})
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory, mcpService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = chat.Close() })
+	events, err := chat.Subscribe(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID,
+		Input: "Disclose only the approved invoice reference, client, and total."}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if remoteCalls != 0 {
+		t.Fatalf("remote calls before review = %d", remoteCalls)
+	}
+	pending, err := database.PendingActionRequests(context.Background(), "human:local", &conversation.ID, nil, 10)
+	if err != nil || len(pending) != 1 || pending[0].State != store.ActionAwaitingApproval {
+		t.Fatalf("pending disclosure = %#v, %v", pending, err)
+	}
+	action := pending[0]
+	if action.Arguments["recipient"] != "audit-recipient@example.test" || action.Arguments["packet"] != "INVOICE-42; Café 日本語 Workshop; EUR 416.50" {
+		t.Fatalf("review arguments = %#v", action.Arguments)
+	}
+	selected, ok := action.Arguments["selected_fields"].([]any)
+	if !ok || len(selected) != 3 || selected[0] != "reference" || selected[1] != "client" || selected[2] != "total" {
+		t.Fatalf("review fields = %#v", action.Arguments["selected_fields"])
+	}
+	encoded, _ := json.Marshal(action.Arguments)
+	if strings.Contains(string(encoded), "SECRET-ACCOUNT") || strings.Contains(string(encoded), "Internal note") {
+		t.Fatalf("unselected private fields entered review: %s", encoded)
+	}
+	resolved, err := chat.ResolveActionRequest(context.Background(), action.ID, action.Revision, "human:local", "approve")
+	if err != nil || resolved.State != store.ActionSucceeded {
+		t.Fatalf("resolved disclosure = %#v, %v", resolved, err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if remoteCalls != 1 || received.Recipient != "audit-recipient@example.test" ||
+		strings.Join(received.Selected, ",") != "reference,client,total" || received.Packet != "INVOICE-42; Café 日本語 Workshop; EUR 416.50" {
+		t.Fatalf("remote disclosure = calls %d, %#v", remoteCalls, received)
+	}
+	unchanged, err := original.home.ReadFile("private-source.md")
+	if err != nil || string(unchanged) != source {
+		t.Fatalf("source changed = %q, %v", unchanged, err)
+	}
+}
+
 func runtimeBool(value bool) *bool { return &value }
 
 func TestMCPAuthenticationInterruptionIsDurableAndSkippable(t *testing.T) {
