@@ -148,6 +148,8 @@ When no API exists, it shows one route to Chat instead of empty data sections.
 Client import occurs only when a structured API connection action requires it.
 
 Chat presents one pending human intervention at a time with queue navigation.
+Chat omits approval-request activity notices. The tool marker shows the activity,
+and the pending intervention card provides approval controls.
 Tasks and dedicated queue surfaces can show the complete pending list.
 Browser submission approvals show the declared destination, method, and visible
 submitted values before the decision controls. Hidden, password, and file values remain omitted.
