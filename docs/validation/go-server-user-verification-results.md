@@ -697,6 +697,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-07 | API-07 | Expanded OAuth consent grants the new scope, but the existing connection does not expose the new operation. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-expansion-results.json), [reproduction patch](evidence/2026-09-06-oauth-expansion-reproduction.patch) |
 | AUDIT-08 | MCP-02 | Renewal omits the existing registered OAuth client and fails when dynamic registration is unavailable. | OAuth lifecycle | [Result](evidence/2026-09-06-mcp-oauth-results.json), [reproduction patch](evidence/2026-09-06-mcp-oauth-reproduction.patch) |
 | AUDIT-09 | FILE-01 | Executor catalog and dispatcher omit the documented file.download capability. | Task capabilities | [Result](evidence/2026-09-06-task-download-results.json), [reproduction patch](evidence/2026-09-06-task-download-reproduction.patch) |
+| AUDIT-10 | WEB-04 | Chat continuation fails after approved browser open, before the remaining lifecycle steps. Cause is unresolved. | Browser/Chat continuation | [Live result](evidence/2026-09-06-live-browser-results.json), [driver](evidence/2026-09-06-live-browser.mjs) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -1024,6 +1025,15 @@ The successful checks are reused. No new execution is claimed.
 Real-provider lifecycle, public installation, failed-switch preservation, changed-page targeting, destination receipt, and complete reconciliation remain pending.
 Evidence: [coverage map](evidence/2026-09-06-browser-coverage-review.json) and [reused validation](evidence/2026-09-06-role-runtime-restart-validation.json).
 
+## Live browser continuation failure
+
+On noema.kevinpei.com, Chat requested approval for the public browser open.
+After approval, the open call completed. The resumed Chat turn then reported “The provider request failed.”
+The requested link, history, and close steps did not complete.
+The diagnostic records `runtime.chat_failed` without provider error detail. The cause remains unresolved under AUDIT-10.
+The browser observation process stopped after the application reported terminal failure. No second audit request was submitted.
+Evidence: [live result](evidence/2026-09-06-live-browser-results.json) and [driver](evidence/2026-09-06-live-browser.mjs).
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1185,7 +1195,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-01 | Pass · live Chat and public provider | Live configured Chat completes search and cites IANA guidance while labeling inference. Public-provider checks verify usable titled HTTPS results. | — |
 | WEB-02 | Pass · live Chat and public provider | Live Chat fetches example.com and accurately summarizes source facts with a link. Direct-fetch checks preserve expected source identity and content. | — |
 | WEB-03 | Not run | Controlled setup pending. | — |
-| WEB-04 | Partial | Controlled worker and Kernel lifecycle checks cover open, snapshot, interaction, wait failure, history rejection, and close. Real-provider paths remain pending. | — |
+| WEB-04 | Fail · live Chat | Browser open completes after approval. AUDIT-10: provider continuation fails before link, history, and close steps. Controlled lifecycle evidence remains available. | — |
 | WEB-05 | Partial | Controlled verified archive installs and reuses with one download. Public release installation and offline reuse remain pending. | — |
 | WEB-06 | Partial | Controlled failed first open permits a switch. Failed-switch preservation and model-driven recovery remain pending. | — |
 | WEB-07 | Not run | Controlled setup pending. | — |
