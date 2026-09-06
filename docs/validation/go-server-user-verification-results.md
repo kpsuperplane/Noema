@@ -1205,7 +1205,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-02 | Pass · live Chat and public provider | Live Chat fetches example.com and accurately summarizes source facts with a link. Direct-fetch checks preserve expected source identity and content. | — |
 | WEB-03 | Not run | Controlled setup pending. | — |
 | WEB-04 | Fail · live Chat | Browser open completes after approval. AUDIT-10: provider continuation fails before link, history, and close steps. Controlled lifecycle evidence remains available. | — |
-| WEB-05 | Partial | Controlled verified archive installs and reuses with one download. Public release installation and offline reuse remain pending. | — |
+| WEB-05 | Partial | Public v0.2.2 installation passes on Linux. Executable reuse makes zero download requests and preserves exact bytes. Product provider selection and browser operation remain pending. | [Evidence](evidence/2026-09-06-public-obscura-install-results.json) |
 | WEB-06 | Partial | Controlled failed first open permits a switch. Failed switching preserves the usable session and route; retry succeeds after provider recovery. Model-driven recovery remains pending. | — |
 | WEB-07 | Not run | Controlled setup pending. | — |
 | WEB-08 | Partial | Old snapshot revision and replacement-session authority are rejected. Real changed-page targeting remains pending. | — |
