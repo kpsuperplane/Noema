@@ -650,6 +650,18 @@ The [validation record](evidence/2026-09-06-reopen-review-validation.json) recor
 The fix adds seven production lines and 69 test lines. Normal correction review remains covered by the focused checks.
 Together with the cancelled-Task test, RUN-06 passes for controlled runtime reopening.
 
+## Role recovery after SQLite reopening
+
+The controlled store check closes and reopens SQLite during each Task role.
+Planner, Executor, and Reviewer recover the same run and generation.
+Saved replay items retain exact Unicode content, identifiers, and sequence.
+Usage counts and parent links remain intact.
+Repeated recovery creates no extra run, and a second worker cannot claim the leased run.
+Each recovered role can finish. The Task reaches Done with three completed runs.
+
+The [validation record](evidence/2026-09-06-role-restart-validation.json) records the test and checks.
+This checks persistent store recovery. Runtime restart coverage for all three roles remains pending.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -727,7 +739,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
-| RUN-08 | Not run | Controlled setup pending. | — |
+| RUN-08 | Partial | SQLite reopening preserves all three roles, exact replay, usage, and run identity. Completion succeeds without duplicate runs. Runtime restart coverage remains pending. | — |
 | RUN-09 | Not run | Controlled setup pending. | — |
 | RUN-10 | Not run | Controlled setup pending. | — |
 | RUN-11 | Not run | Controlled setup pending. | — |

@@ -1,0 +1,47 @@
+{
+  "case": "RUN-08",
+  "result": "Partial",
+  "baseRevision": "4a0fb79e059e74f6811f5eeeb7eeb96a568cad47",
+  "test": "TestTaskRolesRecoverSavedProgressAfterStoreReopen",
+  "scope": "Persistent store recovery for all three roles. Runtime restart coverage remains pending.",
+  "assertions": [
+    "Each role resumes the same run and generation after SQLite closes and reopens.",
+    "Exact replay items, Unicode content, usage, and parent links survive.",
+    "Repeated recovery creates no extra run. A second worker cannot claim the leased run.",
+    "Each resumed role finishes. The Task reaches Done with three completed runs."
+  ],
+  "checks": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/store -run ^TestTaskRolesRecoverSavedProgressAfterStoreReopen$",
+      "result": "pass",
+      "output": "ok  \tgithub.com/kpsuperplane/noema/internal/store\t0.302s\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": "ok  \tgithub.com/kpsuperplane/noema/cmd/noema\t(cached)\nok  \tgithub.com/kpsuperplane/noema/cmd/noema-dev\t(cached)\n?   \tgithub.com/kpsuperplane/noema/cmd/noema-model-evals\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/acp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/adapter\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/artifact\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/auth\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/childenv\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/diagnostics\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/documents\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/graphql\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/graphql/model\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/home\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/localmodel\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/mcp\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/memory\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/modeleval\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/netpolicy\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/project\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/provider\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/publicpage\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/schedule\t(cached)\n?   \tgithub.com/kpsuperplane/noema/internal/script\t[no test files]\nok  \tgithub.com/kpsuperplane/noema/internal/store\t46.907s\nok  \tgithub.com/kpsuperplane/noema/internal/web\t(cached)\nok  \tgithub.com/kpsuperplane/noema/internal/webtool\t(cached)\n"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "pass",
+      "output": ""
+    }
+  ],
+  "sha256": {
+    "internal/store/task_execution_test.go": "22759221b2482a4e2dbd4964116bf87c521e9355b5476a3191fb378daad4149d"
+  },
+  "netLines": {
+    "production": 0,
+    "tests": 104,
+    "generated": 0,
+    "inclusive": 104
+  },
+  "goTotals": {
+    "production": 78358,
+    "tests": 26334,
+    "generated": 79612,
+    "inclusive": 184304,
+    "productionRatio": 0.45035921604689927,
+    "inclusiveRatio": 0.7684904889378132
+  }
+}

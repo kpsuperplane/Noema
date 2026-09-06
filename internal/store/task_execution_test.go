@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -399,5 +400,108 @@ func TestCancelTaskRejectsLateRunChangesAcrossStates(t *testing.T) {
 				t.Fatalf("final runs = %#v, %v", runs, err)
 			}
 		})
+	}
+}
+
+func TestTaskRolesRecoverSavedProgressAfterStoreReopen(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "restart.sqlite3")
+	database, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if database != nil {
+			_ = database.Close()
+		}
+	})
+	account := createReadyModelAccount(t, database)
+	if _, err = database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 6, 2, 0, 0, 0, time.UTC)
+	id, _ := NewTaskID()
+	if _, err = database.CreateTask(ctx, id, "Restart café 日本語", "correlation:restart", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.QueueTask(ctx, id, 1, 1, testTaskLifecycleCommand("queue_task", "restart"), now); err != nil {
+		t.Fatal(err)
+	}
+	for index, role := range []string{"planner", "executor", "reviewer"} {
+		_, run, found, err := database.ClaimTaskExecution(ctx, now)
+		if err != nil || !found || run.Kind != role {
+			t.Fatalf("%s claim = %#v, %t, %v", role, run, found, err)
+		}
+		if err = database.StartTaskExecution(ctx, run.ID, run.Generation, now); err != nil {
+			t.Fatal(err)
+		}
+		if err = database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{
+			{Kind: "context_checkpoint", Status: "completed", Round: 1, Payload: map[string]any{"summary": role + " saved café 日本語"}},
+			{Kind: "assistant_output", Status: "completed", Round: 1, Content: role + " visible café 日本語"},
+		}, TaskRunUsage{ProviderCalls: 1, InputTokens: 21, OutputTokens: 8}, now); err != nil {
+			t.Fatal(err)
+		}
+		saved, err := database.TaskRunReplayItems(ctx, run.ID)
+		if err != nil || len(saved) != 2 {
+			t.Fatalf("%s saved replay = %#v, %v", role, saved, err)
+		}
+		if err = database.Close(); err != nil {
+			t.Fatal(err)
+		}
+		database, err = Open(ctx, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A second recovery call must not create another run.
+		for range 2 {
+			if err = database.RecoverTaskExecutions(ctx, now.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		current, recovered, found, err := database.ClaimTaskExecution(ctx, now.Add(2*time.Second))
+		if err != nil || !found || recovered.ID != run.ID || recovered.Kind != role || recovered.Generation != run.Generation || current.CurrentRunID != run.ID {
+			t.Fatalf("%s recovered = %#v, %#v, %t, %v", role, current, recovered, found, err)
+		}
+		if recovered.ProviderCallCount != 1 || recovered.InputTokens != 21 || recovered.OutputTokens != 8 || recovered.ParentRunID != run.ParentRunID {
+			t.Fatalf("%s lost saved run fields: %#v", role, recovered)
+		}
+		replay, err := database.TaskRunReplayItems(ctx, run.ID)
+		if err != nil || !reflect.DeepEqual(replay, saved) {
+			t.Fatalf("%s changed replay = %#v, %v", role, replay, err)
+		}
+		runs, err := database.TaskRuns(ctx, id, 10)
+		if err != nil || len(runs) != index+1 {
+			t.Fatalf("%s duplicate runs = %#v, %v", role, runs, err)
+		}
+		if _, _, found, err = database.ClaimTaskExecution(ctx, now); err != nil || found {
+			t.Fatalf("%s duplicate claim = %t, %v", role, found, err)
+		}
+		if err = database.StartTaskExecution(ctx, recovered.ID, recovered.Generation, now); err != nil {
+			t.Fatal(err)
+		}
+		switch role {
+		case "planner":
+			err = database.FinishTaskPlanning(ctx, run.ID, run.Generation, "simple", now)
+		case "executor":
+			err = database.FinishTaskExecution(ctx, run.ID, run.Generation, false, now)
+		case "reviewer":
+			err = database.FinishTaskReview(ctx, run.ID, run.Generation, "approve", "Accepted café 日本語", false, now)
+		}
+		if err != nil {
+			t.Fatalf("%s could not finish: %v", role, err)
+		}
+	}
+	current, err := database.Task(ctx, id)
+	if err != nil || current.StageKey != "done" || current.CompletedAt == nil || current.CurrentRunID != "" {
+		t.Fatalf("Task remained active = %#v, %v", current, err)
+	}
+	runs, err := database.TaskRuns(ctx, id, 10)
+	if err != nil || len(runs) != 3 {
+		t.Fatalf("final runs = %#v, %v", runs, err)
+	}
+	for _, run := range runs {
+		if run.Status != "completed" {
+			t.Fatalf("run remained active = %#v", run)
+		}
 	}
 }
