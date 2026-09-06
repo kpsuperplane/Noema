@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	fixtureVersion = "2026-09-06-gmail-v1-notion-mcp-v1"
+	fixtureVersion = "2026-09-06-gmail-v1-notion-mcp-v2"
 	accountAToken  = "fixture-account-a"
 	accountBToken  = "fixture-account-b"
 )
@@ -195,9 +195,10 @@ func gmailMessageWithAttachment(id, thread string, labels []string, subject, sni
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(body))
 	attachmentID := "a-attachment-001"
 	part := gmailPayload{PartID: "1", MimeType: "text/plain", Filename: filename, Headers: []gmailHeader{{Name: "Content-Disposition", Value: "attachment; filename=\"" + filename + "\""}}, Body: gmailBody{Size: len(attachment), AttachmentID: attachmentID}}
+	textPart := gmailPayload{PartID: "0", MimeType: "text/plain", Headers: []gmailHeader{}, Body: gmailBody{Size: len(body), Data: encoded}}
 	return gmailMessage{ID: id, ThreadID: thread, LabelIDs: labels, Snippet: snippet, HistoryID: "history-" + id,
 		InternalDate: strconv.FormatInt(parseTime(timestamp).UnixMilli(), 10), SizeEstimate: len(body) + len(attachment),
-		Payload: gmailPayload{MimeType: "multipart/mixed", Headers: []gmailHeader{{Name: "From", Value: "travel@example.test"}, {Name: "To", Value: "alex@example.test"}, {Name: "Subject", Value: subject}, {Name: "Date", Value: timestamp}}, Body: gmailBody{Size: len(body), Data: encoded}, Parts: []gmailPayload{part}}}
+		Payload: gmailPayload{MimeType: "multipart/mixed", Headers: []gmailHeader{{Name: "From", Value: "travel@example.test"}, {Name: "To", Value: "alex@example.test"}, {Name: "Subject", Value: subject}, {Name: "Date", Value: timestamp}}, Body: gmailBody{Size: 0}, Parts: []gmailPayload{textPart, part}}}
 }
 
 func parseTime(value string) time.Time {
@@ -287,7 +288,7 @@ func (f *fixture) gmailList(w http.ResponseWriter, r *http.Request, account gmai
 	pageSize := 3
 	if raw := r.URL.Query().Get("maxResults"); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 && value <= 100 {
-			pageSize = value
+			pageSize = min(value, 3)
 		}
 	}
 	start := page * pageSize
