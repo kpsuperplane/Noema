@@ -54,7 +54,7 @@ func NewService(root *os.Root, database *store.Store) (*Service, error) {
 func (s *Service) SetupTools() []provider.GenerationTool {
 	return []provider.GenerationTool{
 		{Name: DefinitionTemplateTool, Description: "List current API definitions or return one concise revision base.", InputSchema: json.RawMessage(`{"type":"object","properties":{"semantic_digest":{"type":"string","maxLength":64},"operation_ids":{"type":"array","maxItems":32,"items":{"type":"string"}}},"additionalProperties":false}`)},
-		{Name: ProposeDefinitionTool, Description: "Propose one public HTTP API definition from official HTTPS documentation for human review.", InputSchema: json.RawMessage(`{"type":"object","properties":{"source_reference":{"type":"string","maxLength":4096},"new_definition":{"type":"object"},"base_semantic_digest":{"type":"string"},"revision":{"type":"object"},"upsert_operations":{"type":"array","maxItems":128,"items":{"type":"object"}},"remove_operation_ids":{"type":"array","maxItems":128,"items":{"type":"string"}}},"required":["source_reference"],"additionalProperties":false}`)},
+		{Name: ProposeDefinitionTool, Description: "Propose one public HTTP API definition from official HTTPS documentation for human review. Call adapter.definition_template first. Follow its examples for new definitions and revisions. Never include credentials or private user data.", InputSchema: json.RawMessage(`{"type":"object","properties":{"source_reference":{"type":"string","maxLength":4096},"new_definition":{"type":"object","additionalProperties":true},"base_semantic_digest":{"type":"string"},"revision":{"type":"object","additionalProperties":true},"upsert_operations":{"type":"array","maxItems":128,"items":{"type":"object","additionalProperties":true}},"remove_operation_ids":{"type":"array","maxItems":128,"items":{"type":"string"}}},"required":["source_reference"],"additionalProperties":false}`)},
 	}
 }
 
@@ -82,6 +82,79 @@ func (s *Service) ExecuteSetup(name string, raw json.RawMessage) (json.RawMessag
 	return payload, true
 }
 
+// definitionHelp restores the worked examples from the Rust setup tool.
+// The current parser and compiler remain the authority for proposal validation.
+func definitionHelp() map[string]any {
+	return map[string]any{
+		"instructions": []string{
+			"Replace example values with facts from the service's HTTPS documentation.",
+			"For a new API, submit new_definition and complete upsert_operations.",
+			"For a revision, load its exact semantic_digest and submit revision with operation changes.",
+			"Use a root HTTPS origin with path /. Put every API prefix in operation paths.",
+			"Declare read_only, idempotent, destructive, and open_world for each operation.",
+			"Use flat_object, object_list, or scalar_list responses when their fields cover the documented response.",
+			"Use custom for other responses. Bound each string with maxBytes and each array with maxItems.",
+			"Each string in a response recipe needs max_bytes. Use truncate only for display text, never identifiers.",
+			"Use language lua for transforms. Each source must return a function.",
+			"Credential field input accepts kind and fields only. Document input also requires media_type and normalize.",
+			"Request authentication reads input.credentials. Never include credential values in a proposal or Chat.",
+			"Reuse this template when correcting a proposal.",
+		},
+		"proposal_template": json.RawMessage(`{
+			"source_reference":"https://developers.example.com/api",
+			"new_definition":{
+				"definition_id":"example_service","adapter_id":"example_service","display_name":"Example Service",
+				"definition_revision":"v1","origin":"https://api.example.com/","authentication":{"kind":"none"}
+			},
+			"upsert_operations":[{
+				"operation_id":"list_items","description":"List a page of items.","method":"GET","path":"/v1/items",
+				"authorization":{"kind":"none"},"arguments":[],
+				"read_only":true,"idempotent":true,"destructive":false,"open_world":true,
+				"pagination":{"kind":"none"},
+				"response":{"kind":"object_list","source_pointer":"/items","output_name":"items","max_items":4,
+					"fields":[{"name":"id","source_pointer":"/id","type":"string","max_bytes":256,"required":true},
+						{"name":"name","source_pointer":"/name","type":"string","max_bytes":512,"truncate":true}]}
+			}]
+		}`),
+		"revision_template": json.RawMessage(`{
+			"source_reference":"https://developers.example.com/api","base_semantic_digest":"exact digest from revision_base",
+			"revision":{"definition_revision":"v2"},"upsert_operations":[],"remove_operation_ids":["removed_operation_id"]
+		}`),
+		"credential_authentication_example": json.RawMessage(`{
+			"kind":"credential",
+			"setup":{"credential_type":"API key","setup_url":"https://developers.example.com/api-keys",
+				"instructions":["Create an API key and enter it in the protected setup field."],
+				"input":{"kind":"fields","fields":[{"id":"api_key","label":"API key"}]}},
+			"request_auth":{"language":"lua","source":"return function(input) return {headers={['X-API-Key']=input.credentials.api_key}} end"}
+		}`),
+		"flat_object_response_example": json.RawMessage(`{
+			"kind":"flat_object","fields":[{"name":"id","source_pointer":"/id","type":"string","max_bytes":256,"required":true}]
+		}`),
+		"scalar_list_response_example": json.RawMessage(`{
+			"kind":"scalar_list","source_pointer":"/labels","output_name":"labels","max_items":16,
+			"item":{"type":"string","max_bytes":128}
+		}`),
+		"custom_response_example": json.RawMessage(`{
+			"kind":"custom","accepted_content_types":["application/json"],
+			"transform":{"language":"lua","source":"return function(response) local body=json.decode(response.body); return {id=body.id} end"},
+			"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":256}},"required":["id"],"additionalProperties":false}
+		}`),
+		"response_token_pagination_example": json.RawMessage(`{
+			"kind":"response_token","response_pointer":"/nextPageToken","request_argument":"pageToken",
+			"page_size":{"request_argument":"maxResults","value":8}
+		}`),
+		"argument_example": json.RawMessage(`{
+			"name":"query","description":"Search terms.","location":"query","type":"string","required":false
+		}`),
+		"enums": map[string][]string{
+			"authentication.kind":          {"none", "credential", "oauth2_authorization_code_pkce"},
+			"argument.location":            {"path", "query", "json_body"},
+			"argument.type":                {"string", "integer", "number", "boolean", "string_array"},
+			"operation.authorization.kind": {"none", "oauth_scopes"},
+		},
+	}
+}
+
 func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 	var input struct {
 		SemanticDigest string   `json:"semantic_digest,omitempty"`
@@ -104,7 +177,10 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		if len(values) > 100 {
 			values = values[:100]
 		}
-		return map[string]any{"definitions": values, "oauth_profiles": []map[string]string{{"profile_id": "google", "profile_digest": googleOAuthProfile().ProfileDigest}}, "instructions": []string{"Use new_definition for a new public API.", "Use the exact semantic_digest for a revision.", "Use authentication kind none, credential, or oauth2_authorization_code_pkce.", "Use language lua for all transforms."}}, nil
+		help := definitionHelp()
+		help["definitions"] = values
+		help["oauth_profiles"] = []map[string]string{{"profile_id": "google", "profile_digest": googleOAuthProfile().ProfileDigest}}
+		return help, nil
 	}
 	definitions, err := s.files.definitions()
 	if err != nil {

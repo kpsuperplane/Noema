@@ -13,6 +13,11 @@ First verify agent-generated Gmail API and Notion MCP connections, then retain a
 The earlier 100-case replay completion report is invalid: successful process exits concealed blocked outcomes.
 No new acceptance pass is established by that report.
 
+Live Gmail setup found missing proposal examples in Go and closed provider-facing proposal objects.
+The adapter template now restores Rust examples, adapted to Lua and checked by the Go compiler.
+Proposal objects explicitly allow fields so provider conversion preserves the complete proposal.
+Acceptance remains pending. Rust setup at `8a135658` also supplies more precise validation errors than Go.
+
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.
 The seven authorized Go cleanup items are recorded in `docs/plans/2026-09-05-go-cleanup.md`. ORMs are permitted.
 One migration registry drives fresh creation and upgrades at version 36. Task model availability replaces the removed enable setting.

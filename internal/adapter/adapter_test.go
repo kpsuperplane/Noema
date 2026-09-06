@@ -70,6 +70,39 @@ func TestCompileEnforcesClosedLuaContract(t *testing.T) {
 	}
 }
 
+func TestDefinitionHelpExamplesCompile(t *testing.T) {
+	help := definitionHelp()
+	var input proposalInput
+	if err := decodeExactJSON(help["proposal_template"].(json.RawMessage), &input); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := buildManifest(input, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateOperation(&manifest.Operations[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Compile(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := decodeExactJSON(help["credential_authentication_example"].(json.RawMessage), &manifest.Authentication); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"flat_object_response_example", "scalar_list_response_example", "custom_response_example"} {
+		t.Run(name, func(t *testing.T) {
+			response, err := proposalResponse(help[name].(json.RawMessage))
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest.Operations[0].Response = response
+			if _, err := Compile(manifest); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func testCredentialAuthentication() Authentication {
 	return Authentication{Kind: "credential", Setup: &CredentialSetup{CredentialType: "API key", SetupURL: "https://example.com/keys",
 		Instructions: []string{"Create one key."}, Input: CredentialInput{Kind: "fields", Fields: []CredentialField{{ID: "api_key", Label: "API key"}}}},
