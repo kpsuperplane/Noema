@@ -1,0 +1,59 @@
+diff --git a/internal/webtool/audit_browser_diagnostic_test.go b/internal/webtool/audit_browser_diagnostic_test.go
+new file mode 100644
+index 00000000..8b0fd79a
+--- /dev/null
++++ b/internal/webtool/audit_browser_diagnostic_test.go
+@@ -0,0 +1,53 @@
++package webtool
++
++import (
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestAuditBrowserAuthenticationDiagnosticKeepsSafeFields(t *testing.T) {
++	stub := &kernelTestServer{interaction: func(string) (int, map[string]any) {
++		return http.StatusUnauthorized, map[string]any{"error": "Remote echoed credential kernel-key"}
++	}}
++	remote := httptest.NewServer(http.HandlerFunc(stub.handler))
++	defer remote.Close()
++	fixture := newKernelTestFixture(t, remote.URL, false)
++	if err := fixture.database.SaveBrowserProviderRoute(t.Context(), []string{fixture.kernelID}, time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	result := fixture.service.ExecuteBrowser(t.Context(), "conversation:audit-diagnostic", BrowseOpenName, json.RawMessage(`{"url":"https://8.8.8.8/audit"}`), "audit:diagnostic")
++	if result.Success {
++		t.Fatal("rejected provider credential succeeded")
++	}
++	for _, raw := range []json.RawMessage{result.Model, result.Stored} {
++		if strings.Contains(string(raw), "kernel-key") || strings.Contains(string(raw), "Remote echoed credential") {
++			t.Fatal("credential-bearing provider response escaped")
++		}
++		var value struct {
++			Error      string            `json:"error"`
++			Message    string            `json:"message"`
++			Diagnostic browserDiagnostic `json:"diagnostic"`
++		}
++		if err := json.Unmarshal(raw, &value); err != nil {
++			t.Fatal(err)
++		}
++		if value.Error != "unauthenticated" || value.Diagnostic.Provider != "kernel" || value.Diagnostic.Stage != "playwright_execute" || value.Diagnostic.Detail != "credential rejected" {
++			t.Fatal("safe diagnostic fields changed")
++		}
++	}
++	stub.mu.Lock()
++	defer stub.mu.Unlock()
++	if len(stub.calls) < 2 {
++		t.Fatal("controlled provider was not called")
++	}
++	for _, call := range stub.calls {
++		if call.authorization != "Bearer kernel-key" {
++			t.Fatal("protected binding did not reach provider")
++		}
++	}
++	t.Logf("safe_result=%s", result.Model)
++}
