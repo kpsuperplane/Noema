@@ -1,0 +1,29 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "taskId": "task:9496e6cdadbccf4f2f4b0ebe64002590",
+  "scope": "Controlled HTTP failures. Same-hostname origin access. No server mutations. Successful save retry, authentication, and provider draft recovery are not covered.",
+  "evidence": [
+    {
+      "width": 1440,
+      "failedQueries": 1,
+      "queryErrorVisible": true,
+      "retryControls": [],
+      "browserReloadRecovers": true,
+      "failedSaves": 2,
+      "exactDraftPreserved": true,
+      "saveRemainsAvailable": true,
+      "serverUnchanged": true
+    },
+    {
+      "width": 390,
+      "failedQueries": 1,
+      "queryErrorVisible": true,
+      "retryControls": [],
+      "browserReloadRecovers": true,
+      "failedSaves": 2,
+      "exactDraftPreserved": true,
+      "saveRemainsAvailable": true,
+      "serverUnchanged": true
+    }
+  ]
+}
