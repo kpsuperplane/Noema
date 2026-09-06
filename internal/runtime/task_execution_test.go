@@ -1268,3 +1268,101 @@ func TestCancelledTaskKeepsLateMCPWriteUncertain(t *testing.T) {
 		t.Fatalf("remote calls = %d", remoteCalls.Load())
 	}
 }
+
+func TestTaskContinuationUsesCheckpointWithoutRepeatingWork(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	request := "# Continuation audit\n\nSave alpha once, then add café 日本語 to the result.\n"
+	checkpoint := request + "\nCompleted: alpha is saved in step-one.md.\nRemaining: read step-one.md and write RESULT.md with alpha and café 日本語. Do not repeat the completed write.\n"
+	task := createQueuedRuntimeTask(t, database, chat.home, request)
+	calls := map[string]int{}
+	generator := generatorFunc(func(_ context.Context, input provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		role := taskRequestRole(input.Tools)
+		calls[role]++
+		call := calls[role]
+		switch role {
+		case "planner":
+			if call == 1 {
+				return taskToolResult("plan", taskFilesWrite, map[string]any{"path": "TASK.md", "content": request}), nil
+			}
+			return taskToolResult("plan-finish", taskFinishPlanning, map[string]any{"complexity": "simple"}), nil
+		case "executor":
+			switch call {
+			case 1:
+				return taskToolResult("step-one", taskFilesWrite, map[string]any{"path": "step-one.md", "content": "alpha\n"}), nil
+			case 2:
+				return taskToolResult("checkpoint", taskFilesWrite, map[string]any{"path": "TASK.md", "content": checkpoint}), nil
+			case 3:
+				return taskToolResult("continue", taskContinueExecution, map[string]any{}), nil
+			case 4:
+				var data string
+				for _, message := range input.Messages {
+					if message.Role == "user" {
+						data += message.Content
+					}
+				}
+				if !strings.Contains(data, checkpoint) {
+					t.Errorf("continuation lost current checkpoint: %s", data)
+				}
+				runs, err := database.TaskRuns(t.Context(), task.ID, 10)
+				if err != nil || len(runs) != 3 || runs[0].Kind != "executor" || runs[1].Kind != "executor" || runs[0].ParentRunID != runs[1].ID || runs[1].Status != "completed" {
+					t.Errorf("continuation did not create one child run: %#v, %v", runs, err)
+				}
+				return taskToolResult("read-completed", taskFilesRead, map[string]any{"path": "step-one.md"}), nil
+			case 5:
+				var results string
+				for _, message := range input.Messages {
+					if message.ToolResult != nil {
+						results += string(message.ToolResult.Payload)
+					}
+				}
+				if !strings.Contains(results, "alpha") {
+					t.Errorf("continuation did not receive saved support file: %s", results)
+				}
+				return taskToolResult("complete-result", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "alpha\ncafé 日本語\n"}), nil
+			case 6:
+				return taskToolResult("complete-checkpoint", taskFilesWrite, map[string]any{"path": "TASK.md", "content": request + "\nCompleted both steps.\n"}), nil
+			default:
+				return taskToolResult("execution-finish", taskFinishExecution, map[string]any{}), nil
+			}
+		default:
+			return taskToolResult("review", taskFinishReview, map[string]any{"decision": "approve", "feedback": "Both steps are complete.", "notify_human": false}), nil
+		}
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+	runs, err := database.TaskRuns(t.Context(), task.ID, 10)
+	if err != nil || len(runs) != 4 {
+		t.Fatalf("final runs = %#v, %v", runs, err)
+	}
+	for i, kind := range []string{"reviewer", "executor", "executor", "planner"} {
+		if runs[i].Kind != kind || runs[i].Status != "completed" {
+			t.Fatalf("unexpected run = %#v", runs[i])
+		}
+	}
+	writes := 0
+	for _, run := range runs {
+		items, err := database.TaskRunReplayItems(t.Context(), run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range items {
+			args, _ := item.Payload["arguments"].(map[string]any)
+			if item.Kind == "tool_call" && item.Payload["name"] == taskFilesWrite && args["path"] == "step-one.md" {
+				writes++
+			}
+		}
+	}
+	if writes != 1 {
+		t.Fatalf("saved first-step write count = %d", writes)
+	}
+	for name, want := range map[string]string{"step-one.md": "alpha\n", "RESULT.md": "alpha\ncafé 日本語\n"} {
+		content, err := home.ReadTaskFile(chat.home, task.ID, name)
+		if err != nil || content != want {
+			t.Fatalf("%s = %q, %v", name, content, err)
+		}
+	}
+}

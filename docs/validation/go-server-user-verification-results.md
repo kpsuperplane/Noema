@@ -618,6 +618,17 @@ The check uses normal server responses and changes no Task data.
 The [results](evidence/2026-09-06-run-header-browser-results.json) retain both viewport checks.
 The [validation record](evidence/2026-09-06-run-header-validation.json) records passing generated-code checks, lint, and the production build.
 
+## Executor continuation from a saved checkpoint
+
+The [runtime test](../../internal/runtime/task_execution_test.go) uses production execution and SQLite with controlled model responses.
+The first Executor saves a support file and records completed work plus exact remaining steps in TASK.md.
+Continuation creates one child Executor. Its context contains the saved checkpoint, and its file read returns the earlier output.
+The saved transcript contains one write for the completed first step. Final output preserves both required values, including Unicode text.
+Planner, both Executors, and Reviewer complete. The first Executor is complete before its child starts.
+The [validation record](evidence/2026-09-06-continuation-validation.json) records passing focused tests, broad Go tests, and vet.
+The test adds 98 lines. No production change was required.
+RUN-07 passes for controlled runtime responses.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -694,7 +705,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-04 | Not run | Controlled setup pending. | — |
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Not run | Controlled setup pending. | — |
-| RUN-07 | Not run | Controlled setup pending. | — |
+| RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
 | RUN-08 | Not run | Controlled setup pending. | — |
 | RUN-09 | Not run | Controlled setup pending. | — |
 | RUN-10 | Not run | Controlled setup pending. | — |
