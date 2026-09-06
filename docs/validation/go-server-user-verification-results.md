@@ -22,7 +22,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | HOME-09 | Partial · Linux package | Two same-home package launches close their owned server and release locks. Active model-helper shutdown remains pending. [Evidence](evidence/2026-09-06-packaged-restart-coverage.json). | — |
 | HOME-10 | Human later | Native Windows runner is unavailable. | Run concurrent Task and Chat writes on Windows; reopen and check records and SQLite integrity. |
 | AUTH-01 | Pass · Chromium virtual passkey | Initial claim admits authenticated GraphQL. Product setup follow-through remains in SETUP. | Not run |
-| AUTH-02 | Not run | Controlled setup pending. | Not run |
+| AUTH-02 | Partial · controlled auth | Competing initial claims admit one winner. Full browser isolation remains pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | Not run |
 | AUTH-03 | Partial | Authenticated session survives server restart. Browser close and reopen remain pending. | Not run |
 | AUTH-04 | Partial | Final passkey removal returns 409. Additional-key management and recent-verification checks remain pending. | Not run |
 | AUTH-05 | Pass · Chromium virtual passkey | Recovery enrolls a new key. Reusing the consumed recovery code returns 401. | Not run |
@@ -30,16 +30,16 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | AUTH-07 | Partial | Logout denies reads and writes in another tab. Push cleanup and rendered Chat recovery remain pending. | Not run |
 | AUTH-08 | Partial | Unclaimed reads and signed-out GraphQL, artifacts, and WebSocket are denied. Unclaimed WebSocket remains pending. | — |
 | AUTH-09 | Pass · Chromium | Authenticated foreign-Origin requests return 403. Foreign-Host requests return 400. | — |
-| AUTH-10 | Not run | Controlled setup pending. | Not run |
+| AUTH-10 | Partial · controlled auth | Bounded, single-use, and cancelled ceremony state remains safe. Browser Back and Forward rendering remains pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | Not run |
 | SETUP-02 | Partial | Proposed client choices leave setup incomplete. One confirmation saves the complete selection. Browser draft controls remain pending. | — |
-| SETUP-03 | Not run | Controlled setup pending. | Not run |
-| SETUP-04 | Not run | Controlled setup pending. | Not run |
-| SETUP-05 | Not run | Controlled setup pending. | — |
-| SETUP-06 | Not run | Controlled setup pending. | — |
-| SETUP-07 | Not run | Controlled setup pending. | — |
-| SETUP-08 | Not run | Controlled setup pending. | — |
-| SETUP-09 | Not run | Controlled setup pending. | — |
-| SETUP-10 | Not run | Controlled setup pending. | — |
+| SETUP-03 | Partial · controlled provider | Cancelled, expired, superseded, and invalid callbacks do not claim a connected account. Rendered recovery remains pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | Not run |
+| SETUP-04 | Partial · controlled provider | Controlled OpenAI setup publishes eligible selections and opens the primary Chat. Real consent remains pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | Not run |
+| SETUP-05 | Partial · controlled stores | Credential replacement, clear, rollback, and built-in protection preserve current authority. Rendered controls remain pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | — |
+| SETUP-06 | Partial · controlled stores | Provider account labels and selected model assignments stay distinct. Full later-call account routing remains pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | — |
+| SETUP-07 | Partial · controlled stores | Chat and Task role assignments validate and persist under current policy. Full rendered and restart checks remain pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | — |
+| SETUP-08 | Partial · controlled stores | Secondary Memory, reviewer, audit, and summarizer assignments use the shared assignment authority. Operation-specific live calls remain pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | — |
+| SETUP-09 | Partial · controlled stores | Reasoning, profile, fast-mode, and local-model selection validation preserves setup recovery. Full rendered preference effects remain pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | — |
+| SETUP-10 | Partial · controlled providers | Expired provider setup does not publish stale model access. Active Chat and Task expiry remains pending. [Evidence](evidence/2026-09-06-auth-setup-coverage-results.json). | — |
 | CHAT-01 | Pass · live Codex/Chromium | One exact human message and one assistant response remain in order after reload. Other providers remain pending. | — |
 | CHAT-02 | Partial · live Codex | Eight tool calls have eight matching successful results. The final answer matches stored Project and Task state. Other providers remain pending. [Evidence](evidence/2026-09-05-chat-task-project-results.json). | — |
 | CHAT-03 | Pass · live Codex/Chromium | Dropped text and tool-result events recover after socket closure. Saved text and call/result pairs remain exact without duplicates after reload. | — |
