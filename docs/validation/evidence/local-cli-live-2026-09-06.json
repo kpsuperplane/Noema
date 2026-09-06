@@ -1,0 +1,48 @@
+{
+  "sourceRevision": "3251b51a",
+  "date": "2026-09-06",
+  "target": "existing Linux development instance",
+  "socket": "/tmp/noema-codex/graphql.sock",
+  "status": "passed",
+  "checks": [
+    "status",
+    "schema",
+    "GraphQL query",
+    "GraphQL mutation",
+    "file document and JSON variables",
+    "named operation",
+    "stdin document",
+    "NOEMA_SOCKET selection",
+    "Task list and cursor pagination",
+    "Task create with exact Unicode document",
+    "Task read",
+    "Task cancellation",
+    "Task queue and completion",
+    "Task event replay and live delivery",
+    "raw GraphQL subscription",
+    "subscription interruption returns 130",
+    "Chat streaming and matching completion",
+    "saved Chat response",
+    "invalid flag returns 2",
+    "missing Task returns 1",
+    "missing socket returns 1"
+  ],
+  "cancelledTask": {
+    "taskId": "task:77d24b7560e6b22356f9a89eefdd54f6",
+    "stage": "TERMINAL_CANCELLED"
+  },
+  "completedTask": {
+    "taskId": "task:bb421f3412c7b3adee16f4bf6551b3b4",
+    "stage": "TERMINAL_SUCCESS",
+    "resultDocument": "CLI_TASK_OK_20260906: 42\n",
+    "reviewDocument": "Approved. RESULT.md contains the exact required string `CLI_TASK_OK_20260906: 42`, matching the arithmetic requirement 23 + 19 = 42. No additional operations or evidence are required.\n"
+  },
+  "chat": {
+    "conversationId": "conversation:9a8adece587d96886957b3a308c694b1",
+    "clientMessageId": "cli-live-chat-20260906-01",
+    "reply": "CLI_CHAT_OK_20260906",
+    "elapsedSeconds": 3.7,
+    "savedReplyVerified": true
+  },
+  "changes": "Two synthetic Tasks and one Chat message remain in the development instance. No integrations were changed."
+}
