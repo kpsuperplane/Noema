@@ -695,6 +695,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-05 | RUN-04 | Live clarification Task detail has no visible question or response control in Workspace or Transcript at either width. | Task gate UI | [Browser result](evidence/2026-09-06-impossible-block-results.json) |
 | AUDIT-06 | API-14 | Application deletion remains blocked after its only grant is revoked. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-flow-results.json), [reproduction patch](evidence/2026-09-06-oauth-flow-reproduction.patch) |
 | AUDIT-07 | API-07 | Expanded OAuth consent grants the new scope, but the existing connection does not expose the new operation. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-expansion-results.json), [reproduction patch](evidence/2026-09-06-oauth-expansion-reproduction.patch) |
+| AUDIT-08 | MCP-02 | Renewal omits the existing registered OAuth client and fails when dynamic registration is unavailable. | OAuth lifecycle | [Result](evidence/2026-09-06-mcp-oauth-results.json), [reproduction patch](evidence/2026-09-06-mcp-oauth-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -859,6 +860,18 @@ The credential file used mode `0600` on Linux.
 Evidence: [results](evidence/2026-09-06-mcp-stdio-results.json) and [reproduction patch](evidence/2026-09-06-mcp-stdio-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## MCP OAuth completion, cancellation, and renewal
+
+A controlled OAuth server supported a registered public client without dynamic registration.
+Initial authorization completed and signaled the exact attempt. Callback replay failed without another exchange.
+Cancellation rejected the late callback and performed no token exchange.
+Renewal failed because its setup omitted the existing registered client.
+The OAuth handler then selected unsupported dynamic registration. AUDIT-08 records this defect for the OAuth lifecycle batch.
+Deletion during renewal remains pending because renewal setup failed first.
+Browser next actions and complete pending-call resumption remain pending.
+Evidence: [results](evidence/2026-09-06-mcp-oauth-results.json) and [reproduction patch](evidence/2026-09-06-mcp-oauth-reproduction.patch).
+The temporary failing test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1007,7 +1020,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-14 | Fail · controlled TLS service | Shared-grant revocation stops dependent access. AUDIT-06: application deletion remains blocked after grant revocation. | — |
 | API-15 | Partial | Application replacement rejects older OAuth attempts before token exchange. Restart, retained identity, and changed-approval checks remain pending. | — |
 | MCP-01 | Partial | Two controlled HTTP services discover tools and return exact Unicode under their own bindings. Browser result association remains pending. | — |
-| MCP-02 | Not run | Controlled setup pending. | Not run |
+| MCP-02 | Fail · controlled HTTP service | Completion, replay rejection, and cancellation pass. AUDIT-08: renewal loses the registered OAuth client. Browser next actions and pending-call resumption remain pending. | Not run |
 | MCP-03 | Pass · controlled HTTP service | Changed remote metadata rejects saved authority before execution. The other service remains usable. | — |
 | MCP-04 | Partial | Override, reset, disable, and enable enforce current authority. Wrong-type input fails for read and review-required bindings. Full review execution remains pending. | — |
 | MCP-05 | Partial | Disconnect rejects the call and marks the service unhealthy. Invalid results and browser errors remain pending. | — |
