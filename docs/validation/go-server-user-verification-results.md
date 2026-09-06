@@ -987,6 +987,15 @@ Earlier malformed document and path checks complete controlled FILE-09 coverage.
 Evidence: [results](evidence/2026-09-06-archives-results.json) and [reproduction patch](evidence/2026-09-06-archives-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## PPT and PPTX parsing
+
+The production parser matched complete expected PPT and PPTX output without truncation.
+PPT preserved lists and notes. PPTX followed declared slide order and preserved speaker notes.
+Source bytes remained unchanged. Earlier ODP evidence completes controlled FILE-04 coverage.
+Evidence: [results](evidence/2026-09-06-presentations-results.json) and [reproduction patch](evidence/2026-09-06-presentations-reproduction.patch).
+The patch exports existing fixtures before running the parser checks. Temporary tests remain outside the normal suite.
+No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1164,7 +1173,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-01 | Fail · controlled Task runtime | Download function preserves exact bytes. AUDIT-09: Executor catalog and dispatcher omit file.download. Task placement and review cannot proceed. | — |
 | FILE-02 | Pass · controlled TLS service | Parent, absolute, and outside symlink paths fail before network access. Private redirects fail without publishing a destination. Existing bytes remain intact. | — |
 | FILE-03 | Pass · controlled Linux | DOC matches its complete expected Markdown through the production parser. Earlier DOCX, ODT, and RTF checks preserve known structure through the packaged Chat tool. | — |
-| FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
+| FILE-04 | Pass · controlled parser | PPT and PPTX match complete known structure, slide order, and notes through the production parser. Earlier ODP checks preserve title, body, and notes through Chat. | — |
 | FILE-05 | Pass · controlled parser | PDF page order and EPUB declared chapter order match exact expected text. Unicode stays intact. Malformed PDF fails explicitly. Source bytes remain unchanged. | — |
 | FILE-06 | Partial | XLS numeric values pass. XLSX and ODS preserve dates, currency, and cached formula values through the production parser. XLS display variants remain pending. | — |
 | FILE-07 | Partial | Installed Tesseract recovers both expected lines from a clear image. Poor recognition and source presentation remain pending. | — |
