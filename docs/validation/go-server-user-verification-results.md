@@ -1294,7 +1294,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | JOURNEY-01 | Not run | Controlled setup pending. | Not run |
 | JOURNEY-02 | Not run | Controlled setup pending. | — |
 | JOURNEY-03 | Not run | Controlled setup pending. | — |
-| JOURNEY-04 | Not run | Controlled setup pending. | — |
+| JOURNEY-04 | Pass · live Project research | Planning uses updated Project context. Recorded search and source reads lead to a cited report. Review requests one exact section-link correction, then approves the corrected Artifact. Its authenticated download exactly matches REPORT.md. [Evidence](evidence/2026-09-06-project-research-results.json), [driver](evidence/2026-09-06-project-research.mjs), [artifact check](evidence/2026-09-06-project-research-artifact.mjs). | — |
 | JOURNEY-05 | Not run | Controlled setup pending. | — |
 | JOURNEY-06 | Not run | Controlled setup pending. | — |
 | JOURNEY-07 | Not run | Controlled setup pending. | — |
