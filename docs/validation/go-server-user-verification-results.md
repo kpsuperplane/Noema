@@ -913,6 +913,15 @@ Task assignment after deletion remains pending. Real external authentication rem
 Evidence: [results](evidence/2026-09-06-acp-auth-settings-results.json), [browser driver](evidence/2026-09-06-acp-auth-settings.mjs), and [controlled process](evidence/2026-09-06-acp-browser-service.py).
 Screenshots were inspected at both widths. Their hashes are recorded; image files remain outside the repository.
 
+## Deleted ACP Executor Task placement
+
+Deleted Executors were rejected during Task creation and reassignment, before and after SQLite reopening.
+Rejected creation left no Task. Rejected reassignment preserved the exact title, Executor, revision, and generation.
+Together with the live settings checks, this completes controlled ACP-01 coverage.
+Real external process authentication remains a later human check.
+Evidence: [results](evidence/2026-09-06-acp-deletion-results.json) and [reproduction patch](evidence/2026-09-06-acp-deletion-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1067,7 +1076,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | MCP-05 | Partial | Disconnect rejects the call and marks the service unhealthy. Invalid results and browser errors remain pending. | — |
 | MCP-06 | Pass · controlled Linux process | Disabled setup starts no process. Enabled setup calls the configured service with explicit environment bindings and protected credentials. Parent-only values stay absent. | — |
 | MCP-07 | Partial | Deletion survives service reconstruction and rejects saved calls. The other service remains usable. Pending authentication removal remains pending. | — |
-| ACP-01 | Partial | Browser create, successful and failed probes, named authentication, edit, and delete pass at both widths. Post-deletion Task assignment remains pending. | Not run |
+| ACP-01 | Pass · controlled browser and store | Browser setup, probing, authentication, edit, and delete pass at both widths. Deleted Executors reject new and existing Tasks before and after database reopening. | Human later |
 | ACP-02 | Partial | Controlled runtime covers ACP approval, result files, review, and saved terminal replay. Published artifacts and equivalent file boundaries remain pending. | — |
 | ACP-03 | Partial | Controlled process cancellation and uncertain protocol failure pass existing checks. Late output after Task cancellation remains pending. | — |
 | ACP-04 | Partial | Process-start failure preserves exact files. Corrected Retry completes through approval and review without duplicate runs. Browser diagnostic review remains pending. | — |
