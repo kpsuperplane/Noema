@@ -92,7 +92,7 @@
     }
   ],
   "errors": [],
-  "command": "NOEMA_PWA_RELEASE=pwa-a NOEMA_DEV_ASSET_DIR=/var/tmp/noema-pwa-release-a bun run build:web-assets && NOEMA_PWA_RELEASE=pwa-b NOEMA_DEV_ASSET_DIR=/var/tmp/noema-pwa-release-b bun run build:web-assets && bun docs/validation/evidence/2026-09-06-pwa-two-release.mjs",
+  "command": "openssl req -x509 -newkey rsa:2048 -nodes -subj '/CN=noema.kevinpei.com' -keyout /var/tmp/noema-pwa-fixture.key -out /var/tmp/noema-pwa-fixture.crt -days 1 && (cd apps/web && NOEMA_PWA_RELEASE=pwa-a NOEMA_DEV_ASSET_DIR=/var/tmp/noema-pwa-release-a bun run build:web-assets && NOEMA_PWA_RELEASE=pwa-b NOEMA_DEV_ASSET_DIR=/var/tmp/noema-pwa-release-b bun run build:web-assets) && bun docs/validation/evidence/2026-09-06-pwa-two-release.mjs",
   "fixture": "Two stable generated releases. Release A serves first. The fixture switches to release B, then the app activates the waiting worker through its online update path.",
   "scope": "Controlled Chromium PWA update. Physical installation and public edge cache behavior remain outside this check."
 }
