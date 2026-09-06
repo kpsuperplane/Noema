@@ -254,6 +254,114 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 	}
 }
 
+func TestTaskExecutionRunsQueuedTasksConcurrentlyAndKeepsFilesIsolated(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	tasks := []store.Task{
+		createQueuedRuntimeTask(t, database, chat.home, "# Task\n\nCONCURRENT_ONE\n"),
+		createQueuedRuntimeTask(t, database, chat.home, "# Task\n\nCONCURRENT_TWO\n"),
+	}
+	started := make(chan string, len(tasks))
+	generationErrors := make(chan string, len(tasks))
+	release := make(chan struct{})
+	var mu sync.Mutex
+	calls := map[string]map[string]int{}
+	generation := generatorFunc(func(ctx context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		marker := ""
+		for index, task := range tasks {
+			runs, _ := database.TaskRuns(context.Background(), task.ID, 20)
+			for _, run := range runs {
+				if run.ID == request.ConversationID {
+					marker = []string{"ONE", "TWO"}[index]
+				}
+			}
+		}
+		if marker == "" {
+			select {
+			case generationErrors <- fmt.Sprintf("marker missing for run %s", request.ConversationID):
+			default:
+			}
+			return provider.GenerationResult{}, errors.New("concurrent Task marker missing")
+		}
+		role := taskRequestRole(request.Tools)
+		mu.Lock()
+		if calls[marker] == nil {
+			calls[marker] = map[string]int{}
+		}
+		calls[marker][role]++
+		call := calls[marker][role]
+		mu.Unlock()
+		if role == "planner" && call == 1 {
+			started <- marker
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return provider.GenerationResult{}, ctx.Err()
+			}
+			return taskToolResult(marker+"-plan-write", taskFilesWrite, map[string]any{
+				"path": "TASK.md", "content": "# Task\n\n" + marker + " planned.\n",
+			}), nil
+		}
+		switch role {
+		case "planner":
+			return taskToolResult(marker+"-plan-finish", taskFinishPlanning, map[string]any{"complexity": "simple"}), nil
+		case "executor":
+			if call == 1 {
+				return taskToolResult(marker+"-execute-progress", taskFilesWrite, map[string]any{
+					"path": "TASK.md", "content": "# Task\n\n" + marker + " executing.\n",
+				}), nil
+			}
+			if call == 2 {
+				return taskToolResult(marker+"-execute-result", taskFilesWrite, map[string]any{
+					"path": "RESULT.md", "content": "Result " + marker + "\n",
+				}), nil
+			}
+			return taskToolResult(marker+"-execute-finish", taskFinishExecution, map[string]any{}), nil
+		default:
+			return taskToolResult(marker+"-review-finish", taskFinishReview, map[string]any{
+				"decision": "approve", "feedback": "Complete.", "notify_human": false,
+			}), nil
+		}
+	})
+	runtime, err := NewTaskExecution(context.Background(), database, generation, generation, generation, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	startedCount := 0
+	for startedCount < len(tasks) {
+		select {
+		case <-started:
+			startedCount++
+		case message := <-generationErrors:
+			t.Fatal(message)
+		case <-deadline.C:
+			states := make([]store.Task, 0, len(tasks))
+			runStates := make([]any, 0, len(tasks))
+			for _, task := range tasks {
+				current, _ := database.Task(t.Context(), task.ID)
+				states = append(states, current)
+				runs, _ := database.TaskRuns(t.Context(), task.ID, 10)
+				runStates = append(runStates, runs)
+			}
+			t.Fatalf("planner calls did not overlap: started=%d states=%#v runs=%#v", startedCount, states, runStates)
+		}
+	}
+	close(release)
+	for index, task := range tasks {
+		current := waitRuntimeTask(t, database, task.ID, func(value store.Task) bool { return value.StageKey == "done" })
+		if current.State != store.TaskCompleted {
+			t.Fatalf("Task %s state = %s", task.ID, current.State)
+		}
+		result, readErr := home.ReadTaskFile(chat.home, task.ID, "RESULT.md")
+		expected := []string{"ONE", "TWO"}[index]
+		if readErr != nil || result != "Result "+expected+"\n" {
+			t.Fatalf("Task %s result = %q, err = %v, expected = %s", task.ID, result, readErr, expected)
+		}
+	}
+}
+
 func TestTaskExecutionOpensExplicitHumanGate(t *testing.T) {
 	chat, database, _ := chatFixture(t)
 	task := createQueuedRuntimeTask(t, database, chat.home, "Ask before choosing.")

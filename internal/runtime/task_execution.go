@@ -29,6 +29,7 @@ const taskFinishExecution = "task.finish_execution"
 const taskContinueExecution = "task.continue_execution"
 const taskFinishReview = "task.finish_review"
 const taskReportBlocked = "task.report_blocked"
+const taskExecutionWorkerCount = 2
 const taskFilesList = "task.files.list"
 const taskFilesRead = "task.files.read"
 const taskFilesWrite = "task.files.write"
@@ -164,7 +165,19 @@ func (r *TaskExecution) Close() {
 }
 
 func (r *TaskExecution) run() {
-	defer close(r.done)
+	var workers sync.WaitGroup
+	workers.Add(taskExecutionWorkerCount)
+	for range taskExecutionWorkerCount {
+		go func() {
+			defer workers.Done()
+			r.runWorker()
+		}()
+	}
+	workers.Wait()
+	close(r.done)
+}
+
+func (r *TaskExecution) runWorker() {
 	wake := r.database.SubscribeWork(r.ctx)
 	for r.ctx.Err() == nil {
 		task, run, found, err := r.database.ClaimTaskExecution(r.ctx, time.Now())

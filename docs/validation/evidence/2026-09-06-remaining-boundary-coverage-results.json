@@ -1,0 +1,37 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "command": "CGO_ENABLED=0 go test -count=1 ./internal/graphql ./internal/provider ./internal/runtime ./internal/store -run 'Test(PendingHumanInterventionsReturnsGovernedActions|OpenRouterGeneratorStreamsTextAndReturnsCompletion|OpenAIGeneratorPreservesResponsesWireAndProtectedSetup|ChatRoutesCodexAssignmentThroughToolContinuation|EvaluationUsesOrderedSourceEvidence|TaskExecutionRunsQueuedTasksConcurrentlyAndKeepsFilesIsolated|TaskExecutionUsesGovernedMCPActionAndResumesExactRun|ReviewedMCPAuthenticationSurvivesRestartAndCompletesAction|StoreReopensFreshGoSchema|TaskLifecycleSchemaConvergesFromVersionFourteen|TaskLifecycleSchemaConvergesFromVersionSixteen|TaskGateResolutionAndRunItemPaging|ConversationTurnSerializesAndRecovers|DueSchedulesApplyMissedAndOverlapPolicies|DueSchedulesRespectDaylightSavingTransitions|WALConcurrentWritesSurviveColdReopen|HostedModelAssignmentsConcurrentFirstCommitWins)'",
+  "result": "passed",
+  "coverage": {
+    "CHAT-13": {
+      "result": "partial",
+      "verified": ["A governed pending intervention projects its action identity and safe summary."],
+      "remaining": "Multiple queued interventions, queue navigation, and independent rendered answers."
+    },
+    "MODEL-04": {
+      "result": "partial",
+      "verified": ["Controlled provider requests preserve reasoning, output, fast-mode, and continuation settings."],
+      "remaining": "Changing request settings during one reusable session."
+    },
+    "RUN-11": {
+      "result": "partial",
+      "verified": ["Two queued Tasks enter planner calls concurrently.", "Each Task completes with its own result file."],
+      "remaining": "Concurrent artifact, policy, and notification attachment checks."
+    },
+    "INFO-03": {
+      "result": "partial",
+      "verified": ["The controlled evaluation rejects instructions embedded in web content.", "Task and progress context treats external values as data."],
+      "remaining": "A combined hostile document and tool-result egress case."
+    },
+    "JOURNEY-09": {
+      "result": "partial",
+      "verified": ["A Task resumes its exact MCP action after authentication returns.", "A reviewed authentication request survives Chat restart."],
+      "remaining": "Renewal of a real integration account and duplicate-effect proof."
+    },
+    "JOURNEY-11": {
+      "result": "partial",
+      "verified": ["Fresh and upgraded Go schemas reopen.", "Task gates, schedules, WAL writes, and conversation turns recover in controlled stores."],
+      "remaining": "One complete backup restore containing access, a pending decision, and due work."
+    }
+  }
+}
