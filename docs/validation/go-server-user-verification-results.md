@@ -88,7 +88,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | RUN-12 | Partial | Saved capture, waiting, recovery, and completion notices pass. Repeated processing adds no output. Rendered transitions remain pending. | — |
 | RUN-13 | Partial | A false notify_human decision suppresses completion narration and saved notices while the Task reaches Done. Actual unchanged recurrence remains pending. | — |
 | RUN-14 | Pass · controlled runtime | Executor and Reviewer read the same permitted Task and exact document as primary Chat. [Checks](evidence/2026-09-06-task-gate-fixes.json). | — |
-| RUN-15 | Fail · controlled tool handler | Outside reads, writes, and deletes are denied. AUDIT-04: all three roles also reject permitted shared Project reads. | — |
+| RUN-15 | Pass · controlled tool handler | Outside reads, writes, and deletes are denied. Planner, Executor, and Reviewer read permitted shared Project files through parent-relative paths. [Evidence](evidence/2026-09-06-project-access-fixed-results.json). | — |
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
 | TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
 | TIME-03 | Pass · live Codex/Chromium and controlled runtime | Live requests resolve tomorrow at 09:00 in Los Angeles and Tokyo. Later roles receive fresh clocks, original request timestamps, and occurrence cutoffs. | — |
@@ -101,7 +101,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | TIME-10 | Pass · controlled scheduler state | Skip creates no later Task while active. Queue one releases one catch-up Task. Allow creates both due occurrences. Fixed extra queue-one catch-up work. | — |
 | TIME-11 | Pass · controlled scheduler time | Production scheduling skips the missing spring minute and creates no duplicate run for the repeated fall minute. The next valid day queues one occurrence. | — |
 | TIME-12 | Pass · controlled scheduler state | One-time and recurrence races preserve accepted timing. Replaced slots create no later work. Existing occurrences retain their revision, and each occurrence queues once. | — |
-| PROJECT-01 | Fail · shared file access | Live creation, rename, and folder selection pass. AUDIT-04: linked Task roles cannot read permitted shared files. | — |
+| PROJECT-01 | Pass · shared file access | Live creation, rename, and folder selection pass. Linked Task roles read permitted shared files while outside paths remain denied. [Evidence](evidence/2026-09-06-project-access-fixed-results.json). | — |
 | PROJECT-02 | Pass · live Chromium | Exact saves survive reload. A competing browser retains its draft. Acknowledgement and cancellation preserve accepted content. [Evidence](evidence/2026-09-05-project-browser-results.json). | — |
 | PROJECT-03 | Pass · controlled role context | Each role receives exact current PROJECT.md text after separate edits. | — |
 | PROJECT-04 | Pass · live Chromium | Archive preserves readable context and removes editing controls in both browsers. Reopen restores editing with the same content. [Evidence](evidence/2026-09-05-project-browser-results.json). | — |
@@ -178,7 +178,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | WEB-14 | Partial | Unsupported upload returns retry_later without success. Supported route-switch recovery remains pending. | — |
 | WEB-15 | Partial | Six prohibited direct URL variants are rejected. Public Obscura browsing passes. Page-script attempt returns a CDP error without local requests. HTTP redirects and Kernel remain pending. | [Evidence](evidence/2026-09-06-browser-network-results.json) |
 | WEB-16 | Pass · controlled Linux | A stopped real worker fails at 30 seconds with provider and operation diagnostics. Its session is removed. A fresh worker opens and closes. | [Evidence](evidence/2026-09-06-browser-deadline-results.json) |
-| FILE-01 | Fail · controlled Task runtime | Download function preserves exact bytes. AUDIT-09: Executor catalog and dispatcher omit file.download. Task placement and review cannot proceed. | — |
+| FILE-01 | Pass · controlled Task runtime | Download validation preserves the existing URL and path policy. The Executor catalog and dispatcher expose file.download, and its governed action path uses the Task directory. [Evidence](evidence/2026-09-06-task-download-fixed-results.json). | — |
 | FILE-02 | Pass · controlled TLS service | Parent, absolute, and outside symlink paths fail before network access. Private redirects fail without publishing a destination. Existing bytes remain intact. | — |
 | FILE-03 | Pass · controlled Linux | DOC matches its complete expected Markdown through the production parser. Earlier DOCX, ODT, and RTF checks preserve known structure through the packaged Chat tool. | — |
 | FILE-04 | Pass · controlled parser | PPT and PPTX match complete known structure, slide order, and notes through the production parser. Earlier ODP checks preserve title, body, and notes through Chat. | — |

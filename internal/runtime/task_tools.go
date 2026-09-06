@@ -84,7 +84,7 @@ func isPrimaryTaskTool(name string) bool {
 }
 
 func taskToolHasSideEffect(name string) bool {
-	return isPrimaryTaskTool(name) && name != taskListName && name != taskInspectName
+	return name == fileDownloadName || isPrimaryTaskTool(name) && name != taskListName && name != taskInspectName
 }
 
 func (c *Chat) executePrimaryTaskTool(ctx context.Context, name, requestID, correlationID string, raw json.RawMessage,

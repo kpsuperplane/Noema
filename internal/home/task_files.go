@@ -32,6 +32,41 @@ func ReadTaskFile(root *os.Root, taskID, supplied string) (string, error) {
 		return "", err
 	}
 	defer file.Close()
+	return readBoundedTaskFile(file)
+}
+
+// ReadProjectFileForTask reads one file in a linked Project folder from a Task-relative path.
+func ReadProjectFileForTask(root *os.Root, taskID, folder, supplied string) (string, error) {
+	if root == nil {
+		return "", errors.New("Project file is unavailable")
+	}
+	name, err := taskName(taskID)
+	if err != nil || folder == "" {
+		return "", errors.New("Project file is unavailable")
+	}
+	taskPath := filepath.Join(root.Name(), taskRootName, name)
+	target := filepath.Clean(filepath.Join(taskPath, supplied))
+	relative, err := filepath.Rel(filepath.Clean(folder), target)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || filepath.IsAbs(relative) {
+		return "", errors.New("Project file is outside the Project folder")
+	}
+	project, err := openExternalProjectRoot(filepath.Clean(folder), false)
+	if err != nil {
+		return "", errors.New("Project file is unavailable")
+	}
+	defer project.Close()
+	if err := checkTaskFilePath(project, relative, false); err != nil {
+		return "", err
+	}
+	file, err := project.Open(relative)
+	if err != nil {
+		return "", errors.New("Project file is unavailable")
+	}
+	defer file.Close()
+	return readBoundedTaskFile(file)
+}
+
+func readBoundedTaskFile(file *os.File) (string, error) {
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > taskFileLimit {
 		return "", errors.New("Task file is not bounded text")

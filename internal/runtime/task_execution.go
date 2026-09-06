@@ -541,6 +541,34 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			messages = append(messages, incremental...)
 			continue
 		}
+		if call.Name == fileDownloadName {
+			payload, success, paused, actionErr := r.prepareTaskDownload(ctx, task, run, callItem, call.Payload)
+			if paused && payload == nil {
+				toolPhase = "review_preparation"
+			}
+			finishToolSpan(actionErr == nil && (success || paused))
+			if actionErr != nil {
+				r.failRun(ctx, run, "download_action_unavailable", false)
+				return
+			}
+			if paused && payload == nil {
+				return
+			}
+			status := "completed"
+			if !success {
+				status = "failed"
+			}
+			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
+				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
+				return
+			}
+			stallReason = progress.observe(call, payload, success, sideEffect)
+			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
+			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
+			messages = append(messages, incremental...)
+			continue
+		}
 		if call.Name == webtool.FetchName {
 			payload, success, paused, actionErr := r.prepareTaskWebFetch(ctx, task, run, callItem, call.Payload)
 			if paused && payload == nil {
@@ -1030,6 +1058,7 @@ func taskExecutionTools(kind string) []provider.GenerationTool {
 			provider.GenerationTool{Name: taskReportBlocked, Description: "Open a human gate when planning cannot continue.", InputSchema: taskBlockedSchema})
 	case "executor":
 		files = append(files,
+			fileDownloadTool(),
 			provider.GenerationTool{Name: taskCaptureName, Description: "Capture one native Task in this Task's Project.", InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","maxLength":65536},"schedule":{"type":"object","properties":{"scheduled_for":{"type":"string","format":"date-time"},"time_zone":{"type":"string"},"missed_run_policy":{"type":"string","enum":["skip","run_once"]},"recurrence":{"type":"object","properties":{"starts_at":{"type":"string","format":"date-time"},"cron_expression":{"type":"string"},"overlap_policy":{"type":"string","enum":["skip","queue_one","allow"]}},"required":["starts_at","cron_expression"],"additionalProperties":false}},"required":["scheduled_for"],"additionalProperties":false}},"required":["title"],"additionalProperties":false}`)},
 			provider.GenerationTool{Name: taskListName, Description: "List bounded owner-authorized Task summaries.", InputSchema: taskToolSpecs[1].InputSchema},
 			provider.GenerationTool{Name: taskInspectName, Description: "Read the exact current Task state and document.", InputSchema: taskInspectSchema},
@@ -1141,6 +1170,8 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 	case luaRunName:
 		payload, success := executeLuaTool(ctx, raw)
 		return payload, success, false, false
+	case fileDownloadName:
+		return toolFailure("requires_review", "file.download requires governed action review"), false, false, false
 	case taskFilesList:
 		var input struct {
 			Path string `json:"path"`
@@ -1164,7 +1195,7 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		if decodeExactTaskTool(raw, &input, []string{"path"}, nil) != nil {
 			return failure("task.files.read arguments are invalid")
 		}
-		content, err := home.ReadTaskFile(r.root, task.ID, input.Path)
+		content, err := r.readTaskFile(ctx, task, input.Path)
 		if err != nil {
 			return toolFailure("unavailable", "Task file is unavailable"), false, false, false
 		}
@@ -1269,10 +1300,24 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 	}
 }
 
+func (r *TaskExecution) readTaskFile(ctx context.Context, task store.Task, path string) (string, error) {
+	content, err := home.ReadTaskFile(r.root, task.ID, path)
+	if err == nil || task.ProjectID == "" || !strings.Contains(filepath.ToSlash(path), "../") {
+		return content, err
+	}
+	project, projectErr := r.database.Project(ctx, task.ProjectID)
+	if projectErr != nil || project.Folder == nil {
+		return "", err
+	}
+	return home.ReadProjectFileForTask(r.root, task.ID, *project.Folder, path)
+}
+
 func taskToolAllowed(kind, name string) bool {
 	switch name {
 	case luaRunName, taskFilesList, taskFilesRead, fileParseName:
 		return kind == "planner" || kind == "executor" || kind == "reviewer"
+	case fileDownloadName:
+		return kind == "executor"
 	case taskFilesWrite, taskFilesDelete, taskReportBlocked:
 		return kind == "planner" || kind == "executor"
 	case taskInspectName:

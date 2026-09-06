@@ -137,6 +137,8 @@ func (r *TaskExecution) ResolveActionRequest(ctx context.Context, actionID strin
 		payload, success, paused, err = r.executeTaskAdapterAction(ctx, action)
 	} else if action.CapabilityName == webtool.FetchName {
 		payload, success, paused, err = r.executeTaskWebFetch(ctx, action)
+	} else if action.CapabilityName == fileDownloadName {
+		payload, success, paused, err = r.executeTaskDownloadAction(ctx, action)
 	} else if webtool.IsBrowserTool(action.CapabilityName) {
 		var result webtool.BrowserResult
 		result, paused, err = r.executeTaskBrowser(ctx, action)
