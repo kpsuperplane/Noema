@@ -693,6 +693,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-03 | RUN-04 | Clarification and approval answers persist but are absent from resumed provider context. | Task gates | [Result](evidence/2026-09-06-task-limits-gates-results.json), [reproduction patch](evidence/2026-09-06-task-limits-gates-reproduction.patch) |
 | AUDIT-04 | RUN-15; PROJECT-01 | All three roles reject permitted parent-relative shared reads inside the configured Project folder. | Task file access | [Result](evidence/2026-09-06-project-access-results.json), [reproduction patch](evidence/2026-09-06-project-access-reproduction.patch) |
 | AUDIT-05 | RUN-04 | Live clarification Task detail has no visible question or response control in Workspace or Transcript at either width. | Task gate UI | [Browser result](evidence/2026-09-06-impossible-block-results.json) |
+| AUDIT-06 | API-14 | Application deletion remains blocked after its only grant is revoked. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-flow-results.json), [reproduction patch](evidence/2026-09-06-oauth-flow-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Browser presentation remains pending.
@@ -781,6 +782,19 @@ Malformed JSON, wrong-type items, and an oversized string fail at the response b
 The returned data cannot bypass the reviewed output schema in these cases.
 
 Direct-credential calls, browser setup, and complete OAuth flows remain pending.
+
+## OAuth callback, shared refresh, and deletion checks
+
+The [controlled OAuth check](evidence/2026-09-06-oauth-flow-results.json) runs token exchange and dependent API calls through a local TLS service.
+Denial avoids token exchange. A successful callback exchanges once; replay cannot exchange again.
+A later attempt lookup and subscriber receive the exact completed grant.
+Two API connections share one grant without duplicate attachment.
+Concurrent calls refresh once and preserve exact Unicode output. OAuth snapshots exclude token material.
+
+Revocation removes both bindings and rejects saved calls. Active grants correctly block application deletion.
+However, deletion remains blocked after the only grant is revoked.
+AUDIT-06 records the remaining failure. API-14 is now failed because earlier evidence did not check deletion after disconnection.
+Late service recovery passes, but browser background and foreground resumption remain pending.
 
 ## Case results
 
@@ -919,7 +933,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-03 | Partial | One fake browser OAuth sign-in attaches two APIs to a shared grant. Both return the same synthetic account. Independent policy variants remain pending. | Not run |
 | API-04 | Partial | Both synthetic accounts return their own records. Current labels identify model tools. OAuth attachment replies retain grant metadata. Write and identity-discovery variants remain pending. | Not run |
 | API-05 | Partial | Fake consent denial creates no token and records a denied attempt. Cancel, expiry, and other callback failures remain pending. | Not run |
-| API-06 | Not run | Controlled setup pending. | Not run |
+| API-06 | Partial | Late attempt lookup and subscription recover the exact completed grant. Browser background and foreground resumption remain pending. | Not run |
 | API-07 | Not run | Controlled setup pending. | Not run |
 | API-08 | Pass · controlled HTTPS | Sequential browser-routed calls and concurrent production adapter calls refresh the shared token once and preserve the selected account. Real consent remains pending. | Not run |
 | API-09 | Pass · controlled TLS service | Empty arrays, two exact Unicode pages, and failed next-page retry pass. Query bounds remain enforced. | — |
@@ -927,7 +941,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-11 | Pass · controlled TLS service | Malformed JSON, wrong-type items, and oversized output fail without bypassing the reviewed schema. | — |
 | API-12 | Not run | Controlled setup pending. | — |
 | API-13 | Partial | Connection and account labels update model descriptions. Disable, re-enable, and deletion variants remain pending. | — |
-| API-14 | Pass · controlled HTTPS | Shared-grant revocation removes both tools and rejects both saved calls before delivery. Other-account access remains available. Active grants block application deletion. | — |
+| API-14 | Fail · controlled TLS service | Shared-grant revocation stops dependent access. AUDIT-06: application deletion remains blocked after grant revocation. | — |
 | API-15 | Not run | Controlled setup pending. | — |
 | MCP-01 | Not run | Controlled setup pending. | — |
 | MCP-02 | Not run | Controlled setup pending. | Not run |
