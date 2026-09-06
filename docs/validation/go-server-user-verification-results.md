@@ -960,6 +960,15 @@ These checks use text documents. Scanned documents remain under FILE-07.
 Evidence: [results](evidence/2026-09-06-pdf-epub-results.json), [fixture generator](evidence/2026-09-06-pdf-epub-fixtures.py), and [reproduction patch](evidence/2026-09-06-pdf-epub-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## Spreadsheet parsing
+
+The production file parser converted XLS, XLSX, and ODS fixtures.
+XLS preserved known numeric values. XLSX preserved sheet names, date display, currency display, and cached formula values.
+ODS preserved Unicode, date display, currency display, and cached formula values.
+All source bytes remained unchanged. XLS display and cached formula variants remain pending.
+Evidence: [results](evidence/2026-09-06-sheets-results.json), [fixture generator](evidence/2026-09-06-sheets-fixtures.py), and [reproduction patch](evidence/2026-09-06-sheets-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1139,7 +1148,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-03 | Pass · controlled Linux | DOC matches its complete expected Markdown through the production parser. Earlier DOCX, ODT, and RTF checks preserve known structure through the packaged Chat tool. | — |
 | FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
 | FILE-05 | Pass · controlled parser | PDF page order and EPUB declared chapter order match exact expected text. Unicode stays intact. Malformed PDF fails explicitly. Source bytes remain unchanged. | — |
-| FILE-06 | Not run | Controlled setup pending. | — |
+| FILE-06 | Partial | XLS numeric values pass. XLSX and ODS preserve dates, currency, and cached formula values through the production parser. XLS display variants remain pending. | — |
 | FILE-07 | Not run | Controlled setup pending. | — |
 | FILE-08 | Pass · controlled Linux | Unicode filenames and text survive Chat parsing. Invalid UTF-8 returns an explicit failure. | — |
 | FILE-09 | Partial | Malformed DOCX, parent traversal, and symbolic links are rejected. Oversized and unsafe archives remain pending. | — |
