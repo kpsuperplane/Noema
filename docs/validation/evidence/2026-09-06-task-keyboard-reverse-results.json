@@ -1,0 +1,287 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "scope": "Keyboard-only Task capture and title editing with reverse Tab traversal after direct navigation. No screen reader, login, or approval check.",
+  "clients": [
+    {
+      "width": 1440,
+      "focus": [
+        {
+          "name": "Task title",
+          "outline": "rgb(23, 22, 15) none 3px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Edit Markdown source",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Add details or instructions\u2026",
+          "outline": "rgb(23, 22, 15) none 3px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "More Task creation actions",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Edit task title",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "task title",
+          "outline": "rgb(31, 122, 87) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Save task title",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        }
+      ],
+      "lastTraversal": {
+        "target": "Save task title",
+        "steps": [
+          {
+            "tag": "INPUT",
+            "role": null,
+            "label": "task title",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "A",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          }
+        ]
+      },
+      "taskId": "task:338a72039608b6682f163c1b61decfa7",
+      "savedTitleSurvivesReload": true
+    },
+    {
+      "width": 390,
+      "focus": [
+        {
+          "name": "Task title",
+          "outline": "rgb(23, 22, 15) none 3px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Edit Markdown source",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Add details or instructions\u2026",
+          "outline": "rgb(23, 22, 15) none 3px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "More Task creation actions",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Edit task title",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "task title",
+          "outline": "rgb(31, 122, 87) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        },
+        {
+          "name": "Save task title",
+          "outline": "rgb(184, 74, 40) solid 2px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        }
+      ],
+      "lastTraversal": {
+        "target": "Save task title",
+        "steps": [
+          {
+            "tag": "INPUT",
+            "role": null,
+            "label": "task title",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": "Cancel task",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": "Edit task settings",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": "Schedule task",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": "Start task",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": "Edit description",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": null,
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": "Close detail",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "BUTTON",
+            "role": null,
+            "label": "Cancel title edit",
+            "editable": null,
+            "tabIndex": 0
+          }
+        ]
+      },
+      "taskId": "task:c23715f86eb8ab243fc4bd2e793ea19f",
+      "savedTitleSurvivesReload": true
+    }
+  ],
+  "review": {
+    "result": "pass for reverse-traversal capture and title saving",
+    "visualCheck": "Save title has a visible focus ring at desktop and phone widths.",
+    "remaining": "Forward traversal remains failed under AUDIT-21. Login, approval, screen readers, and native controls remain pending. All-control focus contrast was not measured."
+  }
+}
