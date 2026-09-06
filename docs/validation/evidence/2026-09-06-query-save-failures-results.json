@@ -7,7 +7,9 @@
       "width": 1440,
       "failedQueries": 1,
       "queryErrorVisible": true,
-      "retryControls": [],
+      "retryControls": [
+        "Retry"
+      ],
       "browserReloadRecovers": true,
       "failedSaves": 2,
       "exactDraftPreserved": true,
@@ -18,7 +20,9 @@
       "width": 390,
       "failedQueries": 1,
       "queryErrorVisible": true,
-      "retryControls": [],
+      "retryControls": [
+        "Retry"
+      ],
       "browserReloadRecovers": true,
       "failedSaves": 2,
       "exactDraftPreserved": true,

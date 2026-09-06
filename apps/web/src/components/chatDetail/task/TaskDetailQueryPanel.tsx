@@ -72,6 +72,7 @@ export function TaskDetailQueryPanel({
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
         loading={result.loading}
+        onRetry={() => { void refreshTask(); }}
         onOpenDetail={onOpenDetail}
         renderSecondarySurface={(status) => (
           <PendingHumanInterventionsResult
@@ -84,6 +85,7 @@ export function TaskDetailQueryPanel({
         edit={edit}
         showTasksLink={showTasksLink}
         taskId={taskId}
+        retrying={result.loading}
       />
     </>
   );

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { AvatarGroup } from "@astryxdesign/core/AvatarGroup";
+import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
 import { Check, ExternalLink } from "lucide-react";
@@ -30,7 +31,9 @@ export function TaskDetailPanel({
   edit,
   renderSecondarySurface,
   onOpenDetail,
-  showTasksLink = false
+  showTasksLink = false,
+  onRetry,
+  retrying = false
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -40,6 +43,8 @@ export function TaskDetailPanel({
   controls?: React.ReactNode;
   edit?: TaskInlineEditController;
   showTasksLink?: boolean;
+  onRetry?: () => void;
+  retrying?: boolean;
   renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
@@ -77,10 +82,10 @@ export function TaskDetailPanel({
     );
   }
   if (error && !currentDetail) {
-    return <div {...stylex.props(styles.root)}><TaskUnavailable message={error} /></div>;
+    return <div {...stylex.props(styles.root)}><TaskUnavailable message={error} onRetry={onRetry} retrying={retrying} /></div>;
   }
   if (!currentDetail) {
-    return <div {...stylex.props(styles.root)}><TaskUnavailable message="Task details are unavailable." /></div>;
+    return <div {...stylex.props(styles.root)}><TaskUnavailable message="Task details are unavailable." onRetry={onRetry} retrying={retrying} /></div>;
   }
 
   const run = latestTaskRun(currentDetail);
@@ -406,8 +411,13 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function TaskUnavailable({ message }: { message: string }) {
-  return <div role="status" {...stylex.props(styles.unavailable)}>{message}</div>;
+function TaskUnavailable({ message, onRetry, retrying }: { message: string; onRetry?: () => void; retrying: boolean }) {
+  return (
+    <div role={onRetry ? undefined : "status"} {...stylex.props(styles.unavailable)}>
+      <p role={onRetry ? "alert" : undefined}>{message}</p>
+      {onRetry ? <Button type="button" size="sm" variant="secondary" label="Retry" isLoading={retrying} isDisabled={retrying} onClick={onRetry} /> : null}
+    </div>
+  );
 }
 
 const styles = stylex.create({

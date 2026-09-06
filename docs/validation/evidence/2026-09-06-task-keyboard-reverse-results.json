@@ -20,7 +20,7 @@
           "inViewport": true
         },
         {
-          "name": "Add details or instructions\u2026",
+          "name": "Add details or instructions…",
           "outline": "rgb(23, 22, 15) none 3px",
           "boxShadow": "none",
           "focusVisible": true,
@@ -144,7 +144,7 @@
           }
         ]
       },
-      "taskId": "task:338a72039608b6682f163c1b61decfa7",
+      "taskId": "task:6265ecec55d21694decefb8936dc8136",
       "savedTitleSurvivesReload": true
     },
     {
@@ -165,7 +165,7 @@
           "inViewport": true
         },
         {
-          "name": "Add details or instructions\u2026",
+          "name": "Add details or instructions…",
           "outline": "rgb(23, 22, 15) none 3px",
           "boxShadow": "none",
           "focusVisible": true,
@@ -275,13 +275,8 @@
           }
         ]
       },
-      "taskId": "task:c23715f86eb8ab243fc4bd2e793ea19f",
+      "taskId": "task:787fd7d14b15a9b55a3482e587c119fe",
       "savedTitleSurvivesReload": true
     }
-  ],
-  "review": {
-    "result": "pass for reverse-traversal capture and title saving",
-    "visualCheck": "Save title has a visible focus ring at desktop and phone widths.",
-    "remaining": "Forward traversal remains failed under AUDIT-21. Login, approval, screen readers, and native controls remain pending. All-control focus contrast was not measured."
-  }
+  ]
 }

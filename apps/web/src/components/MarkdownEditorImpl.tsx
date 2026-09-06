@@ -62,8 +62,9 @@ function MilkdownCrepe({ initialValue, inline, placeholder, onChange, onFailure,
   React.useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
   React.useLayoutEffect(() => {
     if (!root.current) return;
+    const editorRoot = root.current;
     const crepe = new Crepe({
-      root: root.current,
+      root: editorRoot,
       defaultValue: initialValueRef.current,
       featureConfigs: {
         // Keep the native caret and avoid virtual-cursor layout work on selection changes.
@@ -84,10 +85,28 @@ function MilkdownCrepe({ initialValue, inline, placeholder, onChange, onFailure,
         if (markdown !== previousMarkdown) onChangeRef.current(markdown);
       });
     });
+    const forwardTab = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (!(event.target instanceof HTMLElement) || !event.target.closest('[contenteditable="true"]')) return;
+      const next = [...document.querySelectorAll<HTMLElement>("a[href],button,input,textarea,select,[tabindex]")]
+        .find((element) => {
+          if (editorRoot.contains(element) || element.hasAttribute("disabled")) return false;
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0 &&
+            editorRoot.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING;
+        });
+      if (!next) return;
+      event.preventDefault();
+      event.stopPropagation();
+      next.focus();
+    };
+    editorRoot.addEventListener("keydown", forwardTab, true);
     let active = true;
     void crepe.create().then(() => { if (active) onReadyRef.current?.(); }).catch(() => { if (active) { onFailureRef.current(); onReadyRef.current?.(); } });
     return () => {
       active = false;
+      editorRoot.removeEventListener("keydown", forwardTab, true);
       void crepe.destroy().catch(() => undefined);
     };
   }, [inline, placeholder]);
