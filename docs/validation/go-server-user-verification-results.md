@@ -796,6 +796,14 @@ However, deletion remains blocked after the only grant is revoked.
 AUDIT-06 records the remaining failure. API-14 is now failed because earlier evidence did not check deletion after disconnection.
 Late service recovery passes, but browser background and foreground resumption remain pending.
 
+## OAuth failure recovery
+
+The [controlled failure checks](evidence/2026-09-06-oauth-failures-results.json) cover denial, expiry, token exchange failure, and application replacement during authorization.
+Each attempt retains its exact terminal status and creates no grant or callable tools.
+Rejected callbacks avoid token exchange, except the intentional token-endpoint failure.
+A fresh valid attempt succeeds after each failure.
+Browser cancellation, rendered next actions, and restart after configuration changes remain pending.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -932,7 +940,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-02 | Partial | Approved no-auth tools execute against a controlled TLS service. Direct-credential calls and browser setup remain pending. | — |
 | API-03 | Partial | One fake browser OAuth sign-in attaches two APIs to a shared grant. Both return the same synthetic account. Independent policy variants remain pending. | Not run |
 | API-04 | Partial | Both synthetic accounts return their own records. Current labels identify model tools. OAuth attachment replies retain grant metadata. Write and identity-discovery variants remain pending. | Not run |
-| API-05 | Partial | Fake consent denial creates no token and records a denied attempt. Cancel, expiry, and other callback failures remain pending. | Not run |
+| API-05 | Partial | Denied, expired, failed, and superseded callbacks expose no grant or tools. Fresh attempts recover. Browser cancellation and next actions remain pending. | Not run |
 | API-06 | Partial | Late attempt lookup and subscription recover the exact completed grant. Browser background and foreground resumption remain pending. | Not run |
 | API-07 | Not run | Controlled setup pending. | Not run |
 | API-08 | Pass · controlled HTTPS | Sequential browser-routed calls and concurrent production adapter calls refresh the shared token once and preserve the selected account. Real consent remains pending. | Not run |
@@ -942,7 +950,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-12 | Not run | Controlled setup pending. | — |
 | API-13 | Partial | Connection and account labels update model descriptions. Disable, re-enable, and deletion variants remain pending. | — |
 | API-14 | Fail · controlled TLS service | Shared-grant revocation stops dependent access. AUDIT-06: application deletion remains blocked after grant revocation. | — |
-| API-15 | Not run | Controlled setup pending. | — |
+| API-15 | Partial | Application replacement rejects older OAuth attempts before token exchange. Restart, retained identity, and changed-approval checks remain pending. | — |
 | MCP-01 | Not run | Controlled setup pending. | — |
 | MCP-02 | Not run | Controlled setup pending. | Not run |
 | MCP-03 | Not run | Controlled setup pending. | — |
