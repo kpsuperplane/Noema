@@ -606,7 +606,17 @@ At desktop and phone widths, expansion shows exactly one message: “Task cancel
 The [browser results](evidence/2026-09-06-cancel-transcript-browser-results.json) retain the fixture and visible text.
 The [validation record](evidence/2026-09-06-cancel-browser-validation.json) records the scope and passing frontend checks.
 Together with the store and controlled MCP checks, RUN-05 passes for controlled cancellation coverage.
-A separate observed issue remains: completed run headers display Running. The next audit step will inspect that mapping.
+The completed run header issue is fixed and verified below.
+
+## Correct status in completed run headers
+
+The Task transcript used a fixed Running label for every run header, including completed runs.
+The [header fix](../../apps/web/src/components/chatDetail/task/TaskTranscript.tsx) reuses the existing status-label function.
+The [live browser driver](evidence/2026-09-06-run-header-browser.mjs) opens the completed direct-execution Task on `noema.kevinpei.com`.
+At desktop and phone widths, both Executor and Reviewer headers show Completed. The API independently reports both runs completed.
+The check uses normal server responses and changes no Task data.
+The [results](evidence/2026-09-06-run-header-browser-results.json) retain both viewport checks.
+The [validation record](evidence/2026-09-06-run-header-validation.json) records passing generated-code checks, lint, and the production build.
 
 ## Case results
 
