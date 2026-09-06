@@ -1,0 +1,441 @@
+{
+  "origin": "https://noema.kevinpei.com",
+  "cases": [
+    {
+      "zone": "America/Los_Angeles",
+      "title": "Migration audit — relative tomorrow America/Los_Angeles",
+      "beforeIds": [
+        "task:26a548ba769c1b861929315d50100d0d",
+        "task:50a194c843e57e18c3e3a12d685ac76a",
+        "task:98cd8bdd42a94cf6f0a4155b7691a480",
+        "task:a0a3475c8c6c8770b4beb694248cfdf6",
+        "task:68d09d4f13c3adca486f0d2cda1190ca",
+        "task:2e1d085dba97c76203c5c4237f7322ea",
+        "task:f1322febba1169022e36ea873a415fbe",
+        "task:aba3ded68fa59edc50d1f581086201ef",
+        "task:c11deb0ec052dfecd8ab28f45448354b",
+        "task:3484ce76b97e5fedf2e79fecb61fa698",
+        "task:2aa91b0a33cd23da2603e88925404fd2",
+        "task:614a8814ff8b8aea754ba7e94fb35e74",
+        "task:7a383211def681bcb585a92ca20e8bce",
+        "task:d1485f72cf0223458968f9d6579ec23c",
+        "task:411aa1cce27a5c04137b05dccafc231f",
+        "task:e4066a618604a2e0ab194da66f944e92",
+        "task:54ff6e97796d9c837f5409d3133743ae",
+        "task:fed19ee648a5f808488dfcb6cec7ba97",
+        "task:22b4e396e51687d0786b3f9e23483ee6",
+        "task:48bc18dce54f7a84da8e90f2805d171c",
+        "task:265a4dae26bf3f6159d162dcf6eac5c8",
+        "task:9496e6cdadbccf4f2f4b0ebe64002590",
+        "task:5847613873ae4de9b0d23c337d0b51be",
+        "task:517a9b66df37ef712ce919a22b6207a6",
+        "task:082bbce3a7f2d9d899ea5b4d5f56d5c6",
+        "task:d5b421f3de0b1fdf17ceb1650c173749",
+        "task:be5c7bffca6b7eac4db957aca6e9a8bf",
+        "task:ca3f7bcf01dedcc19e31beb3d6edc4ee",
+        "task:f55ef8946c2a73a8c897dd5959140613",
+        "task:9c44a59a796e7ff5cede1f9d56c16c56",
+        "task:045fa8e6f2132876904ccf16db0c5bf5",
+        "task:b0612c669d08b1d54c100444906f08a3",
+        "task:deb93f482990095fe04e3095c586e673",
+        "task:ee2938ae27fb409541021a7ed0e3117c"
+      ],
+      "marker": "AUDIT_RELATIVE_CAPTURE_0_COMPLETE",
+      "prompt": "Migration audit TIME-03. Create exactly one scheduled Task for tomorrow at 09:00 in my current timezone. Title: Migration audit — relative tomorrow America/Los_Angeles. Task document: \"Calculate 6 × 7 and write only 42 to RESULT.md.\" Do not run it now. Do not access external services. After capture, state the saved local date, time, timezone and Task ID, then end with AUDIT_RELATIVE_CAPTURE_0_COMPLETE.",
+      "sentAt": "2026-09-06T00:04:07.498Z",
+      "added": [
+        {
+          "taskId": "task:e6c228e19b270058e3670246a7864b6e",
+          "title": "Migration audit — relative tomorrow America/Los_Angeles"
+        }
+      ],
+      "task": {
+        "taskId": "task:e6c228e19b270058e3670246a7864b6e",
+        "title": "Migration audit — relative tomorrow America/Los_Angeles",
+        "revision": 1,
+        "generation": 1,
+        "taskDocument": "Calculate 6 × 7 and write only 42 to RESULT.md.",
+        "stage": {
+          "key": "inbox"
+        },
+        "schedule": {
+          "scheduledFor": "2026-09-06T16:00:00Z",
+          "timeZone": "America/Los_Angeles"
+        },
+        "source": {
+          "conversationId": "conversation:9a8adece587d96886957b3a308c694b1"
+        },
+        "runs": []
+      },
+      "turn": [
+        {
+          "itemId": "item:6ad015e0efd9d1a84ab3859efde6a4d6",
+          "turnId": "turn:f9d3fe21351919a19b13b9911f6a1e60",
+          "item": {
+            "__typename": "UserText",
+            "text": "Migration audit TIME-03. Create exactly one scheduled Task for tomorrow at 09:00 in my current timezone. Title: Migration audit — relative tomorrow America/Los_Angeles. Task document: \"Calculate 6 × 7 and write only 42 to RESULT.md.\" Do not run it now. Do not access external services. After capture, state the saved local date, time, timezone and Task ID, then end with AUDIT_RELATIVE_CAPTURE_0_COMPLETE."
+          }
+        },
+        {
+          "itemId": "item:a5845ec8e8dba36a622af7c3b0ca3feb",
+          "turnId": "turn:f9d3fe21351919a19b13b9911f6a1e60",
+          "item": {
+            "__typename": "Activity",
+            "title": "Tool call: project.read",
+            "status": "COMPLETED",
+            "metadata": {
+              "action": {
+                "id": "tool_call:turn:f9d3fe21351919a19b13b9911f6a1e60:0:1",
+                "name": "project.read",
+                "payload": {
+                  "project_id": "project:eb7e02135a057b326b0863dbccf19894"
+                },
+                "provider_call_id": "call_xxxKOeaUuRGXPgRGzNymGvMb",
+                "provider_item_id": "fc_0e38263667cf9ef7016a9cadfe3c8487d181cd758a35db6621",
+                "provider_name": "read"
+              },
+              "display": {},
+              "output_index": 1,
+              "provider": "codex",
+              "turn_index": 34
+            }
+          }
+        },
+        {
+          "itemId": "item:fcc7e7bd9c37abfef504541fd47b8eea",
+          "turnId": "turn:f9d3fe21351919a19b13b9911f6a1e60",
+          "item": {
+            "__typename": "Activity",
+            "title": "Tool result: project.read",
+            "status": "COMPLETED",
+            "metadata": {
+              "action": {
+                "call_id": "tool_call:turn:f9d3fe21351919a19b13b9911f6a1e60:0:1",
+                "name": "project.read",
+                "payload": {
+                  "archived": false,
+                  "description": "",
+                  "digest": "03544c87a05850611c0d166aee2cebbe64a6be66cadfac568d5b9c5248cb559c",
+                  "folder": "/var/lib/noema-dev/audit-shared-20260905",
+                  "name": "Migration audit Project café 日本語",
+                  "project_document": "# Browser Project context\n\nAccepted café 日本語 🧭 context.\n",
+                  "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                  "revision": 9
+                },
+                "provider_call_id": "call_xxxKOeaUuRGXPgRGzNymGvMb",
+                "provider_name": "read",
+                "success": true
+              },
+              "display": {},
+              "output_index": 1,
+              "provider": "codex",
+              "turn_index": 34
+            }
+          }
+        },
+        {
+          "itemId": "item:b2037a0dadafcb00d96dde0d6e56942b",
+          "turnId": "turn:f9d3fe21351919a19b13b9911f6a1e60",
+          "item": {
+            "__typename": "Activity",
+            "title": "Tool call: task.capture",
+            "status": "COMPLETED",
+            "metadata": {
+              "action": {
+                "id": "tool_call:turn:f9d3fe21351919a19b13b9911f6a1e60:1:1",
+                "name": "task.capture",
+                "payload": {
+                  "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                  "schedule": {
+                    "missed_run_policy": "skip",
+                    "scheduled_for": "2026-09-06T09:00:00-07:00",
+                    "time_zone": "America/Los_Angeles"
+                  },
+                  "task_document": "Calculate 6 × 7 and write only 42 to RESULT.md.",
+                  "title": "Migration audit — relative tomorrow America/Los_Angeles"
+                },
+                "provider_call_id": "call_GPgR1XalCSq1YTKgfpSUvKuw",
+                "provider_item_id": "fc_0e38263667cf9ef7016a9cae04702887d194b3df2f9207ddc0",
+                "provider_name": "capture"
+              },
+              "display": {},
+              "output_index": 1,
+              "provider": "codex",
+              "turn_index": 34
+            }
+          }
+        },
+        {
+          "itemId": "item:f303b005010500cd1feacad8301e9fd9",
+          "turnId": "turn:f9d3fe21351919a19b13b9911f6a1e60",
+          "item": {
+            "__typename": "Activity",
+            "title": "Tool result: task.capture",
+            "status": "COMPLETED",
+            "metadata": {
+              "action": {
+                "call_id": "tool_call:turn:f9d3fe21351919a19b13b9911f6a1e60:1:1",
+                "name": "task.capture",
+                "payload": {
+                  "event_id": "event:306addc4ccd3e2a7168d210bd74e34af",
+                  "event_sequence": 250,
+                  "gate_id": null,
+                  "project": {
+                    "archived": false,
+                    "description": "",
+                    "name": "Migration audit Project café 日本語",
+                    "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                    "revision": 9
+                  },
+                  "recurrence_authority": null,
+                  "recurrence_id": null,
+                  "replayed": false,
+                  "run_id": null,
+                  "task": {
+                    "cwd_override": null,
+                    "executor_agent_id": "agent:task-executor",
+                    "generation": 1,
+                    "missed_run_policy": "skip",
+                    "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                    "recurrence_id": null,
+                    "recurrence_revision": null,
+                    "recurrence_scheduled_for": null,
+                    "revision": 1,
+                    "schedule_time_zone": "America/Los_Angeles",
+                    "scheduled_for": "2026-09-06T16:00:00Z",
+                    "stage_id": "stage:personal:inbox",
+                    "task_id": "task:e6c228e19b270058e3670246a7864b6e",
+                    "title": "Migration audit — relative tomorrow America/Los_Angeles"
+                  }
+                },
+                "provider_call_id": "call_GPgR1XalCSq1YTKgfpSUvKuw",
+                "provider_name": "capture",
+                "success": true
+              },
+              "display": {},
+              "output_index": 1,
+              "provider": "codex",
+              "turn_index": 34
+            }
+          }
+        },
+        {
+          "itemId": "item:3a78849198b50ad1eacd40dc32b4af78",
+          "turnId": "turn:f9d3fe21351919a19b13b9911f6a1e60",
+          "item": {
+            "__typename": "AssistantText",
+            "text": "Saved for **September 6, 2026** at **09:00** in **America/Los_Angeles**.\n\nTask ID: `task:e6c228e19b270058e3670246a7864b6e`\n\nAUDIT_RELATIVE_CAPTURE_0_COMPLETE"
+          }
+        },
+        {
+          "itemId": "item:3f6b73b66bd18261a837ee20965236c1",
+          "turnId": "turn:f9d3fe21351919a19b13b9911f6a1e60",
+          "item": {
+            "__typename": "TaskReference"
+          }
+        }
+      ],
+      "expectedLocalDate": "2026-09-06",
+      "actualLocalDate": "2026-09-06",
+      "actualLocalTime": "09:00",
+      "cancelled": {
+        "taskId": "task:e6c228e19b270058e3670246a7864b6e",
+        "stage": {
+          "key": "cancelled"
+        },
+        "runs": []
+      },
+      "result": "pass"
+    },
+    {
+      "zone": "Asia/Tokyo",
+      "title": "Migration audit — relative tomorrow Asia/Tokyo",
+      "beforeIds": [
+        "task:e6c228e19b270058e3670246a7864b6e",
+        "task:26a548ba769c1b861929315d50100d0d",
+        "task:50a194c843e57e18c3e3a12d685ac76a",
+        "task:98cd8bdd42a94cf6f0a4155b7691a480",
+        "task:a0a3475c8c6c8770b4beb694248cfdf6",
+        "task:68d09d4f13c3adca486f0d2cda1190ca",
+        "task:2e1d085dba97c76203c5c4237f7322ea",
+        "task:f1322febba1169022e36ea873a415fbe",
+        "task:aba3ded68fa59edc50d1f581086201ef",
+        "task:c11deb0ec052dfecd8ab28f45448354b",
+        "task:3484ce76b97e5fedf2e79fecb61fa698",
+        "task:2aa91b0a33cd23da2603e88925404fd2",
+        "task:614a8814ff8b8aea754ba7e94fb35e74",
+        "task:7a383211def681bcb585a92ca20e8bce",
+        "task:d1485f72cf0223458968f9d6579ec23c",
+        "task:411aa1cce27a5c04137b05dccafc231f",
+        "task:e4066a618604a2e0ab194da66f944e92",
+        "task:54ff6e97796d9c837f5409d3133743ae",
+        "task:fed19ee648a5f808488dfcb6cec7ba97",
+        "task:22b4e396e51687d0786b3f9e23483ee6",
+        "task:48bc18dce54f7a84da8e90f2805d171c",
+        "task:265a4dae26bf3f6159d162dcf6eac5c8",
+        "task:9496e6cdadbccf4f2f4b0ebe64002590",
+        "task:5847613873ae4de9b0d23c337d0b51be",
+        "task:517a9b66df37ef712ce919a22b6207a6",
+        "task:082bbce3a7f2d9d899ea5b4d5f56d5c6",
+        "task:d5b421f3de0b1fdf17ceb1650c173749",
+        "task:be5c7bffca6b7eac4db957aca6e9a8bf",
+        "task:ca3f7bcf01dedcc19e31beb3d6edc4ee",
+        "task:f55ef8946c2a73a8c897dd5959140613",
+        "task:9c44a59a796e7ff5cede1f9d56c16c56",
+        "task:045fa8e6f2132876904ccf16db0c5bf5",
+        "task:b0612c669d08b1d54c100444906f08a3",
+        "task:deb93f482990095fe04e3095c586e673",
+        "task:ee2938ae27fb409541021a7ed0e3117c"
+      ],
+      "marker": "AUDIT_RELATIVE_CAPTURE_1_COMPLETE",
+      "prompt": "Migration audit TIME-03. Create exactly one scheduled Task for tomorrow at 09:00 in my current timezone. Title: Migration audit — relative tomorrow Asia/Tokyo. Task document: \"Calculate 6 × 7 and write only 42 to RESULT.md.\" Do not run it now. Do not access external services. After capture, state the saved local date, time, timezone and Task ID, then end with AUDIT_RELATIVE_CAPTURE_1_COMPLETE.",
+      "sentAt": "2026-09-06T00:04:30.396Z",
+      "added": [
+        {
+          "taskId": "task:face0d5e5f32ce71ea9e06f04f9e911d",
+          "title": "Migration audit — relative tomorrow Asia/Tokyo"
+        }
+      ],
+      "task": {
+        "taskId": "task:face0d5e5f32ce71ea9e06f04f9e911d",
+        "title": "Migration audit — relative tomorrow Asia/Tokyo",
+        "revision": 1,
+        "generation": 1,
+        "taskDocument": "Calculate 6 × 7 and write only 42 to RESULT.md.",
+        "stage": {
+          "key": "inbox"
+        },
+        "schedule": {
+          "scheduledFor": "2026-09-07T00:00:00Z",
+          "timeZone": "Asia/Tokyo"
+        },
+        "source": {
+          "conversationId": "conversation:9a8adece587d96886957b3a308c694b1"
+        },
+        "runs": []
+      },
+      "turn": [
+        {
+          "itemId": "item:9973ead7f68f8222827716b46606b083",
+          "turnId": "turn:0771d4b5153072185558c709666a02e1",
+          "item": {
+            "__typename": "UserText",
+            "text": "Migration audit TIME-03. Create exactly one scheduled Task for tomorrow at 09:00 in my current timezone. Title: Migration audit — relative tomorrow Asia/Tokyo. Task document: \"Calculate 6 × 7 and write only 42 to RESULT.md.\" Do not run it now. Do not access external services. After capture, state the saved local date, time, timezone and Task ID, then end with AUDIT_RELATIVE_CAPTURE_1_COMPLETE."
+          }
+        },
+        {
+          "itemId": "item:800bc32861f95eb3ca5481a7003298ef",
+          "turnId": "turn:0771d4b5153072185558c709666a02e1",
+          "item": {
+            "__typename": "Activity",
+            "title": "Tool call: task.capture",
+            "status": "COMPLETED",
+            "metadata": {
+              "action": {
+                "id": "tool_call:turn:0771d4b5153072185558c709666a02e1:0:1",
+                "name": "task.capture",
+                "payload": {
+                  "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                  "schedule": {
+                    "missed_run_policy": "skip",
+                    "scheduled_for": "2026-09-07T09:00:00+09:00",
+                    "time_zone": "Asia/Tokyo"
+                  },
+                  "task_document": "Calculate 6 × 7 and write only 42 to RESULT.md.",
+                  "title": "Migration audit — relative tomorrow Asia/Tokyo"
+                },
+                "provider_call_id": "call_ABGjwq5gixQjgsAo70pNiP8w",
+                "provider_item_id": "fc_0e38263667cf9ef7016a9cae1394c087d1a8f1bb5167224240",
+                "provider_name": "capture"
+              },
+              "display": {},
+              "output_index": 1,
+              "provider": "codex",
+              "turn_index": 35
+            }
+          }
+        },
+        {
+          "itemId": "item:5022a3cee5796bb38c839d31f3e2499b",
+          "turnId": "turn:0771d4b5153072185558c709666a02e1",
+          "item": {
+            "__typename": "Activity",
+            "title": "Tool result: task.capture",
+            "status": "COMPLETED",
+            "metadata": {
+              "action": {
+                "call_id": "tool_call:turn:0771d4b5153072185558c709666a02e1:0:1",
+                "name": "task.capture",
+                "payload": {
+                  "event_id": "event:e723fa407d0f964ce5dbf2de307c913d",
+                  "event_sequence": 252,
+                  "gate_id": null,
+                  "project": {
+                    "archived": false,
+                    "description": "",
+                    "name": "Migration audit Project café 日本語",
+                    "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                    "revision": 9
+                  },
+                  "recurrence_authority": null,
+                  "recurrence_id": null,
+                  "replayed": false,
+                  "run_id": null,
+                  "task": {
+                    "cwd_override": null,
+                    "executor_agent_id": "agent:task-executor",
+                    "generation": 1,
+                    "missed_run_policy": "skip",
+                    "project_id": "project:eb7e02135a057b326b0863dbccf19894",
+                    "recurrence_id": null,
+                    "recurrence_revision": null,
+                    "recurrence_scheduled_for": null,
+                    "revision": 1,
+                    "schedule_time_zone": "Asia/Tokyo",
+                    "scheduled_for": "2026-09-07T00:00:00Z",
+                    "stage_id": "stage:personal:inbox",
+                    "task_id": "task:face0d5e5f32ce71ea9e06f04f9e911d",
+                    "title": "Migration audit — relative tomorrow Asia/Tokyo"
+                  }
+                },
+                "provider_call_id": "call_ABGjwq5gixQjgsAo70pNiP8w",
+                "provider_name": "capture",
+                "success": true
+              },
+              "display": {},
+              "output_index": 1,
+              "provider": "codex",
+              "turn_index": 35
+            }
+          }
+        },
+        {
+          "itemId": "item:8b359e943ffb27b85bf07894950aa206",
+          "turnId": "turn:0771d4b5153072185558c709666a02e1",
+          "item": {
+            "__typename": "AssistantText",
+            "text": "Saved for **September 7, 2026** at **09:00** in **Asia/Tokyo**.\n\nTask ID: `task:face0d5e5f32ce71ea9e06f04f9e911d`\n\nAUDIT_RELATIVE_CAPTURE_1_COMPLETE"
+          }
+        },
+        {
+          "itemId": "item:9c6733a402b5e492ddfb0220c6800438",
+          "turnId": "turn:0771d4b5153072185558c709666a02e1",
+          "item": {
+            "__typename": "TaskReference"
+          }
+        }
+      ],
+      "expectedLocalDate": "2026-09-07",
+      "actualLocalDate": "2026-09-07",
+      "actualLocalTime": "09:00",
+      "cancelled": {
+        "taskId": "task:face0d5e5f32ce71ea9e06f04f9e911d",
+        "stage": {
+          "key": "cancelled"
+        },
+        "runs": []
+      },
+      "result": "pass"
+    }
+  ]
+}
