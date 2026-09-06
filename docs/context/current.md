@@ -16,7 +16,8 @@ No new acceptance pass is established by that report.
 Live Gmail setup found missing proposal examples in Go and closed provider-facing proposal objects.
 The adapter template now restores Rust examples, adapted to Lua and checked by the Go compiler.
 Proposal objects explicitly allow fields so provider conversion preserves the complete proposal.
-Acceptance remains pending. Rust setup at `8a135658` also supplies more precise validation errors than Go.
+Compiler errors now identify the operation index and response size limit.
+Acceptance remains pending; see [live setup evidence](../validation/2026-09-06-live-api-setup-repair.md).
 
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.
 The seven authorized Go cleanup items are recorded in `docs/plans/2026-09-05-go-cleanup.md`. ORMs are permitted.

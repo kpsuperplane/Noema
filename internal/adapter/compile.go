@@ -78,8 +78,11 @@ func validateManifest(manifest *Manifest) error {
 	seen := make(map[string]bool, len(manifest.Operations))
 	for index := range manifest.Operations {
 		operation := &manifest.Operations[index]
-		if seen[operation.OperationID] || validateOperation(operation) != nil {
-			return errors.New("adapter operation is invalid")
+		if seen[operation.OperationID] {
+			return fmt.Errorf("operations[%d].operation_id is duplicated", index)
+		}
+		if err := validateOperation(operation); err != nil {
+			return fmt.Errorf("operations[%d]: %w", index, err)
 		}
 		if (manifest.Authentication.Kind == "oauth2_authorization_code_pkce") != (operation.Authorization.Kind == "oauth_scopes") {
 			return errors.New("adapter operation authorization is invalid")
@@ -428,7 +431,7 @@ func validateResponse(response *Response, paginated bool) error {
 	}
 	maximum, ok := maximumOutputBytes(response.OutputSchema)
 	if !ok || maximum > modelResultLimit {
-		return errors.New("response schema is too large")
+		return fmt.Errorf("response.output_schema permits %d bytes; limit is %d bytes (finite bound: %t). Reduce maxItems or maxBytes and enforce the same bounds in the transform", maximum, modelResultLimit, ok)
 	}
 	_, reserved := response.OutputSchema.Properties["continuation"]
 	if reserved || paginated && (response.Transform == nil || response.OutputSchema.Type != "object" || maximum > modelResultLimit-320) {

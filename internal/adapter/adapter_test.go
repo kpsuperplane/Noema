@@ -70,6 +70,17 @@ func TestCompileEnforcesClosedLuaContract(t *testing.T) {
 	}
 }
 
+func TestCompileReportsResponseLimitAndOperation(t *testing.T) {
+	manifest := testManifest()
+	limit := modelResultLimit
+	manifest.Operations[0].Response.OutputSchema.Properties["name"] = OutputSchema{Type: "string", MaxBytes: &limit}
+	_, err := Compile(manifest)
+	if err == nil || !strings.Contains(err.Error(), "operations[0]: response.output_schema") ||
+		!strings.Contains(err.Error(), "limit is 32768 bytes") {
+		t.Fatalf("response limit error = %v", err)
+	}
+}
+
 func TestDefinitionHelpExamplesCompile(t *testing.T) {
 	help := definitionHelp()
 	var input proposalInput
