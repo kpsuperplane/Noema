@@ -78,6 +78,7 @@ type Event struct {
 
 // SendTurnInput contains one accepted human turn.
 type SendTurnInput struct {
+	choice          *store.ConversationChoiceSelection
 	ConversationID  string
 	Input           string
 	ClientMessageID *string
@@ -150,7 +151,6 @@ type Chat struct {
 	turns      chan queuedTurn
 	actions    chan actionResolution
 	mcpAuth    chan mcpAuthResolution
-	choices    chan choiceResolution
 	a2ui       chan a2uiResolution
 	done       chan struct{}
 	closeOnce  sync.Once
@@ -163,7 +163,6 @@ type Chat struct {
 	memoryWG   sync.WaitGroup
 
 	recoveredActions []actionContinuation
-	recoveredChoices []store.ConversationChoiceContinuation
 	recoveredA2UI    []store.ConversationA2UIContinuation
 
 	subMu       sync.Mutex
@@ -187,7 +186,6 @@ func NewChat(
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
 	actions, err := database.RecoverActionRequests(recoveryContext, time.Now())
 	recoveredActions := make([]actionContinuation, 0, len(actions))
-	var recoveredChoices []store.ConversationChoiceContinuation
 	for _, action := range actions {
 		turn, input, callErr := database.ActionConversationCall(recoveryContext, action)
 		if callErr != nil {
@@ -203,13 +201,6 @@ func NewChat(
 		}
 		if action.State != store.ActionOutcomeUncertain {
 			recoveredActions = append(recoveredActions, actionContinuation{action: action, trigger: item})
-		}
-	}
-	if err == nil {
-		var choices []store.ConversationChoiceContinuation
-		choices, err = database.RecoverConversationChoices(recoveryContext, time.Now())
-		if err == nil {
-			recoveredChoices = choices
 		}
 	}
 	var recoveredA2UI []store.ConversationA2UIContinuation
@@ -250,11 +241,9 @@ func NewChat(
 		projects: project.New(database, homeRoot),
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
-		choices:          make(chan choiceResolution, turnQueueLimit),
 		a2ui:             make(chan a2uiResolution, turnQueueLimit),
 		done:             make(chan struct{}),
 		recoveredActions: recoveredActions,
-		recoveredChoices: recoveredChoices,
 		recoveredA2UI:    recoveredA2UI,
 		subscribers:      make(map[uint64]subscriber),
 	}
@@ -436,13 +425,6 @@ func (c *Chat) run() {
 		c.continueAfterAction(recovery.action, recovery.trigger)
 	}
 	c.recoveredActions = nil
-	for _, recovery := range c.recoveredChoices {
-		if c.ctx.Err() != nil {
-			return
-		}
-		c.resumeMultipleChoice(recovery)
-	}
-	c.recoveredChoices = nil
 	for _, recovery := range c.recoveredA2UI {
 		if c.ctx.Err() != nil {
 			return
@@ -465,8 +447,6 @@ func (c *Chat) run() {
 		case request := <-c.mcpAuth:
 			value, err := c.resolveMCPAuthentication(request)
 			request.reply <- mcpAuthResult{request: value, err: err}
-		case request := <-c.choices:
-			c.resolveMultipleChoice(request)
 		case request := <-c.a2ui:
 			c.resolveA2UI(request)
 		case <-workWake:
@@ -479,10 +459,14 @@ func (c *Chat) run() {
 
 func (c *Chat) execute(request queuedTurn) {
 	now := time.Now()
-	turn, userItem, err := c.database.BeginConversationTurn(
-		c.ctx, request.input.ConversationID, request.input.Input,
-		request.input.ClientMessageID, now,
-	)
+	var turn store.ConversationTurn
+	var userItem store.ConversationItem
+	var err error
+	if request.input.choice != nil {
+		turn, userItem, err = c.database.BeginConversationChoiceTurn(c.ctx, request.input.ConversationID, *request.input.choice, request.input.ClientMessageID, now)
+	} else {
+		turn, userItem, err = c.database.BeginConversationTurn(c.ctx, request.input.ConversationID, request.input.Input, request.input.ClientMessageID, now)
+	}
 	if err != nil {
 		c.publishTransientFailure(request.input, err)
 		return

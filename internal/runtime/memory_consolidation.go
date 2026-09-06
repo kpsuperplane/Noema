@@ -422,7 +422,7 @@ func cloneStringSet(source map[string]bool) map[string]bool {
 
 func memoryEvidencePayload(item store.ConversationItem) string {
 	switch item.Kind {
-	case store.ConversationUserText:
+	case store.ConversationUserText, store.ConversationMultipleChoiceSelection:
 		return item.ContentText
 	case store.ConversationToolResult:
 	case store.ConversationItemKind("activity"):
@@ -463,7 +463,7 @@ func renderMemorySourceItem(item store.ConversationItem) string {
 	switch item.Kind {
 	case store.ConversationAssistantText:
 		return "assistant " + item.ContentText
-	case store.ConversationUserText:
+	case store.ConversationUserText, store.ConversationMultipleChoiceSelection:
 		return fmt.Sprintf("human [%s] %s", item.ID, item.ContentText)
 	case store.ConversationToolResult, store.ConversationItemKind("activity"):
 		if payload := memoryEvidencePayload(item); payload != "" {

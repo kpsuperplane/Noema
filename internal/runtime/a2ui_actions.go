@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -240,7 +242,7 @@ func (c *Chat) resumeA2UI(value store.ConversationA2UIContinuation) {
 		c.failA2UI(claimed, err)
 		return
 	}
-	credentialRevision, err := c.validateMultipleChoiceAuthority(c.ctx, claimed.Surface.Payload, assignment)
+	credentialRevision, err := c.validateA2UIAuthority(c.ctx, claimed.Surface.Payload, assignment)
 	if err != nil {
 		c.failA2UI(claimed, err)
 		return
@@ -262,12 +264,12 @@ func (c *Chat) resumeA2UI(value store.ConversationA2UIContinuation) {
 	if clientID != "" {
 		request.input.ClientMessageID = &clientID
 	}
-	replay, err := storedMultipleChoiceToolResult(claimed.Result)
+	replay, err := storedA2UIToolResult(claimed.Result)
 	if err != nil {
 		c.failA2UI(claimed, err)
 		return
 	}
-	call, err := storedToolCallForChoice(c.database, c.ctx, claimed.Surface)
+	call, err := storedA2UIToolCall(c.database, c.ctx, claimed.Surface)
 	if err != nil {
 		c.failA2UI(claimed, err)
 		return
@@ -294,3 +296,66 @@ func (c *Chat) resumeA2UI(value store.ConversationA2UIContinuation) {
 func (c *Chat) failA2UI(value store.ConversationA2UIContinuation, err error) {
 	c.failTurn(SendTurnInput{ConversationID: value.Turn.ConversationID}, value.Turn, err)
 }
+
+func (c *Chat) a2uiAuthority(
+	ctx context.Context, assignment store.ModelAssignment,
+) (uint64, string, error) {
+	account, err := c.database.ProviderAccount(ctx, assignment.ProviderAccountID)
+	if err != nil || account.ProviderKind != assignment.ProviderKind {
+		return 0, "", errors.New("A2UI provider route is unavailable")
+	}
+	tools, err := c.chatTools(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	encoded, err := json.Marshal(tools)
+	if err != nil {
+		return 0, "", errors.New("A2UI tool catalog is invalid")
+	}
+	digest := sha256.Sum256(encoded)
+	return account.Metadata.CredentialRevision(), hex.EncodeToString(digest[:]), nil
+}
+
+func (c *Chat) validateA2UIAuthority(
+	ctx context.Context, payload map[string]any, assignment store.ModelAssignment,
+) (uint64, error) {
+	revision, digest, err := c.a2uiAuthority(ctx, assignment)
+	if err != nil {
+		return 0, err
+	}
+	storedRevision, ok := payload["credential_revision"].(float64)
+	storedDigest, _ := payload["tool_catalog_digest"].(string)
+	if !ok || storedRevision < 0 || uint64(storedRevision) != revision || storedDigest == "" || storedDigest != digest {
+		return 0, errors.New("A2UI provider authority changed")
+	}
+	return revision, nil
+}
+
+func storedA2UIToolResult(item store.ConversationItem) (provider.ReplayToolResult, error) {
+	result, err := storedToolResult(item)
+	if err != nil {
+		return provider.ReplayToolResult{}, err
+	}
+	action, _ := nestedAction(item.Payload)
+	result.Payload, err = json.Marshal(action["payload"])
+	if err != nil {
+		return provider.ReplayToolResult{}, errors.New("A2UI tool result is invalid")
+	}
+	return result, nil
+}
+
+func storedA2UIToolCall(database *store.Store, ctx context.Context, prompt store.ConversationItem) (provider.ReplayToolCall, error) {
+	items, err := database.ConversationProviderItems(ctx, prompt.ConversationID)
+	if err != nil {
+		return provider.ReplayToolCall{}, err
+	}
+	callID, _ := prompt.Payload["call_item_id"].(string)
+	for _, item := range items {
+		if item.ID == callID {
+			return storedToolCall(item)
+		}
+	}
+	return provider.ReplayToolCall{}, errors.New("A2UI tool call is unavailable")
+}
+
+func intJSONValue(value any) int { number, _ := value.(float64); return int(number) }

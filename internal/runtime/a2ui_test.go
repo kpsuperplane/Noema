@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -165,4 +166,49 @@ func eventHasA2UILifecycle(events []Event, lifecycle string) bool {
 		}
 	}
 	return false
+}
+
+func TestA2UIResumeAuthorityRejectsChanges(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	assignment, err := chat.primaryAssignment(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, digest, err := chat.a2uiAuthority(context.Background(), assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{"credential_revision": float64(revision), "tool_catalog_digest": digest}
+	if _, err := chat.validateA2UIAuthority(context.Background(), payload, assignment); err != nil {
+		t.Fatal(err)
+	}
+	payload["tool_catalog_digest"] = "changed"
+	if _, err := chat.validateA2UIAuthority(context.Background(), payload, assignment); err == nil {
+		t.Fatal("changed tool catalog succeeded")
+	}
+	payload["tool_catalog_digest"] = digest
+	account, err := database.ProviderAccount(context.Background(), assignment.ProviderAccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.UpdateProviderCredential(
+		context.Background(), account.ID, revision, account.AuthMethod, true, account.Metadata, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chat.validateA2UIAuthority(context.Background(), payload, assignment); err == nil {
+		t.Fatal("changed provider credential succeeded")
+	}
+}
+
+func TestA2UIResultPreservesLongPayload(t *testing.T) {
+	large := strings.Repeat("private ordinary value ", 2<<10)
+	item := store.ConversationItem{Payload: map[string]any{"metadata": map[string]any{"action": map[string]any{
+		"provider_call_id": "call", "provider_name": "present_a2ui", "name": presentA2UIName,
+		"success": true, "payload": map[string]any{"value": large},
+	}}}}
+	result, err := storedA2UIToolResult(item)
+	if err != nil || !strings.Contains(string(result.Payload), large) {
+		t.Fatal("A2UI result lost its payload", err)
+	}
 }

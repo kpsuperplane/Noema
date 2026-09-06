@@ -48,7 +48,7 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | CHAT-06 | Partial · live Chromium | Unicode, emoji, paragraphs, code, lists, and links survive reload and a second browser read. Native clients remain pending. | — |
 | CHAT-07 | Not run | Controlled setup pending. | — |
 | CHAT-08 | Pass · live Codex | The explicit foreground request returns its exact response in Chat and creates no Task. Other provider variants remain pending. | — |
-| CHAT-09 | Pass · live Codex/Chromium | Single and multiple selections resume once and survive reload. Ordinary text receives a clear rejection; the Rust baseline also excludes free-text continuation. | — |
+| CHAT-09 | Partial · controlled runtime | Display returns immediately. Free text remains available. Selection sends normal user text with current context. Upgrade releases old questions. Live composer enabled at both widths. [Checks](evidence/2026-09-06-choice-simplification.json). Live selection retest pending. | — |
 | CHAT-10 | Pass · live Codex/Chromium | Another browser cannot resubmit an answered prompt. The original selection and turn remain unchanged. [Evidence](evidence/2026-09-05-chat-choice-browser-results.json). | — |
 | CHAT-11 | Pass · live Codex/Chromium | All nine catalog components render. Keyboard and pointer submissions preserve exact bound values. One action resumes the correct turn and survives reload. | — |
 | CHAT-12 | Pass · live Codex/Chromium | Unsupported components and active HTML create no surface. Forged context and stale actions are rejected. Chat remains usable. | — |

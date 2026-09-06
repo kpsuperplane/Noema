@@ -4,15 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
-
-	"github.com/kpsuperplane/noema/internal/store"
 )
 
 func TestMultipleChoiceArgumentsAreStrictAndNormalized(t *testing.T) {
@@ -41,14 +37,14 @@ func TestMultipleChoiceArgumentsAreStrictAndNormalized(t *testing.T) {
 	}
 }
 
-func TestChatMultipleChoicePausesAndResumesExactToolResult(t *testing.T) {
+func TestChatMultipleChoiceAllowsTextAndSendsSelectionAsUserMessage(t *testing.T) {
 	chat, _, conversation := chatFixture(t)
 	events, err := chat.Subscribe(context.Background(), conversation.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	<-events
-	requests := make(chan map[string]any, 2)
+	requests := make(chan map[string]any, 4)
 	var count atomic.Int32
 	replaceDefaultTransport(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		var body map[string]any
@@ -82,19 +78,25 @@ data: [DONE]
 	if promptID == "" {
 		t.Fatalf("choice prompt events = %#v", first)
 	}
+	<-requests
+	displayed := <-requests
+	encoded, _ := json.Marshal(displayed["messages"])
+	if !bytes.Contains(encoded, []byte(`\"status\":\"displayed\"`)) {
+		t.Fatalf("display result = %s", encoded)
+	}
 	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "Another answer"}); err != nil {
 		t.Fatal(err)
 	}
-	rejected := collectCompletedTurns(t, events, 1)
-	var explained bool
-	for _, event := range rejected {
-		explained = explained || event.Kind == EventTransientError && event.TransientMessage == "Chat is still busy. Finish the current interaction before sending another message."
-		if event.Item != nil {
-			t.Fatal("rejected text must not create a transcript item")
+	freeText := collectCompletedTurns(t, events, 1)
+	for _, event := range freeText {
+		if event.Kind == EventTransientError {
+			t.Fatal(event.TransientMessage)
 		}
 	}
-	if !explained {
-		t.Fatal("pending interaction rejection did not explain how to continue")
+	freeRequest := <-requests
+	encoded, _ = json.Marshal(freeRequest["messages"])
+	if !bytes.Contains(encoded, []byte("Which?")) || !bytes.Contains(encoded, []byte("Another answer")) {
+		t.Fatalf("free text context = %s", encoded)
 	}
 	selectionClient := "selection-client"
 	if _, err := chat.SendMultipleChoiceSelection(
@@ -104,99 +106,30 @@ data: [DONE]
 	}
 	second := collectCompletedTurns(t, events, 1)
 	var selected []any
-	var completedCall bool
 	for _, event := range second {
+		if event.Kind == EventTransientError || event.Item != nil && event.Item.Kind == "error_notice" {
+			t.Fatalf("selection failed: %#v", event)
+		}
 		if event.Item != nil && event.Item.Kind == "multiple_choice_selection" {
 			selected, _ = event.Item.Payload["selected_options"].([]any)
 		}
-		completedCall = completedCall || event.Item != nil && event.Item.Kind == "tool_call" && event.Item.Status == "completed"
 	}
 	if len(selected) != 2 || selected[0].(map[string]any)["id"] != "b" || selected[1].(map[string]any)["id"] != "a" {
 		t.Fatalf("stored selected options = %#v", selected)
 	}
-	if !completedCall {
-		t.Fatal("completed multiple-choice call was not published")
-	}
-	<-requests
 	continuation := <-requests
 	messages := continuation["messages"].([]any)
 	last := messages[len(messages)-1].(map[string]any)
-	if last["role"] != "tool" || !strings.Contains(last["content"].(string), `"status":"resolved"`) ||
-		!strings.Contains(last["content"].(string), `"id":"b"`) {
-		t.Fatalf("choice continuation = %#v", continuation)
+	if last["role"] != "user" || last["content"] != "Beta, Alpha" {
+		t.Fatalf("selection message = %#v", last)
+	}
+	encoded, _ = json.Marshal(messages)
+	if !bytes.Contains(encoded, []byte("Another answer")) {
+		t.Fatal("selection lost intervening user context")
 	}
 	if _, err := chat.SendMultipleChoiceSelection(
 		context.Background(), conversation.ID, promptID, []string{"b"}, nil,
 	); err == nil {
 		t.Fatal("repeated choice selection succeeded")
-	}
-}
-
-func TestMultipleChoiceResumeAuthorityRejectsChanges(t *testing.T) {
-	chat, database, _ := chatFixture(t)
-	assignment, err := chat.primaryAssignment(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	revision, digest, err := chat.multipleChoiceAuthority(context.Background(), assignment)
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload := map[string]any{"credential_revision": float64(revision), "tool_catalog_digest": digest}
-	if _, err := chat.validateMultipleChoiceAuthority(context.Background(), payload, assignment); err != nil {
-		t.Fatal(err)
-	}
-	payload["tool_catalog_digest"] = "changed"
-	if _, err := chat.validateMultipleChoiceAuthority(context.Background(), payload, assignment); err == nil {
-		t.Fatal("changed tool catalog succeeded")
-	}
-	payload["tool_catalog_digest"] = digest
-	account, err := database.ProviderAccount(context.Background(), assignment.ProviderAccountID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.UpdateProviderCredential(
-		context.Background(), account.ID, revision, account.AuthMethod, true, account.Metadata, time.Now(),
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := chat.validateMultipleChoiceAuthority(context.Background(), payload, assignment); err == nil {
-		t.Fatal("changed provider credential succeeded")
-	}
-}
-
-func TestMultipleChoiceWaitReleasesStateLockAndKeepsExactResult(t *testing.T) {
-	_, database, conversation := chatFixture(t)
-	waiter := &Chat{database: database, ctx: context.Background(), choices: make(chan choiceResolution, 1)}
-	done := make(chan error, 1)
-	go func() {
-		_, err := waiter.SendMultipleChoiceSelection(context.Background(), conversation.ID, "prompt", []string{"one"}, nil)
-		done <- err
-	}()
-	request := <-waiter.choices
-	locked := make(chan struct{})
-	go func() {
-		waiter.stateMu.Lock()
-		close(locked)
-		waiter.stateMu.Unlock()
-	}()
-	select {
-	case <-locked:
-	case <-time.After(time.Second):
-		t.Fatal("multiple-choice wait retained the Chat state lock")
-	}
-	request.reply <- errors.New("test complete")
-	if err := <-done; err == nil {
-		t.Fatal("test selection unexpectedly succeeded")
-	}
-
-	large := strings.Repeat("private ordinary choice ", 2<<10)
-	item := store.ConversationItem{Payload: map[string]any{"metadata": map[string]any{"action": map[string]any{
-		"provider_call_id": "call", "provider_name": "present_multiple_choice", "name": presentMultipleChoiceName,
-		"success": true, "payload": map[string]any{"status": "resolved", "selected_options": []any{map[string]any{"id": "one", "label": large}}},
-	}}}}
-	result, err := storedMultipleChoiceToolResult(item)
-	if err != nil || len(result.Payload) <= modelToolPayloadLimit || !bytes.Contains(result.Payload, []byte(large)) {
-		t.Fatalf("exact multiple-choice result length = %d, %v", len(result.Payload), err)
 	}
 }

@@ -36,7 +36,7 @@ func (s *Store) CaptureMemorySourceRange(
 SELECT COALESCE(MAX(sequence_index), 0)
 FROM conversation_items
 WHERE conversation_id = ? AND deleted_at_ms IS NULL AND status = 'completed'
-  AND (kind IN ('user_text', 'assistant_text', 'tool_result')
+  AND (kind IN ('user_text', 'multiple_choice_selection', 'assistant_text', 'tool_result')
     OR (kind = 'activity'
       AND json_extract(metadata_json, '$.source') = 'provider_action'
       AND json_extract(payload_json, '$.activity_kind') = 'tool_result'))`, conversationID).Scan(&head); err != nil {
@@ -49,7 +49,7 @@ SELECT item_id, conversation_id, COALESCE(turn_id, ''), COALESCE(parent_item_id,
 FROM conversation_items
 WHERE conversation_id = ? AND deleted_at_ms IS NULL
   AND sequence_index > ? AND sequence_index <= ? AND status = 'completed'
-  AND (kind IN ('user_text', 'assistant_text', 'tool_result')
+  AND (kind IN ('user_text', 'multiple_choice_selection', 'assistant_text', 'tool_result')
     OR (kind = 'activity'
       AND json_extract(metadata_json, '$.source') = 'provider_action'
       AND json_extract(payload_json, '$.activity_kind') = 'tool_result'))

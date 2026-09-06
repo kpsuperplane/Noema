@@ -268,7 +268,7 @@ Unsupported provider features need an explicit capability result, not a silent f
 | CHAT-06 | P1 | Auto | Send Unicode, emoji, multiline text, code, lists, and links. | Text remains intact and readable after streaming, reload, and cross-client reads. |
 | CHAT-07 | P1 | Auto | Continue a long conversation until compaction occurs. | Current instructions, material facts, source links, and pending decisions remain usable. |
 | CHAT-08 | P1 | Auto | Request work explicitly in foreground Chat. | The agent honors foreground execution when supported. Automatic Task advice does not override the request. |
-| CHAT-09 | P1 | Auto | Answer a multiple-choice prompt, including its supported free-text path. | The selected answer resumes the correct interaction once. Refresh preserves the recorded response. |
+| CHAT-09 | P1 | Auto | Answer a multiple-choice prompt, including its supported free-text path. | Unanswered choices do not block messages. A selection sends its label as normal text. Refresh preserves the selected options. |
 | CHAT-10 | P0 | Auto | Submit an old or already-resolved choice from another client. | The stale response is rejected without starting duplicate work. |
 | CHAT-11 | P1 | Auto | Request a supported interactive A2UI surface and submit it. | Controls render from the supported catalog. The correct surface receives the action once. |
 | CHAT-12 | P0 | Auto | Supply invalid A2UI components, active HTML, or a stale surface action. | Untrusted content cannot execute code or authorize a stale action. Chat remains usable. |

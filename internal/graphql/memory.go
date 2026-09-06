@@ -222,7 +222,7 @@ func (r *Resolver) memorySourceModel(
 	reference.CreatedAt = &created
 	var text string
 	switch item.Kind {
-	case store.ConversationUserText:
+	case store.ConversationUserText, store.ConversationMultipleChoiceSelection:
 		reference.Kind = model.GraphqlNativeMemorySourceKindHumanMessage
 		text = item.ContentText
 	case store.ConversationToolResult:

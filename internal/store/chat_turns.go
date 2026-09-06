@@ -110,6 +110,10 @@ func (s *Store) BeginConversationTurn(
 	clientMessageID *string,
 	now time.Time,
 ) (ConversationTurn, ConversationItem, error) {
+	return s.beginConversationTurn(ctx, conversationID, input, clientMessageID, nil, now)
+}
+
+func (s *Store) beginConversationTurn(ctx context.Context, conversationID, input string, clientMessageID *string, choice *ConversationChoiceSelection, now time.Time) (ConversationTurn, ConversationItem, error) {
 	if !utf8.ValidString(input) || len(input) > maxConversationText {
 		return ConversationTurn{}, ConversationItem{}, errors.New("conversation input is invalid or too large")
 	}
@@ -132,6 +136,16 @@ func (s *Store) BeginConversationTurn(
 	defer func() { _ = tx.Rollback() }()
 	if err := requireConversationTx(ctx, tx, conversationID); err != nil {
 		return ConversationTurn{}, ConversationItem{}, err
+	}
+	kind, payload, parent := "user_text", "{}", ""
+	if choice != nil {
+		var selected map[string]any
+		input, selected, err = conversationChoiceTextTx(ctx, tx, conversationID, *choice)
+		if err != nil {
+			return ConversationTurn{}, ConversationItem{}, err
+		}
+		encoded, _ := json.Marshal(selected)
+		kind, payload, parent = "multiple_choice_selection", string(encoded), choice.PromptItemID
 	}
 	var active bool
 	if err := tx.QueryRowContext(ctx, `
@@ -165,12 +179,12 @@ INSERT INTO conversation_turns (
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO conversation_items (
     item_id, conversation_id, turn_id, sequence_index, kind, status,
-    author_actor_id, content_text, payload_json, metadata_json,
+    author_actor_id, content_text, payload_json, metadata_json, parent_item_id,
     created_at_ms, updated_at_ms
 ) VALUES (?, ?, ?, 1 + COALESCE((
     SELECT MAX(sequence_index) FROM conversation_items WHERE conversation_id = ?
-), 0), 'user_text', 'completed', 'human:local', ?, '{}', ?, ?, ?)`,
-		itemID, conversationID, turnID, conversationID, input, string(itemMetadata), millis(now), millis(now)); err != nil {
+), 0), ?, 'completed', 'human:local', ?, ?, ?, NULLIF(?, ''), ?, ?)`,
+		itemID, conversationID, turnID, conversationID, kind, input, payload, string(itemMetadata), parent, millis(now), millis(now)); err != nil {
 		return ConversationTurn{}, ConversationItem{}, fmt.Errorf("create conversation user item: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -290,7 +304,7 @@ SELECT kind, CASE
 END
 FROM conversation_items
 WHERE conversation_id = ? AND deleted_at_ms IS NULL AND status = 'completed'
-  AND kind IN ('user_text', 'assistant_text')
+  AND kind IN ('user_text', 'multiple_choice_selection', 'assistant_text')
 ORDER BY sequence_index`, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("query provider conversation messages: %w", err)
@@ -303,7 +317,7 @@ ORDER BY sequence_index`, conversationID)
 			return nil, fmt.Errorf("scan provider conversation message: %w", err)
 		}
 		role := "assistant"
-		if kind == "user_text" {
+		if kind == "user_text" || kind == "multiple_choice_selection" {
 			role = "user"
 		}
 		messages = append(messages, ProviderMessage{Role: role, Content: content})
@@ -493,10 +507,8 @@ WHERE conversation_id IN (
     SELECT conversation_id FROM conversation_turns
     WHERE status IN ('input_received', 'running', 'waiting_for_tool') AND NOT EXISTS (
         SELECT 1 FROM conversation_items choice WHERE choice.turn_id = conversation_turns.turn_id
-        AND ((choice.kind = 'multiple_choice_prompt'
-        AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming'))
-        OR (choice.kind = 'a2ui_card'
-        AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming')))
+        AND (choice.kind = 'a2ui_card'
+        AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming'))
     )
 )`, millis(now)); err != nil {
 		return 0, fmt.Errorf("restore recovered conversations: %w", err)
@@ -507,10 +519,8 @@ WHERE status IN ('pending', 'running') AND turn_id IN (
     SELECT turn_id FROM conversation_turns
     WHERE status IN ('input_received', 'running', 'waiting_for_tool') AND NOT EXISTS (
         SELECT 1 FROM conversation_items choice WHERE choice.turn_id = conversation_turns.turn_id
-        AND ((choice.kind = 'multiple_choice_prompt'
-        AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming'))
-        OR (choice.kind = 'a2ui_card'
-        AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming')))
+        AND (choice.kind = 'a2ui_card'
+        AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming'))
     )
 )`, millis(now)); err != nil {
 		return 0, fmt.Errorf("cancel recovered conversation items: %w", err)
@@ -520,10 +530,8 @@ UPDATE conversation_turns
 SET status = 'cancelled', completed_at_ms = ?, updated_at_ms = ?
 WHERE status IN ('input_received', 'running', 'waiting_for_tool') AND NOT EXISTS (
     SELECT 1 FROM conversation_items choice WHERE choice.turn_id = conversation_turns.turn_id
-    AND ((choice.kind = 'multiple_choice_prompt'
-    AND json_extract(choice.payload_json, '$.lifecycle') IN ('pending', 'answered', 'resuming'))
-    OR (choice.kind = 'a2ui_card'
-    AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming')))
+    AND (choice.kind = 'a2ui_card'
+    AND json_extract(choice.payload_json, '$.interaction_state') IN ('pending', 'answered', 'resuming'))
 )`, millis(now), millis(now))
 	if err != nil {
 		return 0, fmt.Errorf("cancel recovered conversation turns: %w", err)
@@ -645,9 +653,6 @@ UPDATE conversations SET agent_status = ?, updated_at_ms = ? WHERE conversation_
 		agentStatus, millis(now), turn.ConversationID); err != nil {
 		return ConversationItem{}, fmt.Errorf("finish conversation status: %w", err)
 	}
-	if err := completeResumingConversationChoicesTx(ctx, tx, turn.ID, now); err != nil {
-		return ConversationItem{}, err
-	}
 	a2uiState := "completed"
 	if kind == ConversationErrorNotice {
 		a2uiState = "failed"
@@ -668,7 +673,7 @@ UPDATE conversations SET agent_status = ?, updated_at_ms = ? WHERE conversation_
 func conversationTurnParentTx(ctx context.Context, tx bun.Tx, turn ConversationTurn) (string, error) {
 	var parentID string
 	err := tx.QueryRowContext(ctx, `SELECT item_id FROM conversation_items
-WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID)
+WHERE turn_id = ? AND kind IN ('user_text', 'multiple_choice_selection') ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID)
 	if err == nil {
 		return parentID, nil
 	}

@@ -167,6 +167,11 @@ func (c *Chat) executeChatTool(
 		return c.searchMemory(arguments)
 	case noemamcp.ConnectServiceToolName:
 		return c.connectMCPService(ctx, arguments)
+	case presentMultipleChoiceName:
+		if _, err := parseMultipleChoiceArguments(arguments); err != nil {
+			return toolFailure("invalid_arguments", err.Error()), false
+		}
+		return json.RawMessage(`{"status":"displayed"}`), true
 	case presentA2UIName:
 		jsonl, err := parseA2UIArguments(arguments)
 		if err != nil {

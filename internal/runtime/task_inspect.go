@@ -187,7 +187,7 @@ func providerMessagesFromItems(
 				details = withoutHostedReasoning(details)
 			}
 			reasoning = append(reasoning, details...)
-		case store.ConversationUserText:
+		case store.ConversationUserText, store.ConversationMultipleChoiceSelection:
 			messages = append(messages, provider.GenerationMessage{Role: "user", Content: item.ContentText})
 			rounds = append(rounds, providerRound(item))
 		case store.ConversationAssistantText:
@@ -601,23 +601,18 @@ func (c *Chat) persistChatToolRound(
 ) (json.RawMessage, bool, bool, error) {
 	var mcpBinding *noemamcp.Binding
 	var adapterBinding *adapter.Binding
-	var multipleChoice *multipleChoiceArguments
+	var multipleChoice *store.ConversationMultipleChoiceInput
 	var a2ui *a2uiBatch
 	var a2uiHasActions bool
-	var choiceCredentialRevision uint64
-	var choiceToolCatalogDigest string
+	var a2uiCredentialRevision uint64
+	var a2uiToolCatalogDigest string
 	if call.Name == fileDownloadName {
 		if _, err := parseFileDownloadArguments(call.Payload); err != nil {
 			return nil, false, false, errors.New("file.download arguments are invalid")
 		}
 	} else if call.Name == presentMultipleChoiceName {
-		multipleChoice, _ = parseMultipleChoiceArguments(call.Payload)
-		if multipleChoice != nil {
-			var authorityErr error
-			choiceCredentialRevision, choiceToolCatalogDigest, authorityErr = c.multipleChoiceAuthority(c.ctx, assignment)
-			if authorityErr != nil {
-				return nil, false, false, authorityErr
-			}
+		if value, err := parseMultipleChoiceArguments(call.Payload); err == nil {
+			multipleChoice = &store.ConversationMultipleChoiceInput{Prompt: value.Prompt, SelectionMode: value.SelectionMode, Options: value.Options}
 		}
 	} else if call.Name == presentA2UIName {
 		if jsonl, parseErr := parseA2UIArguments(call.Payload); parseErr == nil {
@@ -628,7 +623,7 @@ func (c *Chat) persistChatToolRound(
 				}
 				if a2uiHasActions {
 					var authorityErr error
-					choiceCredentialRevision, choiceToolCatalogDigest, authorityErr = c.multipleChoiceAuthority(c.ctx, assignment)
+					a2uiCredentialRevision, a2uiToolCatalogDigest, authorityErr = c.a2uiAuthority(c.ctx, assignment)
 					if authorityErr != nil {
 						return nil, false, false, authorityErr
 					}
@@ -668,12 +663,9 @@ func (c *Chat) persistChatToolRound(
 			ProviderCallID: call.ProviderCallID,
 			ProviderName:   call.ProviderName, Name: call.Name, Arguments: call.Payload,
 		},
-		MultipleChoice: storedMultipleChoiceInput(
-			multipleChoice, assignment, generation.ID, hostedState,
-			choiceCredentialRevision, choiceToolCatalogDigest,
-		),
+		MultipleChoice: multipleChoice,
 		A2UI: storedA2UIInput(a2ui, a2uiHasActions, assignment, generation.ID, hostedState,
-			choiceCredentialRevision, choiceToolCatalogDigest),
+			a2uiCredentialRevision, a2uiToolCatalogDigest),
 	}, time.Now())
 	if err != nil {
 		return nil, false, false, err
@@ -694,7 +686,7 @@ func (c *Chat) persistChatToolRound(
 	if callItem.ID == "" {
 		return nil, false, false, errors.New("stored tool call is unavailable")
 	}
-	if multipleChoice != nil || a2uiHasActions {
+	if a2uiHasActions {
 		c.publish(Event{Kind: EventAgentStatus, ConversationID: turn.ConversationID, Status: AgentStatusIdle})
 		c.publish(Event{Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID})

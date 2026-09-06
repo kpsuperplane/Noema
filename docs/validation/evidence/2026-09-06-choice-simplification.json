@@ -1,0 +1,43 @@
+{
+  "base": "3d926e02",
+  "result": "passed controlled checks; live selection retest pending",
+  "checks": [
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/runtime ./internal/store -run \"Choice|A2UI\"",
+      "result": "passed; normal messages, selection transactions, A2UI, fresh schema and v33 upgrade"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+      "result": "passed before the final Memory source-kind mapping correction"
+    },
+    {
+      "command": "CGO_ENABLED=0 go vet ./cmd/... ./internal/...",
+      "result": "passed before the final Memory source-kind mapping correction"
+    },
+    {
+      "command": "CGO_ENABLED=0 go test ./internal/graphql && CGO_ENABLED=0 go vet ./internal/graphql",
+      "result": "passed after the final mapping correction; unchanged package results reused"
+    }
+  ],
+  "live_read_only": {
+    "instance": "https://noema.kevinpei.com",
+    "desktop_width": 1440,
+    "phone_width": 390,
+    "composer_enabled": true,
+    "schema_version": 35,
+    "choice_paused_turns": 0,
+    "messages_sent": 0
+  },
+  "go_lines": {
+    "production": 77986,
+    "tests": 26474,
+    "generated": 79612,
+    "inclusive": 184072,
+    "production_delta": -372,
+    "test_delta": 20,
+    "generated_delta": 0,
+    "production_ratio": 0.448221,
+    "inclusive_ratio": 0.767523
+  },
+  "review": "Checked normal turn completion, provider context, Memory source handling, selection atomicity, migrations, and retained A2UI consumers."
+}

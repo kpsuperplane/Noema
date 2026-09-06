@@ -78,7 +78,7 @@ SELECT status FROM conversation_turns WHERE turn_id = ? AND conversation_id = ?`
 	}
 	if err := tx.QueryRowContext(ctx, `
 SELECT item_id FROM conversation_items
-WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID); err != nil {
+WHERE turn_id = ? AND kind IN ('user_text', 'multiple_choice_selection') ORDER BY sequence_index LIMIT 1`, turn.ID).Scan(&parentID); err != nil {
 		return nil, fmt.Errorf("find conversation user item: %w", err)
 	}
 	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
