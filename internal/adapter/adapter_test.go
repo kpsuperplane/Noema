@@ -419,6 +419,10 @@ func TestProposalReviewInstallPolicyAndRecovery(t *testing.T) {
 		t.Fatalf("revision proposal = %s", result)
 	}
 	pending, err = restarted.files.loadDefinition(proposed.SemanticDigest)
+	bindings, bindingErr := restarted.Bindings()
+	if bindingErr != nil || len(bindings) != 1 || bindings[0].SemanticDigest != reviewed.SemanticDigest {
+		t.Fatalf("approved tools during pending review = %#v, %v", bindings, bindingErr)
+	}
 	if err != nil || len(pending.AffectedConnections) != 1 || pending.AffectedConnections[0] != connection.ConnectionID {
 		t.Fatalf("revision transition = %#v, %v", pending.AffectedConnections, err)
 	}

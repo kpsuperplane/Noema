@@ -456,7 +456,7 @@ func (f *fileAuthority) definitions() ([]Definition, error) {
 	for i := range result {
 		for j := range result {
 			for _, replaced := range result[j].Replaces {
-				if replaced == result[i].SemanticDigest {
+				if replaced == result[i].SemanticDigest && (!result[i].Manifest.Reviewed || result[j].Manifest.Reviewed) {
 					result[i].Superseded = true
 				}
 			}

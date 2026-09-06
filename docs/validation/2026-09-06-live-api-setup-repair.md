@@ -68,3 +68,26 @@ This slice changes one production line and adds seven test lines.
 Before that correction, the agent proposed a v3 revision based on an incorrect diagnosis about preserving the raw token.
 Do not approve that revision without inspecting it. The backend correction needs a live list retry.
 Full message, attachment, multi-page, OAuth, and account-isolation acceptance remain open.
+
+The next retry found that the pending v3 revision hid the approved v2 tools.
+Go marked an approved definition superseded by an unapproved replacement.
+The correction preserves approved tools until another approved definition replaces them.
+The existing revision test now verifies this intermediate state.
+This slice changes one production line and adds four test lines.
+
+## Live retry after the fixes
+
+Turn `turn:4a0f1be24bd8662562d53df073dee1ca` completed successfully through the approved v2 connector.
+The fixture recorded account-A HTTP 200 responses for profile, message list, trip thread, and message `a-msg-007`.
+The assistant identified the mailbox, summarized three trip messages, and reported the fourth body unavailable.
+Its final response is stored at `conversation_item:1550`.
+
+The fourth fixture message places text data directly on a multipart payload.
+The proposed transform searches text MIME parts, so this body remains unavailable.
+Inspect fixture MIME fidelity before treating this as a product defect.
+The summary also inferred calendar dates from weekday-only message text without labeling that inference.
+These observations prevent a full content-quality pass.
+
+Broad Go tests and vet pass with all four repair commits' code changes.
+The final pending-review correction is included in this document's commit.
+No production build or test changes followed those successful checks.
