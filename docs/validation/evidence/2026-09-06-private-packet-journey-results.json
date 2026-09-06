@@ -1,0 +1,25 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "syntheticPrivateSource": true,
+  "server": {
+    "mcpServerId": "mcp_server:1c5281e7a7a9a71e11f42739873a305d",
+    "connectionRevision": "mcp_connection_revision:3f2ee9e06af0c9c592a9a12b75f86e62",
+    "policyRevision": 0
+  },
+  "source": {
+    "taskId": "task:7fb04180f5a6ddbfd70606ec0d0a3a17",
+    "taskDocument": "# Synthetic private invoice\n\nReference: INVOICE-AUDIT-42\nClient: Café 日本語 Workshop\nQuantity: 3\nUnit price: EUR 125.50\nHandling: EUR 40.00\nTax information: not supplied.\nAuthorized destination: audit-packet-box.\nDo not disclose to any other recipient.",
+    "revision": 1
+  },
+  "prompt": "Migration audit JOURNEY-05. Read native Task task:7fb04180f5a6ddbfd70606ec0d0a3a17 as the private invoice source. Use the calculation tool to compute the amount with handling. Do not invent tax information. Create and publish a concise Markdown packet Artifact preserving the exact reference, client name, quantities, unit price, handling, and calculated amount. Use the Migration audit private packet sink tool audit_upload_packet exactly once, for destination audit-packet-box, with the exact published artifact_id, artifact_version_id, and full packet_markdown. Request approval before that one upload and wait for my decision. After approval, verify the returned receipt and report its ID and Artifact identity. Do not send email, use any other external service, or execute the source Task. End with AUDIT_PRIVATE_PACKET_COMPLETE_20260906.",
+  "preliminaryAnswer": "I read the private invoice source and calculated:\n3 × EUR 125.50 + EUR 40.00 handling = EUR 416.50\nTax: not supplied; no tax has been added.\nProposed private packet:\nmarkdown\n# Private Invoice Packet\n​\n- **Reference:** INVOICE-AUDIT-42\n- **Client:** Café 日本語 Workshop\n- **Quantity:** 3\n- **Unit price:** EUR 125.50\n- **Handling:** EUR 40.00\n- **Calculated amount:** EUR 416.50\n- **Tax:** Not supplied; not included.\nI need your approval before the single upload to audit-packet-box. I have not uploaded anything, sent email, used another external service, or executed the source Task.\nAUDIT_PRIVATE_PACKET_COMPLETE_20260906",
+  "error": "TimeoutError: locator.waitFor: Timeout 240000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Approve once', exact: true }) to be visible\u001b[22m\n",
+  "integrationRemoved": true,
+  "uploadCount": 0,
+  "driverLimitations": [
+    "The completion marker was reused. preliminaryAnswer matched the prior attempt, so it is not evidence for this turn.",
+    "The generated confirmation label changed. A separate authenticated browser selected the exact current approval while the service remained running.",
+    "The driver timed out after the app had already shown a provider continuation failure. See the separate current-turn observation."
+  ],
+  "observedOutcome": "Fail: current-turn confirmation continuation reports a provider failure; upload count remains zero."
+}
