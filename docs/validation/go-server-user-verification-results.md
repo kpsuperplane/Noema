@@ -594,7 +594,19 @@ It retains the original call link, correlation, tool name, and round. Existing t
 The [regression test](../../internal/store/action_requests_test.go) failed before the fix. It now verifies the closed call and exact uncertainty message.
 The [validation record](evidence/2026-09-06-cancel-transcript-validation.json) records focused and broad Go checks.
 This fix adds 20 production lines and 11 test lines. No frontend or schema change was needed.
-RUN-05 remains partial pending rendered verification of this saved result.
+The browser checks below complete rendered coverage of this saved result.
+
+## Readable cancellation errors in the browser
+
+The [browser driver](evidence/2026-09-06-cancel-transcript-browser.mjs) loads the real app on `noema.kevinpei.com` with controlled transcript responses.
+The response uses the failed call and uncertain result shape verified by the store test. It changes no live Task data.
+Before the fix, the expanded error showed only the tool name.
+The Task mapper now unwraps the saved result. The shared error display prefers its readable message over its code.
+At desktop and phone widths, expansion shows exactly one message: “Task cancelled. The external action may have completed.”
+The [browser results](evidence/2026-09-06-cancel-transcript-browser-results.json) retain the fixture and visible text.
+The [validation record](evidence/2026-09-06-cancel-browser-validation.json) records the scope and passing frontend checks.
+Together with the store and controlled MCP checks, RUN-05 passes for controlled cancellation coverage.
+A separate observed issue remains: completed run headers display Running. The next audit step will inspect that mapping.
 
 ## Case results
 
@@ -670,7 +682,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
-| RUN-05 | Partial | Cancellation covers queued, running, and waiting Tasks. Executing actions now retain uncertainty after cancellation. A controlled MCP call preserves uncertainty after late success. Cancellation now saves an uncertain transcript result. Browser verification remains pending. | — |
+| RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Not run | Controlled setup pending. | — |
 | RUN-07 | Not run | Controlled setup pending. | — |
 | RUN-08 | Not run | Controlled setup pending. | — |

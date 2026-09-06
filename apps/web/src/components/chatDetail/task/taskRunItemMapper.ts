@@ -278,7 +278,7 @@ function persistedResultPayload(payload: Record<string, unknown> | null): unknow
   if (!payload) {
     return undefined;
   }
-  return "payload" in payload ? payload.payload : payload;
+  return "payload" in payload ? payload.payload : "result" in payload ? payload.result : payload;
 }
 
 function taskToolName(item: TaskRunItem): string {

@@ -268,7 +268,7 @@ function humanToolResult(output: unknown): ToolDetailRowData | null {
 
 function humanToolError(output: unknown): string | null {
   if (!isRecord(output)) return null;
-  return stringValue(output.error) ?? stringValue(output.message) ?? nestedString(output, ["details", "message"]);
+  return stringValue(output.message) ?? stringValue(output.error) ?? nestedString(output, ["details", "message"]);
 }
 
 function usefulDisplayValue(display: Record<string, unknown> | null, key: string): string | null {
