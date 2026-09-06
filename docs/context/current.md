@@ -4,6 +4,12 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
+Personal-assistant acceptance now follows [the live case plan](../plans/2026-09-06-personal-assistant-live-cases.md).
+Use direct GraphQL interaction through a thin CLI and examine each outcome before advancing.
+First verify agent-generated Gmail API and Notion MCP connections, then retain all 100 original assistant cases.
+The earlier 100-case replay completion report is invalid: successful process exits concealed blocked outcomes.
+No new acceptance pass is established by that report.
+
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.
 
 The human authorized all seven Go cleanup items. ORMs are permitted.
