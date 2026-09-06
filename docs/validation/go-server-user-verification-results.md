@@ -1256,7 +1256,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | NOTE-11 | Partial | Dismissal and disable survive restart without delivery. Registration creates one fresh activity; another restart does not duplicate start. Device reconciliation remains pending. [Evidence](evidence/2026-09-06-live-restart-results.json). | Not run |
 | NOTE-12 | Blocked by AUDIT-14 | No approval notification payload exists. Preview exclusion assertions remain unexecuted. [Evidence](evidence/2026-09-06-action-notification-results.json). | — |
 | CLIENT-01 | Not run | Controlled setup pending. | Not run |
-| CLIENT-02 | Not run | Controlled setup pending. | — |
+| CLIENT-02 | Pass · web | Direct Task, Project, Memory article, Settings, and artifact download links pass at desktop and phone widths. Unknown paths show Chat. Public edge and native clients are not covered. [Evidence](evidence/2026-09-06-direct-links-results.json). | — |
 | CLIENT-03 | Not run | Controlled setup pending. | — |
 | CLIENT-04 | Not run | Controlled setup pending. | — |
 | PWA-01 | Not run | Controlled setup pending. | Not run |
