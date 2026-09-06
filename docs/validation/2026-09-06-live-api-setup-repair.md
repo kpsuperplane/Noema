@@ -163,3 +163,25 @@ test expiry and rate-limit recovery, and verify both account setups and cursor i
 The fixture also has three threads while the plan calls for two; reconcile the seed before final acceptance.
 The public fixture runs outside this command's process namespace. Its system service bus is unavailable here.
 The public health endpoint still reports fixture v1. No live v2 pass is claimed.
+
+### Service-independent OAuth setup
+
+OAuth application import now accepts optional `profileDocumentJson` beside the protected client document.
+The operator must review the public profile and supply its matching `profileDigest`.
+The profile selects authorization and token endpoints, credential normalization, parameters, and grant audience.
+Authorization, code exchange, and refresh use the saved profile. Google remains a built-in profile.
+The supported flow remains PKCE with `client_secret_post`; unsupported profile settings are rejected.
+This does not add an agent tool for profile registration or change credential storage.
+
+Focused adapter and GraphQL tests pass. Two new tests cover selected-provider authorization,
+profile persistence, digest mismatch, credential exclusion, ordinary client ID preservation, and unsupported settings.
+These tests do not establish live token exchange or refresh against the mock service.
+The private dev socket still reports authenticated access.
+
+The patch adds 158 authored production lines and removes 49. Tests add 77 lines and remove six.
+Generated Go adds 15 lines and removes two. The net tracked Go change is 193 lines.
+Full server checks pass: `CGO_ENABLED=0 go test ./cmd/... ./internal/...`
+and `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`.
+These checks cover the final authored and generated Go changes in this unit.
+The inclusive tracked Go count is 187,943, below the 191,860-line limit.
+Mock OAuth service implementation and deployment remain the next live setup steps.

@@ -1834,6 +1834,10 @@ Import one reusable OAuth application document.
 """
 input ImportAdapterOauthApplicationInput {
 	profileDigest: String!
+	"""
+	Optional public OAuth profile document reviewed by the human. Its digest must match profileDigest.
+	"""
+	profileDocumentJson: String
 	projectLabel: String
 	clientDocumentBase64: String!
 }

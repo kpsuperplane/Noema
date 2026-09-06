@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -109,7 +110,59 @@ func googleOAuthProfile() OAuthProfile {
 	return p
 }
 
+func validateOAuthProfile(p OAuthProfile) error {
+	if p.SchemaVersion != 1 || !validID(p.ProfileID) || !boundedText(p.DisplayName, 256, false) ||
+		!boundedText(p.GrantAudience, 256, false) || p.ClientAuthentication != "client_secret_post" ||
+		p.OmittedScopePolicy != "requested_scopes" || !p.PreserveRefreshTokenOnExpansion || len(p.Setups) == 0 || len(p.Setups) > 2 {
+		return errors.New("adapter OAuth profile uses an unsupported contract")
+	}
+	for _, endpoint := range []string{p.AuthorizationEndpoint, p.TokenEndpoint} {
+		u, err := url.Parse(endpoint)
+		if err != nil || len(endpoint) > 4096 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return errors.New("adapter OAuth profile endpoint is invalid")
+		}
+	}
+	reserved := map[string]bool{"client_id": true, "client_secret": true, "response_type": true, "redirect_uri": true, "scope": true, "state": true, "code_challenge": true, "code_challenge_method": true}
+	for _, parameters := range []map[string]string{p.AuthorizationParameters, p.AccountSelectionParameters} {
+		if len(parameters) > 16 {
+			return errors.New("adapter OAuth profile parameters are invalid")
+		}
+		for name, value := range parameters {
+			if reserved[name] || !boundedText(name, 128, false) || !boundedText(value, 512, false) {
+				return errors.New("adapter OAuth profile parameter is invalid")
+			}
+		}
+	}
+	modes := map[string]bool{}
+	for _, entry := range p.Setups {
+		if modes[entry.CallbackMode] || entry.CallbackMode != "hosted" && entry.CallbackMode != "loopback" ||
+			entry.Setup.Input.Kind != "document" {
+			return errors.New("adapter OAuth profile setup is invalid")
+		}
+		modes[entry.CallbackMode] = true
+		auth := Authentication{Kind: "credential", Setup: &entry.Setup, RequestAuth: &Transform{Language: "lua", Source: "return function(input) return {} end"}}
+		if validateAuthentication(auth) != nil {
+			return errors.New("adapter OAuth profile setup is invalid")
+		}
+		fields := map[string]bool{}
+		for _, field := range entry.Setup.Input.Fields {
+			fields[field.ID] = true
+		}
+		wanted := 2
+		if entry.CallbackMode == "hosted" {
+			wanted = 3
+		}
+		if len(fields) != wanted || !fields["client_id"] || !fields["client_secret"] || entry.CallbackMode == "hosted" && !fields["redirect_uris"] {
+			return errors.New("adapter OAuth profile credential fields are invalid")
+		}
+	}
+	return nil
+}
+
 func (f *fileAuthority) installOAuthProfile(profile OAuthProfile) error {
+	if err := validateOAuthProfile(profile); err != nil {
+		return err
+	}
 	raw, _ := json.Marshal(profile)
 	path := "adapters/oauth-profiles/" + profile.ProfileDigest
 	if _, err := f.root.Lstat(path); err == nil {
@@ -139,7 +192,7 @@ func (f *fileAuthority) loadOAuthProfile(digest string) (OAuthProfile, error) {
 	_ = json.Unmarshal(encoded, &value)
 	encoded, _ = json.Marshal(value)
 	p.ProfileDigest = sha256Hex(encoded)
-	if p.ProfileDigest != digest || p.SchemaVersion != 1 || p.ProfileID != "google" {
+	if p.ProfileDigest != digest || validateOAuthProfile(p) != nil {
 		return OAuthProfile{}, errors.New("adapter OAuth profile changed")
 	}
 	return p, nil
@@ -155,12 +208,21 @@ func readObject(root *os.Root, directory, name string) ([]byte, error) {
 }
 
 func (f *fileAuthority) oauthSnapshot() (OAuthSnapshot, error) {
-	profile := googleOAuthProfile()
-	p, err := f.loadOAuthProfile(profile.ProfileDigest)
+	entries, err := readBoundedEntries(f.root, "adapters/oauth-profiles", definitionLimit)
 	if err != nil {
 		return OAuthSnapshot{}, err
 	}
-	out := OAuthSnapshot{Profiles: []OAuthProfile{p}}
+	out := OAuthSnapshot{Profiles: []OAuthProfile{}}
+	for _, entry := range entries {
+		if !entry.IsDir() || !validDigest(entry.Name()) {
+			continue
+		}
+		p, err := f.loadOAuthProfile(entry.Name())
+		if err != nil {
+			return OAuthSnapshot{}, err
+		}
+		out.Profiles = append(out.Profiles, p)
+	}
 	if err = loadOAuthObjects(f, "adapters/oauth-applications", "application.json", func(raw []byte) error {
 		var v OAuthApplication
 		if decodeExactJSON(raw, &v) != nil || !validOAuthApplication(v) {

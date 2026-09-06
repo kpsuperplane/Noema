@@ -11299,6 +11299,10 @@ Import one reusable OAuth application document.
 """
 input ImportAdapterOauthApplicationInput {
 	profileDigest: String!
+	"""
+	Optional public OAuth profile document reviewed by the human. Its digest must match profileDigest.
+	"""
+	profileDocumentJson: String
 	projectLabel: String
 	clientDocumentBase64: String!
 }
@@ -53205,7 +53209,7 @@ func (ec *executionContext) unmarshalInputImportAdapterOauthApplicationInput(ctx
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"profileDigest", "projectLabel", "clientDocumentBase64"}
+	fieldsInOrder := [...]string{"profileDigest", "profileDocumentJson", "projectLabel", "clientDocumentBase64"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -53219,6 +53223,13 @@ func (ec *executionContext) unmarshalInputImportAdapterOauthApplicationInput(ctx
 				return it, err
 			}
 			it.ProfileDigest = data
+		case "profileDocumentJson":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("profileDocumentJson"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProfileDocumentJSON = data
 		case "projectLabel":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectLabel"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)

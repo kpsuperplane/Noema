@@ -179,7 +179,15 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		}
 		help := definitionHelp()
 		help["definitions"] = values
-		help["oauth_profiles"] = []map[string]string{{"profile_id": "google", "profile_digest": googleOAuthProfile().ProfileDigest}}
+		oauth, err := s.files.oauthSnapshot()
+		if err != nil {
+			return nil, err
+		}
+		profiles := make([]map[string]string, 0, len(oauth.Profiles))
+		for _, profile := range oauth.Profiles {
+			profiles = append(profiles, map[string]string{"profile_id": profile.ProfileID, "profile_digest": profile.ProfileDigest, "authorization_endpoint": profile.AuthorizationEndpoint, "token_endpoint": profile.TokenEndpoint})
+		}
+		help["oauth_profiles"] = profiles
 		return help, nil
 	}
 	definitions, err := s.files.definitions()

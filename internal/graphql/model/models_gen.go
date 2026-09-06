@@ -1165,7 +1165,9 @@ func (HumanInterventionsChangedEvent) IsConversationEvent() {}
 
 // Import one reusable OAuth application document.
 type ImportAdapterOauthApplicationInput struct {
-	ProfileDigest        string  `json:"profileDigest"`
+	ProfileDigest string `json:"profileDigest"`
+	// Optional public OAuth profile document reviewed by the human. Its digest must match profileDigest.
+	ProfileDocumentJSON  *string `json:"profileDocumentJson,omitempty"`
 	ProjectLabel         *string `json:"projectLabel,omitempty"`
 	ClientDocumentBase64 string  `json:"clientDocumentBase64"`
 }

@@ -120,62 +120,75 @@ func (s *Service) OAuthCallbackHandler() http.Handler {
 	})
 }
 
-func parseGoogleClient(raw []byte, callback string) (string, string, string, error) {
-	if len(raw) == 0 || len(raw) > 128<<10 {
+func parseOAuthClient(profile OAuthProfile, raw []byte, callback string) (string, string, string, error) {
+	if len(raw) == 0 || len(raw) > oauthObjectLimit {
 		return "", "", "", errors.New("adapter OAuth client document is invalid")
 	}
-	// Decode each shape explicitly because Go cannot give two fields one tag.
-	var root map[string]json.RawMessage
-	if decodeExactJSON(raw, &root) != nil || len(root) != 1 {
-		return "", "", "", errors.New("adapter OAuth client document is invalid")
+	target, err := url.Parse(callback)
+	if err != nil {
+		return "", "", "", err
 	}
-	mode := ""
-	var client struct {
-		ClientID     string   `json:"client_id"`
-		ClientSecret string   `json:"client_secret"`
-		RedirectURIs []string `json:"redirect_uris"`
-	}
-	if value := root["installed"]; value != nil {
-		mode = "loopback"
-		if json.Unmarshal(value, &client) != nil {
+	mode := oauthCallbackMode(target)
+	for _, entry := range profile.Setups {
+		if entry.CallbackMode != mode {
+			continue
+		}
+		fields, err := normalizeCredential(entry.Setup, CredentialInputValue{Document: raw})
+		if err != nil {
 			return "", "", "", errors.New("adapter OAuth client document is invalid")
 		}
-	}
-	if value := root["web"]; value != nil {
-		mode = "hosted"
-		if json.Unmarshal(value, &client) != nil {
-			return "", "", "", errors.New("adapter OAuth client document is invalid")
+		if mode == "hosted" {
+			var redirects []string
+			if json.Unmarshal([]byte(fields["redirect_uris"]), &redirects) != nil {
+				return "", "", "", errors.New("adapter OAuth client redirect URI is invalid")
+			}
+			found := false
+			for _, redirect := range redirects {
+				found = found || redirect == callback
+			}
+			if !found {
+				return "", "", "", errors.New("adapter OAuth client redirect URI does not match")
+			}
 		}
+		return mode, fields["client_id"], fields["client_secret"], nil
 	}
-	if client.ClientID == "" || len(client.ClientID) > 16<<10 || client.ClientSecret == "" || len(client.ClientSecret) > 16<<10 {
-		return "", "", "", errors.New("adapter OAuth client document is invalid")
-	}
-	if mode == "hosted" {
-		found := false
-		for _, candidate := range client.RedirectURIs {
-			found = found || candidate == callback
-		}
-		if !found {
-			return "", "", "", errors.New("adapter OAuth client redirect URI does not match")
-		}
-	}
-	return mode, client.ClientID, client.ClientSecret, nil
+	return "", "", "", errors.New("adapter OAuth client callback mode does not match")
 }
 
-func (s *Service) ImportOAuthApplication(profileDigest string, projectLabel *string, document []byte) (OAuthApplication, error) {
+func (s *Service) ImportOAuthApplication(profileDigest string, projectLabel *string, document, profileDocument []byte) (OAuthApplication, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.oauthCallback == "" {
 		return OAuthApplication{}, errors.New("adapter OAuth callback is unavailable")
 	}
-	profile := googleOAuthProfile()
-	if profileDigest != profile.ProfileDigest {
+	if len(profileDocument) > 0 {
+		var proposed OAuthProfile
+		if len(profileDocument) > oauthObjectLimit || decodeExactJSON(profileDocument, &proposed) != nil || validateOAuthProfile(proposed) != nil {
+			return OAuthApplication{}, errors.New("adapter OAuth profile is invalid")
+		}
+		encoded, _ := json.Marshal(proposed)
+		var value any
+		_ = json.Unmarshal(encoded, &value)
+		encoded, _ = json.Marshal(value)
+		proposed.ProfileDigest = sha256Hex(encoded)
+		if proposed.ProfileDigest != profileDigest || proposed.ProfileID == "google" && profileDigest != googleOAuthProfile().ProfileDigest {
+			return OAuthApplication{}, errors.New("adapter OAuth profile digest does not match")
+		}
+		if _, _, _, err := parseOAuthClient(proposed, document, s.oauthCallback); err != nil {
+			return OAuthApplication{}, err
+		}
+		if err := s.files.installOAuthProfile(proposed); err != nil {
+			return OAuthApplication{}, err
+		}
+	}
+	profile, err := s.files.loadOAuthProfile(profileDigest)
+	if err != nil {
 		return OAuthApplication{}, errors.New("adapter OAuth profile is unavailable")
 	}
 	if projectLabel != nil && !boundedText(*projectLabel, 256, false) {
 		return OAuthApplication{}, errors.New("adapter OAuth project label is invalid")
 	}
-	mode, clientID, secret, err := parseGoogleClient(document, s.oauthCallback)
+	mode, clientID, secret, err := parseOAuthClient(profile, document, s.oauthCallback)
 	if err != nil {
 		return OAuthApplication{}, err
 	}
@@ -210,7 +223,11 @@ func (s *Service) ReplaceOAuthApplication(id string, revision int, document []by
 	if err != nil || current.Revision != revision {
 		return OAuthApplication{}, errors.New("adapter OAuth application changed")
 	}
-	mode, client, secret, err := parseGoogleClient(document, s.oauthCallback)
+	profile, err := s.files.loadOAuthProfile(current.ProfileDigest)
+	if err != nil {
+		return OAuthApplication{}, err
+	}
+	mode, client, secret, err := parseOAuthClient(profile, document, s.oauthCallback)
 	if err != nil || mode != current.CallbackMode || client != current.ClientID {
 		return OAuthApplication{}, errors.New("adapter OAuth application document is invalid")
 	}
@@ -391,11 +408,19 @@ func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 	}
 	state := randomURL(32)
 	verifier := randomURL(32)
-	profile := googleOAuthProfile()
+	profile, err := s.files.loadOAuthProfile(application.ProfileDigest)
+	if err != nil {
+		return OAuthAttempt{}, err
+	}
 	config := oauth2.Config{ClientID: application.ClientID, Endpoint: oauth2.Endpoint{AuthURL: profile.AuthorizationEndpoint, TokenURL: profile.TokenEndpoint}, RedirectURL: s.oauthCallback, Scopes: scopes}
-	options := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("access_type", "offline"), oauth2.SetAuthURLParam("include_granted_scopes", "true")}
+	options := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}
+	for name, value := range profile.AuthorizationParameters {
+		options = append(options, oauth2.SetAuthURLParam(name, value))
+	}
 	if start.GrantID == "" {
-		options = append(options, oauth2.SetAuthURLParam("prompt", "select_account"))
+		for name, value := range profile.AccountSelectionParameters {
+			options = append(options, oauth2.SetAuthURLParam(name, value))
+		}
 	}
 	id := randomHex()
 	expires := time.Now().Add(oauthAttemptTTL)
@@ -517,8 +542,14 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 		s.mu.Unlock()
 		return OAuthAttemptEvent{}, errors.New("adapter OAuth setup was superseded")
 	}
+	profile, profileErr := s.files.loadOAuthProfile(application.ProfileDigest)
+	if profileErr != nil {
+		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "failed"})
+		s.mu.Unlock()
+		return OAuthAttemptEvent{}, profileErr
+	}
 	s.mu.Unlock()
-	token, err := exchangeOAuthToken(ctx, googleOAuthProfile(), application, credential, url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {attempt.redirect}, "code_verifier": {attempt.verifier}}, attempt.Scopes)
+	token, err := exchangeOAuthToken(ctx, profile, application, credential, url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {attempt.redirect}, "code_verifier": {attempt.verifier}}, attempt.Scopes)
 	if err != nil {
 		s.mu.Lock()
 		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "failed"})
@@ -544,7 +575,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 		}
 	}
 	if attempt.GrantID == "" {
-		current = OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: "google-apis", DesiredScopes: append([]string(nil), attempt.Scopes...), AuthorityRevision: 1, TokenRevision: 1, Status: "authentication_required"}
+		current = OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: profile.GrantAudience, DesiredScopes: append([]string(nil), attempt.Scopes...), AuthorityRevision: 1, TokenRevision: 1, Status: "authentication_required"}
 		if err = s.files.installOAuthOwned("adapters/oauth-grants", current.GrantID, "grant.json", current, "", "", nil); err != nil {
 			s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "failed"})
 			return OAuthAttemptEvent{}, err
@@ -880,7 +911,11 @@ func (s *Service) oauthBearer(ctx context.Context, grantID string, force bool) (
 	if err != nil {
 		return grant, token, err
 	}
-	fresh, err := exchangeOAuthToken(ctx, googleOAuthProfile(), application, credential, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {token.RefreshToken}}, grant.DesiredScopes)
+	profile, err := s.files.loadOAuthProfile(application.ProfileDigest)
+	if err != nil {
+		return grant, token, err
+	}
+	fresh, err := exchangeOAuthToken(ctx, profile, application, credential, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {token.RefreshToken}}, grant.DesiredScopes)
 	if err != nil {
 		return grant, token, err
 	}

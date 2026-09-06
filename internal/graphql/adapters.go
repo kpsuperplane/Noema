@@ -677,7 +677,11 @@ func (r *Resolver) importAdapterOAuthApplication(ctx context.Context, input mode
 	if err != nil {
 		return nil, err
 	}
-	value, err := service.ImportOAuthApplication(input.ProfileDigest, input.ProjectLabel, raw)
+	var profileDocument []byte
+	if input.ProfileDocumentJSON != nil {
+		profileDocument = []byte(*input.ProfileDocumentJSON)
+	}
+	value, err := service.ImportOAuthApplication(input.ProfileDigest, input.ProjectLabel, raw, profileDocument)
 	if err != nil {
 		return nil, err
 	}

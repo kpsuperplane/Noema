@@ -16,7 +16,7 @@ import (
 func TestModelToolsKeepConnectionAndGrantLabels(t *testing.T) {
 	service, _ := newOAuthService(t, "http://localhost:3737/adapter/oauth/callback")
 	application, err := service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil,
-		[]byte(`{"installed":{"client_id":"test-client","client_secret":"private-client-value"}}`))
+		[]byte(`{"installed":{"client_id":"test-client","client_secret":"private-client-value"}}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +103,77 @@ func oauthManifest() Manifest {
 	return value
 }
 
+func TestReviewedOAuthProfileSelectsProvider(t *testing.T) {
+	service, directory := newOAuthService(t, "http://localhost:3737/adapter/oauth/callback")
+	profile := googleOAuthProfile()
+	profile.ProfileID = "synthetic-mail"
+	profile.AuthorizationEndpoint = "https://mail.example/authorize"
+	profile.TokenEndpoint = "https://mail.example/token"
+	profile.AuthorizationParameters = map[string]string{"access_type": "offline"}
+	profile.AccountSelectionParameters = map[string]string{"prompt": "login"}
+	profile.GrantAudience = "synthetic-mail"
+	raw, _ := json.Marshal(profile)
+	var canonical any
+	_ = json.Unmarshal(raw, &canonical)
+	raw, _ = json.Marshal(canonical)
+	digest := sha256Hex(raw)
+	document := []byte(`{"installed":{"client_id":"ordinary-test-client","client_secret":"test-secret-marker"}}`)
+	if _, err := service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil, document, raw); err == nil {
+		t.Fatal("mismatched reviewed digest was accepted")
+	}
+	application, err := service.ImportOAuthApplication(digest, nil, document, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := oauthManifest()
+	manifest.Authentication.ProfileDigest = digest
+	manifest.Reviewed = true
+	definition, err := service.files.installDefinition(manifest, "https://mail.example/docs", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: 1, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(attempt)
+	handoff, err := url.Parse(attempt.AuthorizationURL)
+	if err != nil || handoff.Host != "mail.example" || handoff.Path != "/authorize" || handoff.Query().Get("prompt") != "login" || handoff.Query().Get("code_challenge_method") != "S256" {
+		t.Fatal("authorization did not use the reviewed provider and PKCE")
+	}
+	if strings.Contains(string(encoded), "test-secret-marker") {
+		t.Fatal("authorization attempt exposed the client secret")
+	}
+	snapshot, err := service.files.oauthSnapshot()
+	if err != nil || len(snapshot.Profiles) != 2 {
+		t.Fatalf("profile discovery: %v", err)
+	}
+	stored, err := service.files.loadOAuthProfile(digest)
+	if err != nil || stored.TokenEndpoint != profile.TokenEndpoint {
+		t.Fatalf("stored endpoint: %v", err)
+	}
+	public, err := os.ReadFile(filepath.Join(directory, "adapters", "oauth-applications", application.ApplicationID, "application.json"))
+	if err != nil || strings.Contains(string(public), "test-secret-marker") || !strings.Contains(string(public), "ordinary-test-client") {
+		t.Fatal("application metadata failed secret exclusion or client ID preservation")
+	}
+}
+
+func TestOAuthProfileRejectsUnsupportedContracts(t *testing.T) {
+	for _, change := range []func(*OAuthProfile){
+		func(p *OAuthProfile) { p.ClientAuthentication = "none" },
+		func(p *OAuthProfile) { p.AuthorizationParameters["state"] = "replacement" },
+		func(p *OAuthProfile) { p.TokenEndpoint = "http://mail.example/token" },
+		func(p *OAuthProfile) { p.PreserveRefreshTokenOnExpansion = false },
+		func(p *OAuthProfile) { p.Setups[0].Setup.Input.Fields[0].ID = "other" },
+	} {
+		profile := googleOAuthProfile()
+		change(&profile)
+		if validateOAuthProfile(profile) == nil {
+			t.Fatal("unsupported profile was accepted")
+		}
+	}
+}
+
 func newOAuthService(t *testing.T, callback string) (*Service, string) {
 	t.Helper()
 	directory := t.TempDir()
@@ -156,11 +227,11 @@ func TestOAuthApplicationFilesAreIdempotentAndProtected(t *testing.T) {
 	service, directory := newOAuthService(t, callback)
 	document := []byte(`{"web":{"client_id":"ordinary-client","client_secret":"secret-marker","redirect_uris":["https://noema.example/adapter/oauth/callback"],"auth_uri":"https://accounts.google.com/o/oauth2/auth"}}`)
 	profile := googleOAuthProfile()
-	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document)
+	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	same, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document)
+	same, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document, nil)
 	if err != nil || same.ApplicationID != application.ApplicationID {
 		t.Fatalf("idempotent import = %#v, %v", same, err)
 	}
@@ -182,7 +253,7 @@ func TestOAuthApplicationFilesAreIdempotentAndProtected(t *testing.T) {
 	if err != nil || len(entries) != 1 || entries[0].Name() != application.CredentialGeneration+".json" {
 		t.Fatalf("credential generations = %#v, %v", entries, err)
 	}
-	if _, err = service.ImportOAuthApplication(profile.ProfileDigest, nil, document); err == nil {
+	if _, err = service.ImportOAuthApplication(profile.ProfileDigest, nil, document, nil); err == nil {
 		t.Fatal("conflicting client secret was accepted")
 	}
 }
@@ -192,7 +263,7 @@ func TestOAuthPKCEAttemptIsBoundedAndConsumesCallbackState(t *testing.T) {
 	service, _ := newOAuthService(t, callback)
 	profile := googleOAuthProfile()
 	document := []byte(`{"installed":{"client_id":"desktop-client","client_secret":"desktop-secret","redirect_uris":["http://localhost"]}}`)
-	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document)
+	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +351,7 @@ func TestOAuthTokenResponseAndGrantLifecycle(t *testing.T) {
 	}
 	service, directory := newOAuthService(t, "http://127.0.0.1:3737/adapter/oauth/callback")
 	profile := googleOAuthProfile()
-	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, []byte(`{"installed":{"client_id":"desktop-client","client_secret":"desktop-secret"}}`))
+	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, []byte(`{"installed":{"client_id":"desktop-client","client_secret":"desktop-secret"}}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

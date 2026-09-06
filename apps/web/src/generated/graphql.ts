@@ -391,6 +391,8 @@ export type GraphqlSaveMemoryModelPreferenceInput = {
 export type ImportAdapterOauthApplicationInput = {
   clientDocumentBase64: string;
   profileDigest: string;
+  /** Optional public OAuth profile document reviewed by the human. Its digest must match profileDigest. */
+  profileDocumentJson?: string | null | undefined;
   projectLabel?: string | null | undefined;
 };
 
