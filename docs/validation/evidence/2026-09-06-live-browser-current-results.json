@@ -1,0 +1,24 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "case": "WEB-04",
+  "conversationId": "conversation:9a8adece587d96886957b3a308c694b1",
+  "initialTurnId": "turn:e1089981031952efb8ff272655f26577",
+  "continuationTurnId": "turn:13d048cffad5065f0b4f419c00cccdec",
+  "approvedActionIds": [
+    "action:6d463ea3f9b096b9630b3f450913140e",
+    "action:9b4e12492f2a938714b5592dfffa5a11"
+  ],
+  "completedSteps": [
+    "open https://example.com/",
+    "snapshot example.com",
+    "interact Learn more",
+    "snapshot IANA",
+    "history back",
+    "snapshot example.com",
+    "close browser session"
+  ],
+  "continuationStatus": "completed",
+  "providerContinuations": 5,
+  "closeCompleted": true,
+  "classification": "pass after preserving provider response IDs and accepting the initial tool round on action continuations"
+}
