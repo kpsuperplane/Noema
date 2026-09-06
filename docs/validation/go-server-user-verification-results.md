@@ -692,6 +692,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-02 | RUN-14 | Executor and Reviewer reject another Task that primary Chat can read for the same owner. | Task reads | [Result](evidence/2026-09-06-task-first-pass-results.json), [reproduction patch](evidence/2026-09-06-task-first-pass-reproduction.patch) |
 | AUDIT-03 | RUN-04 | Clarification and approval answers persist but are absent from resumed provider context. | Task gates | [Result](evidence/2026-09-06-task-limits-gates-results.json), [reproduction patch](evidence/2026-09-06-task-limits-gates-reproduction.patch) |
 | AUDIT-04 | RUN-15; PROJECT-01 | All three roles reject permitted parent-relative shared reads inside the configured Project folder. | Task file access | [Result](evidence/2026-09-06-project-access-results.json), [reproduction patch](evidence/2026-09-06-project-access-reproduction.patch) |
+| AUDIT-05 | RUN-04 | Live clarification Task detail has no visible question or response control in Workspace or Transcript at either width. | Task gate UI | [Browser result](evidence/2026-09-06-impossible-block-results.json) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Browser presentation remains pending.
@@ -747,6 +748,24 @@ Repeated processing adds no items or narration.
 When `notify_human` is false, the Task reaches Done without a completion notice or completion narration call.
 Both notice variants pass. These checks use controlled narration and store transitions.
 Rendered transitions and an actual unchanged recurrence remain pending.
+
+## Live limitation report and human-input block
+
+The [browser driver](evidence/2026-09-06-impossible-block.mjs) creates two audit Tasks on `noema.kevinpei.com`.
+The impossible-integer Task finishes with a correct mathematical limitation report.
+Planner, Executor, and Reviewer complete. No human gate opens.
+The missing-address Task asks for the complete delivery address and waits at a clarification gate.
+It creates no result or label and does not claim completion.
+
+The [results](evidence/2026-09-06-impossible-block-results.json) include saved states and desktop and phone observations.
+The limitation report renders at both widths.
+The waiting Task document explains that it needs the address.
+However, neither Workspace nor Transcript shows the gate question or a response control.
+The [Transcript inspection](evidence/2026-09-06-human-input-transcript.mjs) also shows “Waiting for approval” for this clarification gate.
+AUDIT-05 records the missing gate controls. The user-input Task remains waiting for later fix verification.
+
+- Completed limitation Task: `task:2c4aed88b9b5e0ddffdee0f99edbac59`.
+- Waiting address Task: `task:f932f3c82add0b649c3ffc5d2328e179`.
 
 ## Case results
 
@@ -821,13 +840,13 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-01 | Pass · live calculation Task | Planner, Executor, and Reviewer all complete. Correct result and accepting review persist before the Task is done. | — |
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
-| RUN-04 | Fail · controlled runtime/store | AUDIT-01: review-limit Retry queues Reviewer. AUDIT-03: saved clarification and approval answers do not reach the resumed provider. | — |
+| RUN-04 | Fail · controlled runtime/live browser | AUDIT-01: wrong retry role. AUDIT-03: missing answer context. AUDIT-05: missing visible gate question and response controls. | — |
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
 | RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
 | RUN-08 | Pass · controlled runtime | Restart during each role restores exact saved read results and progress. Files, generation, and run identity remain intact. Each Task finishes with three completed runs. | — |
 | RUN-09 | Pass · controlled runtime/store | Continuation, tool, active-time, retry, review, and audit limits reach their recorded stop states. Progress remains intact. Gate resumption defects stay under RUN-04. | — |
-| RUN-10 | Not run | Controlled setup pending. | — |
+| RUN-10 | Pass · live Codex/Chromium | Impossible request produces an honest completed limitation report. Missing address opens clarification without a fabricated label or false completion. | — |
 | RUN-11 | Not run | Controlled setup pending. | — |
 | RUN-12 | Partial | Saved capture, waiting, recovery, and completion notices pass. Repeated processing adds no output. Rendered transitions remain pending. | — |
 | RUN-13 | Partial | A false notify_human decision suppresses completion narration and saved notices while the Task reaches Done. Actual unchanged recurrence remains pending. | — |
