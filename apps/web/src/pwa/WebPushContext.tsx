@@ -38,6 +38,7 @@ export function WebPushProvider({
   const [subscription, setSubscription] = React.useState<PushSubscription | null>(null);
   const [initialized, setInitialized] = React.useState(!capable);
   const [working, setWorking] = React.useState(false);
+  const [permission, setPermission] = React.useState<NotificationPermission>(() => supportsNotifications() ? Notification.permission : "default");
   const [error, setError] = React.useState<string | null>(null);
   const [promptDismissed, setPromptDismissed] = React.useState(readPromptDismissed);
   const [focused, setFocused] = React.useState(readFocused);
@@ -133,6 +134,7 @@ export function WebPushProvider({
     setWorking(true);
     try {
       const permission = await Notification.requestPermission();
+      setPermission(permission);
       if (permission !== "granted") return;
       const registration = await navigator.serviceWorker.register("/assets/sw.js", {
         scope: "/",
@@ -171,7 +173,6 @@ export function WebPushProvider({
     }
   }, [removeSubscription, statusResult, subscription, subscriptionId]);
 
-  const permission = supportsNotifications() ? Notification.permission : "default";
   const state: WebPushState = !capable || serverStatus?.available === false
     ? "unavailable"
     : permission === "denied"

@@ -18,11 +18,12 @@ for(const width of [1440,390]) {
  await control.waitFor();
  if(await page.evaluate(()=>window.auditPermissionCalls)!==0)throw Error('Permission requested before user action');
  await control.click();
- await page.getByText("Notifications are blocked in this device's system settings.",{exact:true}).waitFor().catch(async error=>{console.log(JSON.stringify({width,calls:await page.evaluate(()=>window.auditPermissionCalls),text:await page.locator("main").innerText()}));});
+ const deniedText=page.getByText("Notifications are blocked in this device's system settings.",{exact:true});
+ await deniedText.first().waitFor().catch(async error=>{console.log(JSON.stringify({width,calls:await page.evaluate(()=>window.auditPermissionCalls),text:await page.locator("main").innerText()}));});
  if(await page.evaluate(()=>window.auditPermissionCalls)!==1)throw Error('Permission request count differs');
  const screenshot=`/var/tmp/noema-suite-run-20260905/notification-permission-${width}.png`;
  await page.screenshot({path:screenshot,fullPage:true,animations:'disabled'});
- results.push({width,permissionCalls:1,deniedStateVisible:await page.getByText("Notifications are blocked in this device's system settings.",{exact:true}).isVisible(),permission:await page.evaluate(()=>Notification.permission),screenshot});
+ results.push({width,permissionCalls:1,deniedStateVisible:await deniedText.evaluateAll(nodes=>nodes.some(node=>{const style=getComputedStyle(node);return style.display!=='none'&&style.visibility!=='hidden'&&node.getBoundingClientRect().width>0&&node.getBoundingClientRect().height>0;})),permission:await page.evaluate(()=>Notification.permission),screenshot});
  await context.close();
 }
 await writeFile('/var/tmp/noema-suite-run-20260905/notification-permission-results.json',JSON.stringify({results},null,2)+'\n');console.log(JSON.stringify({results}));
