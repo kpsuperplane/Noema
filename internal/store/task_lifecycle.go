@@ -304,6 +304,26 @@ func (s *Store) CancelTask(ctx context.Context, id string, revision, generation 
 				map[string]any{"failure_code": "outcome_uncertain", "reason": "task_cancelled"}, now); err != nil {
 				return TaskCommandResult{}, err
 			}
+			itemID, err := newID("run_item")
+			if err != nil {
+				return TaskCommandResult{}, err
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO task_run_items
+(item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms)
+SELECT ?,i.run_id,(SELECT COALESCE(MAX(sequence_index)+1,0) FROM task_run_items WHERE run_id=i.run_id),
+i.round_index,'tool_result','failed',i.correlation_id,i.item_id,a.capability_name,
+json_object('name',a.capability_name,'success',json('false'),'result',json_object('error','outcome_uncertain',
+'message','Task cancelled. The external action may have completed.')),?,?
+FROM action_requests a JOIN task_run_items i ON i.item_id=a.run_item_id AND i.run_id=a.run_id
+WHERE a.action_id=?`, itemID, millis(now), millis(now), actionID)
+			if err != nil {
+				return TaskCommandResult{}, err
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE task_run_items SET status='failed',updated_at_ms=?
+WHERE item_id=(SELECT run_item_id FROM action_requests WHERE action_id=?) AND status='running'`, millis(now), actionID); err != nil {
+				return TaskCommandResult{}, err
+			}
+
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='cancelled', ended_at_ms=?, updated_at_ms=?
 WHERE task_id=? AND status IN ('queued','leased','running','waiting_for_approval')`, millis(now), millis(now), id)

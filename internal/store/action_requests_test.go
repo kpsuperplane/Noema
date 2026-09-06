@@ -152,6 +152,17 @@ func TestTaskCancellationPreservesUncertainActionOutcome(t *testing.T) {
 	if err != nil || after.State != ActionOutcomeUncertain {
 		t.Fatalf("cancelled external outcome = %#v, %v", after, err)
 	}
+	transcript, err := database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil || len(transcript) != 2 {
+		t.Fatalf("cancelled transcript = %#v, %v", transcript, err)
+	}
+	if transcript[0].Status != "failed" || transcript[1].Kind != "tool_result" || transcript[1].Status != "failed" || (transcript[1].ParentID == nil || *transcript[1].ParentID != items[len(items)-1].ID) {
+		t.Fatalf("uncertain result did not close the call: %#v", transcript)
+	}
+	result, ok := transcript[1].Payload["result"].(map[string]any)
+	if !ok || result["error"] != "outcome_uncertain" || result["message"] != "Task cancelled. The external action may have completed." {
+		t.Fatalf("transcript omits uncertainty: %#v", transcript[1])
+	}
 	if after.Arguments["value"] != "café 日本語" {
 		t.Fatalf("cancellation changed exact arguments: %#v", after.Arguments)
 	}
