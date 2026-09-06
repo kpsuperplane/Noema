@@ -231,3 +231,10 @@ The existing example compilation test checks both shapes together. No validation
 Focused adapter tests, full Go tests, and full Go vet pass for this four-line production and ten-line test patch.
 Retry turn `turn:34ae33cd73cf937ca2cff78dd04c6931` is still preparing the proposal through the updated tool help.
 Follow that turn before submitting another request. No OAuth acceptance pass is claimed.
+
+The retry ended without a proposal: it changed authentication but omitted complete operation updates with OAuth scope authorization.
+A natural follow-up asked it to finish all five operations without changing read behavior.
+Turn `turn:cf1245e9cf220dc9585c9af40f1e1efd` delegated Task `task:a84e2845833d27a2d2217f65ad3a65d4`.
+The delegation tool succeeded, despite the Chat command reporting a failed turn.
+The Task is Doing. Executor `run:1c35355e9fa0cb6f5057ad122765760b` is running with four recorded tool calls.
+No OAuth proposal is available yet. Inspect this Task's result before submitting another migration request.

@@ -28,7 +28,9 @@ Fixture v3 implements synthetic consent, code exchange, expiry, and account-pres
 The public endpoint now serves v3 under the `noema-dev` account through `noema-provider-fixtures-v3.service`.
 Live setup now returns the missing hosted callback address. It matches the fixture's registered redirect.
 The synthetic OAuth application is imported. Tool help now includes exact OAuth authentication and operation-scope examples after two invalid live proposals.
-Retry turn `turn:34ae33cd73cf937ca2cff78dd04c6931` is preparing the proposal; inspect its outcome before starting another turn.
+Retry turn `turn:34ae33cd73cf937ca2cff78dd04c6931` corrected the authentication shape but omitted complete operation updates.
+Follow-up delegated Task `task:a84e2845833d27a2d2217f65ad3a65d4`; executor `run:1c35355e9fa0cb6f5057ad122765760b` is running.
+Follow that Task before starting another migration request. No OAuth proposal has been accepted yet.
 The deployed binary is `/var/tmp/noema-provider-fixtures-v3`. A protected systemd environment file holds its synthetic client secret.
 Acceptance remains pending; see [live setup evidence](../validation/2026-09-06-live-api-setup-repair.md).
 
