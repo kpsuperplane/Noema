@@ -1,0 +1,15 @@
+{
+  "revision": "b12524e19aa2c96c5e9c191b5890ad1094a55b5d",
+  "case": "NATIVE-02",
+  "result": "Pass for authorization-code expiry and fresh retry",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/store -run '^TestAuditNativeCodeExpiryAndFreshRetry$' -v",
+  "output": "=== RUN   TestAuditNativeCodeExpiryAndFreshRetry\n    audit_native_expiry_test.go:55: Expiry boundary and reuse deny access; independent authorization and fresh retry succeed\n--- PASS: TestAuditNativeCodeExpiryAndFreshRetry (0.20s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/store\t0.205s\n",
+  "assertions": [
+    "Code exchange fails exactly at expiry.",
+    "Expired-code reuse fails and creates no access grant.",
+    "An independent valid authorization still succeeds.",
+    "A fresh code for the original client succeeds."
+  ],
+  "scope": "Real native OAuth store with controlled time and synthetic digests. Existing coverage handles cancellation, invalid return, and wrong PKCE. Native retry UI remains pending.",
+  "normalSuiteChanges": false
+}

@@ -1267,7 +1267,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | PWA-06 | Not run | Controlled setup pending. | Not run |
 | PWA-07 | Not run | Controlled setup pending. | Not run |
 | NATIVE-01 | Partial | Desktop and iOS authorization requests validate. Consent resumes after passkey authentication and returns the expected state. Connection-link parsing and native browser return remain pending. [Evidence](evidence/2026-09-06-native-oauth-coverage.json). | Not run |
-| NATIVE-02 | Partial | Invalid return targets, malformed PKCE, wrong verifier, reused consent, and foreign consent origins fail. Cancellation returns access_denied. Expired code and native retry UI remain pending. [Evidence](evidence/2026-09-06-native-oauth-coverage.json). | Not run |
+| NATIVE-02 | Partial | Invalid return targets, malformed PKCE, wrong verifier, reused consent, and foreign consent origins fail. Cancellation returns access_denied. Expiry boundary and reuse deny access; a fresh authorization succeeds. Native retry UI remains pending. [Expiry evidence](evidence/2026-09-06-native-expiry-results.json). [Evidence](evidence/2026-09-06-native-oauth-coverage.json). | Not run |
 | NATIVE-03 | Partial | Concurrent saved-request retries return the same credentials after auth-service reconstruction. Mismatched retries revoke access. Legacy retry passes at 60 seconds and fails at 61 seconds. Native protected-storage recovery remains pending. [Evidence](evidence/2026-09-06-native-oauth-coverage.json). | Not run |
 | NATIVE-04 | Not applicable | Physical device journey. | Not run |
 | NATIVE-05 | Not run | Controlled setup pending. | Not run |

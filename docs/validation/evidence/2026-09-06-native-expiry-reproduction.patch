@@ -1,0 +1,62 @@
+diff --git a/internal/store/audit_native_expiry_test.go b/internal/store/audit_native_expiry_test.go
+new file mode 100644
+index 00000000..9adb87df
+--- /dev/null
++++ b/internal/store/audit_native_expiry_test.go
+@@ -0,0 +1,56 @@
++package store
++
++import (
++	"errors"
++	"testing"
++	"time"
++)
++
++func TestAuditNativeCodeExpiryAndFreshRetry(t *testing.T) {
++	db := openTestStore(t)
++	ctx, now := t.Context(), time.Now().Unix()
++	expired := testDigest("audit-expiring-code")
++	valid := testDigest("audit-valid-code")
++	other := "noema-ios:abcdefghijklmnop"
++	for _, input := range []struct {
++		hash    [32]byte
++		client  string
++		expires int64
++	}{{expired, testNativeClient, now + 10}, {valid, other, now + 100}} {
++		if err := db.InsertNativeOAuthCode(ctx, input.hash, input.client, "Audit native", nativeRedirect(input.client), testNativeChallenge, now, input.expires); err != nil {
++			t.Fatal(err)
++		}
++	}
++	expiredAccess := testDigest("audit-expired-access")
++	exchangeExpired := func() error {
++		return db.ExchangeNativeOAuthCode(ctx, expired, testNativeClient, nativeRedirect(testNativeClient), testNativeVerifier, "70000000000000000000000000000000", expiredAccess, testDigest("audit-expired-refresh"), now+10)
++	}
++	if err := exchangeExpired(); !errors.Is(err, ErrOAuthGrant) {
++		t.Fatalf("expiry boundary: %v", err)
++	}
++	if err := exchangeExpired(); !errors.Is(err, ErrOAuthGrant) {
++		t.Fatalf("expired reuse: %v", err)
++	}
++	if _, active, err := db.ActiveNativeOAuthAccess(ctx, expiredAccess, now+10); err != nil || active {
++		t.Fatal("expired code granted access")
++	}
++	otherAccess := testDigest("audit-other-access")
++	if err := db.ExchangeNativeOAuthCode(ctx, valid, other, nativeRedirect(other), testNativeVerifier, "80000000000000000000000000000000", otherAccess, testDigest("audit-other-refresh"), now+10); err != nil {
++		t.Fatal(err)
++	}
++	if _, active, err := db.ActiveNativeOAuthAccess(ctx, otherAccess, now+11); err != nil || !active {
++		t.Fatal("other valid authorization failed")
++	}
++	fresh := testDigest("audit-fresh-code")
++	if err := db.InsertNativeOAuthCode(ctx, fresh, testNativeClient, "Audit retry", nativeRedirect(testNativeClient), testNativeChallenge, now+11, now+100); err != nil {
++		t.Fatal(err)
++	}
++	freshAccess := testDigest("audit-fresh-access")
++	if err := db.ExchangeNativeOAuthCode(ctx, fresh, testNativeClient, nativeRedirect(testNativeClient), testNativeVerifier, "90000000000000000000000000000000", freshAccess, testDigest("audit-fresh-refresh"), now+12); err != nil {
++		t.Fatal(err)
++	}
++	if _, active, err := db.ActiveNativeOAuthAccess(ctx, freshAccess, now+13); err != nil || !active {
++		t.Fatal("fresh retry did not grant access")
++	}
++	t.Log("Expiry boundary and reuse deny access; independent authorization and fresh retry succeed")
++}
