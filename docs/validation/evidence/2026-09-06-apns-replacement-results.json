@@ -1,0 +1,17 @@
+{
+  "revision": "4d56aafaf69a9bd06e862236e4106c0d7996ad15",
+  "case": "NOTE-08",
+  "result": "Pass for backend configuration lifecycle",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/notification -run '^TestAuditAPNSReplacementReloadAndRemoval$' -v",
+  "output": "=== RUN   TestAuditAPNSReplacementReloadAndRemoval\n    audit_apns_replace_test.go:95: Replacement and removal survive reload; stale changes preserve current state; ordinary metadata stays intact and keys stay out of status and diagnostics\n--- PASS: TestAuditAPNSReplacementReloadAndRemoval (0.21s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t0.224s\n",
+  "assertions": [
+    "Replacement advances revision and changes the public key fingerprint.",
+    "Team ID, key ID, and topic remain intact in status.",
+    "Service reconstruction preserves the replacement.",
+    "Stale replacement fails without changing current state.",
+    "Removal advances revision, removes key material, and survives reconstruction.",
+    "JSON status and formatted credential diagnostics exclude private keys."
+  ],
+  "scope": "Generated test keys in a temporary home. No live APNs configuration or requests. Rendered configuration controls remain pending.",
+  "normalSuiteChanges": false
+}
