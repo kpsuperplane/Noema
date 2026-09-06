@@ -521,7 +521,7 @@ func removePointer(value any, pointer string) (string, bool) {
 		case map[string]any:
 			child, exists := parent[parts[depth]]
 			if !exists {
-				return current, "", false
+				return current, "", true
 			}
 			if last {
 				if child == nil {

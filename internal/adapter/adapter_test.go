@@ -271,6 +271,13 @@ func TestLuaResponseTransformAndPaginationAreBounded(t *testing.T) {
 		t.Fatalf("sanitized output = %#v", safe)
 	}
 	page := map[string]any{"items": []any{"a"}, "next": "token"}
+	lastPage := map[string]any{"items": []any{"ordinary-id"}}
+	if token, ok := removePointer(lastPage, "/next"); !ok || token != "" || lastPage["items"].([]any)[0] != "ordinary-id" {
+		t.Fatalf("last page = %#v, %q, %v", lastPage, token, ok)
+	}
+	if _, ok := removePointer(map[string]any{"next": 42}, "/next"); ok {
+		t.Fatal("non-string pagination token accepted")
+	}
 	if token, ok := removePointer(page, "/next"); !ok || token != "token" || page["next"] != nil {
 		t.Fatalf("pagination = %#v, %q, %v", page, token, ok)
 	}

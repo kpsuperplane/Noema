@@ -17,6 +17,7 @@ Live Gmail setup found missing proposal examples in Go and closed provider-facin
 The adapter template now restores Rust examples, adapted to Lua and checked by the Go compiler.
 Proposal objects explicitly allow fields so provider conversion preserves the complete proposal.
 Compiler errors now identify the operation index and response size limit.
+Live protected setup and profile retrieval succeeded. Go now accepts an absent last-page token, matching Rust.
 Acceptance remains pending; see [live setup evidence](../validation/2026-09-06-live-api-setup-repair.md).
 
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.

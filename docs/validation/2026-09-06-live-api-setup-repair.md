@@ -1,7 +1,7 @@
 # Live API setup repair
 
 The live Gmail setup case has not passed acceptance.
-An agent-generated connection is installed. Mailbox reads remain under examination.
+An agent-generated connection is installed. Its profile read succeeded through Noema.
 
 ## Findings
 
@@ -52,3 +52,19 @@ The fixture currently uses bearer credential setup; the plan's OAuth requirement
   Production is 45.93 percent of the Rust baseline. The inclusive ratio is 78.20 percent.
 
 Continue with the live proposal response, review its exact operations, and verify data through the accepted connector.
+
+## First connected reads
+
+The operator enabled automatic synthetic data reads with unsafe actions set to `always_ask`.
+The browser attempt was declined. Its decision request timed out, but the transcript confirms the saved decline.
+The connector returned `alex@example.test`, seven messages, and three threads at transcript cursor `conversation_item:1483`.
+The fixture independently recorded authenticated account-A HTTP 200 responses for profile and message-list requests.
+
+List calls failed because Go rejected a missing next-page token.
+Rust `8a135658:crates/noema-capabilities/adapters/src/response.rs` treats an absent token as completion.
+The Go correction restores that behavior for absent object members and tests ordinary result preservation and invalid-token rejection.
+This slice changes one production line and adds seven test lines.
+
+Before that correction, the agent proposed a v3 revision based on an incorrect diagnosis about preserving the raw token.
+Do not approve that revision without inspecting it. The backend correction needs a live list retry.
+Full message, attachment, multi-page, OAuth, and account-isolation acceptance remain open.
