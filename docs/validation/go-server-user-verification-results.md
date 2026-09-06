@@ -698,6 +698,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-08 | MCP-02 | Renewal omits the existing registered OAuth client and fails when dynamic registration is unavailable. | OAuth lifecycle | [Result](evidence/2026-09-06-mcp-oauth-results.json), [reproduction patch](evidence/2026-09-06-mcp-oauth-reproduction.patch) |
 | AUDIT-09 | FILE-01 | Executor catalog and dispatcher omit the documented file.download capability. | Task capabilities | [Result](evidence/2026-09-06-task-download-results.json), [reproduction patch](evidence/2026-09-06-task-download-reproduction.patch) |
 | AUDIT-10 | WEB-04 | Chat continuation fails after approved browser open, before the remaining lifecycle steps. Cause is unresolved. | Browser/Chat continuation | [Live result](evidence/2026-09-06-live-browser-results.json), [driver](evidence/2026-09-06-live-browser.mjs) |
+| AUDIT-11 | WEB-08 | A saved Obscura reference executes a button whose label and action changed after the snapshot. | Browser target validation | [Result](evidence/2026-09-06-changed-browser-target-results.json), [reproduction](evidence/2026-09-06-changed-browser-target-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -1208,7 +1209,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-05 | Partial | Public v0.2.2 installation passes on Linux. Executable reuse makes zero download requests and preserves exact bytes. Product provider selection and browser operation remain pending. | [Evidence](evidence/2026-09-06-public-obscura-install-results.json) |
 | WEB-06 | Partial | Controlled failed first open permits a switch. Failed switching preserves the usable session and route; retry succeeds after provider recovery. Model-driven recovery remains pending. | — |
 | WEB-07 | Not run | Controlled setup pending. | — |
-| WEB-08 | Partial | Old snapshot revision and replacement-session authority are rejected. Real changed-page targeting remains pending. | — |
+| WEB-08 | Fail | Old revision and replacement-session checks pass. AUDIT-11: a changed DOM button executes through its saved reference and revision. | [Evidence](evidence/2026-09-06-changed-browser-target-results.json) |
 | WEB-09 | Not run | Controlled setup pending. | — |
 | WEB-10 | Not run | Controlled setup pending. | — |
 | WEB-11 | Partial | Controlled main-document and lost-response errors remain uncertain. Read-only snapshot recovery passes. Full commit reconciliation remains pending. | — |

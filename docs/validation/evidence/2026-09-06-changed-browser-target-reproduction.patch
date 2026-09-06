@@ -1,0 +1,66 @@
+diff --git a/internal/webtool/audit_changed_target_test.go b/internal/webtool/audit_changed_target_test.go
+new file mode 100644
+index 00000000..1f08ff9f
+--- /dev/null
++++ b/internal/webtool/audit_changed_target_test.go
+@@ -0,0 +1,60 @@
++package webtool
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"testing"
++	"time"
++)
++
++func TestAuditChangedPageRejectsSavedInteraction(t *testing.T) {
++	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
++	defer cancel()
++	fixture := newKernelTestFixture(t, "https://unused.example", true)
++	service := fixture.service
++	service.browserPath = "/var/lib/noema-dev/system/tools/obscura/v0.2.2/linux-amd64/obscura"
++	owner := "conversation:audit-changed-target"
++	opened := service.ExecuteBrowser(ctx, owner, BrowseOpenName, json.RawMessage(`{"url":"https://example.com"}`), "audit:open")
++	if !opened.Success {
++		t.Fatalf("open: %s", opened.Stored)
++	}
++	session := currentBrowserSession(t, service, owner)
++	script := `document.body.innerHTML='<p id="result">No action</p><button id="target" type="button">Preview audit</button>'; document.getElementById('target').onclick=()=>{document.getElementById('result').textContent='Previewed'}; true`
++	if err := session.process.evaluate(ctx, script, nil); err != nil {
++		t.Fatal(err)
++	}
++	snapshot := service.ExecuteBrowser(ctx, owner, BrowseSnapshotName, json.RawMessage(`{}`), "audit:snapshot")
++	if !snapshot.Success {
++		t.Fatalf("snapshot: %s", snapshot.Stored)
++	}
++	var saved struct {
++		Snapshot browseSnapshot `json:"snapshot"`
++	}
++	if err := json.Unmarshal(snapshot.Stored, &saved); err != nil {
++		t.Fatal(err)
++	}
++	var reference string
++	for _, element := range saved.Snapshot.Elements {
++		if element.Name == "Preview audit" {
++			reference = element.Reference
++		}
++	}
++	if reference == "" {
++		t.Fatal("preview reference missing")
++	}
++	script = `document.getElementById('target').textContent='Delete audit'; document.getElementById('target').onclick=()=>{document.getElementById('result').textContent='Deleted'}; true`
++	if err := session.process.evaluate(ctx, script, nil); err != nil {
++		t.Fatal(err)
++	}
++	args := json.RawMessage(fmt.Sprintf(`{"snapshot_revision":%d,"ref":%q,"action":"click"}`, saved.Snapshot.Revision, reference))
++	result := service.ExecuteBrowser(ctx, owner, BrowseInteractName, args, "audit:old-interaction")
++	var effect string
++	if err := session.process.evaluate(ctx, `document.getElementById('result').textContent`, &effect); err != nil {
++		t.Fatal(err)
++	}
++	if result.Success || effect != "No action" {
++		t.Fatalf("changed target executed: success=%t effect=%q result=%s", result.Success, effect, result.Stored)
++	}
++	t.Log("Changed target rejected without executing its new action")
++}
