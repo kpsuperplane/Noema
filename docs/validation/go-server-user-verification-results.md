@@ -816,6 +816,15 @@ Full consent grants the additional scope, but the existing connection still expo
 AUDIT-07 records this failure for the OAuth lifecycle batch.
 Rendered confirmation of new operation benefits remains pending.
 
+## API connection controls
+
+The [controlled connection check](evidence/2026-09-06-api-controls-results.json) changes one of two APIs that share an OAuth grant.
+Rename updates the model tool label and rejects the older binding.
+Disable removes the connection from callable tools. Enable restores the exact API result.
+Deletion remains effective after adapter service reconstruction.
+The neighboring API stays usable, and the shared grant remains exactly unchanged.
+This checks the production service path with a controlled TLS endpoint.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -960,7 +969,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-10 | Partial | Changed arguments, another operation, and consumed continuation fail before HTTP. Cross-account checks remain pending. | — |
 | API-11 | Pass · controlled TLS service | Malformed JSON, wrong-type items, and oversized output fail without bypassing the reviewed schema. | — |
 | API-12 | Not run | Controlled setup pending. | — |
-| API-13 | Partial | Connection and account labels update model descriptions. Disable, re-enable, and deletion variants remain pending. | — |
+| API-13 | Pass · controlled TLS service | Rename, disable, enable, and delete pass. Deletion survives service restart. The shared grant and neighboring API remain intact. | — |
 | API-14 | Fail · controlled TLS service | Shared-grant revocation stops dependent access. AUDIT-06: application deletion remains blocked after grant revocation. | — |
 | API-15 | Partial | Application replacement rejects older OAuth attempts before token exchange. Restart, retained identity, and changed-approval checks remain pending. | — |
 | MCP-01 | Not run | Controlled setup pending. | — |
