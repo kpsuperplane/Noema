@@ -982,3 +982,75 @@ func waitRuntimeTask(t *testing.T, database *store.Store, id string, ready func(
 	t.Fatalf("Task did not reach expected state: %#v, %v; runs=%#v items=%#v", value, err, runs, items)
 	return store.Task{}
 }
+
+func TestTaskMessagesSeparateRequestAndCurrentClocks(t *testing.T) {
+	for _, tc := range []struct{ name, sourceZone, scheduleZone string }{
+		{"source_west", "America/Los_Angeles", ""},
+		{"source_east", "Asia/Tokyo", ""},
+		{"scheduled_occurrence", "America/Los_Angeles", "Asia/Tokyo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chat, database, conversation := chatFixture(t)
+			requested := time.Date(2025, 1, 2, 1, 30, 0, 0, time.UTC)
+			_, item, err := database.BeginConversationTurn(t.Context(), conversation.ID, "Tomorrow at nine", nil, requested)
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := createQueuedRuntimeTask(t, database, chat.home, "# Task\nTomorrow at nine. café 日本語\n")
+			task.Source = store.ArtifactSource{ConversationID: conversation.ID, ItemID: item.ID}
+			task.SourceClientTimeZone, task.ScheduleTimeZone = tc.sourceZone, tc.scheduleZone
+			occurrence := requested.Add(48 * time.Hour)
+			if tc.scheduleZone != "" {
+				task.ScheduledFor, task.RecurrenceScheduledFor = &occurrence, &occurrence
+			}
+			runtime := &TaskExecution{database: database, root: chat.home}
+			for _, role := range []string{"planner", "executor", "reviewer"} {
+				before := time.Now().Truncate(time.Second)
+				messages, _, err := runtime.taskMessages(t.Context(), task, store.TaskRun{Kind: role})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var system, data string
+				for _, message := range messages {
+					if message.Role == "system" {
+						system += message.Content + "\n"
+					} else {
+						data += message.Content + "\n"
+					}
+				}
+				zone := tc.sourceZone
+				if tc.scheduleZone != "" {
+					zone = tc.scheduleZone
+				}
+				location, _ := time.LoadLocation(zone)
+				var current time.Time
+				for _, line := range strings.Split(system, "\n") {
+					if value, found := strings.CutPrefix(line, "- current_time: "); found {
+						value, err = strconv.Unquote(value)
+						if err == nil {
+							current, err = time.Parse(time.RFC3339, value)
+						}
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				if current.Before(before) || current.After(time.Now()) || !strings.Contains(system, "- timezone: "+strconv.Quote(zone)) {
+					t.Fatalf("%s current clock missing or stale: %s", role, system)
+				}
+				_, actualOffset := current.Zone()
+				_, expectedOffset := current.In(location).Zone()
+				if actualOffset != expectedOffset {
+					t.Fatalf("clock offset = %d; want %d", actualOffset, expectedOffset)
+				}
+				sourceLocation, _ := time.LoadLocation(tc.sourceZone)
+				if !strings.Contains(data, requested.In(sourceLocation).Format(time.RFC3339)) || !strings.Contains(data, "café 日本語") {
+					t.Fatalf("original request time or Task text missing: %s", data)
+				}
+				if tc.scheduleZone != "" && !strings.Contains(system, "occurrence_execution_time: "+strconv.Quote(occurrence.In(location).Format(time.RFC3339))) {
+					t.Fatalf("occurrence cutoff missing: %s", system)
+				}
+			}
+		})
+	}
+}

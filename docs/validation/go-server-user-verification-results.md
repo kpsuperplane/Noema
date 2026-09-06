@@ -504,6 +504,18 @@ The [one-time results](evidence/2026-09-05-missed-restart-results.json) and [rec
 The [validation record](evidence/2026-09-05-missed-restart-validation.json) records scope, driver hashes, healthy processes, and reused Go checks.
 TIME-04 passes for the live Codex and Chromium path. The host clock was unchanged.
 
+## Task clocks and original request time
+
+TIME-03 inspection found that Go Task roles received no current clock.
+The [runtime fix](../../internal/runtime/task_execution.go) adds fresh clock context to the existing system message using Chat's clock formatter.
+Schedule timezone takes priority over source timezone. Tasks without either timezone use UTC.
+Each scheduled Task receives its occurrence cutoff. The original Chat timestamp remains separate Task data in its source timezone.
+The [regression test](../../internal/runtime/task_execution_test.go) uses Los Angeles, Tokyo, and a scheduled occurrence with different source and schedule timezones.
+It checks Planner, Executor, and Reviewer messages. Current timestamps must fall within the call interval, rather than match the old request date.
+Original request timestamps and Unicode Task text remain intact.
+The test failed before the fix. The [validation record](evidence/2026-09-06-task-clock-validation.json) records the checks and source hashes.
+TIME-03 remains partial. Live relative-time capture in multiple browser timezones still needs verification.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -591,7 +603,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-15 | Not run | Controlled setup pending. | — |
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
 | TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
-| TIME-03 | Not run | Controlled setup pending. | — |
+| TIME-03 | Partial | Fixed missing Task role clocks. Controlled runtime checks cover source and schedule timezones, original Chat timestamps, and occurrence cutoffs. Live relative capture remains pending. | — |
 | TIME-04 | Pass · live Codex/Chromium | One-time and recurring RUN_ONCE execute once after restart. SKIP avoids execution. Completed state survives a second restart. | — |
 | TIME-05 | Pass · live Codex/Chromium | The active recurrence remains in Scheduled after its manual occurrence completes and its initial occurrence is cancelled. History survives reload. | — |
 | TIME-06 | Pass · live Codex/Chromium | The automatic slot copies the exact edited template and revision. The earlier Task file stays unchanged. The new Task completes the edited request. | — |

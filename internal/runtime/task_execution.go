@@ -916,7 +916,43 @@ func (r *TaskExecution) taskMessages(ctx context.Context, task store.Task, run s
 	if err != nil {
 		return nil, false, err
 	}
-	messages := []provider.GenerationMessage{{Role: "system", Content: taskRolePrompt(run.Kind)}}
+	zone := task.ScheduleTimeZone
+	if zone == "" {
+		zone = task.SourceClientTimeZone
+	}
+	if zone == "" {
+		zone = "UTC"
+	}
+	location, err := time.LoadLocation(zone)
+	if err != nil {
+		return nil, false, err
+	}
+	environment := runtimeEnvironment(store.Conversation{}, location, time.Now())
+	occurrence := task.RecurrenceScheduledFor
+	if occurrence == nil {
+		occurrence = task.ScheduledFor
+	}
+	if occurrence != nil {
+		environment += fmt.Sprintf("\n- occurrence_execution_time: %q\nUse this occurrence time as the cutoff for requests about the current execution. Future slots do not change this cutoff.", occurrence.In(location).Format(time.RFC3339))
+	}
+	messages := []provider.GenerationMessage{{Role: "system", Content: taskRolePrompt(run.Kind) + "\n\n" + environment}}
+	if task.Source.ItemID != "" {
+		item, err := r.database.VisibleConversationItem(ctx, task.Source.ItemID)
+		if err != nil {
+			return nil, false, err
+		}
+		if item != nil && item.ConversationID == task.Source.ConversationID {
+			sourceZone := task.SourceClientTimeZone
+			if sourceZone == "" {
+				sourceZone = "UTC"
+			}
+			sourceLocation, err := time.LoadLocation(sourceZone)
+			if err != nil {
+				return nil, false, err
+			}
+			messages = append(messages, taskDataMessage("request_time", fmt.Sprintf("Original request time: %s\nTimezone: %s\nUse this time for relative terms in the original request. It does not replace the current run clock.", item.CreatedAt.In(sourceLocation).Format(time.RFC3339), sourceZone)))
+		}
+	}
 	if task.ProjectID != "" {
 		project, err := r.database.Project(ctx, task.ProjectID)
 		if err != nil {
