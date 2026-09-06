@@ -53,6 +53,14 @@ func TestTaskAttentionReadsUseExistingFiltersAndCursors(t *testing.T) {
 		len([]rune(detail.Attention.Summary)) != 400 {
 		t.Fatalf("Task detail attention = %#v, %v", detail, err)
 	}
+	interventions, err := r.pendingHumanInterventions(ctx, nil, &clarificationID, nil, nil)
+	if err != nil || len(interventions) != 1 {
+		t.Fatalf("Task response controls = %#v, %v", interventions, err)
+	}
+	attention, ok := interventions[0].(*model.TaskAttention)
+	if !ok || attention.Gate.Prompt != strings.Repeat("界", 401) || len(attention.ValidActions) == 0 {
+		t.Fatal("Task question or response actions are missing")
+	}
 	listed, err := r.tasks(ctx, model.TaskListInput{WorkspaceID: personalWorkspaceID,
 		ProjectID: &projectID, AttentionOnly: true, Scope: model.TaskScopeActive}, nil, nil)
 	if err != nil || len(listed.Edges) != 2 {

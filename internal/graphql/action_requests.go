@@ -52,6 +52,16 @@ func (r *Resolver) pendingHumanInterventions(
 		return nil, err
 	}
 	result := make([]model.HumanIntervention, 0, len(actions))
+	if taskID != nil {
+		task, err := r.task(ctx, *taskID)
+		if err != nil {
+			return nil, err
+		}
+		if task.Attention != nil {
+			result = append(result, task.Attention)
+		}
+	}
+
 	for _, action := range actions {
 		result = append(result, action)
 	}

@@ -375,6 +375,22 @@ func (s *Service) reconcilePrimary(ctx context.Context) error {
 					return err
 				}
 			}
+			if item.Kind == store.ConversationApprovalRequest {
+				metadata, _ := item.Payload["metadata"].(map[string]any)
+				saved, _ := metadata["action"].(map[string]any)
+				id, _ := saved["id"].(string)
+				payload, _ := saved["payload"].(map[string]any)
+				revision, _ := payload["revision"].(float64)
+				action, err := s.database.ActionRequest(ctx, id, int(revision))
+				if err != nil {
+					return err
+				}
+				if action.State == store.ActionAwaitingApproval {
+					if err := s.queue(ctx, store.WebPushNotification{EventKey: "approval:" + item.ID, Title: "Noema", Body: "An action needs your approval.", NavigatePath: "/", Urgency: "normal", TTLSeconds: 3600}); err != nil {
+						return err
+					}
+				}
+			}
 			checkpoint.Sequence = item.Sequence
 		}
 		if err := s.database.AdvanceWebPushPrimaryCheckpoint(ctx, conversationID, checkpoint.Sequence, time.Now()); err != nil {
