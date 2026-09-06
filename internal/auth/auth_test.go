@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -888,4 +889,33 @@ func decodeNativeTokens(t *testing.T, response *httptest.ResponseRecorder) nativ
 		t.Fatalf("native token payload = %#v", tokens)
 	}
 	return tokens
+}
+
+func TestLocalSocketDefaultsAndDisable(t *testing.T) {
+	paths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"", "false", "true"} {
+		document := "web: {}\n"
+		if value != "" {
+			document = "web:\n  local_graphql_socket: " + value + "\n"
+		}
+		if err := home.AtomicWritePrivate(paths.Config(), []byte(document)); err != nil {
+			t.Fatal(err)
+		}
+		config, _, err := LoadConfig(paths, "127.0.0.1:3737")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := value == "true" || value == "" && runtime.GOOS != "windows"
+		if config.LocalGraphQLSocket != want || config.DevNoAuth {
+			t.Fatalf("socket setting %q: socket=%v bypass=%v", value, config.LocalGraphQLSocket, config.DevNoAuth)
+		}
+	}
+	t.Setenv("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "false")
+	config, _, err := LoadConfig(paths, "127.0.0.1:3737")
+	if err != nil || config.LocalGraphQLSocket {
+		t.Fatalf("environment disable: %v", err)
+	}
 }

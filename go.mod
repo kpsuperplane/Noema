@@ -3,6 +3,8 @@ module github.com/kpsuperplane/noema
 go 1.26.6
 
 require (
+	github.com/google/uuid v1.6.0
+	github.com/urfave/cli/v3 v3.11.0
 	codeberg.org/readeck/go-readability/v2 v2.1.2
 	github.com/99designs/gqlgen v0.17.95
 	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
@@ -49,7 +51,6 @@ require (
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/itlightning/dateparse v0.2.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -71,7 +72,6 @@ require (
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
-	github.com/urfave/cli/v3 v3.11.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/vstasn/ole2 v0.0.1 // indirect

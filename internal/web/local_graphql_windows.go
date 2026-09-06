@@ -12,7 +12,7 @@ import (
 type LocalGraphQLServer struct{}
 
 // NewLocalGraphQLServer rejects the unsupported Windows configuration.
-func NewLocalGraphQLServer(_ string, _ http.Handler) (*LocalGraphQLServer, error) {
+func NewLocalGraphQLServer(_ string, _ http.Handler, _ []byte) (*LocalGraphQLServer, error) {
 	return nil, errors.New("web.local_graphql_socket is not supported on Windows")
 }
 

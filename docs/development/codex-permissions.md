@@ -96,3 +96,11 @@ Final checks cover this patch on top of `740f95c0`.
 Browser checks remain valid after the launcher-only cleanup correction. Source UI and browser routing did not change.
 Final home reads, SQLite queries, and socket access also passed after restarting the corrected launcher.
 No application build suite is required for these configuration, launcher, and documentation changes.
+
+## General CLI
+
+Use `noema --socket /tmp/noema-codex/graphql.sock` with the existing development relay.
+For example, `noema --socket /tmp/noema-codex/graphql.sock status` reads server status.
+The CLI also works with normal Linux and macOS installations.
+See [Noema CLI](../cli.md) for commands and socket selection.
+The CLI does not use the browser inspection HTTP credential.

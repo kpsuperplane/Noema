@@ -36,7 +36,7 @@ same application authority after successful authentication.
 The server retains each platform `client_id`. Each refresh family identifies
 one installation and owns its revocation, Push, WebSockets, and audit history.
 
-The local development GraphQL socket also receives `human:local` authority.
+The private local GraphQL socket also receives `human:local` authority.
 Filesystem access to that socket is its authentication boundary.
 
 Credential type does not change application authority. A browser session and a
@@ -54,7 +54,7 @@ web:
   rp_id: noema.example.com
   public_origin: https://noema.example.com
   dev_no_auth: false
-  local_graphql_socket: false
+  local_graphql_socket: true # Linux and macOS default; false on Windows
   graphiql: false
   recovery_code: <generated-base64url-value>
 mcp:
@@ -94,7 +94,7 @@ When it is false, every application request requires one of these credentials:
 - A valid native access token
 - A setup-only session for one permitted setup action
 
-This network rule does not apply to the local development GraphQL socket.
+This network rule does not apply to the private local GraphQL socket.
 
 Noema has two passkey states:
 
@@ -165,10 +165,12 @@ The operator must keep the edge private while using this mode for recovery.
 Before public access returns, the operator must review passkeys and native
 grants, disable the mode, restart, and verify passkey login.
 
-### Local Codex web access
+### Local CLI and development access
 
-`web.local_graphql_socket` defaults to `false`. When enabled, Noema creates
-`${NOEMA_HOME}/run/graphql.sock` for local Codex development.
+`web.local_graphql_socket` defaults to `true` on Linux and macOS, and `false` on Windows.
+When enabled, Noema creates `${NOEMA_HOME}/run/graphql.sock` for local CLI and development access.
+An explicit `false` setting disables the socket. Windows socket access remains unsupported.
+See [Noema CLI](cli.md) for commands and connection settings.
 
 The socket uses HTTP requests over a Unix domain socket. Its parent
 directory uses mode `0700`, and the socket uses mode `0600`.
@@ -179,7 +181,8 @@ Operations that require browser-session context can remain unavailable.
 
 The socket exposes GraphQL POST requests, GraphQL WebSockets, app pages, and static assets.
 `GET /auth/status` reports authenticated socket access without creating a browser session.
-GraphiQL, the schema endpoint, artifacts, recovery, and OAuth routes remain unavailable.
+`GET /graphql/schema.graphql` returns the shared server schema.
+GraphiQL, artifacts, recovery, and OAuth routes remain unavailable.
 
 A separate socket router calls the shared GraphQL schema.
 No header, path, Host value, source address, or public-listener branch selects this socket authority.
@@ -197,7 +200,7 @@ not provide an unauthenticated TCP fallback or a local bearer token.
 Browser inspection tools can forward requests directly through this socket.
 Keep that forwarding inside the inspection process, without an unauthenticated TCP relay.
 
-Local Codex can use any Unix-socket HTTP client. For example:
+Local clients can use the Noema CLI or any Unix-socket HTTP client. For example:
 
 ```sh
 curl --unix-socket /path/to/noema/run/graphql.sock \

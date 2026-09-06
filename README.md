@@ -200,7 +200,11 @@ run the Go command:
 NOEMA_HOME=.noema-dev go run ./cmd/noema
 ```
 
-`go run ./cmd/noema-dev` sets the runtime `web.local_graphql_socket` option. It also binds
+The [Noema CLI](docs/cli.md) provides status, GraphQL, Tasks, and streaming Chat commands.
+The private local socket is enabled by default on Linux and macOS.
+Use `noema --socket /tmp/noema-codex/graphql.sock status` with the development relay.
+
+`go run ./cmd/noema-dev` explicitly enables the local socket. It also binds
 the development server to `127.0.0.1`. Authentication follows `config.yaml` and
 is enabled by default. Processes with source-home access can use `${NOEMA_HOME}/run/graphql.sock` without a passkey.
 Codex uses the private relay described below; development inspection does not require disabling public authentication.

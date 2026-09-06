@@ -4,6 +4,9 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
+The [local CLI](../cli.md) uses the private socket for GraphQL, Tasks, and streaming Chat.
+Linux and macOS enable the socket by default. Public authentication remains separate.
+
 Personal-assistant acceptance now follows [the live case plan](../plans/2026-09-06-personal-assistant-live-cases.md).
 Use direct GraphQL interaction through a thin CLI and examine each outcome before advancing.
 First verify agent-generated Gmail API and Notion MCP connections, then retain all 100 original assistant cases.
@@ -11,17 +14,9 @@ The earlier 100-case replay completion report is invalid: successful process exi
 No new acceptance pass is established by that report.
 
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.
-
-The human authorized all seven Go cleanup items. ORMs are permitted.
-The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
+The seven authorized Go cleanup items are recorded in `docs/plans/2026-09-05-go-cleanup.md`. ORMs are permitted.
 One migration registry drives fresh creation and upgrades at version 36. Task model availability replaces the removed enable setting.
-Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 `go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
-CI checks generated Go and web files. The Rust launcher is removed.
-The ACP SDK owns JSON-RPC dispatch; local policy and process limits remain.
-Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
-Cargo now builds only the Tauri desktop shell.
-Apple Foundation Models and its Swift bridge are removed. Setup fills missing model roles and preserves other selections.
 Supporting flows share the approved card, avatar, and theme; see `docs/plans/2026-09-04-supporting-ui/implementation.md`.
 Core UI gallery changes are approved and implemented; see `docs/plans/2026-09-05-core-ui-audit/implementation.md`. Task fields save inline with draft protection. Compact title/close/tabs headers persist through execution. Settings expose model choices, and task dialogs reuse task cards.
 

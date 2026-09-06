@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,7 +158,7 @@ func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, erro
 	if err != nil {
 		return Config{}, nil, err
 	}
-	localSocket, err := configBool(web, "local_graphql_socket", false)
+	localSocket, err := configBool(web, "local_graphql_socket", runtime.GOOS != "windows")
 	if err != nil {
 		return Config{}, nil, err
 	}

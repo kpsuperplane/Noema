@@ -25,7 +25,7 @@ type LocalGraphQLServer struct {
 }
 
 // NewLocalGraphQLServer binds a private Unix socket before public HTTP starts.
-func NewLocalGraphQLServer(path string, graphql http.Handler) (*LocalGraphQLServer, error) {
+func NewLocalGraphQLServer(path string, graphql http.Handler, schema []byte) (*LocalGraphQLServer, error) {
 	parent := filepath.Dir(path)
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return nil, fmt.Errorf("create local GraphQL directory: %w", err)
@@ -66,6 +66,9 @@ func NewLocalGraphQLServer(path string, graphql http.Handler) (*LocalGraphQLServ
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method == http.MethodGet {
 			switch r.URL.Path {
+			case "/graphql/schema.graphql":
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				_, _ = w.Write(schema)
 			case "/auth/status":
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"state":"authenticated"}`))

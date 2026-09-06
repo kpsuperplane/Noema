@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -42,37 +41,32 @@ func main() {
 	if handled, status := noemaruntime.RunFileParseWorkerIfRequested(); handled {
 		os.Exit(status)
 	}
-	listen := flag.String("listen", "", "override the configured web bind address")
-	desktopSidecar := flag.Bool("desktop-sidecar", false, "run as the packaged desktop child")
-	flag.Parse()
-
-	if err := releaseRootError(*desktopSidecar); err != nil {
-		fmt.Fprintf(os.Stderr, "Noema server failed: %v\n", err)
-		os.Exit(1)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
+	err := cliCommand(os.Stdin, os.Stdout, os.Stderr).Run(ctx, os.Args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(commandExitCode(ctx, err))
+	}
+}
+
+func serveCommand(ctx context.Context, address string, sidecar bool, input io.Reader, output io.Writer) error {
+	if err := releaseRootError(sidecar); err != nil {
+		return err
+	}
 	var desktop *desktopOptions
-	if *desktopSidecar {
+	if sidecar {
 		var reader *bufio.Reader
-		desktop, reader = readDesktopOptions(os.Stdin)
+		desktop, reader = readDesktopOptions(input)
 		if desktop == nil {
-			fmt.Fprintln(os.Stderr, "Noema Go server failed: invalid desktop startup input")
-			os.Exit(2)
+			return usageError("invalid desktop startup input")
 		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
 		defer cancel()
-		go func() {
-			_, _ = io.Copy(io.Discard, reader)
-			cancel()
-		}()
+		go func() { _, _ = io.Copy(io.Discard, reader); cancel() }()
 	}
-	if err := run(ctx, *listen, os.Stdout, desktop); err != nil {
-		fmt.Fprintf(os.Stderr, "Noema Go server failed: %v\n", err)
-		os.Exit(1)
-	}
+	return run(ctx, address, output, desktop)
 }
 
 type desktopOptions struct {
@@ -354,7 +348,14 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	defer stopServers()
 	var localResult <-chan error
 	if authConfig.LocalGraphQLSocket {
-		local, err := web.NewLocalGraphQLServer(filepath.Join(paths.Root(), "run", "graphql.sock"), graphqlHandler)
+		// The socket is a private, mode-0600 local boundary owned by this
+		// process. Mark requests on that boundary as desktop-authorized so the
+		// CLI can use the same settings and connection authorities as the web
+		// client without inventing a second GraphQL API.
+		localGraphQL := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			graphqlHandler.ServeHTTP(w, r.WithContext(auth.WithDesktopAccess(r.Context())))
+		})
+		local, err := web.NewLocalGraphQLServer(filepath.Join(paths.Root(), "run", "graphql.sock"), localGraphQL, noemagraphql.Schema())
 		if err != nil {
 			return err
 		}

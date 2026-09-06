@@ -30,7 +30,7 @@ func TestLocalSocketIsPrivateAndRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewLocalGraphQLServer(path, http.NotFoundHandler()); err == nil {
+	if _, err := NewLocalGraphQLServer(path, http.NotFoundHandler(), nil); err == nil {
 		t.Fatal("active local GraphQL socket was replaced")
 	}
 	if err := active.Close(); err != nil {
@@ -38,7 +38,7 @@ func TestLocalSocketIsPrivateAndRemoved(t *testing.T) {
 	}
 	server, err := NewLocalGraphQLServer(path, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "graphql")
-	}))
+	}), []byte("type Query { value: String }"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestLocalSocketIsPrivateAndRemoved(t *testing.T) {
 	}}
 	client := &http.Client{Transport: transport}
 	defer transport.CloseIdleConnections()
-	for _, target := range []string{"/graphql", "/auth/recovery", "/oauth/authorize", "/graphql/schema.graphql", "/graphql/ws?query=%7B__typename%7D"} {
+	for _, target := range []string{"/graphql", "/auth/recovery", "/oauth/authorize", "/graphql/ws?query=%7B__typename%7D"} {
 		request, _ := http.NewRequest(http.MethodGet, "http://local"+target, nil)
 		response, requestErr := client.Do(request)
 		if requestErr != nil || response.StatusCode != http.StatusNotFound {
@@ -68,10 +68,11 @@ func TestLocalSocketIsPrivateAndRemoved(t *testing.T) {
 		_ = response.Body.Close()
 	}
 	for target, want := range map[string]string{
-		"/auth/status":   `{"state":"authenticated"}`,
-		"/graphql/ws":    "graphql",
-		"/tasks":         "<html>app</html>",
-		"/assets/app.js": "// app",
+		"/graphql/schema.graphql": "type Query { value: String }",
+		"/auth/status":            `{"state":"authenticated"}`,
+		"/graphql/ws":             "graphql",
+		"/tasks":                  "<html>app</html>",
+		"/assets/app.js":          "// app",
 	} {
 		request, _ := http.NewRequest(http.MethodGet, "http://local"+target, nil)
 		if target == "/graphql/ws" {
