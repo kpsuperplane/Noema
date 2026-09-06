@@ -123,10 +123,10 @@ func (r *Resolver) updateTaskModelPoolEntry(
 	if existing == nil {
 		return nil, store.ErrTaskModelPoolEntryNotFound
 	}
-	if inputMatchesAssignment(input, existing.Assignment) && (existing.Enabled || !input.Enabled) {
+	if inputMatchesAssignment(input, existing.Assignment) {
 		entry, err := r.Store.UpdateTaskModelPoolEntry(
 			ctx, poolEntryID, complexity, input.Label, existing.Assignment,
-			input.Enabled, input.SortOrder, time.Now(),
+			input.SortOrder, time.Now(),
 		)
 		if err != nil {
 			return nil, err
@@ -150,7 +150,7 @@ func (r *Resolver) updateTaskModelPoolEntry(
 	}
 	entry, err := r.Store.UpdateTaskModelPoolEntry(
 		ctx, poolEntryID, complexity, input.Label,
-		assignment, input.Enabled, input.SortOrder, time.Now(),
+		assignment, input.SortOrder, time.Now(),
 	)
 	if err != nil {
 		return nil, err
@@ -498,7 +498,7 @@ func taskModelPoolEntry(entry store.TaskModelPoolEntry) *model.TaskModelPoolEntr
 		Label: entry.Label, ProviderKind: preference.ProviderKind,
 		ProviderAccountID: preference.ProviderAccountID, ModelProfile: preference.ModelProfile,
 		ReasoningEffort: preference.ReasoningEffort, FastMode: preference.FastMode,
-		SelectionMode: preference.SelectionMode, Enabled: entry.Enabled, SortOrder: entry.SortOrder,
+		SelectionMode: preference.SelectionMode, SortOrder: entry.SortOrder,
 		CreatedAt: entry.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt: entry.UpdatedAt.Format(time.RFC3339Nano),
 	}

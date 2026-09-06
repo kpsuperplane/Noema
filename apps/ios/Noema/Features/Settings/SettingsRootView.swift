@@ -418,18 +418,6 @@ private struct AgentsSettings: View {
         HStack(spacing: NoemaSpacing.sm) {
           Text(pool.displayName)
             .font(NoemaFont.bodyEmphasized)
-          Toggle("", isOn: Binding(
-            get: { pool.enabled },
-            set: { enabled in Task { await settings.updateTaskModelPool(pool, enabled: enabled) } }
-          ))
-          .labelsHidden()
-          .toggleStyle(SettingsCompactToggleStyle())
-          .accessibilityLabel("Enabled")
-          .tint(NoemaColor.clay600)
-          .disabled(!settings.canMutate)
-          Text("Enabled")
-            .font(NoemaFont.body)
-            .foregroundStyle(NoemaColor.contentSecondary)
           Spacer(minLength: NoemaSpacing.sm)
         }
         SettingsInlineModelControls(

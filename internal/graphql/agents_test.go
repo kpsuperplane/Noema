@@ -96,7 +96,7 @@ func TestUpdateTaskModelPoolEntrySavesOneTier(t *testing.T) {
 			ProviderKind: "openrouter", ProviderAccountID: "provider_account:openrouter:default",
 			SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile,
 			ModelProfile:  &profile, ReasoningEffort: &effort,
-			FastMode: true, Enabled: true, SortOrder: 12,
+			FastMode: true, SortOrder: 12,
 		},
 	)
 	if err != nil {
@@ -116,26 +116,27 @@ func TestUpdateTaskModelPoolEntrySavesOneTier(t *testing.T) {
 	}
 }
 
-func TestDisableTaskModelPoolEntryKeepsUnavailableRoute(t *testing.T) {
+func TestTaskModelPoolLabelUpdateKeepsUnavailableRoute(t *testing.T) {
 	resolver := readyAgentTestResolver(t)
 	ctx := context.Background()
 	accountID := "provider_account:openrouter:default"
 	if _, err := resolver.ProviderAccounts.ClearSecret(ctx, accountID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	label := "Routine"
 	updated, err := resolver.updateTaskModelPoolEntry(
 		ctx, "task_pool:setting:simple", model.TaskModelPoolEntryInput{
 			Complexity:   model.TaskComplexitySimple,
 			ProviderKind: "openrouter", ProviderAccountID: accountID,
 			SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended,
-			Enabled:       false,
+			Label:         &label,
 		},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Enabled {
-		t.Fatalf("disabled pool entry = %#v", updated)
+	if updated.Label == nil || *updated.Label != "Routine" {
+		t.Fatalf("updated pool entry = %#v", updated)
 	}
 }
 

@@ -2480,8 +2480,6 @@ type TaskModelPoolEntry struct {
 	FastMode bool `json:"fastMode"`
 	// Whether Noema or the human chooses the concrete model.
 	SelectionMode ModelPreferenceSelectionMode `json:"selectionMode"`
-	// Whether this entry can be selected for new tasks.
-	Enabled bool `json:"enabled"`
 	// Human-controlled ordering within its tier.
 	SortOrder int `json:"sortOrder"`
 	// Creation timestamp.
@@ -2508,8 +2506,6 @@ type TaskModelPoolEntryInput struct {
 	ReasoningEffort *ReasoningEffort `json:"reasoningEffort,omitempty"`
 	// Whether this preference requests faster service.
 	FastMode bool `json:"fastMode"`
-	// Whether this entry can be selected for new tasks.
-	Enabled bool `json:"enabled"`
 	// Human-controlled ordering within its tier.
 	SortOrder int `json:"sortOrder"`
 }

@@ -314,6 +314,17 @@ export const TasksTaskRecurrenceDocument = gql`
   }
 `;
 
+export const TasksRecurrenceRunCardDocument = gql`
+  query TasksRecurrenceRunCard($taskId: String!) {
+    task(taskId: $taskId) {
+      taskId title taskDocument completedAt updatedAt
+      project { name }
+      stage { name behavior }
+      currentRun { kind }
+    }
+  }
+`;
+
 export const TasksUpdateTaskRecurrenceDocument = gql`
   mutation TasksUpdateTaskRecurrence($input: UpdateTaskRecurrenceInput!) {
     updateTaskRecurrence(input: $input) { task { ...TasksCommandTaskFields } eventCursor clientMutationId }

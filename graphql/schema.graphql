@@ -5085,10 +5085,6 @@ type TaskModelPoolEntry {
 	"""
 	selectionMode: ModelPreferenceSelectionMode!
 	"""
-	Whether this entry can be selected for new tasks.
-	"""
-	enabled: Boolean!
-	"""
 	Human-controlled ordering within its tier.
 	"""
 	sortOrder: Int!
@@ -5138,10 +5134,6 @@ input TaskModelPoolEntryInput {
 	Whether this preference requests faster service.
 	"""
 	fastMode: Boolean!
-	"""
-	Whether this entry can be selected for new tasks.
-	"""
-	enabled: Boolean!
 	"""
 	Human-controlled ordering within its tier.
 	"""

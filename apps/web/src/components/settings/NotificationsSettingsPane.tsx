@@ -42,8 +42,8 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 export function NotificationsSettingsPane() {
   return (
     <VStack gap={4}>
-      <ApnsProviderSettings />
       <WebPushSettings />
+      <ApnsProviderSettings />
     </VStack>
   );
 }
@@ -118,7 +118,7 @@ function ApnsProviderSettings() {
 
   return (
     <SettingsSection
-      title="Apple Push Notifications"
+      title="Apple device delivery"
       titleId="apns-provider-settings-title"
       action={<Button
         type="button"
@@ -192,7 +192,7 @@ function ApnsProviderDetails({
 }) {
   const configured = status?.configured ?? false;
   if (!configured) return <SettingsSectionInset>
-    <p {...stylex.props(styles.mutedText)}>Upload an Apple .p8 key to enable server notifications for Apple clients.</p>
+    <p {...stylex.props(styles.mutedText)}>Configure this server to send notifications to the Noema app on Apple devices.</p>
   </SettingsSectionInset>;
   return <>
       {status?.lastErrorCode || status?.lastErrorAt ? <SettingsList density="balanced" hasDividers>
@@ -362,7 +362,6 @@ function WebPushSettings() {
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
             label={enabled ? "Notifications on" : "Notifications off"}
-            description={webPush.detail}
             endContent={
               <Switch
                 label="Device notifications"
@@ -376,6 +375,7 @@ function WebPushSettings() {
             }
           />
         </SettingsList>
+        <SettingsLocalFeedback><p {...stylex.props(styles.mutedText)}>{webPush.detail}</p></SettingsLocalFeedback>
         {webPush.error ? (
           <SettingsLocalFeedback><p role="alert" {...stylex.props(styles.errorText)}>{webPush.error}</p></SettingsLocalFeedback>
         ) : null}
@@ -388,6 +388,7 @@ const styles = stylex.create({
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
     fontSize: 13,
+    textWrap: "pretty",
     lineHeight: 1.5
   },
   errorText: {

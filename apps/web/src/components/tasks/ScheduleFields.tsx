@@ -4,6 +4,8 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { DateInput } from "@astryxdesign/core/DateInput";
+import { TimeInput, type ISOTimeString } from "@astryxdesign/core/TimeInput";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -28,7 +30,7 @@ const repeatOptions = [
   { value: "never", label: "Never" }, { value: "daily", label: "Daily" },
   { value: "weekdays", label: "Weekdays" }, { value: "selected", label: "Selected weekdays" },
   { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" },
-  { value: "custom", label: "Custom cron" }
+  { value: "custom", label: "Custom schedule" }
 ];
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -44,6 +46,30 @@ export function initialScheduleDraft(schedule?: { scheduledFor: string; timeZone
     missedRunPolicy: schedule?.missedRunPolicy ?? "RUN_ONCE",
     overlapPolicy: "SKIP"
   };
+}
+
+export function initialRecurrenceScheduleDraft(recurrence: {
+  startsAt: string; timeZone: string; cronExpression: string;
+  missedRunPolicy: ScheduleDraft["missedRunPolicy"]; overlapPolicy: ScheduleDraft["overlapPolicy"];
+}): ScheduleDraft {
+  const draft = initialScheduleDraft({ scheduledFor: recurrence.startsAt, ...recurrence });
+  const fields = recurrence.cronExpression.trim().split(/\s+/);
+  const [minute, hour, day, month, weekday] = fields;
+  const custom = { ...draft, repeat: "custom" as const, cron: recurrence.cronExpression, overlapPolicy: recurrence.overlapPolicy };
+  // Only recognize expressions that can round-trip through the supported controls.
+  if (fields.length !== 5 || !/^\d+$/.test(minute) || !/^\d+$/.test(hour) || Number(minute) > 59 || Number(hour) > 23 || month !== "*") return custom;
+  const localStart = `${draft.localStart.slice(0, 11)}${two(Number(hour))}:${two(Number(minute))}`;
+  if (localStart !== draft.localStart) return custom;
+  const local = new Date(`${localStart}:00`);
+  let repeat: RepeatChoice = "custom";
+  let selectedDays = draft.selectedDays;
+  if (day === "*" && weekday === "*") repeat = "daily";
+  else if (day === "*" && weekday === "1-5") repeat = "weekdays";
+  else if (day === "*" && /^[0-6](,[0-6])*$/.test(weekday)) {
+    selectedDays = [...new Set(weekday.split(",").map(Number))].sort();
+    repeat = selectedDays.length === 1 && selectedDays[0] === local.getDay() ? "weekly" : "selected";
+  } else if (weekday === "*" && /^\d+$/.test(day) && Number(day) === local.getDate()) repeat = "monthly";
+  return repeat === "custom" ? custom : { ...custom, localStart, repeat, selectedDays };
 }
 
 export function scheduleInput(draft: ScheduleDraft): NewTaskScheduleInput | null {
@@ -65,7 +91,8 @@ export function scheduleInput(draft: ScheduleDraft): NewTaskScheduleInput | null
   };
 }
 
-export function ScheduleFields({ value, onChange, recurringOnly = false }: { value: ScheduleDraft; onChange: (value: ScheduleDraft) => void; recurringOnly?: boolean }) {
+export function ScheduleFields({ value, onChange, recurringOnly = false, showPolicies = true }: { value: ScheduleDraft; onChange: (value: ScheduleDraft) => void; recurringOnly?: boolean; showPolicies?: boolean }) {
+  const zones = React.useMemo(() => timeZoneOptions(value.timeZone), [value.timeZone]);
   const startsAt = localToUtc(value.localStart, value.timeZone);
   const cron = value.repeat === "never" ? undefined : value.repeat === "custom"
     ? value.cron.trim() : cronFor(value.repeat, value.localStart, value.selectedDays);
@@ -84,22 +111,6 @@ export function ScheduleFields({ value, onChange, recurringOnly = false }: { val
 
   return (
     <VStack gap={3}>
-      <DateTimeInput
-        label="Starts"
-        value={value.localStart as ISODateTimeString}
-        onChange={(next) => next && set("localStart", next)}
-        min={recurringOnly ? undefined : defaultLocalStart(0) as ISODateTimeString}
-        size="sm"
-        isRequired
-      />
-      <TextInput
-        label="Timezone"
-        description="IANA timezone used for wall-clock recurrence."
-        value={value.timeZone}
-        onChange={(next) => set("timeZone", next)}
-        size="sm"
-        isRequired
-      />
       <Selector
         label="Repeat"
         options={recurringOnly ? repeatOptions.filter((option) => option.value !== "never") : repeatOptions}
@@ -107,6 +118,9 @@ export function ScheduleFields({ value, onChange, recurringOnly = false }: { val
         onChange={(next) => set("repeat", next as RepeatChoice)}
         size="sm"
       />
+      {value.repeat !== "custom" ? <TimeInput label="Time" value={value.localStart.slice(11, 16) as ISOTimeString} onChange={(next) => next && set("localStart", `${value.localStart.slice(0, 10)}T${next.slice(0, 5)}`)} size="sm" isRequired /> : null}
+      <Selector label="Time zone" value={value.timeZone} options={zones} onChange={(next) => set("timeZone", next)} hasSearch searchPlaceholder="Search cities or time zones" description={value.timeZone} size="sm" isRequired />
+      {value.repeat === "custom" ? <DateTimeInput label="Starts after" value={value.localStart as ISODateTimeString} onChange={(next) => next && set("localStart", next)} size="sm" isRequired /> : <DateInput label="Starts on" value={value.localStart.slice(0, 10) as React.ComponentProps<typeof DateInput>["value"]} onChange={(next) => next && set("localStart", `${next}T${value.localStart.slice(11, 16)}`)} size="sm" isRequired />}
       {value.repeat === "selected" ? (
         <VStack as="fieldset" gap={1} {...stylex.props(styles.weekdayGroup)}>
           <legend {...stylex.props(styles.weekdayLegend)}>Days</legend>
@@ -127,16 +141,19 @@ export function ScheduleFields({ value, onChange, recurringOnly = false }: { val
         <TextInput label="Cron expression" description="Five fields: minute hour day month weekday." value={value.cron} onChange={(next) => set("cron", next)} size="sm" isRequired />
       ) : null}
       {cron && highFrequency(cron) ? <Banner status="warning" title="This schedule may run more than once an hour." /> : null}
-      <Collapsible trigger="Advanced" defaultIsOpen={false}>
+      {showPolicies ? (
         <VStack gap={3}>
           <Selector label="If a run was missed" options={[{ value: "RUN_ONCE", label: "Run once" }, { value: "SKIP", label: "Skip" }]} value={value.missedRunPolicy} onChange={(next) => set("missedRunPolicy", next as ScheduleDraft["missedRunPolicy"])} size="sm" />
           {value.repeat !== "never" ? <Selector label="If another run is active" options={[{ value: "SKIP", label: "Skip" }, { value: "QUEUE_ONE", label: "Queue one" }, { value: "ALLOW", label: "Allow overlap" }]} value={value.overlapPolicy} onChange={(next) => set("overlapPolicy", next as ScheduleDraft["overlapPolicy"])} size="sm" /> : null}
         </VStack>
-      </Collapsible>
-      {startsAt && !preview.loading && preview.data ? (
+      ) : null}
+      {startsAt && !preview.loading && preview.data?.taskSchedulePreview.occurrences.length ? (
         <VStack gap={1} aria-live="polite">
-          <strong>Next runs</strong>
-          {preview.data.taskSchedulePreview.occurrences.map((occurrence) => <span key={occurrence}>{dateLabel(occurrence, value.timeZone)}</span>)}
+          <strong>{value.repeat === "never" ? "Scheduled for" : "Next run"}</strong>
+          <span>{dateLabel(preview.data.taskSchedulePreview.occurrences[0], value.timeZone)}</span>
+          {preview.data.taskSchedulePreview.occurrences.length > 1 ? <Collapsible trigger="Upcoming runs" defaultIsOpen={false}>
+            <VStack gap={1}>{preview.data.taskSchedulePreview.occurrences.slice(1).map((occurrence) => <span key={occurrence}>{dateLabel(occurrence, value.timeZone)}</span>)}</VStack>
+          </Collapsible> : null}
         </VStack>
       ) : null}
       {!startsAt || (value.repeat !== "never" && !cron) || preview.error ? <Banner status="error" title="Check the start time, timezone, and repeat settings." /> : null}
@@ -200,3 +217,8 @@ function dateLabel(value: string, timeZone: string) {
 }
 function highFrequency(cron: string) { return cron.trim().split(/\s+/)[0].includes("*"); }
 function two(value: number) { return String(value).padStart(2, "0"); }
+
+function timeZoneOptions(current: string) {
+  const zones = [...new Set([current, "UTC", ...Intl.supportedValuesOf("timeZone")])];
+  return zones.map((zone) => ({ value: zone, label: zone === "UTC" ? "UTC" : `${zone.split("/").slice(1).join(" / ").replaceAll("_", " ")} (${zone.split("/")[0]})` }));
+}

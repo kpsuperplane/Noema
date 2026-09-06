@@ -6,7 +6,7 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 The human authorized all seven Go cleanup items. ORMs are permitted.
 The active plan is `docs/plans/2026-09-05-go-cleanup.md`.
-One migration registry drives fresh creation and upgrades at version 35.
+One migration registry drives fresh creation and upgrades at version 36. Task model availability replaces the removed enable setting.
 Bun maps Tasks, Task runs, Task events, and Agents without schema changes.
 `go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
 CI checks generated Go and web files. The Rust launcher is removed.
@@ -15,7 +15,7 @@ Go evaluation suite 10 uses production prompts, schemas, adapters, and replay.
 Cargo now builds only the Tauri desktop shell.
 Apple Foundation Models and its Swift bridge are removed. Setup fills missing model roles and preserves other selections.
 Supporting flows share the approved card, avatar, and theme; see `docs/plans/2026-09-04-supporting-ui/implementation.md`.
-Core UI mocks remain proposals; see `docs/plans/2026-09-05-core-ui-audit/README.md`. All ten mocks use the actual AppShell and responsive panes in iframe viewports. Task mocks retain shared editors, floating controls, inline options, and task cards. A compact title/close/tabs header persists across Inbox, Queued, and Running.
+Core UI gallery changes are approved and implemented; see `docs/plans/2026-09-05-core-ui-audit/implementation.md`. Task fields save inline with draft protection. Compact title/close/tabs headers persist through execution. Settings expose model choices, and task dialogs reuse task cards.
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface.
 Tasks, Memory, integrations, governance, and settings appear when needed.

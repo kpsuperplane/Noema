@@ -3,12 +3,13 @@ import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Crepe } from "@milkdown/crepe";
+import { replaceAll } from "@milkdown/kit/utils";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import * as stylex from "@stylexjs/stylex";
 import type { MarkdownEditorProps } from "./MarkdownEditor";
 
-export default function MarkdownEditorImpl({ value, onChange, label = "Markdown document", placeholder, density = "default", sourceMode: controlledSourceMode, onSourceModeChange, onReady }: MarkdownEditorProps) {
+export default function MarkdownEditorImpl({ readValueRef, value, onChange, label = "Markdown document", placeholder, density = "default", sourceMode: controlledSourceMode, onSourceModeChange, onReady }: MarkdownEditorProps) {
   const [internalSourceMode, setInternalSourceMode] = React.useState(false);
   const [richFailed, setRichFailed] = React.useState(false);
   const sourceMode = controlledSourceMode ?? internalSourceMode;
@@ -35,6 +36,7 @@ export default function MarkdownEditorImpl({ value, onChange, label = "Markdown 
         />
       ) : (
         <MilkdownCrepe
+          readValueRef={readValueRef}
           initialValue={value}
           inline={density === "inline"}
           placeholder={placeholder}
@@ -51,8 +53,13 @@ export default function MarkdownEditorImpl({ value, onChange, label = "Markdown 
   );
 }
 
-function MilkdownCrepe({ initialValue, inline, placeholder, onChange, onFailure, onReady }: { initialValue: string; inline: boolean; placeholder?: string; onChange: (value: string) => void; onFailure: () => void; onReady?: () => void }) {
+function MilkdownCrepe({ readValueRef, initialValue, inline, placeholder, onChange, onFailure, onReady }: { readValueRef?: React.RefObject<(() => string) | null>; initialValue: string; inline: boolean; placeholder?: string; onChange: (value: string) => void; onFailure: () => void; onReady?: () => void }) {
   const root = React.useRef<HTMLDivElement>(null);
+  const instance = React.useRef<Crepe | null>(null);
+  React.useEffect(() => {
+    const editor = instance.current;
+    if (editor && editor.getMarkdown() !== initialValue) editor.editor.action(replaceAll(initialValue));
+  }, [initialValue]);
   const initialValueRef = React.useRef(initialValue);
   const onChangeRef = React.useRef(onChange);
   const onFailureRef = React.useRef(onFailure);
@@ -103,13 +110,15 @@ function MilkdownCrepe({ initialValue, inline, placeholder, onChange, onFailure,
     };
     editorRoot.addEventListener("keydown", forwardTab, true);
     let active = true;
-    void crepe.create().then(() => { if (active) onReadyRef.current?.(); }).catch(() => { if (active) { onFailureRef.current(); onReadyRef.current?.(); } });
+    void crepe.create().then(() => { if (active) { instance.current = crepe; if (readValueRef) readValueRef.current = () => crepe.getMarkdown(); onReadyRef.current?.(); } }).catch(() => { if (active) { onFailureRef.current(); onReadyRef.current?.(); } });
     return () => {
       active = false;
+      instance.current = null;
+      if (readValueRef) readValueRef.current = null;
       editorRoot.removeEventListener("keydown", forwardTab, true);
       void crepe.destroy().catch(() => undefined);
     };
-  }, [inline, placeholder]);
+  }, [inline, placeholder, readValueRef]);
   return <div ref={root} {...stylex.props(styles.editor, inline && styles.inlineEditor)} />;
 }
 

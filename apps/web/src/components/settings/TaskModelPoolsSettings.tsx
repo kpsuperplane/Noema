@@ -1,6 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { HStack } from "@astryxdesign/core/HStack";
-import { Switch } from "@astryxdesign/core/Switch";
+import { VStack } from "@astryxdesign/core/VStack";
 import type {
   NoemaModelUseCase,
   TaskComplexity,
@@ -32,7 +31,7 @@ export function TaskModelPoolsSettings({
   saveError: string | null;
   onUpdate: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
 }) {
-  const hasUsableEntry = entries.some((entry) => entry.enabled && !selectedPreferenceWarning({
+  const hasUsableEntry = entries.some((entry) => !selectedPreferenceWarning({
     providerKind: entry.providerKind,
     providerAccountId: entry.providerAccountId,
     selectionMode: entry.selectionMode,
@@ -71,7 +70,7 @@ export function TaskModelPoolsSettings({
         )}
         {saveError || !hasUsableEntry ? <SettingsLocalFeedback>
           {saveError ? <p role="alert" {...stylex.props(styles.error)}>{saveError}</p> : null}
-          {!hasUsableEntry ? <p {...stylex.props(styles.warning)}>No usable task model is enabled.</p> : null}
+          {!hasUsableEntry ? <p {...stylex.props(styles.warning)}>No task model is available.</p> : null}
         </SettingsLocalFeedback> : null}
     </SettingsSection>
   );
@@ -96,7 +95,7 @@ function PoolEntryRow({
     fastMode: entry.fastMode
   };
 
-  const save = (next: ModelPreferenceSaveInput, enabled = entry.enabled) => {
+  const save = (next: ModelPreferenceSaveInput) => {
     const provider = modelOptions.find((option) => option.providerAccountId === next.providerAccountId);
     void onUpdate(entry.poolEntryId, {
       complexity: entry.complexity,
@@ -108,28 +107,14 @@ function PoolEntryRow({
       modelProfile: next.modelProfile ?? null,
       reasoningEffort: next.reasoningEffort ?? null,
       fastMode: next.fastMode,
-      enabled,
       sortOrder: entry.sortOrder
     });
   };
 
   return (
     <SettingsListItem
-      mobileEndContentFullWidth
-      label={
-        <HStack gap={2} vAlign="center" wrap="wrap">
-          <span {...stylex.props(styles.rowLabel)}>{complexityLabel(entry.complexity)}</span>
-          <Switch
-            label="Enabled"
-            aria-label={`Enabled for ${complexityLabel(entry.complexity)} task model`}
-            value={entry.enabled}
-            isDisabled={saving}
-            isLoading={saving}
-            onChange={(checked) => save(selection, checked)}
-          />
-        </HStack>
-      }
-      endContent={
+      label={<VStack gap={2}>
+        <span {...stylex.props(styles.rowLabel)}>{complexityLabel(entry.complexity)}</span>
         <ControlledModelPreferenceSelect
           ariaLabel={`${complexityLabel(entry.complexity)} task model`}
           options={modelOptions}
@@ -138,7 +123,7 @@ function PoolEntryRow({
           disabled={saving}
           onChange={(next) => save(next)}
         />
-      }
+      </VStack>}
     />
   );
 }

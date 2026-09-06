@@ -10,6 +10,7 @@ import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
 import {
   AlertTriangle,
@@ -20,7 +21,7 @@ import {
   Plus,
   Trash2
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   CancelProviderAuthAttemptDocument,
@@ -56,6 +57,7 @@ import type { ProviderAuthAttemptView } from "../onboarding/types";
 import { FaviconImage } from "@/components/FaviconImage";
 import { ListCardButton, ListCardLink } from "@/components/ListCardLink";
 import { SettingsManagementLayout } from "./SettingsManagementLayout";
+import { ChatDetailCloseButton } from "@/components/chatDetail/ChatDetailCloseButton";
 import {
   SettingsList,
   SettingsListItem,
@@ -67,6 +69,7 @@ import {
 export function ProvidersSettingsPane({ providerAccountId }: { providerAccountId?: string }) {
   const navigate = useNavigate();
   const desktop = useMediaQuery("(min-width: 980px)");
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [authAttempt, setAuthAttempt] = useState<StartProviderAuthAttemptMutation["startProviderAuthAttempt"] | null>(null);
   const result = useQuery<ProvidersSettingsRootQuery>(ProvidersSettingsRootDocument, { fetchPolicy: "cache-and-network" });
   const mutationOptions = {
@@ -118,9 +121,12 @@ export function ProvidersSettingsPane({ providerAccountId }: { providerAccountId
   const deleteTarget = accounts.find((account) => account.providerAccountId === deleteTargetId) ?? null;
   const selectedAccount = accounts.find((account) => account.providerAccountId === providerAccountId) ?? null;
   const defaultAccount = accounts.find((account) => account.isDefault) ?? accounts[0];
+  const selectedInitialAccount = useRef(Boolean(providerAccountId));
 
   useEffect(() => {
-    if (!desktop || providerAccountId || !defaultAccount) return;
+    if (providerAccountId) selectedInitialAccount.current = true;
+    if (!desktop || selectedInitialAccount.current || !defaultAccount) return;
+    selectedInitialAccount.current = true;
     void navigate({
       to: "/settings/system/providers/$providerAccountId",
       params: { providerAccountId: defaultAccount.providerAccountId },
@@ -148,6 +154,12 @@ export function ProvidersSettingsPane({ providerAccountId }: { providerAccountId
         onDetailOpenChange={(open) => {
           if (!open) void navigate({ to: "/settings/system/providers" });
         }}
+        detailHeader={selectedAccount ? (
+          <HStack gap={2} vAlign="center" hAlign="between">
+            <h1 {...stylex.props(styles.detailTitle)}>{selectedAccount.displayName}</h1>
+            <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={() => void navigate({ to: "/settings/system/providers" })} />
+          </HStack>
+        ) : undefined}
         list={
           <ProviderAccountList
             accounts={accounts}
@@ -358,25 +370,24 @@ function ProviderAccountDetail({
     />
   ) : undefined;
   return <>
-    <VStack gap={0.5} {...stylex.props(styles.detailHeader)}>
-      <span {...stylex.props(styles.eyebrow)}>{catalogEntry?.displayName ?? account.providerKind}</span>
-      <h1 {...stylex.props(styles.detailTitle)}>{account.displayName}</h1>
-      {providerStatusIssue(account) ? <p {...stylex.props(styles.cardIssue)}>{providerStatusIssue(account)}</p> : null}
-    </VStack>
-    <SettingsSection title="Access" titleId="provider-access" action={accessAction}>
-      <SettingsList density="balanced" hasDividers>
-        <SettingsListItem label="Authentication" description={providerAuthMethodLabel(account.authMethod)} />
-        <SettingsListItem label="Status" description={providerStatusLabel(account.status)} />
-        <SettingsListItem label="Default account" description={account.isDefault ? "Yes" : "No"} />
+    <HStack gap={2} vAlign="center" hAlign="between" wrap="wrap">
+      <p {...stylex.props(styles.mutedText)}>{catalogEntry?.displayName ?? account.providerKind}</p>
+      <Token size="sm" color={account.status === "AUTHENTICATED" ? "green" : "orange"} label={account.status === "AUTHENTICATED" ? "Connected" : providerStatusLabel(account.status)} />
+    </HStack>
+    {account.lastErrorMessage ? <p role="alert" {...stylex.props(styles.cardIssue)}>{account.lastErrorMessage}</p> : null}
+    <SettingsSection title="Connection" titleId="provider-access" action={accessAction}>
+      <SettingsList density="compact" hasDividers>
+        <SettingsListItem label="Sign-in method" endContent={<span {...stylex.props(styles.compactValue)}>{providerAuthMethodLabel(account.authMethod)}</span>} />
+        <SettingsListItem label="Default account" endContent={<span {...stylex.props(styles.compactValue)}>{account.isDefault ? "Yes" : "No"}</span>} />
       </SettingsList>
     </SettingsSection>
-    <SettingsSection title="Capabilities" titleId="provider-capabilities">
-      {capabilities.length > 0 ? <SettingsList density="balanced" hasDividers>
+    <SettingsSection title="Available features" titleId="provider-capabilities">
+      {capabilities.length > 0 ? <SettingsList density="compact" hasDividers>
         {capabilities.map((capability) => (
           <SettingsListItem
             key={capability.capabilityId}
-            label={capability.capabilityId}
-            description={`${capability.reliabilityContract} · ${capability.dataFlowClass}`}
+            label={providerFeatureCopy[capability.capabilityId]?.label ?? capability.capabilityId}
+            description={providerFeatureCopy[capability.capabilityId]?.description}
           />
         ))}
       </SettingsList> : <SettingsSectionInset>
@@ -387,22 +398,28 @@ function ProviderAccountDetail({
           {providerTechnicalRows(account).map((row) => (
             <SettingsListItem key={row.label} label={row.label} description={row.value} />
           ))}
+          {capabilities.map((capability) => (
+            <SettingsListItem key={capability.capabilityId} label={capability.capabilityId} description={`${capability.reliabilityContract} · ${capability.dataFlowClass}`} />
+          ))}
         </SettingsList>
       </SettingsTechnicalDetails>
     </SettingsSection>
     {!account.isDefault ? (
-      <SettingsSection
-        title="Lifecycle"
-        titleId="provider-lifecycle"
-        action={<Button type="button" size="sm" variant="destructive" label="Delete account" isDisabled={busy} onClick={onDelete} />}
-      >
-        <SettingsSectionInset>
+      <VStack as="section" gap={2}>
           <p {...stylex.props(styles.mutedText)}>Deleting this account removes its stored credentials and web tool selections.</p>
-        </SettingsSectionInset>
-      </SettingsSection>
+          <HStack><Button type="button" size="sm" variant="destructive" label="Delete account" isDisabled={busy} onClick={onDelete} /></HStack>
+      </VStack>
     ) : null}
   </>;
 }
+
+const providerFeatureCopy: Record<string, { label: string; description: string }> = {
+  "model.generate": { label: "Language models", description: "Models for chat and tasks." },
+  "model.classify": { label: "Classification", description: "Models for structured decisions." },
+  "web.search": { label: "Web search", description: "Find information on the web." },
+  "web.fetch": { label: "Read web pages", description: "Read content from a page address." },
+  "web.browse": { label: "Web browsing", description: "Open and use websites." }
+};
 
 function groupProviderAccounts(
   accounts: readonly ProviderSettingsAccount[],
@@ -725,22 +742,24 @@ const styles = stylex.create({
   cardTitle: { color: "var(--foreground)", fontSize: 13, fontWeight: 650, overflowWrap: "anywhere" },
   cardIssue: { margin: 0, color: "var(--destructive)", fontSize: 12, lineHeight: 1.35 },
   chevron: { width: "var(--spacing-4)", height: "var(--spacing-4)", color: "var(--muted-foreground)" },
-  detailHeader: { minWidth: 0, paddingBlockEnd: "var(--spacing-3)" },
-  eyebrow: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
+  compactValue: { color: "var(--muted-foreground)", fontSize: 13, textAlign: "end", textWrap: "pretty" },
   detailTitle: {
     margin: 0,
     color: "var(--foreground)",
     fontFamily: "var(--font-heading)",
-    fontSize: 18,
+    fontSize: "var(--text-heading-1-size)",
     fontWeight: 650,
-    lineHeight: 1.25,
+    // Match the existing small detail-close control.
+    lineHeight: "28px",
+    minWidth: 0,
     overflowWrap: "anywhere"
   },
   mutedText: {
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
     fontSize: 13,
-    lineHeight: 1.5
+    lineHeight: 1.5,
+    textWrap: "pretty"
   },
   saveError: {
     margin: "var(--spacing-0)",

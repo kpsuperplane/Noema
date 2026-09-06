@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { HStack } from "@astryxdesign/core/HStack";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 
@@ -29,6 +29,7 @@ export function SettingsEditDialog({
   onOpenChange: (open: boolean) => void;
   onSave: () => void | Promise<void>;
 }) {
+  const formId = useId();
   const setOpen = (next: boolean) => {
     if (!saving) onOpenChange(next);
   };
@@ -42,37 +43,49 @@ export function SettingsEditDialog({
       aria-label={title}
     >
       <Layout
-        height="auto"
+        xstyle={styles.layout}
         header={<DialogHeader title={title} onOpenChange={setOpen} />}
         content={
           <LayoutContent>
             <VStack
               as="form"
+              id={formId}
               gap={3}
               onSubmit={(event) => {
                 event.preventDefault();
+                if (saving || saveDisabled) return;
                 void Promise.resolve(onSave()).catch(() => undefined);
               }}
             >
               {children}
               {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
-              <HStack gap={2} hAlign="end" wrap="wrap">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  label="Cancel"
-                  isDisabled={saving}
-                  onClick={() => setOpen(false)}
-                />
-                <Button
-                  type="submit"
-                  label={saveLabel}
-                  isDisabled={saving || saveDisabled}
-                  isLoading={saving}
-                />
-              </HStack>
             </VStack>
           </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack gap={2}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                xstyle={styles.action}
+                label="Cancel"
+                isDisabled={saving}
+                onClick={() => setOpen(false)}
+              />
+              <Button
+                type="submit"
+                form={formId}
+                variant="primary"
+                size="md"
+                xstyle={styles.action}
+                label={saveLabel}
+                isDisabled={saving || saveDisabled}
+                isLoading={saving}
+              />
+            </HStack>
+          </LayoutFooter>
         }
       />
     </Dialog>
@@ -80,6 +93,8 @@ export function SettingsEditDialog({
 }
 
 const styles = stylex.create({
+  layout: { height: "auto", maxHeight: "inherit", minHeight: 0 },
+  action: { flex: 1, minWidth: 0 },
   error: {
     margin: "var(--spacing-0)",
     color: "var(--destructive)",

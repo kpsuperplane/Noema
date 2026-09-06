@@ -197,16 +197,10 @@ func TestAgentPreferenceAndTaskModelPoolsShareAssignments(t *testing.T) {
 			simple = entry
 		}
 	}
-	changed := simple.Assignment
-	changed.ModelProfile = "model-b"
-	if _, err := database.UpdateTaskModelPoolEntry(context.Background(), simple.ID, "simple",
-		nil, changed, false, 0, time.Now()); err == nil {
-		t.Fatal("disabled pool route change succeeded")
-	}
 	label := "Routine"
 	updated, err := database.UpdateTaskModelPoolEntry(context.Background(), simple.ID, "simple",
-		&label, simple.Assignment, false, 2, time.Now())
-	if err != nil || updated.Enabled || updated.Label == nil || *updated.Label != label || updated.SortOrder != 2 {
+		&label, simple.Assignment, 2, time.Now())
+	if err != nil || updated.Label == nil || *updated.Label != label || updated.SortOrder != 2 {
 		t.Fatalf("updated Task model pool = %#v, %v", updated, err)
 	}
 }

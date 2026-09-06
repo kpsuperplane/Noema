@@ -18,7 +18,6 @@ import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskBody } from "./TaskBody";
 import { TaskTranscriptSourceProvider } from "./TaskTranscript";
-import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 export function TaskDetailPanel({
@@ -97,7 +96,7 @@ export function TaskDetailPanel({
       renderSecondarySurface={renderSecondarySurface}
       run={run}
       controls={controls}
-      showStatus={showStatus && currentDetail.status !== "done"}
+      showStatus={showStatus && Boolean(run) && currentDetail.status !== "done"}
       showTasksLink={showTasksLink}
       taskId={taskId}
     />
@@ -168,11 +167,7 @@ function TaskContextCard({
           showTasksLink={showTasksLink}
           taskId={taskId}
         />
-        {detail.schedule && !detail.schedule.recurrenceId ? (
-          <div {...stylex.props(styles.contextBody)}>
-            <TaskScheduleSummary schedule={detail.schedule} />
-          </div>
-        ) : null}
+
       </div>
     </aside>
   );
@@ -208,7 +203,7 @@ function TaskSummaryHeader({
       ) : null}
       <div {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
-          {completed ? "Task Completed" : run ? run.instanceName : "No agent run yet"}
+          {completed ? "Task Completed" : run ? run.instanceName : detail.status === "cancelled" ? "Task cancelled" : detail.stageBehavior === "DISPATCH" ? "Queued" : detail.stageBehavior === "ACTIVE" ? "Working" : detail.attention ? "Needs you" : detail.schedule ? "Scheduled" : "Ready when you are"}
         </strong>
         {completed && contributors.length ? (
           <AvatarGroup aria-label="Agents that worked on this task" size="xsm">

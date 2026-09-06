@@ -15,14 +15,13 @@ type TaskModelPoolEntry struct {
 	Complexity string
 	Label      *string
 	Assignment ModelAssignment
-	Enabled    bool
 	SortOrder  int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
 
 const taskModelPoolSelect = `
-SELECT p.pool_entry_id, p.complexity, p.label, p.enabled, p.sort_order,
+SELECT p.pool_entry_id, p.complexity, p.label, p.sort_order,
        p.created_at_ms, p.updated_at_ms,
        a.role, a.provider_kind, a.provider_account_id, a.selection_mode,
        COALESCE(a.model_profile, ''), COALESCE(a.reasoning_effort, ''), a.fast_mode
@@ -63,7 +62,6 @@ func (s *Store) UpdateTaskModelPoolEntry(
 	complexity string,
 	label *string,
 	assignment ModelAssignment,
-	enabled bool,
 	sortOrder int,
 	now time.Time,
 ) (TaskModelPoolEntry, error) {
@@ -91,11 +89,7 @@ func (s *Store) UpdateTaskModelPoolEntry(
 	if err != nil {
 		return TaskModelPoolEntry{}, err
 	}
-	retainsRoute := sameModelAssignment(existing.Assignment, assignment)
-	if !enabled && !retainsRoute {
-		return TaskModelPoolEntry{}, errors.New("a disabled Task model pool entry must retain its provider route")
-	}
-	if !(retainsRoute && (existing.Enabled || !enabled)) {
+	if !sameModelAssignment(existing.Assignment, assignment) {
 		if _, err := modelAssignmentAccount(ctx, tx, assignment); err != nil {
 			return TaskModelPoolEntry{}, err
 		}
@@ -104,8 +98,8 @@ func (s *Store) UpdateTaskModelPoolEntry(
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `
-UPDATE task_model_pool_settings SET label = ?, enabled = ?, sort_order = ?, updated_at_ms = ?
-WHERE pool_entry_id = ?`, label, enabled, sortOrder, millis(now.UTC()), id); err != nil {
+UPDATE task_model_pool_settings SET label = ?, sort_order = ?, updated_at_ms = ?
+WHERE pool_entry_id = ?`, label, sortOrder, millis(now.UTC()), id); err != nil {
 		return TaskModelPoolEntry{}, fmt.Errorf("update Task model pool: %w", err)
 	}
 	updated, err := scanTaskModelPoolEntry(tx.QueryRowContext(ctx,
@@ -122,9 +116,9 @@ WHERE pool_entry_id = ?`, label, enabled, sortOrder, millis(now.UTC()), id); err
 func scanTaskModelPoolEntry(row rowScanner) (TaskModelPoolEntry, error) {
 	var entry TaskModelPoolEntry
 	var label sql.NullString
-	var enabled, fastMode int
+	var fastMode int
 	var createdAt, updatedAt int64
-	if err := row.Scan(&entry.ID, &entry.Complexity, &label, &enabled, &entry.SortOrder,
+	if err := row.Scan(&entry.ID, &entry.Complexity, &label, &entry.SortOrder,
 		&createdAt, &updatedAt, &entry.Assignment.Role, &entry.Assignment.ProviderKind,
 		&entry.Assignment.ProviderAccountID, &entry.Assignment.SelectionMode,
 		&entry.Assignment.ModelProfile, &entry.Assignment.ReasoningEffort, &fastMode); err != nil {
@@ -136,7 +130,6 @@ func scanTaskModelPoolEntry(row rowScanner) (TaskModelPoolEntry, error) {
 	if label.Valid {
 		entry.Label = &label.String
 	}
-	entry.Enabled = enabled == 1
 	entry.Assignment.FastMode = fastMode == 1
 	entry.CreatedAt = fromMillis(createdAt)
 	entry.UpdatedAt = fromMillis(updatedAt)

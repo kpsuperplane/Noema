@@ -58,11 +58,11 @@ export function TaskDetailQueryPanel({
 
   const detail = React.useMemo(() => task ? mapTaskDetail(task) : null, [task]);
   const interventionFresh = pendingHumanInterventionsAreFresh(result);
-  const taskControls = result.error
+  const taskControls = React.useMemo(() => result.error
     ? []
     : task?.validActions.filter((action) => (
       !interventionFresh || (action !== "ANSWER" && action !== "RETRY")
-      )) ?? [];
+      )) ?? [], [result.error, task, interventionFresh]);
   const refetchTaskResult = result.refetch;
   const refreshTask = React.useCallback(async () => { await refetchTaskResult(); }, [refetchTaskResult]);
   const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode, edit?: TaskInlineEditController) => (

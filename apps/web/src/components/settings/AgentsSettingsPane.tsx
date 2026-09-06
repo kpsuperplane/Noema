@@ -39,7 +39,6 @@ import {
   SettingsList,
   SettingsListItem,
   SettingsLocalFeedback,
-  SettingsRowActions,
   SettingsSection,
   SettingsSectionBody,
   SettingsSectionInset
@@ -170,6 +169,17 @@ export function AgentsSettingsPane() {
             <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the model choice.</p>
           </SettingsLocalFeedback> : null}
       </SettingsSection>
+      {error || !taskExecutor ? null : (
+        <TaskModelPoolsSettings
+          entries={taskModelPoolEntries}
+          error={taskModelPoolError}
+          loading={taskModelPoolLoading}
+          modelOptions={taskModelPoolModelOptions}
+          onUpdate={onUpdateTaskModelPool}
+          saveError={taskModelPoolSaveError}
+          saving={taskModelPoolSaving}
+        />
+      )}
       <SettingsSection
         title="ACP task executors"
         titleId="acp-agents-title"
@@ -214,17 +224,6 @@ export function AgentsSettingsPane() {
             </SettingsList></SettingsSectionBody>
           )}
       </SettingsSection>
-      {error || !taskExecutor ? null : (
-        <TaskModelPoolsSettings
-          entries={taskModelPoolEntries}
-          error={taskModelPoolError}
-          loading={taskModelPoolLoading}
-          modelOptions={taskModelPoolModelOptions}
-          onUpdate={onUpdateTaskModelPool}
-          saveError={taskModelPoolSaveError}
-          saving={taskModelPoolSaving}
-        />
-      )}
       <AcpAgentDialog
         key={editingAcpAgent === "new" ? "new" : editingAcpAgent?.agentId ?? "closed"}
         agent={editingAcpAgent}
@@ -322,21 +321,18 @@ function AgentRow({
 
   return (
     <SettingsListItem
-      mobileEndContentFullWidth
-      label={label}
-      description={description}
-      endContent={
-        <SettingsRowActions>
-          <ModelPreferenceSelect
-            options={agent.modelOptions ?? []}
-            preference={agent.modelPreference ?? null}
-            useCase={agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER"}
-            saving={saving}
-            ariaLabel={`Model settings for ${agentDisplayName(agent)}`}
-            onSave={(input) => onSave({ agentId: agent.agentId, ...input })}
-          />
-        </SettingsRowActions>
-      }
+      label={<VStack gap={2} {...stylex.props(styles.stack)}>
+        {label}
+        {description}
+        <ModelPreferenceSelect
+          options={agent.modelOptions ?? []}
+          preference={agent.modelPreference ?? null}
+          useCase={agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER"}
+          saving={saving}
+          ariaLabel={`Model settings for ${agentDisplayName(agent)}`}
+          onSave={(input) => onSave({ agentId: agent.agentId, ...input })}
+        />
+      </VStack>}
     />
   );
 }

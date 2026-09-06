@@ -1,6 +1,6 @@
 # Core app UI audit
 
-Status: recommendations and mocks. Product UI changes are not approved or implemented.
+Status: approved for implementation on September 6, 2026. See [implementation](implementation.md) for the applied changes and validation.
 
 The existing navigation, list/detail layout, typography, and surface treatment work well.
 The main opportunity is clearer task states and more consistent controls within those surfaces.

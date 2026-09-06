@@ -1321,7 +1321,6 @@ type ComplexityRoot struct {
 	TaskModelPoolEntry struct {
 		Complexity        func(childComplexity int) int
 		CreatedAt         func(childComplexity int) int
-		Enabled           func(childComplexity int) int
 		FastMode          func(childComplexity int) int
 		Label             func(childComplexity int) int
 		ModelProfile      func(childComplexity int) int
@@ -8073,12 +8072,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.TaskModelPoolEntry.CreatedAt(childComplexity), true
-	case "TaskModelPoolEntry.enabled":
-		if e.ComplexityRoot.TaskModelPoolEntry.Enabled == nil {
-			break
-		}
-
-		return e.ComplexityRoot.TaskModelPoolEntry.Enabled(childComplexity), true
 	case "TaskModelPoolEntry.fastMode":
 		if e.ComplexityRoot.TaskModelPoolEntry.FastMode == nil {
 			break
@@ -14557,10 +14550,6 @@ type TaskModelPoolEntry {
 	"""
 	selectionMode: ModelPreferenceSelectionMode!
 	"""
-	Whether this entry can be selected for new tasks.
-	"""
-	enabled: Boolean!
-	"""
 	Human-controlled ordering within its tier.
 	"""
 	sortOrder: Int!
@@ -14610,10 +14599,6 @@ input TaskModelPoolEntryInput {
 	Whether this preference requests faster service.
 	"""
 	fastMode: Boolean!
-	"""
-	Whether this entry can be selected for new tasks.
-	"""
-	enabled: Boolean!
 	"""
 	Human-controlled ordering within its tier.
 	"""
@@ -17929,8 +17914,6 @@ func (ec *executionContext) childFields_TaskModelPoolEntry(ctx context.Context, 
 		return ec.fieldContext_TaskModelPoolEntry_fastMode(ctx, field)
 	case "selectionMode":
 		return ec.fieldContext_TaskModelPoolEntry_selectionMode(ctx, field)
-	case "enabled":
-		return ec.fieldContext_TaskModelPoolEntry_enabled(ctx, field)
 	case "sortOrder":
 		return ec.fieldContext_TaskModelPoolEntry_sortOrder(ctx, field)
 	case "createdAt":
@@ -46049,29 +46032,6 @@ func (ec *executionContext) fieldContext_TaskModelPoolEntry_selectionMode(_ cont
 	return graphql.NewScalarFieldContext("TaskModelPoolEntry", field, false, false, errors.New("field of type ModelPreferenceSelectionMode does not have child fields"))
 }
 
-func (ec *executionContext) _TaskModelPoolEntry_enabled(ctx context.Context, field graphql.CollectedField, obj *model.TaskModelPoolEntry) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_TaskModelPoolEntry_enabled(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Enabled, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
-			return ec.marshalNBoolean2bool(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_TaskModelPoolEntry_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("TaskModelPoolEntry", field, false, false, errors.New("field of type Boolean does not have child fields"))
-}
-
 func (ec *executionContext) _TaskModelPoolEntry_sortOrder(ctx context.Context, field graphql.CollectedField, obj *model.TaskModelPoolEntry) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -55936,7 +55896,7 @@ func (ec *executionContext) unmarshalInputTaskModelPoolEntryInput(ctx context.Co
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"complexity", "label", "providerKind", "providerAccountId", "selectionMode", "modelProfile", "reasoningEffort", "fastMode", "enabled", "sortOrder"}
+	fieldsInOrder := [...]string{"complexity", "label", "providerKind", "providerAccountId", "selectionMode", "modelProfile", "reasoningEffort", "fastMode", "sortOrder"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -55999,13 +55959,6 @@ func (ec *executionContext) unmarshalInputTaskModelPoolEntryInput(ctx context.Co
 				return it, err
 			}
 			it.FastMode = data
-		case "enabled":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
-			data, err := ec.unmarshalNBoolean2bool(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Enabled = data
 		case "sortOrder":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sortOrder"))
 			data, err := ec.unmarshalNInt2int(ctx, v)
@@ -66596,11 +66549,6 @@ func (ec *executionContext) _TaskModelPoolEntry(ctx context.Context, sel ast.Sel
 			}
 		case "selectionMode":
 			out.Values[i] = ec._TaskModelPoolEntry_selectionMode(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "enabled":
-			out.Values[i] = ec._TaskModelPoolEntry_enabled(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

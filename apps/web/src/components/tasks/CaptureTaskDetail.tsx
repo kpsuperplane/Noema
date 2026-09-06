@@ -1,17 +1,18 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { ButtonGroup } from "@astryxdesign/core/ButtonGroup";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { TaskTitleField } from "./TaskDocumentFields";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
-import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Popover } from "@astryxdesign/core/Popover";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
+import { useBlocker } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { Bot, CalendarClock, Check, ChevronDown, Code2, Folder, HardDrive } from "lucide-react";
+import { Bot, CalendarClock, Check, Folder } from "lucide-react";
 import { ChatDetailCloseButton } from "@/components/chatDetail/ChatDetailCloseButton";
 import { MarkdownInlineEditor } from "@/components/MarkdownEditor";
 import { AcpAgentsDocument, TasksCaptureTaskDocument, TasksQueueTaskDocument } from "@/generated/graphql";
@@ -51,6 +52,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   const [queue] = useMutation(TasksQueueTaskDocument);
   const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-first" });
   const titleRef = React.useRef<HTMLInputElement>(null);
+  const readValueRef = React.useRef<(() => string) | null>(null);
   const documentRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const pwa = React.useSyncExternalStore(
@@ -89,7 +91,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   React.useEffect(() => {
     if (!pwa.installed || !restoredRef.current) return;
     const timeout = window.setTimeout(
-      () => void writeTaskCaptureDraft({ title, taskDocument, projectId }),
+      () => void writeTaskCaptureDraft({ title, taskDocument: readValueRef.current?.() ?? taskDocument, projectId }),
       250
     );
     return () => window.clearTimeout(timeout);
@@ -98,9 +100,15 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   React.useEffect(() => {
     if (!pwa.installed) return;
     return pwaRuntime.registerFlusher(() =>
-      writeTaskCaptureDraft({ title, taskDocument, projectId })
+      writeTaskCaptureDraft({ title, taskDocument: readValueRef.current?.() ?? taskDocument, projectId })
     );
   }, [projectId, pwa.installed, taskDocument, title]);
+
+  const flushDraft = React.useCallback(async () => {
+    if (pwa.installed) await writeTaskCaptureDraft({ title, taskDocument: readValueRef.current?.() ?? taskDocument, projectId });
+  }, [projectId, pwa.installed, taskDocument, title]);
+  const close = () => { void flushDraft().then(onClose); };
+  useBlocker({ shouldBlockFn: async () => { await flushDraft(); return false; }, enableBeforeUnload: false });
 
   const activeProjects = projects.filter((project) => !project.archivedAt);
   const selectedProject = activeProjects.find((project) => project.projectId === projectId);
@@ -121,7 +129,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
             workspaceId: "workspace:personal",
             projectId: projectId || null,
             title: title.trim(),
-            taskDocument,
+            taskDocument: readValueRef.current?.() ?? taskDocument,
             schedule: intent === "schedule" ? validSchedule : null,
             executorAgentId,
             cwdOverride: cwdOverride.trim() || null,
@@ -160,7 +168,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
       data-slot="task-capture-detail"
       {...stylex.props(styles.root)}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.defaultPrevented) onClose();
+        if (event.key === "Escape" && !event.defaultPrevented) close();
       }}
     >
       <Layout
@@ -169,7 +177,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
         header={
           <HStack as="header" align="center" justify="between" gap={2} className={stylex.props(styles.header).className}>
             <h2 {...stylex.props(styles.heading)}>New task</h2>
-            <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+            <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={close} />
           </HStack>
         }
         content={
@@ -183,14 +191,13 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                 void submit(mainIntent);
               }}
             >
-              <input
+              <TaskTitleField
                 ref={titleRef}
                 aria-label="Task title"
                 autoComplete="off"
                 required
                 value={title}
                 placeholder="What needs to be done?"
-                {...stylex.props(styles.titleInput)}
                 onChange={(event) => setTitle(event.currentTarget.value)}
               />
               <section
@@ -205,6 +212,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                 }}
               >
                 <MarkdownInlineEditor
+                  readValueRef={readValueRef}
                   key={draftRevision}
                   value={taskDocument}
                   onChange={setTaskDocument}
@@ -220,145 +228,33 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
         }
         footer={
           <LayoutFooter>
-            <HStack align="center" justify="between" gap={2} wrap="wrap" className={stylex.props(styles.controlRow).className}>
-              <HStack align="center" gap={0.5} role="group" aria-label="Task options">
-                <DropdownMenu
-                  button={{
-                    label: selectedProject ? `Project: ${selectedProject.name}` : "Choose project",
-                    tooltip: selectedProject ? `Project: ${selectedProject.name}` : "Choose project",
-                    icon: <Folder aria-hidden="true" size={16} />,
-                    isIconOnly: true,
-                    size: "sm",
-                    variant: projectId ? "secondary" : "ghost",
-                    isDisabled: submitting
-                  }}
-                  hasChevron={false}
-                  placement="above"
-                  menuWidth={220}
-                  items={[
-                    { label: "No project", icon: !projectId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setProjectId("") },
-                    ...activeProjects.map((project) => ({
-                      label: project.name,
-                      icon: project.projectId === projectId ? <Check aria-hidden="true" size={14} /> : undefined,
-                      onClick: () => setProjectId(project.projectId)
-                    }))
-                  ]}
-                />
-                <Popover
-                  placement="above"
-                  alignment="start"
-                  label="Task schedule"
-                  width="min(340px, calc(100vw - var(--spacing-4)))"
-                  xstyle={styles.schedulePopover}
-                  content={
-                    <VStack gap={3}>
-                      <h3 {...stylex.props(styles.menuHeading)}>Schedule</h3>
-                      <CheckboxInput label="Schedule for later" value={scheduling} onChange={setScheduling} />
-                      {scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}
-                    </VStack>
-                  }
-                >
-                  <IconButton
-                    type="button"
-                    size="sm"
-                    variant={scheduling ? "secondary" : "ghost"}
-                    label={scheduling ? "Edit schedule" : "Schedule for later"}
-                    tooltip={scheduling ? "Edit schedule" : "Schedule for later"}
-                    icon={<CalendarClock aria-hidden="true" size={16} />}
-                    isDisabled={submitting}
-                  />
-                </Popover>
-                <DropdownMenu
-                  button={{
-                    label: selectedExecutor ? `Executor: ${selectedExecutor.displayName}` : "Executor: Built-in",
-                    tooltip: selectedExecutor ? `Executor: ${selectedExecutor.displayName}` : "Executor: Built-in",
-                    icon: <Bot aria-hidden="true" size={16} />,
-                    isIconOnly: true,
-                    size: "sm",
-                    variant: executorAgentId === defaultExecutorId ? "ghost" : "secondary",
-                    isDisabled: submitting
-                  }}
-                  hasChevron={false}
-                  placement="above"
-                  menuWidth={220}
-                  items={[
-                    { label: "Built-in executor", icon: executorAgentId === defaultExecutorId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setExecutorAgentId(defaultExecutorId) },
-                    ...enabledAcpAgents.map((agent) => ({
-                      label: `${agent.displayName} (ACP)`,
-                      icon: agent.agentId === executorAgentId ? <Check aria-hidden="true" size={14} /> : undefined,
-                      onClick: () => setExecutorAgentId(agent.agentId)
-                    }))
-                  ]}
-                />
-                <Popover
-                  placement="above"
-                  alignment="start"
-                  label="Task directory base"
-                  width="min(320px, calc(100vw - var(--spacing-4)))"
-                  content={
-                    <VStack gap={3}>
-                      <h3 {...stylex.props(styles.menuHeading)}>Task directory base</h3>
-                      <TextInput
-                        label="Absolute path"
-                        description={effectiveCwdSummary(cwdOverride, selectedProject?.folder)}
-                        value={cwdOverride}
-                        placeholder="/absolute/path"
-                        size="sm"
-                        onChange={setCwdOverride}
-                      />
-                    </VStack>
-                  }
-                >
-                  <IconButton
-                    type="button"
-                    size="sm"
-                    variant={cwdOverride.trim() ? "secondary" : "ghost"}
-                    label="Set Task directory base"
-                    tooltip={effectiveCwdSummary(cwdOverride, selectedProject?.folder)}
-                    icon={<HardDrive aria-hidden="true" size={16} />}
-                    isDisabled={submitting}
-                  />
-                </Popover>
-                <IconButton
-                  type="button"
-                  size="sm"
-                  variant={sourceMode ? "secondary" : "ghost"}
-                  label={sourceMode ? "Use rich editor" : "Edit Markdown source"}
-                  tooltip={sourceMode ? "Use rich editor" : "Edit Markdown source"}
-                  icon={<Code2 aria-hidden="true" size={16} />}
-                  isDisabled={submitting}
-                  onClick={() => setSourceMode((current) => !current)}
-                />
+            <VStack gap={3} width="100%">
+              <Collapsible trigger="Advanced" defaultIsOpen={false}>
+                <VStack gap={3}>
+                  <DropdownMenu button={{ label: selectedExecutor?.displayName ?? "Task agent", icon: <Bot aria-hidden="true" size={16} />, size: "sm", variant: "ghost", isDisabled: submitting }} placement="above" items={[
+                    { label: "Task agent", onClick: () => setExecutorAgentId(defaultExecutorId) },
+                    ...enabledAcpAgents.map((agent) => ({ label: agent.displayName, onClick: () => setExecutorAgentId(agent.agentId) }))
+                  ]} />
+                  <TextInput label="Working folder (optional)" description={effectiveCwdSummary(cwdOverride, selectedProject?.folder)} value={cwdOverride} placeholder="/absolute/path" size="sm" onChange={setCwdOverride} />
+                  <CheckboxInput label="Markdown source" value={sourceMode} onChange={(next) => { setTaskDocument(readValueRef.current?.() ?? taskDocument); setSourceMode(next); }} />
+                </VStack>
+              </Collapsible>
+              <HStack align="center" justify="between" gap={2} wrap="wrap" className={stylex.props(styles.controlRow).className}>
+                <HStack align="center" gap={2} wrap="wrap">
+                  <DropdownMenu button={{ label: selectedProject?.name ?? "Personal", icon: <Folder aria-hidden="true" size={16} />, size: "sm", variant: "ghost", isDisabled: submitting }} placement="above" items={[
+                    { label: "Personal", icon: !projectId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setProjectId("") },
+                    ...activeProjects.map((project) => ({ label: project.name, icon: project.projectId === projectId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setProjectId(project.projectId) }))
+                  ]} />
+                  <Popover placement="above" alignment="start" label="Task schedule" width="min(340px, calc(100vw - var(--spacing-4)))" xstyle={styles.schedulePopover} content={<VStack gap={3}><CheckboxInput label="Schedule for later" value={scheduling} onChange={setScheduling} />{scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}</VStack>}>
+                    <Button size="sm" variant={scheduling ? "secondary" : "ghost"} label={scheduling ? "Reschedule" : "Schedule"} icon={<CalendarClock aria-hidden="true" size={16} />} isDisabled={submitting} />
+                  </Popover>
+                </HStack>
+                <HStack gap={2} className={stylex.props(styles.createActions).className}>
+                  <Button type="button" size="md" variant="secondary" label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
+                  <Button form={captureFormId} type="submit" size="md" variant="primary" label={scheduling ? "Schedule task" : "Run now"} isLoading={submitting} isDisabled={mainDisabled} />
+                </HStack>
               </HStack>
-              <ButtonGroup label="Create Task">
-                <Button
-                  form={captureFormId}
-                  type="submit"
-                  size="sm"
-                  variant="primary"
-                  xstyle={styles.submitPrimary}
-                  label={scheduling ? "Schedule" : "Run Now"}
-                  isLoading={submitting}
-                  isDisabled={mainDisabled}
-                />
-                <DropdownMenu
-                  button={{
-                    label: "More Task creation actions",
-                    tooltip: "More Task creation actions",
-                    icon: <ChevronDown aria-hidden="true" size={14} />,
-                    isIconOnly: true,
-                    size: "sm",
-                    variant: "primary",
-                    xstyle: styles.submitMenu,
-                    isDisabled: baseDisabled
-                  }}
-                  hasChevron={false}
-                  placement="above"
-                  menuWidth={160}
-                  items={[{ label: "Add to Inbox", onClick: () => void submit("inbox") }]}
-                />
-              </ButtonGroup>
-            </HStack>
+            </VStack>
           </LayoutFooter>
         }
       />
@@ -372,27 +268,13 @@ const styles = stylex.create({
   heading: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: 16, fontWeight: 650, lineHeight: 1.25 },
   content: { minHeight: 0 },
   form: { display: "flex", width: "100%", minHeight: "100%", flexDirection: "column", gap: "var(--spacing-2)" },
-  titleInput: {
-    width: "100%",
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    padding: "var(--spacing-0)",
-    color: "var(--foreground)",
-    fontFamily: "var(--font-family-heading)",
-    fontSize: "var(--text-heading-1-size)",
-    fontWeight: "var(--text-heading-1-weight)",
-    lineHeight: "var(--text-heading-1-leading)",
-    outline: "none",
-    "::placeholder": { color: "var(--muted-foreground)", opacity: 0.72 }
-  },
-  document: { flexGrow: 1, minHeight: "calc(var(--spacing-10) * 6)", color: "var(--foreground)", cursor: "text" },
+  document: { display: "flex", flexDirection: "column", flexGrow: 1, minHeight: "calc(var(--spacing-10) * 6)", color: "var(--foreground)", cursor: "text" },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
   controlRow: { width: "100%" },
-  submitPrimary: { borderStartStartRadius: "var(--radius-element)", borderEndStartRadius: "var(--radius-element)" },
-  submitMenu: { borderStartEndRadius: "var(--radius-element)", borderEndEndRadius: "var(--radius-element)" },
+  createActions: { display: "grid", gridTemplateColumns: "1fr 1fr", flexGrow: 1 },
+
   schedulePopover: { maxHeight: "calc(100vh - var(--spacing-8))", overflowY: "auto", overscrollBehavior: "contain" },
-  menuHeading: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: "var(--text-heading-4-size)", fontWeight: "var(--text-heading-4-weight)", lineHeight: "var(--text-heading-4-leading)" }
-});
+  });
 
 function effectiveCwdSummary(override: string, projectFolder?: string | null): string {
   if (override.trim()) return `Task directory · under ${override.trim()}`;
