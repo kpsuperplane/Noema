@@ -1296,7 +1296,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | JOURNEY-03 | Not run | Controlled setup pending. | — |
 | JOURNEY-04 | Pass · live Project research | Planning uses updated Project context. Recorded search and source reads lead to a cited report. Review requests one exact section-link correction, then approves the corrected Artifact. Its authenticated download exactly matches REPORT.md. [Evidence](evidence/2026-09-06-project-research-results.json), [driver](evidence/2026-09-06-project-research.mjs), [artifact check](evidence/2026-09-06-project-research-artifact.mjs). | — |
 | JOURNEY-05 | Not run | Controlled setup pending. | — |
-| JOURNEY-06 | Not run | Controlled setup pending. | — |
+| JOURNEY-06 | Partial · controlled TLS service | One booking write loses its response and returns an uncertain outcome without retry. Two explicit reads return the exact confirmed receipt; the service still records one write. Browser and model recovery remain pending. [Evidence](evidence/2026-09-06-booking-receipt-results.json), [reproduction](evidence/2026-09-06-booking-receipt-reproduction.patch). | — |
 | JOURNEY-07 | Not run | Controlled setup pending. | — |
 | JOURNEY-08 | Not applicable | Physical device journey. | Not run |
 | JOURNEY-09 | Not run | Controlled setup pending. | Not run |

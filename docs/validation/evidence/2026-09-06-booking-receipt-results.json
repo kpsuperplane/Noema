@@ -1,0 +1,17 @@
+{
+  "testedRevision": "7a9ac78a",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/adapter -run '^TestAuditLostBookingResponseReadReceipt$' -v",
+  "result": "Pass at production adapter and controlled TLS service boundaries",
+  "passed": 1,
+  "elapsedSeconds": 0.238,
+  "temporaryTestLines": 105,
+  "assertions": [
+    "The service receives exactly one POST for booking-42, records it, and closes the response connection.",
+    "The adapter reports ErrOutcomeUncertain and does not retry the write.",
+    "Two explicit read-only calls return the exact confirmed Unicode receipt.",
+    "Final request counts remain one write and two reads."
+  ],
+  "scope": "Temporary in-process service records the booking in its write count. No real booking, browser, model decision, or persistent remote service.",
+  "remaining": "Full browser or model recovery must choose read-only reconciliation and present the verified receipt without resubmission.",
+  "normalSuiteChanges": false
+}
