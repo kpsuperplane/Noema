@@ -96,12 +96,11 @@ It does not establish a real vendor's consent UI, service availability, or deliv
 
 ### Current access and preparation
 
-The `noema-build` sandbox blocks direct Unix-socket creation on this Linux host.
-The installed Codex network proxy also reports Unix-socket forwarding as unsupported.
-Noema now provides an authenticated loopback relay to its fixed private development socket.
-Its credential stays in `/tmp/noema-codex/inspection-credential.json` with mode `0600` under a `0700` directory.
-The inspection helper reads that protected credential internally and uses the existing Codex network proxy.
-It does not place the credential in browser requests, model context, or ordinary output.
+The `noema-build` profile permits direct Unix socket access with filesystem limits and unrestricted networking.
+Start the development session with `./attach` from the host terminal.
+The complete development home is readable through `/tmp/noema-codex/home`; the view rejects writes.
+Profiles that require the Codex network proxy can use the authenticated inspection relay.
+See [development permissions](../development/codex-permissions.md) for the current profile and home inspection checks.
 
 The profile preflight passed browser HTTP, a GraphQL query, mutation denial, and WebSocket acknowledgement.
 See [inspection access](../frontend/browser-inspection.md) for startup and usage.
