@@ -943,6 +943,14 @@ Task placement and review checks remain pending until the capability is restored
 Evidence: [results](evidence/2026-09-06-task-download-results.json) and [reproduction patch](evidence/2026-09-06-task-download-reproduction.patch).
 The temporary failing test is outside the normal suite. No production code changed.
 
+## Legacy DOC parsing
+
+The production file parser converted the existing DOC fixture under a Unicode filename.
+Its complete Markdown matched the fixture’s known expected text, without truncation.
+Source bytes remained unchanged. Earlier DOCX, ODT, and RTF checks complete controlled FILE-03 coverage.
+Evidence: [results](evidence/2026-09-06-doc-results.json) and [reproduction patch](evidence/2026-09-06-doc-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1119,7 +1127,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-16 | Not run | Controlled setup pending. | — |
 | FILE-01 | Fail · controlled Task runtime | Download function preserves exact bytes. AUDIT-09: Executor catalog and dispatcher omit file.download. Task placement and review cannot proceed. | — |
 | FILE-02 | Pass · controlled TLS service | Parent, absolute, and outside symlink paths fail before network access. Private redirects fail without publishing a destination. Existing bytes remain intact. | — |
-| FILE-03 | Partial | DOCX, ODT, and RTF preserve known structure through the packaged Chat tool. DOC remains pending. | — |
+| FILE-03 | Pass · controlled Linux | DOC matches its complete expected Markdown through the production parser. Earlier DOCX, ODT, and RTF checks preserve known structure through the packaged Chat tool. | — |
 | FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
 | FILE-05 | Not run | Controlled setup pending. | — |
 | FILE-06 | Not run | Controlled setup pending. | — |
