@@ -1250,7 +1250,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | NOTE-07 | Partial | Logout removes only its owned registration. Another authenticated registration receives the next alert. Disable controls, native revocation, and device delivery remain pending. [Evidence](evidence/2026-09-06-notification-two-devices-results.json). | Not run |
 | NOTE-08 | Partial | Configure, replace, remove, and reload pass. Stale changes preserve current configuration. Status preserves ordinary metadata and excludes keys. Rendered controls remain pending. [Evidence](evidence/2026-09-06-apns-replacement-results.json). | — |
 | NOTE-09 | Not run | Controlled setup pending. | Not run |
-| NOTE-10 | Partial | One Task produces start, update, and terminal end deliveries. Several-Task aggregation and physical display remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
+| NOTE-10 | Partial | Three Tasks share one activity. Completion reduces active counts and ends that activity without duplicate deliveries. Physical display remains pending. [Evidence](evidence/2026-09-06-live-aggregate-results.json). | Not run |
 | NOTE-11 | Partial | A different Task replaces a dismissed activity with a new session. Unconfigured service queues no delivery. Disable, restart, and device variants remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
 | NOTE-12 | Not run | Controlled setup pending. | — |
 | CLIENT-01 | Not run | Controlled setup pending. | Not run |
