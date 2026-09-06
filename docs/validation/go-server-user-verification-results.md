@@ -109,18 +109,18 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | AGENT-01 | Partial · controlled runtime | Agent records, built-in repair, preferences, model-pool assignments, and stable names pass. Rendered settings and cross-client restart checks remain pending. [Evidence](evidence/2026-09-06-agent-coverage-results.json). | — |
 | AGENT-02 | Partial · controlled runtime | Enabled model-pool selection and governed Task execution pass. Missing eligible-model and rendered settings checks remain pending. [Evidence](evidence/2026-09-06-agent-coverage-results.json). | — |
 | AGENT-03 | Partial · controlled runtime | Saved execution policy snapshots and later policy use pass. Live policy edits during a run remain pending. [Evidence](evidence/2026-09-06-agent-coverage-results.json). | — |
-| MEM-01 | Not run | The live tree already contains a cited profile. A controlled empty-state check remains pending. | — |
+| MEM-01 | Partial · disposable root | A fresh root has a usable empty page and no invented profile. Rendered empty-state evidence remains pending. [Evidence](evidence/2026-09-06-memory-coverage-results.json). | — |
 | MEM-02 | Pass · live Chromium | Browser update creates cited articles from exact synthetic human facts. The saved sequence advances and status returns to idle. | — |
-| MEM-03 | Not run | Controlled setup pending. | — |
+| MEM-03 | Partial · controlled runtime | Compaction-triggered updates publish once and refresh checkpoint state. Rendered update status remains pending. [Evidence](evidence/2026-09-06-memory-coverage-results.json). | — |
 | MEM-04 | Pass · live Chromium/Chat | The newer preference replaces the old fact and cites its correction. Chat reads the current article and reports French. | — |
 | MEM-05 | Pass · live Chat/Chromium | Repeated preferences leave article paths and bodies unchanged. An assistant-invented fictional occupation is not stored or cited as a human fact. | — |
 | MEM-06 | Partial · live Chromium | Root and child articles open through exact related-article routes. Deep hierarchy and ancestor checks remain pending. | — |
 | MEM-07 | Pass · live Chromium | Pointer hover and keyboard focus show the exact source type, date, excerpt, and identity at desktop and phone widths. | — |
 | MEM-08 | Partial · live Chat | Search and deeper page reads return the corrected fact and unchanged leisure interest. Bounded root-context injection remains pending. | — |
-| MEM-09 | Not run | Controlled setup pending. | — |
+| MEM-09 | Partial · controlled runtime | Invalid output does not publish, and staged publication recovers after reopen. Full live publication interruption remains pending. [Evidence](evidence/2026-09-06-memory-coverage-results.json). | — |
 | MEM-10 | Pass · live Linux/Chromium | Restart rebuilds the current lexical index from Markdown. Exact searches, article content, citations, and source-file hashes remain unchanged. | — |
-| MEM-11 | Not run | Controlled setup pending. | — |
-| MEM-12 | Not run | Controlled setup pending. | — |
+| MEM-11 | Partial · disposable root | Large trees use bounded search and preserve unread article bodies. Rendered large-tree behavior remains pending. [Evidence](evidence/2026-09-06-memory-coverage-results.json). | — |
+| MEM-12 | Partial · controlled runtime | Ordinary evidence remains intact while browser screenshots stay out of Memory sources. Live secret-setup separation remains pending. [Evidence](evidence/2026-09-06-memory-coverage-results.json). | — |
 | ACTION-01 | Not run | Controlled setup pending. | — |
 | ACTION-02 | Partial · concurrent store checks | Two competing approvals accept one decision. Competing claims accept one execution claim and preserve exact input. Completed approval cannot be reused. Browser clients and an external receipt remain pending. [Evidence](evidence/2026-09-06-action-approval-race.json), [reproduction](evidence/2026-09-06-action-approval-race.patch). | — |
 | ACTION-03 | Partial · controlled Chat runtime | Structured decline changes the saved action state and supplies the matching failed tool result to Chat continuation. Task continuation remains pending. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
