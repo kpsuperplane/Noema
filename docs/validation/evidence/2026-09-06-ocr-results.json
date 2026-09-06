@@ -1,0 +1,16 @@
+{
+  "revision": "e24d5f25b5fe5e6b94ea898bff1818e8ca8c54d2",
+  "cases": {
+    "FILE-07": "Partial: clear image OCR passes; poor recognition and source presentation remain pending.",
+    "FILE-10": "Partial: missing OCR fails explicitly and unrelated text works; Chat remains pending."
+  },
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/runtime -run '^TestAuditOCRAndMissingExecutable$' -v",
+  "output": "=== RUN   TestAuditOCRAndMissingExecutable\n--- PASS: TestAuditOCRAndMissingExecutable (0.21s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t0.220s\n",
+  "scope": "Production file parser and installed Tesseract on Linux. PATH is changed only inside the temporary test and restored automatically. Installed executables are unchanged.",
+  "assertions": [
+    "OCR recovers AUDIT INVOICE 12345 and TOTAL 42.00 USD.",
+    "Missing Tesseract returns ocr_unavailable with no content.",
+    "Unrelated Unicode text still parses exactly."
+  ],
+  "normalSuiteChanges": false
+}

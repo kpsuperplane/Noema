@@ -969,6 +969,15 @@ All source bytes remained unchanged. XLS display and cached formula variants rem
 Evidence: [results](evidence/2026-09-06-sheets-results.json), [fixture generator](evidence/2026-09-06-sheets-fixtures.py), and [reproduction patch](evidence/2026-09-06-sheets-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## OCR and missing executable
+
+Installed Tesseract recovered both expected lines from a controlled clear text image.
+When Tesseract was absent from the test process path, parsing returned `ocr_unavailable` without content.
+Unrelated Unicode text still parsed exactly. Installed executables remained unchanged.
+Poor recognition, source presentation, and Chat behavior remain pending.
+Evidence: [results](evidence/2026-09-06-ocr-results.json), [fixture generator](evidence/2026-09-06-ocr-fixture.py), and [reproduction patch](evidence/2026-09-06-ocr-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1149,10 +1158,10 @@ A human variant remains pending even when its controlled counterpart passes.
 | FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
 | FILE-05 | Pass · controlled parser | PDF page order and EPUB declared chapter order match exact expected text. Unicode stays intact. Malformed PDF fails explicitly. Source bytes remain unchanged. | — |
 | FILE-06 | Partial | XLS numeric values pass. XLSX and ODS preserve dates, currency, and cached formula values through the production parser. XLS display variants remain pending. | — |
-| FILE-07 | Not run | Controlled setup pending. | — |
+| FILE-07 | Partial | Installed Tesseract recovers both expected lines from a clear image. Poor recognition and source presentation remain pending. | — |
 | FILE-08 | Pass · controlled Linux | Unicode filenames and text survive Chat parsing. Invalid UTF-8 returns an explicit failure. | — |
 | FILE-09 | Partial | Malformed DOCX, parent traversal, and symbolic links are rejected. Oversized and unsafe archives remain pending. | — |
-| FILE-10 | Not run | Controlled setup pending. | — |
+| FILE-10 | Partial | Missing Tesseract returns ocr_unavailable without content. Unrelated Unicode text still parses. Chat behavior remains pending. | — |
 | CALC-01 | Pass · controlled Linux | Budget, percentage, structured JSON, nulls, and Unicode match independent values. | — |
 | CALC-02 | Pass · controlled Linux | Unbounded Lua and file, process, environment, and network access fail within 15 seconds each. | — |
 | ART-01 | Pass | Reopened the completed result and downloaded its published file. Owner, media type, filename, size, and exact bytes match. Live Artifact checks above. | — |
