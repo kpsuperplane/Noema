@@ -1,0 +1,28 @@
+{
+  "format": "noema.personal-assistant-replay/v1",
+  "source": "docs/difficult-digital-personal-assistant-tasks.md",
+  "casePrefix": "PA-REPLAY-20260906",
+  "providerMode": "local-mock",
+  "homePolicy": "existing-noema-dev",
+  "syntheticDataPolicy": "keep-marked",
+  "cases": {
+    "count": 100,
+    "idPattern": "PA-REPLAY-20260906-{number}",
+    "promptTemplate": "Run personal-assistant acceptance case {number}: {task}. Use only synthetic fixture data. Do not perform external writes. Return the result, evidence, and any blocked step.",
+    "sourceTable": "assessment",
+    "requiredFields": ["number", "task", "status", "gap"]
+  },
+  "fixture": {
+    "baseUrl": "http://127.0.0.1:3742",
+    "runParameter": "run",
+    "marker": "PA-REPLAY-20260906",
+    "services": ["gmail", "calendar", "notion", "files", "transactions"],
+    "readOnlyByDefault": true
+  },
+  "evaluation": {
+    "required": ["caseId", "terminalState", "evidence", "blockedReason"],
+    "passStates": ["completed", "review_required"],
+    "neverPassStates": ["not_run", "unknown"],
+    "externalWriteRequiresReceipt": true
+  }
+}
