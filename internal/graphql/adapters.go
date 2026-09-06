@@ -348,7 +348,22 @@ func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.De
 	connected := map[string]bool{}
 	var reconnectAction, accessAction *model.AdapterNextAction
 	for _, connection := range snapshot.Connections {
-		if connection.SemanticDigest != definition.SemanticDigest || connection.Authentication.GrantID == "" {
+		if connection.SemanticDigest != definition.SemanticDigest {
+			continue
+		}
+		if connection.Status == "authentication_required" && connection.Authentication.GrantID == "" {
+			for _, app := range oauth.Applications {
+				if app.ProfileDigest != definition.Manifest.Authentication.ProfileDigest || app.Status != "active" {
+					continue
+				}
+				appID, appRevision, connectionRevision := app.ApplicationID, app.Revision, connection.ConnectionRevision
+				action := &model.AdapterNextAction{Kind: "reconnect_account", SemanticDigest: definition.SemanticDigest, ApplicationID: &appID, ExpectedApplicationRevision: &appRevision, ConnectionID: &connection.ConnectionID, ExpectedConnectionRevision: &connectionRevision, OperationIds: operationIDs(definition), MissingScopes: []string{}}
+				view.ConnectionActions = append(view.ConnectionActions, action)
+				if reconnectAction == nil {
+					reconnectAction = action
+				}
+				break
+			}
 			continue
 		}
 		connected[connection.Authentication.GrantID] = true

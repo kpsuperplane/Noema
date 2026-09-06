@@ -430,7 +430,9 @@ func (s *Service) adoptConnections(replacement Definition) error {
 		}
 		connection.SemanticDigest = replacement.SemanticDigest
 		if !sameAuthentication(current.Manifest.Authentication, replacement.Manifest.Authentication) {
-			connection.Authentication = ConnectionAuthentication{Kind: replacement.Manifest.Authentication.Kind}
+			// A changed auth scheme has no grant yet. Keep the connection linked
+			// to the reviewed definition while OAuth setup is pending.
+			connection.Authentication = ConnectionAuthentication{Kind: "pending"}
 			connection.Overrides = map[string]OperationOverride{}
 			if replacement.Manifest.Authentication.Kind == "none" {
 				connection.Status = "active"
@@ -441,7 +443,10 @@ func (s *Service) adoptConnections(replacement Definition) error {
 				sort.Strings(connection.AllowedOperations)
 			} else {
 				connection.Status = "authentication_required"
-				connection.AllowedOperations = nil
+				// SQLite and the connection contract require an empty array while
+				// authentication is pending, not a JSON null value.
+				connection.AllowedOperations = []string{}
+				connection.PolicyRevision++
 			}
 		}
 		connection.ConnectionRevision++

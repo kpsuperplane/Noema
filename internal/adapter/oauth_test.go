@@ -222,6 +222,58 @@ func TestOAuthManifestScopesAndProfileDigest(t *testing.T) {
 	}
 }
 
+func TestOAuthRevisionLeavesConnectionPendingUntilGrantAttach(t *testing.T) {
+	directory := t.TempDir()
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	database, err := store.Open(t.Context(), filepath.Join(directory, "noema.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	service, err := NewService(root, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := testManifest()
+	old.Reviewed = true
+	oldDefinition, err := service.files.installDefinition(old, "https://example.com/v1", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.ensureConnection(oldDefinition); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := service.Snapshot()
+	if err != nil || len(snapshot.Connections) != 1 {
+		t.Fatalf("initial connection = %#v, %v", snapshot.Connections, err)
+	}
+	connection := snapshot.Connections[0]
+	replacementManifest := oauthManifest()
+	replacementManifest.Reviewed = true
+	replacement, err := service.files.installDefinition(replacementManifest, "https://example.com/v2", []string{oldDefinition.SemanticDigest}, []string{connection.ConnectionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.adoptConnections(replacement); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = service.Snapshot()
+	if err != nil || len(snapshot.Connections) != 1 {
+		t.Fatalf("transitioned connection = %#v, %v", snapshot.Connections, err)
+	}
+	connection = snapshot.Connections[0]
+	if connection.SemanticDigest != replacement.SemanticDigest || connection.Status != "authentication_required" || connection.Authentication.Kind != "pending" || connection.AllowedOperations == nil || len(connection.AllowedOperations) != 0 || connection.ConnectionRevision != 2 || connection.PolicyRevision != 2 {
+		t.Fatalf("pending connection = %#v", connection)
+	}
+	if err = service.reconcile(t.Context()); err != nil {
+		t.Fatalf("pending connection reconciliation = %v", err)
+	}
+}
+
 func TestOAuthApplicationFilesAreIdempotentAndProtected(t *testing.T) {
 	callback := "https://noema.example/adapter/oauth/callback"
 	service, directory := newOAuthService(t, callback)

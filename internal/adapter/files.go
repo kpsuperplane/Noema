@@ -534,6 +534,10 @@ func validateConnection(value Connection) error {
 		if value.Authentication.GenerationID != "" || !validConnectionID(value.Authentication.GrantID) || value.Authentication.Revision != 0 {
 			return errors.New("adapter connection authentication is invalid")
 		}
+	} else if value.Authentication.Kind == "pending" {
+		if value.Status != "authentication_required" || value.Authentication.GenerationID != "" || value.Authentication.GrantID != "" || value.Authentication.Revision != 0 {
+			return errors.New("adapter connection authentication is invalid")
+		}
 	} else {
 		return errors.New("adapter connection authentication is invalid")
 	}
