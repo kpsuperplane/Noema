@@ -1034,6 +1034,15 @@ The diagnostic records `runtime.chat_failed` without provider error detail. The 
 The browser observation process stopped after the application reported terminal failure. No second audit request was submitted.
 Evidence: [live result](evidence/2026-09-06-live-browser-results.json) and [driver](evidence/2026-09-06-live-browser.mjs).
 
+## Failed browser switch and retry
+
+A failed switch preserved the current browser session and provider route.
+The current session still returned a snapshot.
+After the next provider recovered, retry selected it with a new session. Closing succeeded.
+Earlier controlled tests cover failed initial open. Model-driven recovery remains pending under WEB-06.
+Evidence: [results](evidence/2026-09-06-browser-switch-results.json) and [reproduction patch](evidence/2026-09-06-browser-switch-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1197,7 +1206,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-03 | Not run | Controlled setup pending. | — |
 | WEB-04 | Fail · live Chat | Browser open completes after approval. AUDIT-10: provider continuation fails before link, history, and close steps. Controlled lifecycle evidence remains available. | — |
 | WEB-05 | Partial | Controlled verified archive installs and reuses with one download. Public release installation and offline reuse remain pending. | — |
-| WEB-06 | Partial | Controlled failed first open permits a switch. Failed-switch preservation and model-driven recovery remain pending. | — |
+| WEB-06 | Partial | Controlled failed first open permits a switch. Failed switching preserves the usable session and route; retry succeeds after provider recovery. Model-driven recovery remains pending. | — |
 | WEB-07 | Not run | Controlled setup pending. | — |
 | WEB-08 | Partial | Old snapshot revision and replacement-session authority are rejected. Real changed-page targeting remains pending. | — |
 | WEB-09 | Not run | Controlled setup pending. | — |
