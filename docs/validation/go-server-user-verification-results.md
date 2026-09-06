@@ -1242,16 +1242,16 @@ A human variant remains pending even when its controlled counterpart passes.
 | ART-08 | Pass | Same URL returns 401 before login, 200 after passkey login, and 401 after logout. Authorized responses use no-store. Live Artifact checks above. | — |
 | ART-09 | Pass | A 40 KiB binary retains exact bytes, filename, media type, length, and private caching across a verified server restart. Live Artifact checks above. | — |
 | NOTE-01 | Not run | Controlled setup pending. | Not run |
-| NOTE-02 | Not run | Controlled setup pending. | Not run |
-| NOTE-03 | Not run | Controlled setup pending. | Not run |
+| NOTE-02 | Partial | Final-answer preview and native Task attention routing pass at the queue boundary. Background delivery and device navigation remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
+| NOTE-03 | Partial | Focused registration suppresses its final-answer alert. Delivery resumes after presence ends. A second eligible device remains pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
 | NOTE-04 | Not run | Controlled setup pending. | Not run |
 | NOTE-05 | Not run | Controlled setup pending. | — |
-| NOTE-06 | Not run | Controlled setup pending. | — |
-| NOTE-07 | Not run | Controlled setup pending. | Not run |
-| NOTE-08 | Not run | Controlled setup pending. | — |
+| NOTE-06 | Partial | Retry state stops after bounded attempts. An old expired response cannot delete a refreshed registration. HTTP failure classification remains pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | — |
+| NOTE-07 | Partial | Logout and session expiry remove owned web subscriptions. Endpoint transfer replaces the former registration. Other-client independence and native revocation remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
+| NOTE-08 | Partial | Configure and remove advance revisions. Stale changes fail. Diagnostics exclude the key; storage is protected. Replacement and rendered status remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | — |
 | NOTE-09 | Not run | Controlled setup pending. | Not run |
-| NOTE-10 | Not run | Controlled setup pending. | Not run |
-| NOTE-11 | Not run | Controlled setup pending. | Not run |
+| NOTE-10 | Partial | One Task produces start, update, and terminal end deliveries. Several-Task aggregation and physical display remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
+| NOTE-11 | Partial | A different Task replaces a dismissed activity with a new session. Unconfigured service queues no delivery. Disable, restart, and device variants remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
 | NOTE-12 | Not run | Controlled setup pending. | — |
 | CLIENT-01 | Not run | Controlled setup pending. | Not run |
 | CLIENT-02 | Not run | Controlled setup pending. | — |

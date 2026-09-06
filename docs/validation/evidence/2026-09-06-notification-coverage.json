@@ -1,0 +1,71 @@
+{
+  "revision": "fd7717d74a324467f32e6d13fc15d9955646e437",
+  "mode": "Source coverage review; no new test execution",
+  "reusedValidation": {
+    "revision": "56f3a134",
+    "command": "CGO_ENABLED=0 go test ./cmd/... ./internal/...",
+    "result": "pass",
+    "evidence": "2026-09-06-role-runtime-restart-validation.json",
+    "unchangedInputsCheck": "git diff --quiet 56f3a134 -- '*.go' go.mod go.sum",
+    "unchangedInputsResult": "exit 0"
+  },
+  "cases": {
+    "NOTE-02": {
+      "result": "Partial",
+      "tests": [
+        "TestPrimaryFinalAnswerPresenceAndRegistration",
+        "TestTaskAttentionQueuesNativeWithoutWebPush"
+      ],
+      "scope": "Final-answer preview and native Task attention routing pass at the queue boundary. Background delivery and device navigation remain pending."
+    },
+    "NOTE-03": {
+      "result": "Partial",
+      "tests": [
+        "TestPrimaryFinalAnswerPresenceAndRegistration"
+      ],
+      "scope": "Focused registration suppresses its final-answer alert. Delivery resumes after presence ends. A second eligible device remains pending."
+    },
+    "NOTE-06": {
+      "result": "Partial",
+      "tests": [
+        "TestWebPushDeliveryRetryResultsAndRevisionGuard"
+      ],
+      "scope": "Retry state stops after bounded attempts. An old expired response cannot delete a refreshed registration. HTTP failure classification remains pending."
+    },
+    "NOTE-07": {
+      "result": "Partial",
+      "tests": [
+        "TestWebPushSessionCleanupTransferAndExpiration"
+      ],
+      "scope": "Logout and session expiry remove owned web subscriptions. Endpoint transfer replaces the former registration. Other-client independence and native revocation remain pending."
+    },
+    "NOTE-08": {
+      "result": "Partial",
+      "tests": [
+        "TestAPNSConfigurationIsProtectedRevisionedAndSecretSafe"
+      ],
+      "scope": "Configure and remove advance revisions. Stale changes fail. Diagnostics exclude the key; storage is protected. Replacement and rendered status remain pending."
+    },
+    "NOTE-10": {
+      "result": "Partial",
+      "tests": [
+        "TestTaskLiveActivityProjectsStartUpdateAndEnd"
+      ],
+      "scope": "One Task produces start, update, and terminal end deliveries. Several-Task aggregation and physical display remain pending."
+    },
+    "NOTE-11": {
+      "result": "Partial",
+      "tests": [
+        "TestDismissedLiveActivityRestartsForDifferentTask"
+      ],
+      "scope": "A different Task replaces a dismissed activity with a new session. Unconfigured service queues no delivery. Disable, restart, and device variants remain pending."
+    }
+  },
+  "sourceSHA256": {
+    "internal/notification/web_push_test.go": "76cdb14d53af33a8ac3be9f35117c7f9369ade6feeb1b9acedbd4ea388ea01e4",
+    "internal/notification/apns_test.go": "3f7a7855147ae9ac0af347c6009b1f718bab4a0fc454dcdba8f57b9781ac79a7",
+    "internal/notification/live_activity_test.go": "8e9a93dc9ffbe196451606ce1ea1f09e1fe5824bd0f3c962a94c73d3af70dbac",
+    "internal/store/web_push_test.go": "357679eda46bbcfab44ec1ede2052af4304ea169e8caf78005ea1d33cf690b23"
+  },
+  "normalSuiteChanges": false
+}
