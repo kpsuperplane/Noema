@@ -689,9 +689,24 @@ Keep human-only cases marked for later testing.
 | Defect | Cases | Observed failure | Fix batch | Evidence |
 | --- | --- | --- | --- | --- |
 | AUDIT-01 | RUN-04 | Review-limit recovery records Executor but queues Reviewer after Retry. | Task gates | [Result](evidence/2026-09-06-review-recovery-results.json), [reproduction patch](evidence/2026-09-06-review-recovery-reproduction.patch) |
+| AUDIT-02 | RUN-14 | Executor and Reviewer reject another Task that primary Chat can read for the same owner. | Task reads | [Result](evidence/2026-09-06-task-first-pass-results.json), [reproduction patch](evidence/2026-09-06-task-first-pass-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval journeys remain pending.
+
+## Task first-pass checks
+
+The [controlled tool checks](evidence/2026-09-06-task-first-pass-results.json) cover cross-Task reads and Task file boundaries.
+Executor and Reviewer reject cross-Task inspection. Primary Chat accepts the same target for the owner.
+AUDIT-02 records this failure. The later fix must preserve the required run-scope rules.
+
+Task file reads, writes, and deletes reject absolute paths, parent traversal, and an outside directory symlink.
+The outside file remains exact. An allowed Task file read preserves Unicode content.
+Shared Project file reads and Project boundaries remain pending.
+
+Existing successful checks cover tool-limit finalization, saved progress audit recovery, and automatic retry exhaustion.
+Their source assertions were reviewed. The recorded broad Go result remains valid because its relevant inputs are unchanged.
+Continuation and active-time limits still need separate checks. Review-limit recovery remains failed under AUDIT-01.
 
 ## Case results
 
@@ -771,13 +786,13 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-06 | Pass · controlled runtime | Cancelled and completed Tasks preserve current files after reopening. Late provider writes and Reviewer decisions cannot replace the new generation. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
 | RUN-08 | Pass · controlled runtime | Restart during each role restores exact saved read results and progress. Files, generation, and run identity remain intact. Each Task finishes with three completed runs. | — |
-| RUN-09 | Not run | Controlled setup pending. | — |
+| RUN-09 | Partial | Tool-limit finalization, saved audit recovery, and automatic retry exhaustion pass existing checks. Separate continuation and active-time limits remain pending. | — |
 | RUN-10 | Not run | Controlled setup pending. | — |
 | RUN-11 | Not run | Controlled setup pending. | — |
 | RUN-12 | Not run | Controlled setup pending. | — |
 | RUN-13 | Not run | Controlled setup pending. | — |
-| RUN-14 | Not run | Controlled setup pending. | — |
-| RUN-15 | Not run | Controlled setup pending. | — |
+| RUN-14 | Fail · controlled tool handler | AUDIT-02: Executor and Reviewer reject another Task that primary Chat can read for the same owner. | — |
+| RUN-15 | Partial | Absolute paths, parent traversal, and outside symlinks fail for Task read/write/delete. Outside content stays exact. Shared Project access remains pending. | — |
 | TIME-01 | Pass · live UTC deadline | No run before the due time. One Planner queued five milliseconds afterward. The Task completed with the expected result. | — |
 | TIME-02 | Pass · live Codex/Chromium | Browser reschedule replaces timing. Unschedule preserves the same Task in Inbox after reload. Run now completes that Task early with one Executor run. | — |
 | TIME-03 | Pass · live Codex/Chromium and controlled runtime | Live requests resolve tomorrow at 09:00 in Los Angeles and Tokyo. Later roles receive fresh clocks, original request timestamps, and occurrence cutoffs. | — |
