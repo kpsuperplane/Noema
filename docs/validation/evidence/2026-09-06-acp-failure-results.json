@@ -1,0 +1,20 @@
+{
+  "baseRevision": "5d13bc86a86ab0851058938d8dae285436e04821",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/runtime -run '^TestAuditACPStartFailureRecovery$' -v",
+  "output": "=== RUN   TestAuditACPStartFailureRecovery\n--- PASS: TestAuditACPStartFailureRecovery (0.26s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/runtime\t0.266s\n",
+  "case": "ACP-04",
+  "result": "Partial",
+  "scope": "Real Task runtime and SQLite with a missing ACP executable. Automatic retries are set to zero. The test resolves recovery after correcting the agent configuration.",
+  "passedAssertions": [
+    "Process-start failure enters a recovery gate with an Executor retry and nonempty prompt.",
+    "TASK.md and a support file retain exact Unicode content.",
+    "Repeating the same recovery command queues one new Executor.",
+    "The new run preserves the Task generation and uses the corrected executable and connection revision."
+  ],
+  "remaining": [
+    "Execute the corrected ACP process through completion.",
+    "Inspect diagnostic usefulness in the browser."
+  ],
+  "temporaryTestLines": 107,
+  "normalSuiteChanges": false
+}

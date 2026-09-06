@@ -882,6 +882,16 @@ Tracked Go source, tests, and module dependencies remain unchanged. The successf
 All four ACP cases remain partial. Their remaining checks are listed in the evidence map.
 Evidence: [coverage map](evidence/2026-09-06-acp-coverage-review.json) and [reused validation](evidence/2026-09-06-role-runtime-restart-validation.json).
 
+## ACP process-start recovery
+
+A missing executable caused the real Task runtime to enter recovery.
+The Task document and support file retained exact Unicode content.
+After the agent configuration changed, Retry selected the corrected executable and connection revision.
+Repeating the same Retry command created no duplicate run. The Task generation remained unchanged.
+Execution to completion and browser diagnostic review remain pending.
+Evidence: [results](evidence/2026-09-06-acp-failure-results.json) and [reproduction patch](evidence/2026-09-06-acp-failure-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1039,7 +1049,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | ACP-01 | Partial | Controlled probe, authentication, configuration revisions, and deletion pass existing checks. Browser settings and post-deletion Task assignment remain pending. | Not run |
 | ACP-02 | Partial | Controlled runtime covers ACP approval, result files, review, and saved terminal replay. Published artifacts and equivalent file boundaries remain pending. | — |
 | ACP-03 | Partial | Controlled process cancellation and uncertain protocol failure pass existing checks. Late output after Task cancellation remains pending. | — |
-| ACP-04 | Partial | Controlled protocol failures and saved terminal replay pass existing checks. Process-start failure and complete recovery retry remain pending. | — |
+| ACP-04 | Partial | Process-start failure preserves exact files and enters recovery. Repeated Retry queues one Executor with corrected configuration. Completion and browser diagnostics remain pending. | — |
 | WEB-01 | Not run | Controlled setup pending. | — |
 | WEB-02 | Not run | Controlled setup pending. | — |
 | WEB-03 | Not run | Controlled setup pending. | — |

@@ -1,0 +1,113 @@
+diff --git a/internal/runtime/audit_acp_failure_test.go b/internal/runtime/audit_acp_failure_test.go
+new file mode 100644
+index 00000000..71ab0906
+--- /dev/null
++++ b/internal/runtime/audit_acp_failure_test.go
+@@ -0,0 +1,107 @@
++package runtime
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++)
++
++func TestAuditACPStartFailureRecovery(t *testing.T) {
++	chat, db, _ := chatFixture(t)
++	ctx := t.Context()
++	now := time.Now()
++	policy, err := db.TaskExecutionPolicy(ctx)
++	if err != nil {
++		t.Fatal(err)
++	}
++	policy.MaxAutomaticRetries = 0
++	if _, err = db.UpdateTaskExecutionPolicy(ctx, policy); err != nil {
++		t.Fatal(err)
++	}
++	missing := filepath.Join(t.TempDir(), "missing-acp")
++	agent, err := db.CreateAcpAgent(ctx, "Audit missing ACP", missing, nil, now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	id, _ := store.NewTaskID()
++	task, err := db.CreateTask(ctx, id, "Audit ACP recovery", "correlation:audit:acp", now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	const progress = "# Task\n\nPreserve progress café 日本語.\n"
++	if _, err = home.CreatePendingTaskDocument(chat.home, id, progress); err != nil {
++		t.Fatal(err)
++	}
++	if err = home.CommitTaskDocument(chat.home, id); err != nil {
++		t.Fatal(err)
++	}
++	if err = home.WriteTaskFile(chat.home, id, "progress.txt", "Saved café 日本語"); err != nil {
++		t.Fatal(err)
++	}
++	updated, err := db.UpdateInboxTask(ctx, id, task.Revision, task.Generation, store.TaskUpdate{ExecutorAgentID: &agent.AgentID}, runtimeTaskCommand("update_task", "audit-acp"), now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err = db.QueueTask(ctx, id, updated.Task.Revision, task.Generation, runtimeTaskCommand("queue_task", "audit-acp"), now); err != nil {
++		t.Fatal(err)
++	}
++	_, planner, found, err := db.ClaimTaskExecution(ctx, now)
++	if err != nil || !found {
++		t.Fatal("planner unavailable", err)
++	}
++	if err = db.StartTaskExecution(ctx, planner.ID, planner.Generation, now); err != nil {
++		t.Fatal(err)
++	}
++	if err = db.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", now); err != nil {
++		t.Fatal(err)
++	}
++	current, run, found, err := db.ClaimTaskExecution(ctx, now)
++	if err != nil || !found || run.Kind != "executor" {
++		t.Fatal("executor unavailable", err)
++	}
++	execution := &TaskExecution{database: db, root: chat.home}
++	execution.execute(ctx, current, run)
++	waiting, err := db.Task(ctx, id)
++	if err != nil || waiting.StageKey != "waiting" {
++		t.Fatal("failure did not enter recovery", err)
++	}
++	gate, err := db.TaskGate(ctx, waiting.ActiveGateID)
++	if err != nil || gate.Kind != "recovery" || gate.RetryRunKind == nil || *gate.RetryRunKind != "executor" || gate.Prompt == "" {
++		t.Fatal("recovery lacks retry or diagnostic", err)
++	}
++	for path, want := range map[string]string{"TASK.md": progress, "progress.txt": "Saved café 日本語"} {
++		got, err := home.ReadTaskFile(chat.home, id, path)
++		if err != nil || got != want {
++			t.Fatal("progress changed", path, err)
++		}
++	}
++	executable, err := os.Executable()
++	if err != nil {
++		t.Fatal(err)
++	}
++	corrected, err := db.UpdateAcpAgent(ctx, agent.AgentID, agent.ConnectionRevision, "Corrected ACP", executable, []string{"--audit-corrected"}, true, time.Now())
++	if err != nil {
++		t.Fatal(err)
++	}
++	command := runtimeTaskCommand("answer_task", "audit-acp-retry")
++	for range 2 {
++		if _, err = db.ResolveTaskGate(ctx, id, gate.ID, waiting.Revision, waiting.Generation, "Retry corrected ACP", "retry", nil, command, time.Now()); err != nil {
++			t.Fatal(err)
++		}
++	}
++	_, retry, found, err := db.ClaimTaskExecution(ctx, time.Now())
++	if err != nil || !found || retry.Kind != "executor" || retry.Generation != run.Generation {
++		t.Fatal("retry identity differs", err)
++	}
++	if retry.AcpLaunch == nil || retry.AcpLaunch.Command != executable || retry.AcpLaunch.ConnectionRevision != corrected.ConnectionRevision {
++		t.Fatal("retry retained obsolete ACP launch")
++	}
++	runs, err := db.TaskRuns(ctx, id, 10)
++	if err != nil || len(runs) != 3 {
++		t.Fatal("duplicate retry run", err)
++	}
++}
