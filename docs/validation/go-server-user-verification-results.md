@@ -694,6 +694,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-04 | RUN-15; PROJECT-01 | All three roles reject permitted parent-relative shared reads inside the configured Project folder. | Task file access | [Result](evidence/2026-09-06-project-access-results.json), [reproduction patch](evidence/2026-09-06-project-access-reproduction.patch) |
 | AUDIT-05 | RUN-04 | Live clarification Task detail has no visible question or response control in Workspace or Transcript at either width. | Task gate UI | [Browser result](evidence/2026-09-06-impossible-block-results.json) |
 | AUDIT-06 | API-14 | Application deletion remains blocked after its only grant is revoked. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-flow-results.json), [reproduction patch](evidence/2026-09-06-oauth-flow-reproduction.patch) |
+| AUDIT-07 | API-07 | Expanded OAuth consent grants the new scope, but the existing connection does not expose the new operation. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-expansion-results.json), [reproduction patch](evidence/2026-09-06-oauth-expansion-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Browser presentation remains pending.
@@ -803,6 +804,17 @@ Each attempt retains its exact terminal status and creates no grant or callable 
 Rejected callbacks avoid token exchange, except the intentional token-endpoint failure.
 A fresh valid attempt succeeds after each failure.
 Browser cancellation, rendered next actions, and restart after configuration changes remain pending.
+
+## Expanded OAuth operation access
+
+The [controlled expansion check](evidence/2026-09-06-oauth-expansion-results.json) adds an operation to an existing account connection.
+The authorization request includes both required scopes.
+Partial consent correctly leaves the ungranted operation unavailable.
+The original operation remains usable, and grant and connection identities stay unchanged.
+
+Full consent grants the additional scope, but the existing connection still exposes only its original operation.
+AUDIT-07 records this failure for the OAuth lifecycle batch.
+Rendered confirmation of new operation benefits remains pending.
 
 ## Case results
 
@@ -942,7 +954,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-04 | Partial | Both synthetic accounts return their own records. Current labels identify model tools. OAuth attachment replies retain grant metadata. Write and identity-discovery variants remain pending. | Not run |
 | API-05 | Partial | Denied, expired, failed, and superseded callbacks expose no grant or tools. Fresh attempts recover. Browser cancellation and next actions remain pending. | Not run |
 | API-06 | Partial | Late attempt lookup and subscription recover the exact completed grant. Browser background and foreground resumption remain pending. | Not run |
-| API-07 | Not run | Controlled setup pending. | Not run |
+| API-07 | Fail · controlled TLS service | Partial consent preserves access limits. AUDIT-07: full consent does not expose the newly granted operation on the existing connection. | Not run |
 | API-08 | Pass · controlled HTTPS | Sequential browser-routed calls and concurrent production adapter calls refresh the shared token once and preserve the selected account. Real consent remains pending. | Not run |
 | API-09 | Pass · controlled TLS service | Empty arrays, two exact Unicode pages, and failed next-page retry pass. Query bounds remain enforced. | — |
 | API-10 | Partial | Changed arguments, another operation, and consumed continuation fail before HTTP. Cross-account checks remain pending. | — |

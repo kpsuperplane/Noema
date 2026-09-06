@@ -1,0 +1,22 @@
+{
+  "baseRevision": "0ab869269bcfd0260063c997cabe2ad1b85fc268",
+  "command": "CGO_ENABLED=0 go test ./internal/adapter -run '^TestAuditOAuthExpandedOperations$' -v",
+  "output": "=== RUN   TestAuditOAuthExpandedOperations\n=== RUN   TestAuditOAuthExpandedOperations/partial_consent\n=== RUN   TestAuditOAuthExpandedOperations/full_consent\n    audit_oauth_expansion_test.go:115: callable operations=1 expected=2 after consent\n--- FAIL: TestAuditOAuthExpandedOperations (0.52s)\n    --- PASS: TestAuditOAuthExpandedOperations/partial_consent (0.27s)\n    --- FAIL: TestAuditOAuthExpandedOperations/full_consent (0.25s)\nFAIL\nFAIL\tgithub.com/kpsuperplane/noema/internal/adapter\t0.527s\nFAIL\n",
+  "scope": "Production OAuth authorization and existing-connection attachment with a local TLS token and API service. A temporary test transport routes TLS to the fixture. Real consent UI is outside this check.",
+  "case": "API-07",
+  "result": "Fail · controlled TLS service",
+  "passedAssertions": [
+    "The expanded authorization URL requests both required scopes.",
+    "Partial consent leaves the ungranted operation unavailable.",
+    "Reauthorization preserves grant and connection identity.",
+    "The original operation remains usable and preserves Unicode output."
+  ],
+  "failure": {
+    "defect": "AUDIT-07",
+    "finding": "Full consent grants the additional scope, but the existing connection still exposes only its original operation.",
+    "cause": "Existing-connection attachment returns the saved AllowedOperations without updating granted operation access.",
+    "fixStatus": "Deferred to OAuth lifecycle batch."
+  },
+  "pending": "Rendered confirmation of new operation benefits.",
+  "normalSuiteChanges": false
+}
