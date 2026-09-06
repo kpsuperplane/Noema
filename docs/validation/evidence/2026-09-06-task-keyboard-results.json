@@ -1,0 +1,264 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "scope": "Keyboard-only Task capture and title editing after direct navigation. No screen reader, login, or approval check.",
+  "clients": [
+    {
+      "width": 1440,
+      "focus": [
+        {
+          "name": "Task title",
+          "outline": "rgb(23, 22, 15) none 3px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        }
+      ],
+      "lastTraversal": {
+        "target": "Edit Markdown source",
+        "steps": [
+          {
+            "tag": "INPUT",
+            "role": null,
+            "label": "Task title",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          }
+        ]
+      },
+      "blockedTarget": "Edit Markdown source",
+      "escapeChecks": [
+        {
+          "key": "Shift+Tab",
+          "tag": "INPUT",
+          "role": null,
+          "label": "Task title",
+          "editable": null
+        },
+        {
+          "key": "Escape",
+          "tag": "BODY",
+          "role": null,
+          "label": null,
+          "editable": null
+        },
+        {
+          "key": "Tab",
+          "tag": "A",
+          "role": null,
+          "label": null,
+          "editable": null
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "focus": [
+        {
+          "name": "Task title",
+          "outline": "rgb(23, 22, 15) none 3px",
+          "boxShadow": "none",
+          "focusVisible": true,
+          "inViewport": true
+        }
+      ],
+      "lastTraversal": {
+        "target": "Edit Markdown source",
+        "steps": [
+          {
+            "tag": "INPUT",
+            "role": null,
+            "label": "Task title",
+            "editable": null,
+            "tabIndex": 0
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          },
+          {
+            "tag": "DIV",
+            "role": "textbox",
+            "label": null,
+            "editable": "true",
+            "tabIndex": -1
+          }
+        ]
+      },
+      "blockedTarget": "Edit Markdown source",
+      "escapeChecks": [
+        {
+          "key": "Shift+Tab",
+          "tag": "INPUT",
+          "role": null,
+          "label": "Task title",
+          "editable": null
+        },
+        {
+          "key": "Escape",
+          "tag": "BODY",
+          "role": null,
+          "label": null,
+          "editable": null
+        },
+        {
+          "key": "Tab",
+          "tag": "SPAN",
+          "role": null,
+          "label": null,
+          "editable": null
+        }
+      ]
+    }
+  ],
+  "review": {
+    "result": "fail",
+    "defect": "AUDIT-21",
+    "finding": "After the title, forward Tab stays in the rich-text textbox through 80 presses. It does not reach Edit Markdown source at either width.",
+    "workaroundObserved": "Shift+Tab returns to the title. Escape from the title closes capture. A complete reverse-traversal capture was not tested.",
+    "remaining": "Keyboard capture submission, saved editing, login, approval, native controls, and screen readers.",
+    "serverMutation": "No Task was submitted."
+  }
+}
