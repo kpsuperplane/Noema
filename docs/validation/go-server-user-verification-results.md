@@ -106,9 +106,9 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | PROJECT-03 | Pass · controlled role context | Each role receives exact current PROJECT.md text after separate edits. | — |
 | PROJECT-04 | Pass · live Chromium | Archive preserves readable context and removes editing controls in both browsers. Reopen restores editing with the same content. [Evidence](evidence/2026-09-05-project-browser-results.json). | — |
 | PROJECT-05 | Pass · live Codex | Chat reads the existing Project and lists its Tasks, including cancelled work. It captures a request without duplicating the Project. [Evidence](evidence/2026-09-05-chat-task-project-results.json). | — |
-| AGENT-01 | Not run | Controlled setup pending. | — |
-| AGENT-02 | Not run | Controlled setup pending. | — |
-| AGENT-03 | Not run | Controlled setup pending. | — |
+| AGENT-01 | Partial · controlled runtime | Agent records, built-in repair, preferences, model-pool assignments, and stable names pass. Rendered settings and cross-client restart checks remain pending. [Evidence](evidence/2026-09-06-agent-coverage-results.json). | — |
+| AGENT-02 | Partial · controlled runtime | Enabled model-pool selection and governed Task execution pass. Missing eligible-model and rendered settings checks remain pending. [Evidence](evidence/2026-09-06-agent-coverage-results.json). | — |
+| AGENT-03 | Partial · controlled runtime | Saved execution policy snapshots and later policy use pass. Live policy edits during a run remain pending. [Evidence](evidence/2026-09-06-agent-coverage-results.json). | — |
 | MEM-01 | Not run | The live tree already contains a cited profile. A controlled empty-state check remains pending. | — |
 | MEM-02 | Pass · live Chromium | Browser update creates cited articles from exact synthetic human facts. The saved sequence advances and status returns to idle. | — |
 | MEM-03 | Not run | Controlled setup pending. | — |
