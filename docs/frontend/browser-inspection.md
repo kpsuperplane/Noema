@@ -9,16 +9,11 @@ Keep product data unchanged unless the user also authorized data changes.
 
 ## Private socket access
 
-Start the development session with `./attach` from the host terminal. The server must have `web.local_graphql_socket` enabled.
-The root development supervisor normally provides `/tmp/noema-codex/graphql.sock`.
-The direct socket is `${NOEMA_HOME}/run/graphql.sock`.
-
-The Linux `noema-build` profile permits direct Unix socket access.
-It disables the Codex network proxy because Codex 0.153.2 blocks Unix socket creation when that proxy is active.
-Filesystem limits remain active. Network access has no domain filter.
-This also permits Go tests that create Unix sockets.
-The complete development home is readable at `/tmp/noema-codex/home`; this live view rejects writes.
-See [development permissions](../development/codex-permissions.md) for Git access, caches, and session reload instructions.
+Follow [Noema Development Access](../../AGENTS.md#noema-development-access) for startup, exact paths, and access failures.
+Use `/tmp/noema-codex/graphql.sock` with the `noema-build` profile.
+The service-owned `${NOEMA_HOME}/run/graphql.sock` is the source socket, not the restricted profile's access path.
+The home view at `/tmp/noema-codex/home` provides file reads only; it does not forward socket connections.
+See [development permissions](../development/codex-permissions.md) for profile settings and verified checks.
 
 When another profile requires the Codex network proxy, use the authenticated inspection relay.
 A Unix socket allow entry alone does not enable socket forwarding on this Linux version.
@@ -41,7 +36,7 @@ Run an inspection script inside the actual profile:
 codex sandbox -C /root/noema -P noema-build -- node /path/to/inspection.mjs
 ```
 
-The profile check passed HTTP access, a GraphQL query, mutation denial, and WebSocket acknowledgement on 2026-09-05.
+The direct profile check passed HTTP access, a GraphQL query, mutation denial, and WebSocket acknowledgement on 2026-09-06.
 The relay unit checks use `node --test scripts/noema-inspection-relay.test.mjs`.
 They cover denied access, HTTP/WebSocket forwarding, ordinary-data preservation, credential protection, and shutdown.
 

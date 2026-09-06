@@ -61,6 +61,57 @@
 - Make a commit after finishing each unit of work unless explicitly instructed not to.
 - Treat raw `~/.codex/sessions` files as private source material. Read them only when asked, summarize durable decisions, and do not quote raw transcript unless explicitly requested.
 
+## Noema Development Access
+
+These instructions describe the Linux root development instance in `/root/noema`.
+Use `noema-build` for development and inspection. It permits Git operations, shared build caches, and direct network access.
+Filesystem limits remain active. Network access has no domain filter.
+
+### Start and check the instance
+
+- Use the existing development session when it is running.
+- To start the complete session, run `./attach` from an unrestricted host terminal in `/root/noema`.
+- The launcher requires `bindfs`. It starts the server, private socket relay, and read-only home view.
+- Do not substitute `go run ./cmd/noema-dev` for this launcher. That command does not start the inspection relays or home view.
+- Check actual socket access with this read-only request:
+
+```sh
+curl --silent --show-error --max-time 5 \
+  --unix-socket /tmp/noema-codex/graphql.sock http://localhost/auth/status
+```
+
+The expected response is `{"state":"authenticated"}`. A socket file alone does not prove that the server is running.
+
+### Inspect files and the database
+
+- Use `/tmp/noema-codex/home` to inspect the complete development `NOEMA_HOME`.
+- This live, read-only view includes databases, configuration, memory, artifacts, protected stores, and newly created files.
+- The source defaults to `/var/lib/noema-dev`. An explicit launcher `NOEMA_HOME` changes the source, not the inspection path.
+- Use ordinary file tools through the view. Open SQLite with `mode=ro` for database inspection.
+- Direct source reads can fail because the source belongs to `noema-dev`. That failure does not mean inspection needs Full Access.
+- The view changes displayed ownership and permissions. It does not change source files or their permissions.
+- Follow Information Handling above. Keep actual credential values out of model context, logs, screenshots, and artifacts.
+
+### Inspect the web app
+
+- Use `/tmp/noema-codex/graphql.sock` for app requests. Do not use `/tmp/noema-codex/home/run/graphql.sock`; the home view does not forward sockets.
+- Use `scripts/route-browser-inspection.mjs` with Playwright for authenticated, read-only browser inspection.
+- After installing the helper on a fresh browser context, navigate to `http://noema.local/<route>`.
+- `noema.local` is the helper's routed origin. It is not a public hostname or a standalone browser login route.
+- Follow [browser inspection](docs/frontend/browser-inspection.md) for the complete Playwright example and visual review procedure.
+- The helper rejects mutations. Inspection access does not authorize changes to live product data.
+- Do not disable public authentication or expose the socket through an unauthenticated TCP listener.
+
+### Resolve access failures
+
+- If commands still have old restrictions, select `noema-build` and start a new Codex session.
+- To check the saved profile explicitly, prefix a command with `codex sandbox -C /root/noema -P noema-build --`.
+- If the socket refuses connections or the home view is missing, check the host development session and launcher output.
+- Start or repair the launcher from the host terminal. The restricted profile cannot create its privileged filesystem mount.
+- The default profile needs no HTTP inspection credential. The helper uses the authenticated relay when proxy environment variables are present.
+- Do not print or manually copy the relay credential. The helper loads it internally.
+- See [development permissions](docs/development/codex-permissions.md) for profile settings, setup, and verified checks.
+
 ## Product UI Work
 - Use the repo-local `noema-product-ui` skill for any task that designs, builds, reviews, or materially changes frontend layout, hierarchy, spacing, density, responsive behavior, or information disclosure.
 - Read `docs/frontend/product-design.md` and the closest surface contract before editing. Establish the human's job, the focal action or content, the information priority, and the intended grouping before choosing components or writing CSS.
@@ -68,9 +119,8 @@
 - Use Astryx components and spacing tokens before one-off controls or raw spacing values. Reuse the existing shell, detail, transcript, and domain patterns instead of creating a parallel presentation for the same concept.
 - When editing a field, use either inline editing that saves without a separate Save button, or an actual dialog with an explicit Save button and the first input automatically focused. Do not place an explicit Save flow inline on the page.
 - UI requests grant implicit permission for visual browser inspection unless the user explicitly restricts it. Do not request inspection permission again.
-- Follow `docs/frontend/browser-inspection.md` for browser access and visual review. Use the private development socket when browser authentication is unavailable.
-- Use `scripts/route-browser-inspection.mjs` with Playwright for read-only socket inspection. Do not expose the socket through an unauthenticated TCP listener.
-- Inspection permission does not authorize changes to live product data. State any limits when rendered states remain unavailable.
+- Follow Noema Development Access above for connection details and `docs/frontend/browser-inspection.md` for visual review.
+- State any limits when rendered states remain unavailable.
 
 ## Review And Subagents
 - Keep changes expected to touch fewer than roughly 1,000 lines or two architectural areas inline when delegation overhead would exceed the work.

@@ -2,6 +2,7 @@
 
 The repository selects `noema-build` in [`.codex/config.toml`](../../.codex/config.toml).
 This profile extends `:workspace` and retains filesystem limits.
+Use [Noema Development Access](../../AGENTS.md#noema-development-access) for the agent connection procedure.
 
 ## Access
 
