@@ -1271,7 +1271,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | NATIVE-03 | Not run | Controlled setup pending. | Not run |
 | NATIVE-04 | Not applicable | Physical device journey. | Not run |
 | NATIVE-05 | Not run | Controlled setup pending. | Not run |
-| NATIVE-06 | Not run | Controlled setup pending. | Not run |
+| NATIVE-06 | Partial | Revoked access and refresh stay denied after restart. Another native client retains access and refresh. Device disconnect and protected-cache cleanup remain pending. [Evidence](evidence/2026-09-06-native-revocation-results.json). | Not run |
 | DESKTOP-01 | Not run | Controlled setup pending. | Not run |
 | DESKTOP-02 | Not run | Controlled setup pending. | Not run |
 | DESKTOP-03 | Not run | Controlled setup pending. | Not run |
