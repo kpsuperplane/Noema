@@ -1,7 +1,7 @@
 # Live API setup repair
 
 The live Gmail setup case has not passed acceptance.
-No agent-generated connection has fetched mailbox data in this test.
+An agent-generated connection is installed. Mailbox reads remain under examination.
 
 ## Findings
 
@@ -25,8 +25,16 @@ Conversation: `conversation:9a8adece587d96886957b3a308c694b1`.
 | `turn:a870baad755ae47860d17e66f9fb3497` | Agent read the restored template, but submitted only a source URL. |
 | `turn:88bc0c6182c0cfa07f9b4caea9b49054` | Another source-only attempt failed. |
 | `turn:cbe82575ace7353fb6164bd5afa7a61f` | Agent submitted credential setup and five complete operations. Operation validation rejected oversized responses. |
+| `turn:1fcf0a553270574fc8dab00d2b103938` | Agent used the specific size error and created pending proposal `e82c88fa717d58fc5215178946f7a131bbc06e5ff36763e67a41de8b4a134664`. |
 
 The full proposal also omitted message bodies from its response transform.
+The pending proposal also drops thread messages and silently truncates attachment data at 4,096 bytes.
+The operator requested a correction before approval.
+The agent created revision `131c0ae252fcbdbed39202ab79ff5176d70051dcd911b29d9246170dc61b79d6`.
+It returns bounded email bodies, up to three thread messages, and explicit completeness fields.
+The operator approved it as reviewed digest `760dea9cf57226af959352727677777ead26a0ac63086a208d45442e896c0e2d`.
+Protected credential setup succeeded for synthetic account A.
+The operator then asked the agent to identify its mailbox and retrieve trip messages.
 A proposal approval alone will not establish the Gmail case pass.
 The fixture currently uses bearer credential setup; the plan's OAuth requirements remain untested.
 
