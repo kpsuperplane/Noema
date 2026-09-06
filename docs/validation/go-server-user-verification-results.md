@@ -14,10 +14,10 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | --- | --- | --- | --- |
 | HOME-01 | Pass · Linux/Chromium | Packaged release opens fresh passkey setup. Other native platforms remain pending. | — |
 | HOME-03 | Partial | Core restart restores passkeys, Tasks, Project documents, and model selections. Chat, Memory, integrations, and Artifacts remain pending. | — |
-| HOME-04 | Not run | Controlled setup pending. | — |
+| HOME-04 | Partial · disposable Go home | Fresh and supported prior Go schemas converge while stored records remain readable. Full populated-home upgrade and rendered checks remain pending. [Evidence](evidence/2026-09-06-home-resilience-results.json). | — |
 | HOME-05 | Partial | Complete stopped-home copy and restore preserves access, Task content, Project context, and setup. Schedules and remaining data classes are pending. | — |
 | HOME-06 | Partial | Release startup, passkey setup, recovery, and restart work in a Unicode home with spaces. Files and helpers remain pending. | — |
-| HOME-07 | Not run | Controlled setup pending. | — |
+| HOME-07 | Partial · disposable Go home | Interrupted Task, conversation, Memory, and Artifact state recovers without duplicate committed work. Full live termination and external-effect checks remain pending. [Evidence](evidence/2026-09-06-home-resilience-results.json). | — |
 | HOME-08 | Not run | Controlled setup pending. | — |
 | HOME-09 | Partial · Linux package | Two same-home package launches close their owned server and release locks. Active model-helper shutdown remains pending. [Evidence](evidence/2026-09-06-packaged-restart-coverage.json). | — |
 | HOME-10 | Human later | Native Windows runner is unavailable. | Run concurrent Task and Chat writes on Windows; reopen and check records and SQLite integrity. |
