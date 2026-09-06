@@ -1286,8 +1286,8 @@ A human variant remains pending even when its controlled counterpart passes.
 | DIAG-01 | Not run | Controlled setup pending. | — |
 | DIAG-02 | Not run | Controlled setup pending. | — |
 | OPS-01 | Not run | Controlled setup pending. | — |
-| OPS-02 | Not run | Controlled setup pending. | — |
-| OPS-03 | Not run | Controlled setup pending. | — |
+| OPS-02 | Partial · controlled boundaries | Defaults disable all three paths. Disabled GraphiQL and MCP launches are denied. Forged local headers cannot bypass public authentication. Full application startup remains untested. [Evidence](evidence/2026-09-06-optional-access-results.json). | — |
+| OPS-03 | Partial · controlled boundaries | Flags enable independently. Existing checks verify GraphiQL policy, private Unix access and cleanup, and bounded stdio invocation. Combined application startup remains untested. [Evidence](evidence/2026-09-06-optional-access-results.json). | — |
 | JOURNEY-01 | Not run | Controlled setup pending. | Not run |
 | JOURNEY-02 | Not run | Controlled setup pending. | — |
 | JOURNEY-03 | Not run | Controlled setup pending. | — |
