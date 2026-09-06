@@ -1,0 +1,15 @@
+{
+  "baseRevision": "acb30aea",
+  "instance": "https://noema.kevinpei.com",
+  "command": "node docs/validation/evidence/2026-09-06-pwa-offline.mjs",
+  "result": "passed",
+  "cases": ["PWA-02", "PWA-03"],
+  "defects": ["AUDIT-17", "AUDIT-18"],
+  "setup": "Chromium with standalone mode emulated, real service worker, cache, and IndexedDB. The controlled driver emits the browser online event after network restoration.",
+  "verified": [
+    "The draft survives offline reload.",
+    "Offline Send message remains disabled.",
+    "Reconnect hides the offline state and preserves the unsent draft."
+  ],
+  "remaining": "Conflict reconciliation and stale-response exclusion need a separate controlled scenario. Physical installed-device checks remain human later."
+}

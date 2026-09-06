@@ -362,6 +362,13 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     return pwaRuntime.registerFlusher(() => writeChatDraft(conversationId, draft));
   }, [conversationId, draft, pwa.installed]);
 
+  const updateDraft = React.useCallback((value: string) => {
+    setDraft(value);
+    if (pwa.installed && conversationId) {
+      void writeChatDraft(conversationId, value);
+    }
+  }, [conversationId, pwa.installed]);
+
   React.useEffect(() => {
     pwaRuntime.setCriticalOperation("chat-turn", pending || awaitingAssistantTurn);
     return () => pwaRuntime.setCriticalOperation("chat-turn", false);
@@ -493,7 +500,9 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         await new Promise<void>((resolve) => window.queueMicrotask(resolve));
         if (cancelled) return;
         setSocketState("connecting");
-        await waitForBrowserGraphqlReady();
+        const liveConnection = await waitForBrowserGraphqlReady()
+          .then(() => true)
+          .catch(() => false);
         const refreshedBoot = await refetchBoot();
         const nextConversationId =
           refreshedBoot.data?.primaryConversation?.conversationId ?? conversationId;
@@ -512,7 +521,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         await pwaRuntime.revalidateRecentQueries();
         if (!cancelled) {
           reconcilingRecoveryRef.current = false;
-          setSocketState("ready");
+          setSocketState(liveConnection ? "ready" : "closed");
           await pwaRuntime.finishReconciliation();
         }
       } catch {
@@ -977,7 +986,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           return next;
         })
       }
-      onDraftChange={setDraft}
+      onDraftChange={updateDraft}
       onLoadOlderTranscript={loadOlderTranscript}
       onSubmit={(value) => void sendMessage(value)}
       onSubmitA2UIAction={(action) => void submitA2UIAction(action)}

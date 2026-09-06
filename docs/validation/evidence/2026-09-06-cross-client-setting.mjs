@@ -14,7 +14,7 @@ try {
  const change=async value=>{await selector(writer).click();const response=writer.waitForResponse(r=>r.url().endsWith('/graphql')&&r.request().postData()?.includes('SaveWebToolProviderBinding'));await writer.getByRole('option',{name:value,exact:true}).click();const data=await(await response).json();assert.equal(data.errors,undefined);};
  try {
   await change('DuckDuckGo public search');
-  let refreshed=true;try{await reader.waitForFunction(()=>[...document.querySelectorAll('[role=combobox]')].some(n=>n.getAttribute('aria-label')==='Provider for web.search'&&n.textContent.trim()==='DuckDuckGo public search'),null,{timeout:15000});}catch{refreshed=false;}
+  let refreshed=true;try{await reader.waitForFunction(()=>[...document.querySelectorAll('button[role=combobox]')].some(n=>n.innerText.trim()==='DuckDuckGo public search'),null,{timeout:15000});}catch{refreshed=false;}
   results.push({check:'Second client updates without reload',passed:refreshed,observed:(await selector(reader).innerText()).trim(),expected:'DuckDuckGo public search',observationLimitMs:15000});
   const fresh=await contexts[1].newPage();await fresh.goto(origin+'/settings/tools/web');await selector(fresh).waitFor();assert.equal((await selector(fresh).innerText()).trim(),'DuckDuckGo public search');results.push({check:'Fresh client sees saved setting',passed:true});await fresh.close();
   await reader.reload();await selector(reader).waitFor();assert.equal((await selector(reader).innerText()).trim(),'DuckDuckGo public search');results.push({check:'Manual reload refreshes stale client',passed:true});

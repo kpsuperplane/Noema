@@ -1,0 +1,15 @@
+{
+  "baseRevision": "acb30aea",
+  "instance": "https://noema.kevinpei.com",
+  "command": "node docs/validation/evidence/2026-09-06-cross-client-setting.mjs",
+  "result": "passed",
+  "case": "CLIENT-03",
+  "defect": "AUDIT-16",
+  "verified": [
+    "A second active web client updates the search provider without a manual reload.",
+    "Fresh navigation and manual reload preserve the saved provider.",
+    "The original Codex setting is restored in both clients."
+  ],
+  "transport": "Two authenticated browser contexts at desktop and phone widths.",
+  "humanLater": "Repeat the setting refresh check across native clients."
+}
