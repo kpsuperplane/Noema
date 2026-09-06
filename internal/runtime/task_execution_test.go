@@ -1366,3 +1366,87 @@ func TestTaskContinuationUsesCheckpointWithoutRepeatingWork(t *testing.T) {
 		}
 	}
 }
+
+func TestReopenedTaskRejectsLateProviderFileWrite(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	task := createQueuedRuntimeTask(t, database, chat.home, "# Reopen audit\nPreserve café 日本語.\n")
+	if err := home.WriteTaskFile(chat.home, task.ID, "RESULT.md", "accepted café 日本語\n"); err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	var requests atomic.Int32
+	generation := generatorFunc(func(ctx context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		if requests.Add(1) == 1 {
+			close(started)
+			<-release
+			return taskToolResult("late-overwrite", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "stale overwrite"}), nil
+		}
+		<-ctx.Done()
+		return provider.GenerationResult{}, ctx.Err()
+	})
+	generator := &sessionTestGenerator{generate: generation, closed: make(chan struct{}, 4)}
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	t.Cleanup(unblock)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("old provider did not start")
+	}
+	before, err := database.Task(t.Context(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRunID := before.CurrentRunID
+	cancelled, err := database.CancelTask(t.Context(), task.ID, before.Revision, before.Generation, "Replace old work", runtimeTaskCommand("cancel_task", "reopen-late"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	complexity := "simple"
+	reopened, err := database.ReopenTask(t.Context(), task.ID, cancelled.Task.Revision, cancelled.Task.Generation, "Continue with accepted files", &complexity, "", runtimeTaskCommand("reopen_task", "reopen-late"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Task.Generation <= before.Generation || reopened.Task.CurrentRunID == oldRunID {
+		t.Fatalf("reopen did not replace authority: %#v", reopened.Task)
+	}
+	unblock()
+	select {
+	case <-generator.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("old provider session did not close")
+	}
+	for path, want := range map[string]string{"TASK.md": "# Reopen audit\nPreserve café 日本語.\n", "RESULT.md": "accepted café 日本語\n"} {
+		content, err := home.ReadTaskFile(chat.home, task.ID, path)
+		if err != nil || content != want {
+			t.Fatalf("late response changed %s: %q, %v", path, content, err)
+		}
+	}
+	current, err := database.Task(t.Context(), task.ID)
+	if err != nil || current.Generation != reopened.Task.Generation || current.CurrentRunID != reopened.Task.CurrentRunID || current.CompletedAt != nil {
+		t.Fatalf("late response changed reopened Task: %#v, %v", current, err)
+	}
+	runs, err := database.TaskRuns(t.Context(), task.ID, 10)
+	if err != nil || len(runs) != 2 {
+		t.Fatalf("reopen runs = %#v, %v", runs, err)
+	}
+	for _, run := range runs {
+		if run.ID == oldRunID && run.Status != "cancelled" {
+			t.Fatalf("old run revived: %#v", run)
+		}
+	}
+	items, err := database.TaskRunReplayItems(t.Context(), oldRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.Kind == "tool_call" {
+			t.Fatalf("late tool call was accepted: %#v", item)
+		}
+	}
+}

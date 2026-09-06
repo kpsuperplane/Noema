@@ -629,6 +629,16 @@ The [validation record](evidence/2026-09-06-continuation-validation.json) record
 The test adds 98 lines. No production change was required.
 RUN-07 passes for controlled runtime responses.
 
+## Reopening while an old provider response returns
+
+The [runtime test](../../internal/runtime/task_execution_test.go) holds an old provider response through cancellation and reopening.
+The response then proposes overwriting RESULT.md. The runtime closes the old session without accepting its tool call.
+TASK.md and RESULT.md retain their exact Unicode content. The Task keeps its new current run and generation.
+The old run remains cancelled, and no extra run appears.
+The [validation record](evidence/2026-09-06-reopen-late-validation.json) records passing focused tests, broad Go tests, and vet.
+The test adds 84 lines. No production fix was required.
+RUN-06 remains partial until reopening a completed Task also rejects late changes.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -704,7 +714,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
 | RUN-05 | Pass · controlled store/runtime/browser | Cancellation rejects old work across three states. Late MCP success retains uncertainty. The saved result is readable at desktop and phone widths. | — |
-| RUN-06 | Not run | Controlled setup pending. | — |
+| RUN-06 | Partial | Reopening a cancelled Task rejects a late provider file write. Current files and the new generation remain intact. Completed-Task reopening remains pending. | — |
 | RUN-07 | Pass · controlled runtime | Continuation reloads the saved checkpoint and support file. The first completed write occurs once. A second Executor and final Reviewer complete the Task. | — |
 | RUN-08 | Not run | Controlled setup pending. | — |
 | RUN-09 | Not run | Controlled setup pending. | — |
