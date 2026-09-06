@@ -697,7 +697,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-07 | API-07 | Expanded OAuth consent grants the new scope, but the existing connection does not expose the new operation. | OAuth lifecycle | [Result](evidence/2026-09-06-oauth-expansion-results.json), [reproduction patch](evidence/2026-09-06-oauth-expansion-reproduction.patch) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
-Clarification and approval context delivery fails under AUDIT-03. Browser presentation remains pending.
+Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
 
 ## Task first-pass checks
 
@@ -824,6 +824,16 @@ Disable removes the connection from callable tools. Enable restores the exact AP
 Deletion remains effective after adapter service reconstruction.
 The neighboring API stays usable, and the shared grant remains exactly unchanged.
 This checks the production service path with a controlled TLS endpoint.
+
+## API retries and uncertain writes
+
+A controlled TLS service counted requests from the production adapter.
+A disconnected safe read retried once and returned exact Unicode content.
+HTTP 429 returned a failed result with its status after one request.
+A write disconnect after receipt returned `ErrOutcomeUncertain` after one request.
+API-12 passes this controlled service check. Browser presentation and production network routing remain outside its scope.
+Evidence: [results](evidence/2026-09-06-api-outcomes-results.json) and [reproduction patch](evidence/2026-09-06-api-outcomes-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
 
 ## Case results
 
@@ -968,7 +978,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-09 | Pass · controlled TLS service | Empty arrays, two exact Unicode pages, and failed next-page retry pass. Query bounds remain enforced. | — |
 | API-10 | Partial | Changed arguments, another operation, and consumed continuation fail before HTTP. Cross-account checks remain pending. | — |
 | API-11 | Pass · controlled TLS service | Malformed JSON, wrong-type items, and oversized output fail without bypassing the reviewed schema. | — |
-| API-12 | Not run | Controlled setup pending. | — |
+| API-12 | Pass · controlled TLS service | Safe read disconnect retries once. HTTP 429 stays failed. A received write stays uncertain without automatic repetition. | Not run |
 | API-13 | Pass · controlled TLS service | Rename, disable, enable, and delete pass. Deletion survives service restart. The shared grant and neighboring API remain intact. | — |
 | API-14 | Fail · controlled TLS service | Shared-grant revocation stops dependent access. AUDIT-06: application deletion remains blocked after grant revocation. | — |
 | API-15 | Partial | Application replacement rejects older OAuth attempts before token exchange. Restart, retained identity, and changed-approval checks remain pending. | — |

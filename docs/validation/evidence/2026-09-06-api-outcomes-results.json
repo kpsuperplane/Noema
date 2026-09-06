@@ -1,0 +1,15 @@
+{
+  "baseRevision": "b0c722bad267548fe451ee0fe1ccb6e79337caf1",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/adapter -run '^TestAuditAPIReadRetryRateLimitAndUncertainWrite$' -v",
+  "output": "=== RUN   TestAuditAPIReadRetryRateLimitAndUncertainWrite\n=== RUN   TestAuditAPIReadRetryRateLimitAndUncertainWrite/safe_read_retry\n=== RUN   TestAuditAPIReadRetryRateLimitAndUncertainWrite/rate_limit\n=== RUN   TestAuditAPIReadRetryRateLimitAndUncertainWrite/uncertain_write\n--- PASS: TestAuditAPIReadRetryRateLimitAndUncertainWrite (0.26s)\n    --- PASS: TestAuditAPIReadRetryRateLimitAndUncertainWrite/safe_read_retry (0.01s)\n    --- PASS: TestAuditAPIReadRetryRateLimitAndUncertainWrite/rate_limit (0.01s)\n    --- PASS: TestAuditAPIReadRetryRateLimitAndUncertainWrite/uncertain_write (0.00s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/adapter\t0.268s\n",
+  "scope": "Production adapter calls with a controlled TLS service. Request counts verify retry behavior. Browser presentation and production network routing are outside this check.",
+  "case": "API-12",
+  "result": "Pass · controlled TLS service",
+  "passedAssertions": [
+    "A disconnected safe read retries once and returns exact Unicode content.",
+    "HTTP 429 returns a failed result with the status and sends one request.",
+    "A write disconnect after receipt returns ErrOutcomeUncertain and sends one request."
+  ],
+  "temporaryTestLines": 115,
+  "normalSuiteChanges": false
+}
