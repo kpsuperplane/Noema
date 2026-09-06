@@ -922,6 +922,16 @@ Real external process authentication remains a later human check.
 Evidence: [results](evidence/2026-09-06-acp-deletion-results.json) and [reproduction patch](evidence/2026-09-06-acp-deletion-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## Download bytes and destination boundaries
+
+A controlled TLS download preserved exact Unicode bytes and its nested Unicode filename.
+Existing destinations failed before network access and retained their bytes.
+Parent, absolute, and outside symlink paths failed before network access. The outside file remained unchanged.
+A redirect to a private address failed without publishing the destination.
+Task placement and review remain pending under FILE-01.
+Evidence: [results](evidence/2026-09-06-download-results.json) and [reproduction patch](evidence/2026-09-06-download-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1096,8 +1106,8 @@ A human variant remains pending even when its controlled counterpart passes.
 | WEB-14 | Not run | Controlled setup pending. | — |
 | WEB-15 | Not run | Controlled setup pending. | — |
 | WEB-16 | Not run | Controlled setup pending. | — |
-| FILE-01 | Not run | Controlled setup pending. | — |
-| FILE-02 | Not run | Controlled setup pending. | — |
+| FILE-01 | Partial | Controlled TLS download preserves exact bytes and nested Unicode filename. Task placement and review remain pending. | — |
+| FILE-02 | Pass · controlled TLS service | Parent, absolute, and outside symlink paths fail before network access. Private redirects fail without publishing a destination. Existing bytes remain intact. | — |
 | FILE-03 | Partial | DOCX, ODT, and RTF preserve known structure through the packaged Chat tool. DOC remains pending. | — |
 | FILE-04 | Partial | ODP preserves title, body, and speaker notes through Chat. PPT and PPTX remain pending. | — |
 | FILE-05 | Not run | Controlled setup pending. | — |

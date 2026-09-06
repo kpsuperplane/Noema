@@ -1,0 +1,107 @@
+diff --git a/internal/runtime/audit_download_test.go b/internal/runtime/audit_download_test.go
+new file mode 100644
+index 00000000..4c330c99
+--- /dev/null
++++ b/internal/runtime/audit_download_test.go
+@@ -0,0 +1,101 @@
++package runtime
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/json"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++)
++
++func TestAuditDownloadBytesAndBoundaries(t *testing.T) {
++	var hits atomic.Int64
++	const content = "Downloaded café 日本語\n"
++	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		hits.Add(1)
++		if r.URL.Path == "/redirect" {
++			http.Redirect(w, r, "http://127.0.0.1/private", 302)
++			return
++		}
++		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
++		w.Write([]byte(content))
++	}))
++	defer server.Close()
++	old := http.DefaultTransport
++	transport := old.(*http.Transport).Clone()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
++		return (&tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}).DialContext(ctx, network, server.Listener.Addr().String())
++	}
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = old; transport.CloseIdleConnections() })
++	cwd := t.TempDir()
++	outside := t.TempDir()
++	if err := os.WriteFile(filepath.Join(outside, "preserved.txt"), []byte("Preserved café 日本語"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(cwd, "linked")); err != nil {
++		t.Fatal(err)
++	}
++	args := func(url, path string) json.RawMessage {
++		v, _ := json.Marshal(map[string]any{"url": url, "path": path})
++		return v
++	}
++	t.Run("exact bytes", func(t *testing.T) {
++		result, err := executeFileDownload(t.Context(), cwd, args("https://1.1.1.1/file", "reports/café 日本語.txt"))
++		if err != nil || !json.Valid(result) {
++			t.Fatal("download failed", err)
++		}
++		got, err := os.ReadFile(filepath.Join(cwd, "reports/café 日本語.txt"))
++		if err != nil || string(got) != content {
++			t.Fatal("download bytes differ", err)
++		}
++	})
++	t.Run("existing file", func(t *testing.T) {
++		before := hits.Load()
++		if _, err := executeFileDownload(t.Context(), cwd, args("https://1.1.1.1/file", "reports/café 日本語.txt")); err == nil {
++			t.Fatal("existing destination replaced")
++		}
++		if hits.Load() != before {
++			t.Fatal("existing destination reached network")
++		}
++		got, _ := os.ReadFile(filepath.Join(cwd, "reports/café 日本語.txt"))
++		if string(got) != content {
++			t.Fatal("existing bytes changed")
++		}
++	})
++	t.Run("escaping paths", func(t *testing.T) {
++		before := hits.Load()
++		for _, path := range []string{"../escape.txt", filepath.Join(outside, "absolute.txt"), "linked/preserved.txt"} {
++			if _, err := executeFileDownload(t.Context(), cwd, args("https://1.1.1.1/file", path)); err == nil {
++				t.Fatal("escaping path accepted", path)
++			}
++		}
++		if hits.Load() != before {
++			t.Fatal("escaping path reached network")
++		}
++		got, _ := os.ReadFile(filepath.Join(outside, "preserved.txt"))
++		if string(got) != "Preserved café 日本語" {
++			t.Fatal("outside file changed")
++		}
++	})
++	t.Run("private redirect", func(t *testing.T) {
++		before := hits.Load()
++		if _, err := executeFileDownload(t.Context(), cwd, args("https://1.1.1.1/redirect", "redirect.txt")); err == nil {
++			t.Fatal("private redirect accepted")
++		}
++		if hits.Load() != before+1 {
++			t.Fatal("unexpected redirect requests")
++		}
++		if _, err := os.Stat(filepath.Join(cwd, "redirect.txt")); !os.IsNotExist(err) {
++			t.Fatal("failed redirect published destination")
++		}
++	})
++}
