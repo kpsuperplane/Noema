@@ -325,3 +325,79 @@ func TestTaskRunEffectiveCwdPrecedence(t *testing.T) {
 func equalOptionalString(left, right *string) bool {
 	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
+
+func TestCancelTaskRejectsLateRunChangesAcrossStates(t *testing.T) {
+	for _, state := range []string{"queued", "running", "waiting"} {
+		t.Run(state, func(t *testing.T) {
+			database := openTestStore(t)
+			account := createReadyModelAccount(t, database)
+			ctx := t.Context()
+			if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
+			id, _ := NewTaskID()
+			if _, err := database.CreateTask(ctx, id, "Cancel audit", "correlation:cancel", now); err != nil {
+				t.Fatal(err)
+			}
+			queued, err := database.QueueTask(ctx, id, 1, 1, testTaskLifecycleCommand("queue_task", "queue"), now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runs, err := database.TaskRuns(ctx, id, 10)
+			if err != nil || len(runs) != 1 {
+				t.Fatalf("initial runs = %#v, %v", runs, err)
+			}
+			run := runs[0]
+			if state != "queued" {
+				_, claimed, found, err := database.ClaimTaskExecution(ctx, now)
+				if err != nil || !found || claimed.ID != run.ID {
+					t.Fatalf("claim = %#v, %t, %v", claimed, found, err)
+				}
+				if err := database.StartTaskExecution(ctx, run.ID, run.Generation, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state == "waiting" {
+				if err := database.BlockTaskExecution(ctx, run.ID, run.Generation, "clarification", "Which value?", "Choose the required value.", []string{"alpha", "beta"}, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := database.Task(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cancelled, err := database.CancelTask(ctx, id, before.Revision, before.Generation, "Stop audit", testTaskLifecycleCommand("cancel_task", "cancel"), now.Add(time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cancelled.Task.StageKey != "cancelled" || cancelled.Task.Generation != queued.Task.Generation+1 || cancelled.Task.CurrentRunID != "" || cancelled.Task.ActiveGateID != "" {
+				t.Fatalf("cancelled = %#v", cancelled.Task)
+			}
+			if before.ActiveGateID != "" {
+				gate, err := database.TaskGate(ctx, before.ActiveGateID)
+				if err != nil || gate.State != "superseded" {
+					t.Fatalf("cancelled gate = %#v, %v", gate, err)
+				}
+			}
+			if err := database.FinishTaskPlanning(ctx, run.ID, run.Generation, "simple", now.Add(2*time.Second)); err != ErrStaleRun {
+				t.Fatalf("late planning = %v", err)
+			}
+			if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{Kind: "assistant_message", Content: "Late result"}}, TaskRunUsage{}, now.Add(2*time.Second)); err != ErrStaleRun {
+				t.Fatalf("late transcript = %v", err)
+			}
+			_, _, found, err := database.ClaimTaskExecution(ctx, now.Add(3*time.Second))
+			if err != nil || found {
+				t.Fatalf("cancelled work was claimed: %t, %v", found, err)
+			}
+			after, err := database.Task(ctx, id)
+			if err != nil || after.Revision != cancelled.Task.Revision || after.Generation != cancelled.Task.Generation || after.StageKey != "cancelled" {
+				t.Fatalf("late result changed cancellation: %#v, %v", after, err)
+			}
+			runs, err = database.TaskRuns(ctx, id, 10)
+			if err != nil || len(runs) != 1 || runs[0].Status != "cancelled" {
+				t.Fatalf("final runs = %#v, %v", runs, err)
+			}
+		})
+	}
+}

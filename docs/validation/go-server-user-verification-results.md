@@ -553,6 +553,16 @@ The correction runs use review round two. No production change was required.
 The [validation record](evidence/2026-09-06-review-correction-validation.json) records passing focused and broad Go checks.
 RUN-03 passes for controlled runtime responses. Live model review quality remains outside this deterministic check.
 
+## Cancellation across Task states
+
+The [store test](../../internal/store/task_execution_test.go) cancels queued, running, and waiting Tasks through production commands and SQLite.
+Each cancellation advances the generation, clears active run and gate fields, and leaves one cancelled run.
+A waiting clarification gate becomes superseded. Late planning completion and transcript writes return the stale-run error.
+A later worker claim finds no work. Rejected late changes preserve the accepted cancellation revision and generation.
+The [validation record](evidence/2026-09-06-cancel-states-validation.json) records passing focused tests, broad Go tests, and vet.
+No production fix was needed. The test adds 76 lines.
+RUN-05 remains partial until cancellation during an external action proves explicit outcome uncertainty.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -627,7 +637,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
-| RUN-05 | Not run | Controlled setup pending. | — |
+| RUN-05 | Partial | Controlled cancellation covers queued, running, and waiting Tasks. Old generation writes and claims fail. External-effect uncertainty remains pending. | — |
 | RUN-06 | Not run | Controlled setup pending. | — |
 | RUN-07 | Not run | Controlled setup pending. | — |
 | RUN-08 | Not run | Controlled setup pending. | — |
