@@ -1245,7 +1245,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | NOTE-02 | Partial | Final-answer preview and native Task attention routing pass at the queue boundary. Background delivery and device navigation remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
 | NOTE-03 | Partial | Two authenticated registrations pass selective suppression at the durable queue. The unfocused registration receives the exact preview and Chat target. Browser focus and device delivery remain pending. [Evidence](evidence/2026-09-06-notification-two-devices-results.json). | Not run |
 | NOTE-04 | Not run | Controlled setup pending. | Not run |
-| NOTE-05 | Not run | Controlled setup pending. | — |
+| NOTE-05 | Partial | Web Push historical suppression and pending retry state survive SQLite/service restart. Delivered events do not replay. Native restart remains pending. [Evidence](evidence/2026-09-06-notification-restart-results.json). | — |
 | NOTE-06 | Partial | Retry state stops after bounded attempts. An old expired response cannot delete a refreshed registration. HTTP failure classification remains pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | — |
 | NOTE-07 | Partial | Logout removes only its owned registration. Another authenticated registration receives the next alert. Disable controls, native revocation, and device delivery remain pending. [Evidence](evidence/2026-09-06-notification-two-devices-results.json). | Not run |
 | NOTE-08 | Partial | Configure and remove advance revisions. Stale changes fail. Diagnostics exclude the key; storage is protected. Replacement and rendered status remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | — |

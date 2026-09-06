@@ -1,0 +1,120 @@
+diff --git a/internal/notification/audit_restart_test.go b/internal/notification/audit_restart_test.go
+new file mode 100644
+index 00000000..fcae345f
+--- /dev/null
++++ b/internal/notification/audit_restart_test.go
+@@ -0,0 +1,114 @@
++package notification
++
++import (
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func TestAuditNotificationRestartPreservesRetryAndSkipsHistory(t *testing.T) {
++	ctx, now := t.Context(), time.Now().UTC().Truncate(time.Millisecond)
++	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	root, err := paths.Open()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer root.Close()
++	db, err := store.Open(ctx, paths.Database())
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() { _ = db.Close() }()
++	session := addNotificationSession(t, db, now)
++	conversation, err := db.EnsurePrimaryConversation(ctx, "openrouter", "", now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	complete := func(text string) string {
++		t.Helper()
++		turn, _, err := db.BeginConversationTurn(ctx, conversation.ID, text, nil, now)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := db.CompleteConversationTurn(ctx, turn, text, "", nil, now); err != nil {
++			t.Fatal(err)
++		}
++		return "chat-turn:" + turn.ID
++	}
++	complete("Historical answer")
++	service, err := New(paths, db, "https://noema.example")
++	if err != nil {
++		t.Fatal(err)
++	}
++	key, auth := notificationSubscriptionMaterial(t)
++	registration, err := service.Register(ctx, session, "https://push.example/audit-restart", key, auth)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := service.reconcilePrimary(ctx); err != nil {
++		t.Fatal(err)
++	}
++	if queued, err := db.NextWebPushDelivery(ctx); err != nil || queued != nil {
++		t.Fatal("history queued an alert")
++	}
++	event := complete("Pending café 日本語")
++	if err := service.reconcilePrimary(ctx); err != nil {
++		t.Fatal(err)
++	}
++	claimTime := time.Now().UTC().Truncate(time.Millisecond).Add(time.Second)
++	first, err := db.ClaimDueWebPushDelivery(ctx, claimTime)
++	if err != nil || first == nil || first.Attempt != 1 {
++		t.Fatal("first delivery missing")
++	}
++	if err := db.FinishWebPushDelivery(ctx, *first, store.WebPushRetry, "controlled_network_failure", claimTime); err != nil {
++		t.Fatal(err)
++	}
++	deadline, err := db.NextWebPushDelivery(ctx)
++	if err != nil || deadline == nil {
++		t.Fatal("retry deadline missing")
++	}
++	reopen := func() {
++		t.Helper()
++		if err := db.Close(); err != nil {
++			t.Fatal(err)
++		}
++		db, err = store.Open(ctx, paths.Database())
++		if err != nil {
++			t.Fatal(err)
++		}
++		service, err = New(paths, db, "https://noema.example")
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := service.reconcilePrimary(ctx); err != nil {
++			t.Fatal(err)
++		}
++	}
++	reopen()
++	restored, err := db.NextWebPushDelivery(ctx)
++	if err != nil || restored == nil || !restored.Equal(*deadline) {
++		t.Fatal("restart changed retry deadline")
++	}
++	early, err := db.ClaimDueWebPushDelivery(ctx, deadline.Add(-time.Millisecond))
++	if err != nil || early != nil {
++		t.Fatal("retry ran before deadline")
++	}
++	second, err := db.ClaimDueWebPushDelivery(ctx, *deadline)
++	if err != nil || second == nil || second.Attempt != 2 || second.Subscription.ID != registration || second.Notification.EventKey != event || second.Notification.Body != "Pending café 日本語" {
++		t.Fatal("retry lost identity, attempt, or preview")
++	}
++	if err := db.FinishWebPushDelivery(ctx, *second, store.WebPushDelivered, "", *deadline); err != nil {
++		t.Fatal(err)
++	}
++	reopen()
++	extra, err := db.ClaimDueWebPushDelivery(ctx, deadline.Add(time.Hour))
++	if err != nil || extra != nil {
++		t.Fatal("restart replayed historical or delivered alert")
++	}
++	t.Log("Historical items stay silent; retry deadline, attempt, event, registration, and Unicode preview survive restart; delivered event is not replayed")
++}
