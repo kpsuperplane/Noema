@@ -1,0 +1,15 @@
+{
+  "revision": "670653452d7d9e63f5b74b3276450e60504a5820",
+  "case": "NOTE-11",
+  "result": "Pass for backend restart reconciliation",
+  "command": "CGO_ENABLED=0 GOTMPDIR=/var/tmp/noema-suite-run-20260905/go-temp go test ./internal/notification -run '^TestAuditLiveActivityDismissDisableAndRegisterAfterRestart$' -v",
+  "output": "=== RUN   TestAuditLiveActivityDismissDisableAndRegisterAfterRestart\n    audit_live_restart_test.go:112: Dismissal and disable survive restart; registration creates one fresh activity; another restart does not duplicate start\n--- PASS: TestAuditLiveActivityDismissDisableAndRegisterAfterRestart (0.23s)\nPASS\nok  \tgithub.com/kpsuperplane/noema/internal/notification\t0.235s\n",
+  "assertions": [
+    "Dismissal suppresses the same active Task after SQLite and service reopening.",
+    "Disabled registration stays ineligible after reopening.",
+    "Registration after disable creates a fresh activity ID and one start delivery.",
+    "Another reopening does not duplicate the delivered start."
+  ],
+  "scope": "Real SQLite, notification reconciliation, and delivery queue. Generated test APNs key and synthetic tokens. No APNs network calls or device-side ActivityKit reconciliation.",
+  "normalSuiteChanges": false
+}

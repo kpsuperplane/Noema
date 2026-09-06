@@ -1251,7 +1251,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | NOTE-08 | Partial | Configure, replace, remove, and reload pass. Stale changes preserve current configuration. Status preserves ordinary metadata and excludes keys. Rendered controls remain pending. [Evidence](evidence/2026-09-06-apns-replacement-results.json). | — |
 | NOTE-09 | Not run | Controlled setup pending. | Not run |
 | NOTE-10 | Partial | Three Tasks share one activity. Completion reduces active counts and ends that activity without duplicate deliveries. Physical display remains pending. [Evidence](evidence/2026-09-06-live-aggregate-results.json). | Not run |
-| NOTE-11 | Partial | A different Task replaces a dismissed activity with a new session. Unconfigured service queues no delivery. Disable, restart, and device variants remain pending. [Evidence](evidence/2026-09-06-notification-coverage.json). | Not run |
+| NOTE-11 | Partial | Dismissal and disable survive restart without delivery. Registration creates one fresh activity; another restart does not duplicate start. Device reconciliation remains pending. [Evidence](evidence/2026-09-06-live-restart-results.json). | Not run |
 | NOTE-12 | Not run | Controlled setup pending. | — |
 | CLIENT-01 | Not run | Controlled setup pending. | Not run |
 | CLIENT-02 | Not run | Controlled setup pending. | — |

@@ -1,0 +1,119 @@
+diff --git a/internal/notification/audit_live_restart_test.go b/internal/notification/audit_live_restart_test.go
+new file mode 100644
+index 00000000..47f0c318
+--- /dev/null
++++ b/internal/notification/audit_live_restart_test.go
+@@ -0,0 +1,113 @@
++package notification
++
++import (
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func TestAuditLiveActivityDismissDisableAndRegisterAfterRestart(t *testing.T) {
++	ctx, now := t.Context(), time.Now()
++	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	root, err := paths.Open()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer root.Close()
++	db, err := store.Open(ctx, paths.Database())
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() { _ = db.Close() }()
++	client := seedAPNSClient(t, db)
++	service, err := New(paths, db, "https://noema.example")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := service.ConfigureAPNS("TEAM123456", "KEYID12345", testAPNSKey(t), 0); err != nil {
++		t.Fatal(err)
++	}
++	taskID := "task:22222222222222222222222222222222"
++	if _, err := db.CreateTask(ctx, taskID, "Audit activity restart", "correlation:audit-live-restart", now); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := db.StartTask(ctx, taskID, "run:22222222222222222222222222222222", now); err != nil {
++		t.Fatal(err)
++	}
++	register := func() {
++		t.Helper()
++		if err := db.RegisterClientLiveActivities(ctx, client, []byte("audit-start-token"), store.APNSDevelopment, nil, time.Now()); err != nil {
++			t.Fatal(err)
++		}
++	}
++	reconcile := func() {
++		t.Helper()
++		if err := service.reconcileLiveActivities(ctx); err != nil {
++			t.Fatal(err)
++		}
++	}
++	reopen := func() {
++		t.Helper()
++		if err := db.Close(); err != nil {
++			t.Fatal(err)
++		}
++		db, err = store.Open(ctx, paths.Database())
++		if err != nil {
++			t.Fatal(err)
++		}
++		service, err = New(paths, db, "https://noema.example")
++		if err != nil {
++			t.Fatal(err)
++		}
++	}
++	noDelivery := func() {
++		t.Helper()
++		delivery, err := db.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Hour))
++		if err != nil || delivery != nil {
++			t.Fatal("unexpected activity delivery")
++		}
++	}
++	register()
++	reconcile()
++	initial, err := db.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
++	if err != nil || initial == nil || initial.Event != store.LiveActivityStart {
++		t.Fatal("initial start missing")
++	}
++	if err := db.FinishLiveActivityDelivery(ctx, *initial, store.APNSDelivered, "", "audit-start", time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	if changed, err := db.DismissClientLiveActivity(ctx, client, initial.ActivityID); err != nil || !changed {
++		t.Fatal("dismissal failed")
++	}
++	reopen()
++	reconcile()
++	noDelivery()
++	if err := db.DisableClientLiveActivities(ctx, client, time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	reopen()
++	reconcile()
++	noDelivery()
++	targets, err := db.LiveActivityTargets(ctx)
++	if err != nil || len(targets) != 0 {
++		t.Fatal("disabled registration remains eligible")
++	}
++	register()
++	reconcile()
++	fresh, err := db.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
++	if err != nil || fresh == nil || fresh.Event != store.LiveActivityStart || fresh.ActivityID == initial.ActivityID {
++		t.Fatal("registration did not create one fresh activity")
++	}
++	if err := db.FinishLiveActivityDelivery(ctx, *fresh, store.APNSDelivered, "", "audit-fresh", time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	reopen()
++	reconcile()
++	noDelivery()
++	t.Log("Dismissal and disable survive restart; registration creates one fresh activity; another restart does not duplicate start")
++}
