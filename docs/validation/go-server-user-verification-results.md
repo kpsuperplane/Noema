@@ -704,6 +704,8 @@ Keep human-only cases marked for later testing.
 | AUDIT-14 | NOTE-02, NOTE-12 | Pending Chat action approval produces no notification for an eligible registration. Preview checks cannot reach a payload. | Notification event coverage | [Result](evidence/2026-09-06-action-notification-results.json), [reproduction](evidence/2026-09-06-action-notification-reproduction.patch) |
 | AUDIT-15 | NOTE-01 | Emulated permission denial leaves enablement text at desktop and phone widths. Offline indicator is present; real-prompt confirmation remains pending. | Notification permission UI | [Result](evidence/2026-09-06-notification-permission-results.json), [driver](evidence/2026-09-06-notification-permission.mjs) |
 | AUDIT-16 | CLIENT-03 | A second active web client retains the old search provider after save. Reload shows the current setting. | Client setting refresh | [Result](evidence/2026-09-06-cross-client-setting-results.json), [driver](evidence/2026-09-06-cross-client-setting.mjs) |
+| AUDIT-17 | PWA-01, PWA-02 | A confirmed saved Chat draft disappears after navigation and offline reload in emulated installed mode. | PWA draft storage | [Navigation](evidence/2026-09-06-pwa-navigation-draft-results.json), [offline reload](evidence/2026-09-06-pwa-offline-results.json) |
+| AUDIT-18 | PWA-03 | Reconnect retains offline status despite authenticated HTTP and GraphQL access in emulated installed mode. | PWA recovery | [Result](evidence/2026-09-06-pwa-offline-results.json), [driver](evidence/2026-09-06-pwa-offline.mjs) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -1260,9 +1262,9 @@ A human variant remains pending even when its controlled counterpart passes.
 | CLIENT-02 | Pass · web | Direct Task, Project, Memory article, Settings, and artifact download links pass at desktop and phone widths. Unknown paths show Chat. Public edge and native clients are not covered. [Evidence](evidence/2026-09-06-direct-links-results.json). | — |
 | CLIENT-03 | Fail · live web | AUDIT-16: another active client retains the old search provider after save. Fresh navigation and reload show the saved value. Codex was restored. Decision resolution remains pending. [Evidence](evidence/2026-09-06-cross-client-setting-results.json). | — |
 | CLIENT-04 | Not run | Controlled setup pending. | — |
-| PWA-01 | Not run | Controlled setup pending. | Not run |
-| PWA-02 | Not run | Controlled setup pending. | Not run |
-| PWA-03 | Not run | Controlled setup pending. | Not run |
+| PWA-01 | Fail · emulated installed browser | Real worker activation and authenticated snapshot saving pass. AUDIT-17: the saved draft disappears after navigation. Physical installation remains pending. [Evidence](evidence/2026-09-06-pwa-navigation-draft-results.json). | Not run |
+| PWA-02 | Fail · emulated installed browser | Saved Chat content returns offline, but AUDIT-17 loses the saved draft. Send remains disabled after new drafting. Approval and command-queue checks remain pending. [Evidence](evidence/2026-09-06-pwa-offline-results.json). | Not run |
+| PWA-03 | Fail · emulated installed browser | AUDIT-18: reconnect stays offline after 20 seconds despite authenticated HTTP and GraphQL access. Conflict reconciliation and stale-response checks remain unexecuted. [Evidence](evidence/2026-09-06-pwa-offline-results.json). | Not run |
 | PWA-04 | Not run | Controlled setup pending. | Not run |
 | PWA-05 | Not run | Controlled setup pending. | Not run |
 | PWA-06 | Not run | Controlled setup pending. | Not run |

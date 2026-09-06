@@ -1,0 +1,119 @@
+{
+  "instance": "https://noema.kevinpei.com",
+  "setup": "Chromium with standalone flag emulated. Real service worker, cache, and IndexedDB. Public edge and physical installation are not covered.",
+  "results": [
+    {
+      "check": "Real service worker installation",
+      "passed": true,
+      "registration": {
+        "scope": "https://noema.kevinpei.com/",
+        "active": "activated",
+        "waiting": null,
+        "installing": null,
+        "controlled": true,
+        "cacheNames": [
+          "noema-df8303a6-4d02-4bdf-b475-3746794b52b4-precache-v2-https://noema.kevinpei.com/"
+        ]
+      }
+    },
+    {
+      "check": "Authenticated snapshot saved",
+      "passed": true
+    },
+    {
+      "check": "Draft saved before offline reload",
+      "passed": true
+    },
+    {
+      "check": "Execution stopped",
+      "stage": "offline reload",
+      "error": "page.waitForFunction: Timeout 20000ms exceeded."
+    },
+    {
+      "path": "/",
+      "standalone": true,
+      "databases": [
+        {
+          "name": "noema-pwa",
+          "version": 1
+        }
+      ],
+      "cacheNames": [
+        "noema-df8303a6-4d02-4bdf-b475-3746794b52b4-precache-v2-https://noema.kevinpei.com/"
+      ],
+      "drafts": [],
+      "inputs": [
+        {
+          "length": 0,
+          "containsAuditDraft": false
+        }
+      ]
+    },
+    {
+      "check": "Offline send controls after drafting",
+      "buttons": [
+        {
+          "name": "Send message",
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "check": "Reconnect after offline draft loss",
+      "passed": false,
+      "observationLimitMs": 20000,
+      "reachable": {
+        "online": true,
+        "authHTTP": 200,
+        "authState": "authenticated",
+        "graphqlHTTP": 200,
+        "graphqlType": "QueryRoot",
+        "graphqlErrors": false
+      },
+      "draftPreserved": true
+    }
+  ],
+  "errors": [
+    {
+      "path": "/favicons/example.com",
+      "status": 404
+    },
+    {
+      "path": "/auth/status",
+      "failure": "net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "path": "/graphql",
+      "failure": "net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "path": "/favicons/example.com",
+      "failure": "net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "path": "/graphql",
+      "failure": "net::ERR_INTERNET_DISCONNECTED"
+    }
+  ],
+  "baseRevision": "78049bc7",
+  "command": "node /var/tmp/noema-suite-run-20260905/pwa-offline.mjs",
+  "defects": [
+    "AUDIT-17",
+    "AUDIT-18"
+  ],
+  "interpretation": [
+    "The real worker activated and saved a nonempty authenticated snapshot.",
+    "The exact synthetic draft was present in IndexedDB before offline reload.",
+    "Offline reload showed saved Chat content in visual inspection. The draft record was absent and the input stayed empty for 20 seconds.",
+    "After typing another offline draft, Send message remained disabled.",
+    "After connectivity returned, the app still showed offline after 20 seconds. Direct same-origin auth/status returned authenticated. A GraphQL read returned QueryRoot without errors.",
+    "The newly typed draft remained in the current input during the failed recovery.",
+    "The first draft-restoration assertion stopped the original sequence. The error handler then checked send controls and reconnect. Exit status zero does not mean these assertions passed."
+  ],
+  "remaining": [
+    "Physical installed-device behavior remains pending.",
+    "Approval blocking and absence of queued commands remain pending.",
+    "PWA-03 conflict reconciliation and stale-response exclusion remain unexecuted because basic reconnect did not complete.",
+    "The causes of draft loss and stalled recovery remain unresolved."
+  ]
+}
