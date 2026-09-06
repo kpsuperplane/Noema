@@ -16,7 +16,6 @@ No new acceptance pass is established by that report.
 The Go migration is merged into `main`. Local branch histories are preserved in `.git/archives/go-migration-branches-2026-09-06.bundle`.
 The seven authorized Go cleanup items are recorded in `docs/plans/2026-09-05-go-cleanup.md`. ORMs are permitted.
 One migration registry drives fresh creation and upgrades at version 36. Task model availability replaces the removed enable setting.
-`go run ./cmd/noema-dev` supervises Air and native web watchers without Cargo.
 Supporting flows share the approved card, avatar, and theme; see `docs/plans/2026-09-04-supporting-ui/implementation.md`.
 Core UI gallery changes are approved and implemented; see `docs/plans/2026-09-05-core-ui-audit/implementation.md`. Task fields save inline with draft protection. Compact title/close/tabs headers persist through execution. Settings expose model choices, and task dialogs reuse task cards.
 
