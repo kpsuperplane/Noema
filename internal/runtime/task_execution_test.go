@@ -1146,3 +1146,125 @@ func TestTaskReviewCorrectionUsesCurrentFiles(t *testing.T) {
 		t.Fatalf("corrected result = %q, %v", result, err)
 	}
 }
+
+func TestCancelledTaskKeepsLateMCPWriteUncertain(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	entered, release, remoteDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var remoteCalls atomic.Int32
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "audit", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "write", Description: "Write a synthetic audit value", Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: false, IdempotentHint: false, OpenWorldHint: runtimeBool(true)}},
+		func(_ context.Context, _ *mcpsdk.CallToolRequest, args struct {
+			Value string `json:"value"`
+		}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			if args.Value != "café 日本語" {
+				t.Errorf("remote arguments changed: %q", args.Value)
+			}
+			remoteCalls.Add(1)
+			close(entered)
+			<-release
+			close(remoteDone)
+			return nil, map[string]any{"written": args.Value}, nil
+		})
+	server := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(server.Close)
+	paths, _ := home.FromRoot(chat.home.Name())
+	service, err := noemamcp.NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(service.Close)
+	setup, err := service.Create(t.Context(), noemamcp.SetupInput{DisplayName: "Cancellation audit", TransportKind: "streamable_http", URL: server.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("MCP setup = %#v, %v", setup, err)
+	}
+	if _, err = service.SaveConnectionPolicy(t.Context(), setup.Server.ID, setup.Server.ConnectionRevision, 0, "allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := service.Bindings(t.Context())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("bindings = %#v, %v", bindings, err)
+	}
+	binding := bindings[0]
+	task := createQueuedRuntimeTask(t, database, chat.home, "Write the audit value once.")
+	_, planner, found, err := database.ClaimTaskExecution(t.Context(), time.Now())
+	if err != nil || !found {
+		t.Fatalf("Planner claim = %t, %v", found, err)
+	}
+	if err = database.StartTaskExecution(t.Context(), planner.ID, planner.Generation, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.FinishTaskPlanning(t.Context(), planner.ID, planner.Generation, "simple", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	task, run, found, err := database.ClaimTaskExecution(t.Context(), time.Now())
+	if err != nil || !found {
+		t.Fatalf("Executor claim = %t, %v", found, err)
+	}
+	if err = database.StartTaskExecution(t.Context(), run.ID, run.Generation, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	args := json.RawMessage(`{"value":"café 日本語"}`)
+	if err = database.AppendTaskRunItems(t.Context(), run.ID, run.Generation, []store.TaskRunItemInput{{Kind: "tool_call", Status: "running", Payload: map[string]any{"name": binding.Name, "arguments": map[string]any{"value": "café 日本語"}}}}, store.TaskRunUsage{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(t.Context(), run.ID)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("call items = %#v, %v", items, err)
+	}
+	call := items[len(items)-1]
+	action, err := database.CreateActionRequest(t.Context(), store.NewActionRequest{TaskID: task.ID, RunID: run.ID, RunItemID: call.ID, TaskGeneration: run.Generation, OwnerHumanID: "human:local", RequestingAgentID: run.AgentID, CapabilityName: binding.Name, OperationToken: binding.Name, ReviewRoute: store.ActionHumanReview, Behavior: binding.Behavior, Arguments: args, InputSchema: binding.InputSchema, AuthorizationContext: map[string]any{"mcp_binding": binding}, SafeSummary: "Write the synthetic audit value"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err = database.DecideActionRequest(t.Context(), action.ID, action.Revision, "human:local", "approve", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &TaskExecution{database: database, mcp: service, root: chat.home}
+	t.Cleanup(unblock)
+	finished := make(chan error, 1)
+	go func() {
+		_, _, _, err := runtime.executeTaskMCPAction(t.Context(), task, run, call, action)
+		finished <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("remote write did not start")
+	}
+	current, err := database.Task(t.Context(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := database.CancelTask(t.Context(), task.ID, current.Revision, current.Generation, "Stop", runtimeTaskCommand("cancel_task", "late-mcp"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	unblock()
+	select {
+	case <-remoteDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("remote write did not finish")
+	}
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Fatal("late remote success was accepted")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runtime did not finish")
+	}
+	stored, err := database.ActionRequest(t.Context(), action.ID, action.Revision)
+	if err != nil || stored.State != store.ActionOutcomeUncertain || stored.FailureCode != "outcome_uncertain" || stored.Arguments["value"] != "café 日本語" {
+		t.Fatalf("late remote outcome = %#v, %v", stored, err)
+	}
+	current, err = database.Task(t.Context(), task.ID)
+	if err != nil || current.StageKey != "cancelled" || current.Generation != cancelled.Task.Generation || current.CompletedAt != nil {
+		t.Fatalf("late call changed Task = %#v, %v", current, err)
+	}
+	if remoteCalls.Load() != 1 {
+		t.Fatalf("remote calls = %d", remoteCalls.Load())
+	}
+}

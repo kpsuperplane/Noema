@@ -572,7 +572,18 @@ The exact action arguments remain intact, including Unicode text. Late success a
 Recovery preserves uncertainty. The Task remains cancelled with the accepted generation.
 The [validation record](evidence/2026-09-06-cancel-action-validation.json) records the regression and passing focused and broad Go checks.
 The fix adds 28 production lines and 72 test lines. No schema change was required.
-RUN-05 remains partial until a controlled external service verifies runtime cancellation and its displayed outcome.
+The controlled MCP check below verifies the late runtime result. Displayed outcome coverage remains pending.
+
+## Late MCP success after Task cancellation
+
+The [runtime test](../../internal/runtime/task_execution_test.go) uses a local HTTP MCP service and the production Task MCP execution path.
+The service receives one authorized write with exact Unicode arguments. It holds the response while the Task is cancelled.
+After cancellation, the service completes the synthetic write and returns success.
+The runtime cannot save that late success over the uncertain action outcome. The Task remains cancelled and has no completion timestamp.
+The action retains its exact arguments and outcome-uncertain failure code. The service receives only one call.
+The [validation record](evidence/2026-09-06-cancel-mcp-validation.json) records passing focused tests, broad Go tests, and vet.
+This test adds 122 lines. No production change was required.
+RUN-05 remains partial until the browser displays the uncertain outcome from a cancelled external action.
 
 ## Case results
 
@@ -648,7 +659,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | RUN-02 | Pass · live Codex/Chromium | Direct delegation preserves the request and completes with one Executor, one Reviewer, no Planner, and result 72. Optional enum conversion fixed. | — |
 | RUN-03 | Pass · controlled runtime | Rejected result remains incomplete. Correction receives current request, result, and review files. A second review approves the corrected result. | — |
 | RUN-04 | Not run | Controlled setup pending. | — |
-| RUN-05 | Partial | Cancellation covers queued, running, and waiting Tasks. Executing actions now retain uncertainty after cancellation. Controlled external-service and rendered checks remain pending. | — |
+| RUN-05 | Partial | Cancellation covers queued, running, and waiting Tasks. Executing actions now retain uncertainty after cancellation. A controlled MCP call preserves uncertainty after late success. Rendered outcome checks remain pending. | — |
 | RUN-06 | Not run | Controlled setup pending. | — |
 | RUN-07 | Not run | Controlled setup pending. | — |
 | RUN-08 | Not run | Controlled setup pending. | — |
