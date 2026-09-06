@@ -1,0 +1,167 @@
+diff --git a/internal/mcp/audit_lifecycle_test.go b/internal/mcp/audit_lifecycle_test.go
+new file mode 100644
+index 00000000..ccaa69d0
+--- /dev/null
++++ b/internal/mcp/audit_lifecycle_test.go
+@@ -0,0 +1,161 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++
++	"github.com/kpsuperplane/noema/internal/home"
++	"github.com/kpsuperplane/noema/internal/store"
++	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
++)
++
++func TestAuditMCPLifecycle(t *testing.T) {
++	paths, _ := home.FromRoot(t.TempDir())
++	db, err := store.Open(t.Context(), paths.Database())
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	service, err := NewService(paths, db, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer service.Close()
++	var calls atomic.Int64
++	remotes := make([]*mcpsdk.Server, 2)
++	hosts := make([]*httptest.Server, 2)
++	bindings := make([]Binding, 2)
++	add := func(remote *mcpsdk.Server, description string) {
++		mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "lookup", Description: description, Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: boolTestPointer(false), OpenWorldHint: boolTestPointer(true)}},
++			func(_ context.Context, _ *mcpsdk.CallToolRequest, input echoInput) (*mcpsdk.CallToolResult, echoOutput, error) {
++				calls.Add(1)
++				return nil, echoOutput{Text: input.Text}, nil
++			})
++	}
++	for i := range remotes {
++		remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "audit", Version: "1"}, nil)
++		remotes[i] = remote
++		add(remote, "Audit lookup")
++		host := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
++		hosts[i] = host
++		defer host.Close()
++		setup, err := service.Create(t.Context(), SetupInput{DisplayName: "Audit service", TransportKind: "streamable_http", URL: host.URL, AuthPreference: "USE_ANONYMOUS"})
++		if err != nil || setup.Server == nil || setup.Discovered != 1 {
++			t.Fatal("setup failed", err)
++		}
++		_, err = service.SaveConnectionPolicy(t.Context(), setup.Server.ID, setup.Server.ConnectionRevision, setup.Server.PolicyRevision, "allow_automatically", "always_ask")
++		if err != nil {
++			t.Fatal(err)
++		}
++		current, err := service.Bindings(t.Context())
++		if err != nil {
++			t.Fatal(err)
++		}
++		for _, b := range current {
++			if b.ServerID == setup.Server.ID {
++				bindings[i] = b
++			}
++		}
++		if bindings[i].Name == "" {
++			t.Fatal("missing discovered binding")
++		}
++	}
++	call := func(b Binding) {
++		t.Helper()
++		payload, ok, err := service.Call(t.Context(), b, json.RawMessage(`{"text":"MCP café 日本語"}`))
++		if err != nil || !ok || !strings.Contains(string(payload), "MCP café 日本語") {
++			t.Fatalf("call success=%t error=%v", ok, err)
++		}
++	}
++	reject := func(b Binding, input string) {
++		t.Helper()
++		before := calls.Load()
++		_, ok, err := service.Call(t.Context(), b, json.RawMessage(input))
++		if err == nil || ok || calls.Load() != before {
++			t.Fatal("rejected call executed")
++		}
++	}
++	refresh := func() Binding {
++		t.Helper()
++		b, err := service.Binding(t.Context(), bindings[0].Name)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return b
++	}
++	t.Run("discovery and exact result", func(t *testing.T) { call(bindings[0]); call(bindings[1]) })
++	t.Run("policy changes and input boundary", func(t *testing.T) {
++		b := bindings[0]
++		_, err := service.SaveToolBehavior(t.Context(), b.ServerID, b.ConnectionRevision, b.ToolID, b.SourceRevision, b.ToolPolicyRevision, [4]bool{false, false, true, true})
++		if err != nil {
++			t.Fatal(err)
++		}
++		reject(b, `{"text":"old"}`)
++		b = refresh()
++		if b.Behavior.ReadOnly || !b.Behavior.Destructive || b.ReviewRoute == "" {
++			t.Fatal("override did not change current policy")
++		}
++		reject(b, `{"text":42}`)
++		_, err = service.ResetToolPolicy(t.Context(), b.ServerID, b.ConnectionRevision, b.ToolID, b.SourceRevision, b.ToolPolicyRevision)
++		if err != nil {
++			t.Fatal(err)
++		}
++		reject(b, `{"text":"old"}`)
++		b = refresh()
++		if !b.Behavior.ReadOnly || b.Behavior.Destructive {
++			t.Fatal("reset did not restore source hints")
++		}
++		reject(b, `{"text":42}`)
++		call(b)
++		disabled, err := service.SetToolEnabled(t.Context(), b.ServerID, b.ConnectionRevision, b.ToolID, b.SourceRevision, b.ToolPolicyRevision, false)
++		if err != nil {
++			t.Fatal(err)
++		}
++		reject(b, `{"text":"disabled"}`)
++		_, err = service.SetToolEnabled(t.Context(), b.ServerID, b.ConnectionRevision, b.ToolID, b.SourceRevision, disabled.PolicyRevision, true)
++		if err != nil {
++			t.Fatal(err)
++		}
++		bindings[0] = refresh()
++		call(bindings[0])
++		call(bindings[1])
++	})
++	t.Run("changed remote metadata", func(t *testing.T) {
++		remotes[0].RemoveTools("lookup")
++		add(remotes[0], "Changed audit lookup")
++		reject(bindings[0], `{"text":"stale"}`)
++		call(bindings[1])
++	})
++	t.Run("deletion after restart", func(t *testing.T) {
++		deleted, err := service.Delete(t.Context(), bindings[0].ServerID)
++		if err != nil || !deleted {
++			t.Fatal("delete failed", err)
++		}
++		service.Close()
++		restarted, err := NewService(paths, db, false, nil)
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer restarted.Close()
++		service = restarted
++		reject(bindings[0], `{"text":"deleted"}`)
++		call(bindings[1])
++		servers, err := service.Servers(t.Context())
++		if err != nil || len(servers) != 1 || servers[0].ID != bindings[1].ServerID {
++			t.Fatal("deleted server returned", err)
++		}
++	})
++	t.Run("remote disconnect", func(t *testing.T) {
++		hosts[1].Close()
++		reject(bindings[1], `{"text":"offline"}`)
++		server, err := service.Server(t.Context(), bindings[1].ServerID)
++		if err != nil || server.HealthStatus == "healthy" {
++			t.Fatal("disconnected server remains healthy", err)
++		}
++	})
++}

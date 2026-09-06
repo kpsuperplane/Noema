@@ -835,6 +835,19 @@ API-12 passes this controlled service check. Browser presentation and production
 Evidence: [results](evidence/2026-09-06-api-outcomes-results.json) and [reproduction patch](evidence/2026-09-06-api-outcomes-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## MCP discovery, policy, and deletion
+
+Two controlled HTTP services used the production MCP service and real SQLite.
+Both returned exact Unicode content through their own discovered bindings.
+Policy override, reset, disable, and enable rejected old authority where required.
+Read and review-required bindings rejected wrong-type input before remote execution.
+Changed remote metadata blocked execution without affecting the other service.
+Deletion survived service reconstruction. The deleted binding failed while the other service remained usable.
+A disconnected service rejected calls and became unhealthy.
+Browser presentation, complete review execution, invalid results, and pending authentication removal remain pending.
+Evidence: [results](evidence/2026-09-06-mcp-lifecycle-results.json) and [reproduction patch](evidence/2026-09-06-mcp-lifecycle-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -982,13 +995,13 @@ A human variant remains pending even when its controlled counterpart passes.
 | API-13 | Pass · controlled TLS service | Rename, disable, enable, and delete pass. Deletion survives service restart. The shared grant and neighboring API remain intact. | — |
 | API-14 | Fail · controlled TLS service | Shared-grant revocation stops dependent access. AUDIT-06: application deletion remains blocked after grant revocation. | — |
 | API-15 | Partial | Application replacement rejects older OAuth attempts before token exchange. Restart, retained identity, and changed-approval checks remain pending. | — |
-| MCP-01 | Not run | Controlled setup pending. | — |
+| MCP-01 | Partial | Two controlled HTTP services discover tools and return exact Unicode under their own bindings. Browser result association remains pending. | — |
 | MCP-02 | Not run | Controlled setup pending. | Not run |
-| MCP-03 | Not run | Controlled setup pending. | — |
-| MCP-04 | Not run | Controlled setup pending. | — |
-| MCP-05 | Not run | Controlled setup pending. | — |
+| MCP-03 | Pass · controlled HTTP service | Changed remote metadata rejects saved authority before execution. The other service remains usable. | — |
+| MCP-04 | Partial | Override, reset, disable, and enable enforce current authority. Wrong-type input fails for read and review-required bindings. Full review execution remains pending. | — |
+| MCP-05 | Partial | Disconnect rejects the call and marks the service unhealthy. Invalid results and browser errors remain pending. | — |
 | MCP-06 | Not run | Controlled setup pending. | — |
-| MCP-07 | Not run | Controlled setup pending. | — |
+| MCP-07 | Partial | Deletion survives service reconstruction and rejects saved calls. The other service remains usable. Pending authentication removal remains pending. | — |
 | ACP-01 | Not run | Controlled setup pending. | Not run |
 | ACP-02 | Not run | Controlled setup pending. | — |
 | ACP-03 | Not run | Controlled setup pending. | — |
