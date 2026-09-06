@@ -1173,14 +1173,14 @@ A human variant remains pending even when its controlled counterpart passes.
 | MEM-11 | Not run | Controlled setup pending. | — |
 | MEM-12 | Not run | Controlled setup pending. | — |
 | ACTION-01 | Not run | Controlled setup pending. | — |
-| ACTION-02 | Not run | Controlled setup pending. | — |
-| ACTION-03 | Not run | Controlled setup pending. | — |
+| ACTION-02 | Partial · existing store checks | Stale approval revisions and second execution claims are rejected. Concurrent-client approval remains pending. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
+| ACTION-03 | Partial · controlled Chat runtime | Structured decline changes the saved action state and supplies the matching failed tool result to Chat continuation. Task continuation remains pending. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
 | ACTION-04 | Not run | Controlled setup pending. | — |
-| ACTION-05 | Not run | Controlled setup pending. | — |
-| ACTION-06 | Not run | Controlled setup pending. | — |
-| ACTION-07 | Not run | Controlled setup pending. | — |
+| ACTION-05 | Partial · existing runtime checks | A reviewed MCP authentication pause retains its action association across Chat worker replacement. Skip then finishes the action without another primary tool call. Full process restart and successful authentication remain pending. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
+| ACTION-06 | Partial · controlled TLS service | The booking fixture preserves one write after a lost response and returns exact receipts through explicit reads. Full model reconciliation remains pending. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
+| ACTION-07 | Pass · controlled Chat runtime | Provider failure and invalid typed review output each preserve one exact request awaiting human approval. Execution claims fail until a structured decision. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
 | ACTION-08 | Not run | Controlled setup pending. | — |
-| ACTION-09 | Not run | Controlled setup pending. | — |
+| ACTION-09 | Pass · controlled Chat runtime | The ambiguous reply “Yes, go ahead.” cannot consume the saved approval or permit an execution claim. The action remains awaiting approval until its structured decision. [Evidence and reused checks](evidence/2026-09-06-action-human-boundary-results.json), [reproduction](evidence/2026-09-06-action-human-boundary-reproduction.patch). | — |
 | INFO-01 | Not run | Controlled setup pending. | — |
 | INFO-02 | Not run | Controlled setup pending. | — |
 | INFO-03 | Not run | Controlled setup pending. | — |
