@@ -142,17 +142,17 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | API-04 | Partial | Both synthetic accounts return their own records. Current labels identify model tools. OAuth attachment replies retain grant metadata. Write and identity-discovery variants remain pending. | Not run |
 | API-05 | Partial | Denied, expired, failed, and superseded callbacks expose no grant or tools. Fresh attempts recover. Browser cancellation and next actions remain pending. | Not run |
 | API-06 | Partial | Late attempt lookup and subscription recover the exact completed grant. Browser background and foreground resumption remain pending. | Not run |
-| API-07 | Fail · controlled TLS service | Partial consent preserves access limits. AUDIT-07: full consent does not expose the newly granted operation on the existing connection. | Not run |
+| API-07 | Pass · controlled OAuth | Partial consent retains one operation. Expanded consent exposes both operations on the same connection. [Checks](evidence/2026-09-06-oauth-fixes.json). | Not run |
 | API-08 | Pass · controlled HTTPS | Sequential browser-routed calls and concurrent production adapter calls refresh the shared token once and preserve the selected account. Real consent remains pending. | Not run |
 | API-09 | Pass · controlled TLS service | Empty arrays, two exact Unicode pages, and failed next-page retry pass. Query bounds remain enforced. | — |
 | API-10 | Partial | Changed arguments, another operation, and consumed continuation fail before HTTP. Cross-account checks remain pending. | — |
 | API-11 | Pass · controlled TLS service | Malformed JSON, wrong-type items, and oversized output fail without bypassing the reviewed schema. | — |
 | API-12 | Pass · controlled TLS service | Safe read disconnect retries once. HTTP 429 stays failed. A received write stays uncertain without automatic repetition. | Not run |
 | API-13 | Pass · controlled TLS service | Rename, disable, enable, and delete pass. Deletion survives service restart. The shared grant and neighboring API remain intact. | — |
-| API-14 | Fail · controlled TLS service | Shared-grant revocation stops dependent access. AUDIT-06: application deletion remains blocked after grant revocation. | — |
+| API-14 | Pass · controlled OAuth | Revocation stops shared access. The disconnected application can then be deleted. [Checks](evidence/2026-09-06-oauth-fixes.json). | — |
 | API-15 | Partial | Application replacement rejects older OAuth attempts before token exchange. Restart, retained identity, and changed-approval checks remain pending. | — |
 | MCP-01 | Partial | Two controlled HTTP services discover tools and return exact Unicode under their own bindings. Browser result association remains pending. | — |
-| MCP-02 | Fail · controlled HTTP service | Completion, replay rejection, and cancellation pass. AUDIT-08: renewal loses the registered OAuth client. Browser next actions and pending-call resumption remain pending. | Not run |
+| MCP-02 | Partial · controlled OAuth | Renewal keeps the registered client when dynamic registration is unavailable. Callback, replay, and cancellation checks pass. Browser next actions and pending-call resumption remain. [Checks](evidence/2026-09-06-oauth-fixes.json). | Not run |
 | MCP-03 | Pass · controlled HTTP service | Changed remote metadata rejects saved authority before execution. The other service remains usable. | — |
 | MCP-04 | Partial | Override, reset, disable, and enable enforce current authority. Wrong-type input fails for read and review-required bindings. Full review execution remains pending. | — |
 | MCP-05 | Partial | Disconnect rejects the call and marks the service unhealthy. Invalid results and browser errors remain pending. | — |

@@ -63,6 +63,17 @@ func (s *Service) StartOAuthReauthentication(ctx context.Context, owner, serverI
 	input := SetupInput{DisplayName: server.DisplayName, TransportKind: server.TransportKind,
 		DefinitionID: server.DefinitionID, DefinitionRevision: server.DefinitionRevision}
 	_ = jsonUnmarshalSafe(server.SafeConfig, &input)
+	if server.SecretRevision != "" {
+		saved, err := s.secrets.loadConnection(serverID)
+		if err != nil {
+			return OAuthAttempt{}, errors.New("MCP credentials are unavailable")
+		}
+		input.Secrets.Client = saved.Client
+		if input.Secrets.Client == nil && saved.OAuth != nil && saved.OAuth.ClientID != "" {
+			input.Secrets.Client = &OAuthClient{ClientID: saved.OAuth.ClientID, ClientSecret: saved.OAuth.ClientSecret}
+		}
+	}
+
 	return s.startOAuth(ctx, owner, input, definition, serverID, redirect)
 }
 

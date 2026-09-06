@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -234,7 +235,7 @@ func (s *Service) DeleteOAuthApplication(id string, revision int) (bool, error) 
 		return false, err
 	}
 	for _, grant := range snapshot.Grants {
-		if grant.ApplicationID == id {
+		if grant.ApplicationID == id && grant.Status != "revoked" {
 			return false, errors.New("adapter OAuth application is in use")
 		}
 	}
@@ -793,7 +794,15 @@ func (s *Service) AttachOAuthConnection(ctx context.Context, digest, grantID str
 			}
 		}
 		if connection.ConnectionID != "" {
-			return definition, connection, nil
+			if !slices.Equal(connection.AllowedOperations, allowed) {
+				connection.AllowedOperations = allowed
+				connection.ConnectionRevision++
+				connection, err = s.files.replaceConnection(connection)
+				if err == nil {
+					err = s.reconcile(ctx)
+				}
+			}
+			return definition, connection, err
 		}
 		id := randomHex()
 		connection = Connection{SchemaVersion: 2, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "oauth_grant", GrantID: grantID}}

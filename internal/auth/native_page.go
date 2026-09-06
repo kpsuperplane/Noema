@@ -3,13 +3,18 @@ package auth
 import (
 	"github.com/kpsuperplane/noema/internal/publicpage"
 	"net/http"
+	"net/url"
 )
 
 func writeConsentPage(w http.ResponseWriter, request authorizationRequest, csrf string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if request.ios {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' noema:")
+	callback, _ := url.Parse(request.redirect)
+	target := "noema:"
+	if !request.ios {
+		target = callback.Scheme + "://" + callback.Host
 	}
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' "+target)
+
 	publicpage.Write(w, http.StatusOK, publicpage.Page{
 		Title:      "Connect " + displayName(request.clientID) + "?",
 		Intro:      "Give this app access to your Noema.",

@@ -568,7 +568,7 @@ func exactConnectionEntries(root *os.Root) error {
 }
 
 func (f *fileAuthority) quarantine(kind, id string) error {
-	if kind != "definitions" && kind != "connections" {
+	if kind != "definitions" && kind != "connections" && kind != "oauth-applications" {
 		return errors.New("adapter quarantine kind is invalid")
 	}
 	if err := f.root.Rename("adapters/"+kind+"/"+id, "adapters/quarantine/"+kind+"/"+id+"-"+randomHex()); err != nil {
