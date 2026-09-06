@@ -43,17 +43,17 @@ The [fix backlog](go-server-user-verification-fix-backlog.md) tracks defects and
 | CHAT-01 | Pass · live Codex/Chromium | One exact human message and one assistant response remain in order after reload. Other providers remain pending. | — |
 | CHAT-02 | Partial · live Codex | Eight tool calls have eight matching successful results. The final answer matches stored Project and Task state. Other providers remain pending. [Evidence](evidence/2026-09-05-chat-task-project-results.json). | — |
 | CHAT-03 | Pass · live Codex/Chromium | Dropped text and tool-result events recover after socket closure. Saved text and call/result pairs remain exact without duplicates after reload. | — |
-| CHAT-04 | Not run | Controlled setup pending. | — |
+| CHAT-04 | Partial · controlled runtime | Turn serialization, durable recovery, reviewed authentication recovery, and cancellation pass. Browser restart during an active rendered turn remains pending. [Evidence](evidence/2026-09-06-chat-resilience-results.json). | — |
 | CHAT-05 | Pass · live Codex/Chromium | Browser history loads during a new response. Forty adjacent items retain exact content and order without gaps or duplicates, including after reload. | — |
 | CHAT-06 | Partial · live Chromium | Unicode, emoji, paragraphs, code, lists, and links survive reload and a second browser read. Native clients remain pending. | — |
-| CHAT-07 | Not run | Controlled setup pending. | — |
+| CHAT-07 | Partial · controlled runtime | Compaction preserves current instructions and recent tool context, then disables tools for summary. Long rendered conversation remains pending. [Evidence](evidence/2026-09-06-chat-resilience-results.json). | — |
 | CHAT-08 | Pass · live Codex | The explicit foreground request returns its exact response in Chat and creates no Task. Other provider variants remain pending. | — |
 | CHAT-09 | Pass · live Codex/Chromium | The choice displays without blocking the composer. Selecting Beta sends one normal user message, the assistant replies in the next turn, reload preserves the selection, and a stale second selection is rejected. [Controlled checks](evidence/2026-09-06-choice-simplification.json), [live evidence](evidence/2026-09-06-chat-choice-live-results.json). | — |
 | CHAT-10 | Pass · live Codex/Chromium | Another browser cannot resubmit an answered prompt. The original selection and turn remain unchanged. [Evidence](evidence/2026-09-05-chat-choice-browser-results.json). | — |
 | CHAT-11 | Pass · live Codex/Chromium | All nine catalog components render. Keyboard and pointer submissions preserve exact bound values. One action resumes the correct turn and survives reload. | — |
 | CHAT-12 | Pass · live Codex/Chromium | Unsupported components and active HTML create no surface. Forged context and stale actions are rejected. Chat remains usable. | — |
 | CHAT-13 | Not run | Controlled setup pending. | — |
-| CHAT-14 | Not run | Controlled setup pending. | — |
+| CHAT-14 | Partial · controlled runtime | Provider failure, replay-limit finalization, and empty output produce bounded durable outcomes. Rendered recovery remains pending. [Evidence](evidence/2026-09-06-chat-resilience-results.json). | — |
 | CHAT-15 | Pass · live Codex/Chromium | A repeated title creates a distinct requested Task with fresh tool evidence. The older Task remains unchanged. The new Chat reference opens the new document. | — |
 | MODEL-01 | Partial · controlled providers | Text, tool generation, Chat continuation, and Task role lineage pass against controlled OpenAI, OpenRouter, and Codex HTTP fixtures. Rendered and real-provider variants remain pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |
 | MODEL-02 | Partial · controlled providers | Hosted search metadata and citation normalization pass. Rendered Sources and real-provider variants remain pending. [Evidence](evidence/2026-09-06-model-provider-results.json). | — |

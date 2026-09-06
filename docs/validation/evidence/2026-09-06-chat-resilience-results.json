@@ -1,0 +1,37 @@
+{
+  "commit": "6ef31b02",
+  "date": "2026-09-06",
+  "environment": "Linux x86_64; controlled provider fixtures; Chat and store unit authorities",
+  "command": "CGO_ENABLED=0 go test -count=1 ./internal/runtime ./internal/store",
+  "result": "passed",
+  "cases": {
+    "CHAT-04": {
+      "tests": [
+        "TestConversationTurnSerializesAndRecovers",
+        "TestReviewedMCPAuthenticationSurvivesRestartAndCompletesAction",
+        "TestChatCloseCancelsActiveProviderAndRejectsNewTurns"
+      ],
+      "scope": "Turn serialization, durable recovery, reviewed authentication recovery, and cancellation."
+    },
+    "CHAT-07": {
+      "tests": [
+        "TestPrepareModelContextCompactsOnceAndDisablesTools",
+        "TestPrepareModelContextRejectsHardOverflowWithoutHistory",
+        "TestTaskInspectFinalizationCompactsReplay"
+      ],
+      "scope": "Compaction preserves current instructions and recent tool context, then disables tools for summary."
+    },
+    "CHAT-14": {
+      "tests": [
+        "TestChatPersistsProviderFailureAndRejectsInvalidTimezone",
+        "TestChatFinalizesRejectedTaskInspectReplay",
+        "TestChatClosesTurnWhenProviderReturnsWhitespace"
+      ],
+      "scope": "Provider failure, replay-limit finalization, and empty output produce bounded durable outcomes."
+    }
+  },
+  "limits": [
+    "This is controlled backend evidence. Rendered Chat recovery and multiple queued interventions remain pending.",
+    "CHAT-04 browser restart during an active rendered turn remains pending."
+  ]
+}
