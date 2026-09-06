@@ -706,6 +706,7 @@ Keep human-only cases marked for later testing.
 | AUDIT-16 | CLIENT-03 | A second active web client retains the old search provider after save. Reload shows the current setting. | Client setting refresh | [Result](evidence/2026-09-06-cross-client-setting-results.json), [driver](evidence/2026-09-06-cross-client-setting.mjs) |
 | AUDIT-17 | PWA-01, PWA-02 | A confirmed saved Chat draft disappears after navigation and offline reload in emulated installed mode. | PWA draft storage | [Navigation](evidence/2026-09-06-pwa-navigation-draft-results.json), [offline reload](evidence/2026-09-06-pwa-offline-results.json) |
 | AUDIT-18 | PWA-03 | Reconnect retains offline status despite authenticated HTTP and GraphQL access in emulated installed mode. | PWA recovery | [Result](evidence/2026-09-06-pwa-offline-results.json), [driver](evidence/2026-09-06-pwa-offline.mjs) |
+| AUDIT-19 | OPS-01, NATIVE-02 | Native Desktop consent cancellation is blocked by form-action policy. The loopback callback receives nothing at desktop and phone widths. | Native consent policy | [Result](evidence/2026-09-06-public-pages-results.json), [driver](evidence/2026-09-06-public-pages.mjs) |
 
 The reproduction patch contains a focused failing test. It is outside the normal test suite until the fix batch starts.
 Clarification and approval context delivery fails under AUDIT-03. Missing browser gate controls are recorded under AUDIT-05.
@@ -1270,7 +1271,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | PWA-06 | Pass · controlled quota failure | Failed IndexedDB writes preserve the exact prior snapshot and active release. Offline Memory reads work. Server Memory stays unchanged. Release-download failure remains untested. [Evidence](evidence/2026-09-06-pwa-quota-results.json). | Not run |
 | PWA-07 | Pass · controlled installed browser | Supported erasure removes the snapshot, seeded draft, and localStorage, then requires login. The original session reads unchanged server Memory. Natural draft restoration remains affected by AUDIT-17. [Evidence](evidence/2026-09-06-pwa-auth-erase-results.json). | Not run |
 | NATIVE-01 | Partial | Desktop and iOS authorization requests validate. Consent resumes after passkey authentication and returns the expected state. Connection-link parsing and native browser return remain pending. [Evidence](evidence/2026-09-06-native-oauth-coverage.json). | Not run |
-| NATIVE-02 | Partial | Invalid return targets, malformed PKCE, wrong verifier, reused consent, and foreign consent origins fail. Cancellation returns access_denied. Expiry boundary and reuse deny access; a fresh authorization succeeds. Native retry UI remains pending. [Expiry evidence](evidence/2026-09-06-native-expiry-results.json). [Evidence](evidence/2026-09-06-native-oauth-coverage.json). | Not run |
+| NATIVE-02 | Fail · live Desktop consent | Invalid return targets, malformed PKCE, wrong verifier, reused consent, and foreign consent origins fail. Cancellation returns access_denied. Expiry boundary and reuse deny access; a fresh authorization succeeds. Native retry UI remains pending. [Expiry evidence](evidence/2026-09-06-native-expiry-results.json). [Evidence](evidence/2026-09-06-native-oauth-coverage.json). AUDIT-19: Not now fails to reach the Desktop callback because of browser form-action policy. [Browser evidence](evidence/2026-09-06-public-pages-results.json). | Not run |
 | NATIVE-03 | Partial | Concurrent saved-request retries return the same credentials after auth-service reconstruction. Mismatched retries revoke access. Legacy retry passes at 60 seconds and fails at 61 seconds. Native protected-storage recovery remains pending. [Evidence](evidence/2026-09-06-native-oauth-coverage.json). | Not run |
 | NATIVE-04 | Not applicable | Physical device journey. | Not run |
 | NATIVE-05 | Not run | Controlled setup pending. | Not run |
@@ -1285,7 +1286,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | UX-05 | Not run | Controlled setup pending. | — |
 | DIAG-01 | Not run | Controlled setup pending. | — |
 | DIAG-02 | Not run | Controlled setup pending. | — |
-| OPS-01 | Not run | Controlled setup pending. | — |
+| OPS-01 | Fail · live browser | Public callback errors render without JavaScript and preserve signed-out access denial. AUDIT-19: native Desktop cancellation is blocked by form-action policy at both widths. [Evidence](evidence/2026-09-06-public-pages-results.json). | — |
 | OPS-02 | Partial · controlled boundaries | Defaults disable all three paths. Disabled GraphiQL and MCP launches are denied. Forged local headers cannot bypass public authentication. Full application startup remains untested. [Evidence](evidence/2026-09-06-optional-access-results.json). | — |
 | OPS-03 | Partial · controlled boundaries | Flags enable independently. Existing checks verify GraphiQL policy, private Unix access and cleanup, and bounded stdio invocation. Combined application startup remains untested. [Evidence](evidence/2026-09-06-optional-access-results.json). | — |
 | JOURNEY-01 | Not run | Controlled setup pending. | Not run |
