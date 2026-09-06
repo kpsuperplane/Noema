@@ -98,6 +98,8 @@ func definitionHelp() map[string]any {
 			"Use language lua for transforms. Each source must return a function.",
 			"Credential field input accepts kind and fields only. Document input also requires media_type and normalize.",
 			"Request authentication reads input.credentials. Never include credential values in a proposal or Chat.",
+			"OAuth authentication uses only kind and profile_digest from oauth_profiles. Do not add profile_id, scopes, setup, or request_auth.",
+			"For OAuth, upsert each operation with authorization.kind oauth_scopes and accepted_scope_sets. Retain its other fields from the revision template.",
 			"Reuse this template when correcting a proposal.",
 		},
 		"proposal_template": json.RawMessage(`{
@@ -127,6 +129,8 @@ func definitionHelp() map[string]any {
 				"input":{"kind":"fields","fields":[{"id":"api_key","label":"API key"}]}},
 			"request_auth":{"language":"lua","source":"return function(input) return {headers={['X-API-Key']=input.credentials.api_key}} end"}
 		}`),
+		"oauth_authentication_example":          json.RawMessage(`{"kind":"oauth2_authorization_code_pkce","profile_digest":"0000000000000000000000000000000000000000000000000000000000000000"}`),
+		"oauth_operation_authorization_example": json.RawMessage(`{"kind":"oauth_scopes","accepted_scope_sets":[["scope.read"]]}`),
 		"flat_object_response_example": json.RawMessage(`{
 			"kind":"flat_object","fields":[{"name":"id","source_pointer":"/id","type":"string","max_bytes":256,"required":true}]
 		}`),

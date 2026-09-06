@@ -216,3 +216,18 @@ Live turn `turn:78ad661cb42d75d9cd7ef5dd0e2efc9f` reread `a-msg-007` through the
 Tool result cursor 1639 reports `bodyAvailable: true`, complete attachment metadata, and the expected encoded email text.
 The final answer correctly states the email text and retains the previously read packing items.
 The attachment was not fetched again in this turn; its earlier evidence remains the source for those items.
+
+### OAuth proposal guidance
+
+The operator imported the reviewed synthetic profile and protected client document through the normal GraphQL mutation.
+Application `7517841c3140fc596e5e6dede3691ed9` has revision 1.
+Profile digest: `05f9d5768ed12fa7c935fda810cb5fb54da06ae0ca58f5b99054f6ee6ec5d071`.
+Only the synthetic endpoints are selected. The client secret stayed outside Chat and command output.
+
+Turn `turn:d9c9de5cf271a2fce7bf7c8cf5f52eb2` read the documentation but proposed unsupported OAuth fields twice.
+Both attempts failed before review. The model incorrectly described this as a validator defect.
+The help lacked OAuth examples. It now shows the exact authentication and per-operation scope shapes.
+The existing example compilation test checks both shapes together. No validation rules were relaxed.
+Focused adapter tests, full Go tests, and full Go vet pass for this four-line production and ten-line test patch.
+Retry turn `turn:34ae33cd73cf937ca2cff78dd04c6931` is still preparing the proposal through the updated tool help.
+Follow that turn before submitting another request. No OAuth acceptance pass is claimed.

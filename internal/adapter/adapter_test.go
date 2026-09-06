@@ -112,6 +112,16 @@ func TestDefinitionHelpExamplesCompile(t *testing.T) {
 			}
 		})
 	}
+	manifest.Authentication = Authentication{}
+	if err := decodeExactJSON(help["oauth_authentication_example"].(json.RawMessage), &manifest.Authentication); err != nil {
+		t.Fatal(err)
+	}
+	if err := decodeExactJSON(help["oauth_operation_authorization_example"].(json.RawMessage), &manifest.Operations[0].Authorization); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Compile(manifest); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func testCredentialAuthentication() Authentication {
