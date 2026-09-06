@@ -848,6 +848,17 @@ Browser presentation, complete review execution, invalid results, and pending au
 Evidence: [results](evidence/2026-09-06-mcp-lifecycle-results.json) and [reproduction patch](evidence/2026-09-06-mcp-lifecycle-reproduction.patch).
 The temporary test is outside the normal suite. No production code changed.
 
+## MCP process access and environment
+
+Disabled stdio setup started no process and saved no server.
+Enabled setup discovered and invoked the configured controlled process.
+The child received exact ordinary Unicode values and its explicit protected credential binding.
+The child did not inherit a parent-only environment variable.
+Safe server metadata excluded the credential value and preserved ordinary Unicode.
+The credential file used mode `0600` on Linux.
+Evidence: [results](evidence/2026-09-06-mcp-stdio-results.json) and [reproduction patch](evidence/2026-09-06-mcp-stdio-reproduction.patch).
+The temporary test is outside the normal suite. No production code changed.
+
 ## Case results
 
 **Partial** means that evidence covers only the named portion.
@@ -1000,7 +1011,7 @@ A human variant remains pending even when its controlled counterpart passes.
 | MCP-03 | Pass · controlled HTTP service | Changed remote metadata rejects saved authority before execution. The other service remains usable. | — |
 | MCP-04 | Partial | Override, reset, disable, and enable enforce current authority. Wrong-type input fails for read and review-required bindings. Full review execution remains pending. | — |
 | MCP-05 | Partial | Disconnect rejects the call and marks the service unhealthy. Invalid results and browser errors remain pending. | — |
-| MCP-06 | Not run | Controlled setup pending. | — |
+| MCP-06 | Pass · controlled Linux process | Disabled setup starts no process. Enabled setup calls the configured service with explicit environment bindings and protected credentials. Parent-only values stay absent. | — |
 | MCP-07 | Partial | Deletion survives service reconstruction and rejects saved calls. The other service remains usable. Pending authentication removal remains pending. | — |
 | ACP-01 | Not run | Controlled setup pending. | Not run |
 | ACP-02 | Not run | Controlled setup pending. | — |
