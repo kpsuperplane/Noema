@@ -43,8 +43,65 @@ type Recovery struct {
 	disabled bool
 }
 
+// RecoveryErrorKind identifies the recovery-code state that prevented an
+// attempt from completing.
+type RecoveryErrorKind string
+
+const (
+	RecoveryMissingField   RecoveryErrorKind = "missing_field"
+	RecoveryMalformedField RecoveryErrorKind = "malformed_field"
+	RecoveryRead           RecoveryErrorKind = "read"
+	RecoveryRandom         RecoveryErrorKind = "random"
+	RecoveryVerification   RecoveryErrorKind = "verification"
+	RecoveryUnavailable    RecoveryErrorKind = "unavailable"
+)
+
+// RecoveryError preserves the recovery authority's failure category while
+// keeping the underlying filesystem failure available to callers.
+type RecoveryError struct {
+	Kind  RecoveryErrorKind
+	Cause error
+}
+
+func (e *RecoveryError) Error() string {
+	switch e.Kind {
+	case RecoveryMissingField:
+		return "web.recovery_code is missing"
+	case RecoveryMalformedField:
+		return "web.recovery_code must be canonical unpadded base64url for exactly 32 bytes"
+	case RecoveryRead:
+		return "failed to read recovery configuration"
+	case RecoveryRandom:
+		return "failed to generate a recovery code"
+	case RecoveryVerification:
+		return "failed to verify the committed recovery code"
+	case RecoveryUnavailable:
+		return "recovery is unavailable until Noema restarts"
+	default:
+		return "recovery failed"
+	}
+}
+
+func (e *RecoveryError) Unwrap() error { return e.Cause }
+
+// NewRecovery opens the recovery-code authority for an already loaded host
+// configuration. It does not read or rewrite the configuration file.
+func NewRecovery(paths home.Paths) *Recovery {
+	return &Recovery{path: paths.Config()}
+}
+
 // LoadConfig loads public settings and ensures one protected recovery code.
 func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, error) {
+	return loadConfig(paths, listenAddress, true)
+}
+
+// LoadWebConfig loads public settings without changing a first-run config
+// document. The recovery authority can be opened against the same path.
+func LoadWebConfig(paths home.Paths, listenAddress string) (Config, *Recovery, error) {
+	return loadConfig(paths, listenAddress, false)
+}
+
+func loadConfig(paths home.Paths, listenAddress string, ensureRecovery bool) (Config, *Recovery, error) {
 	document, err := readConfigDocument(paths.Config())
 	if err != nil {
 		return Config{}, nil, err
@@ -84,7 +141,7 @@ func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, erro
 	}
 	recoveryValue, recoveryExists := web["recovery_code"]
 	recoveryCode, recoveryIsString := recoveryValue.(string)
-	if !recoveryExists {
+	if !recoveryExists && ensureRecovery {
 		recoveryCode, err = randomBase64URL(32)
 		if err != nil {
 			return Config{}, nil, err
@@ -93,8 +150,8 @@ func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, erro
 		if err := writeConfigDocument(paths.Config(), document); err != nil {
 			return Config{}, nil, fmt.Errorf("store recovery code: %w", err)
 		}
-	} else if !recoveryIsString || !validRecoveryCode(recoveryCode) {
-		return Config{}, nil, errors.New("web.recovery_code must be canonical base64url for 32 bytes")
+	} else if recoveryExists && (!recoveryIsString || !validRecoveryCode(recoveryCode)) {
+		return Config{}, nil, &RecoveryError{Kind: RecoveryMalformedField}
 	}
 
 	host, err := configString(web, "host", "127.0.0.1", false)
@@ -208,22 +265,26 @@ func (r *Recovery) Attempt(candidate string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.disabled {
-		return false, errors.New("recovery is unavailable until restart")
+		return false, &RecoveryError{Kind: RecoveryUnavailable}
+	}
+	if _, err := os.Stat(r.path); err != nil {
+		r.disabled = true
+		return false, &RecoveryError{Kind: RecoveryRead, Cause: err}
 	}
 	document, err := readConfigDocument(r.path)
 	if err != nil {
 		r.disabled = true
-		return false, errors.New("recovery configuration is unavailable")
+		return false, &RecoveryError{Kind: RecoveryRead, Cause: err}
 	}
 	web, err := childMap(document, "web")
 	if err != nil {
 		r.disabled = true
-		return false, errors.New("recovery configuration is unavailable")
+		return false, &RecoveryError{Kind: RecoveryRead, Cause: err}
 	}
 	current, _ := web["recovery_code"].(string)
 	if !validRecoveryCode(current) {
 		r.disabled = true
-		return false, errors.New("recovery configuration is unavailable")
+		return false, &RecoveryError{Kind: RecoveryMissingField}
 	}
 	want := sha256.Sum256([]byte(current))
 	got := sha256.Sum256([]byte(candidate))
@@ -231,23 +292,23 @@ func (r *Recovery) Attempt(candidate string) (bool, error) {
 	replacement, err := randomBase64URL(32)
 	if err != nil {
 		r.disabled = true
-		return false, errors.New("recovery rotation is unavailable")
+		return false, &RecoveryError{Kind: RecoveryRandom, Cause: err}
 	}
 	web["recovery_code"] = replacement
 	if err := writeConfigDocument(r.path, document); err != nil {
 		r.disabled = true
-		return false, errors.New("recovery rotation is unavailable")
+		return false, &RecoveryError{Kind: RecoveryVerification, Cause: err}
 	}
 	verified, err := readConfigDocument(r.path)
 	if err != nil {
 		r.disabled = true
-		return false, errors.New("recovery rotation is unavailable")
+		return false, &RecoveryError{Kind: RecoveryVerification, Cause: err}
 	}
 	verifiedWeb, err := childMap(verified, "web")
 	verifiedCode, codeErr := configString(verifiedWeb, "recovery_code", "", false)
 	if err != nil || codeErr != nil || verifiedCode != replacement {
 		r.disabled = true
-		return false, errors.New("recovery rotation is unavailable")
+		return false, &RecoveryError{Kind: RecoveryVerification}
 	}
 	return matched, nil
 }
@@ -299,13 +360,19 @@ func readConfigDocument(path string) (map[string]any, error) {
 		return nil, fmt.Errorf("read config.yaml: %w", err)
 	}
 	document := make(map[string]any)
-	if len(data) > 0 {
-		if err := yaml.Unmarshal(data, &document); err != nil {
-			return nil, errors.New("config.yaml is not valid YAML")
-		}
-		if document == nil {
-			return nil, errors.New("config.yaml must contain a mapping")
-		}
+	if len(data) == 0 {
+		return document, nil
+	}
+	var value any
+	if err := yaml.Unmarshal(data, &value); err != nil {
+		return nil, errors.New("config.yaml is not valid YAML")
+	}
+	if value == nil {
+		return nil, errors.New("config.yaml must contain a mapping")
+	}
+	var ok bool
+	if document, ok = value.(map[string]any); !ok {
+		return nil, errors.New("config.yaml must contain a mapping")
 	}
 	return document, nil
 }

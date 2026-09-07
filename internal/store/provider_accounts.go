@@ -202,6 +202,39 @@ WHERE provider_account_id=? AND COALESCE(CAST(json_extract(metadata_json,'$.cred
 	return err
 }
 
+// SetProviderAccountStatus records an externally observed readiness state
+// without changing the protected credential or its revision.
+func (s *Store) SetProviderAccountStatus(
+	ctx context.Context,
+	id string,
+	status provider.AccountStatus,
+	code, message string,
+	now time.Time,
+) error {
+	switch status {
+	case provider.StatusUnknown, provider.StatusChecking, provider.StatusAuthenticated,
+		provider.StatusUnauthenticated, provider.StatusUnavailable:
+	default:
+		return errors.New("provider account status is unsupported")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE provider_accounts
+SET status=?, last_checked_at_ms=?,
+    last_authenticated_at_ms=CASE WHEN ?='authenticated' THEN ? ELSE last_authenticated_at_ms END,
+    last_error_code=NULLIF(?,''), last_error_message=NULLIF(?,''), updated_at_ms=?
+WHERE provider_account_id=?`, status, millis(now.UTC()), status, millis(now.UTC()), code, message, millis(now.UTC()), id)
+	if err != nil {
+		return fmt.Errorf("set provider account status: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect provider account status: %w", err)
+	}
+	if changed != 1 {
+		return provider.ErrAccountNotFound
+	}
+	return nil
+}
+
 func cloneProviderMetadata(source provider.AccountMetadata) provider.AccountMetadata {
 	result := make(provider.AccountMetadata, len(source)+2)
 	for key, value := range source {

@@ -2,10 +2,10 @@ package auth
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -51,12 +51,7 @@ func TestRustHost_missing_code_is_generated_privately_without_losing_other_value
 	if strings.Contains(fmt.Sprintf("%#v", decoded), code) {
 		t.Fatal("parsed recovery code retained the source code")
 	}
-	if runtime.GOOS != "windows" {
-		info, err := os.Stat(paths.Config())
-		if err != nil || info.Mode().Perm() != 0o600 {
-			t.Fatalf("config permissions = %v, %v", info, err)
-		}
-	}
+	assertRustHostRecoveryPermissions(t, paths.Config())
 }
 
 // Rust source: crates/noema-host/src/config/recovery.rs:284::every_candidate_rotates_and_only_the_current_code_matches
@@ -109,8 +104,13 @@ func TestRustHost_malformed_configured_codes_fail_with_field_specific_errors(t *
 			if err := home.AtomicWritePrivate(paths.Config(), []byte("web:\n  recovery_code: '"+value+"'\n")); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := LoadConfig(paths, "127.0.0.1:3737"); err == nil || !strings.Contains(err.Error(), "recovery_code") {
+			if _, _, err := LoadConfig(paths, "127.0.0.1:3737"); err == nil {
 				t.Fatalf("malformed recovery code error = %v", err)
+			} else {
+				var recoveryErr *RecoveryError
+				if !errors.As(err, &recoveryErr) || recoveryErr.Kind != RecoveryMalformedField {
+					t.Fatalf("malformed recovery code error = %v", err)
+				}
 			}
 		})
 	}
@@ -134,9 +134,19 @@ func TestRustHost_failed_live_read_disables_later_attempts(t *testing.T) {
 	}
 	if _, err := recovery.Attempt("candidate"); err == nil {
 		t.Fatal("missing live config was accepted")
+	} else {
+		var recoveryErr *RecoveryError
+		if !errors.As(err, &recoveryErr) || recoveryErr.Kind != RecoveryRead {
+			t.Fatalf("first recovery attempt = %v", err)
+		}
 	}
-	if _, err := recovery.Attempt("candidate"); err == nil || !strings.Contains(err.Error(), "unavailable") {
-		t.Fatalf("second recovery attempt = %v", err)
+	if _, err := recovery.Attempt("candidate"); err == nil {
+		t.Fatal("disabled recovery accepted a later attempt")
+	} else {
+		var recoveryErr *RecoveryError
+		if !errors.As(err, &recoveryErr) || recoveryErr.Kind != RecoveryUnavailable || err.Error() != "recovery is unavailable until Noema restarts" {
+			t.Fatalf("second recovery attempt = %v", err)
+		}
 	}
 }
 
@@ -150,9 +160,17 @@ func TestRustHost_configuration_source_and_provider_contracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("NOEMA_OPENAI__API_KEY", "env-key")
-	providerDocument, err := readConfigDocument(providerSource.Config())
-	if err != nil || providerDocument["provider"] != "openai" || providerDocument["model"] != "noema-home-model" || providerDocument["reasoning_effort"] != "medium" {
-		t.Fatalf("provider source document = %#v, %v", providerDocument, err)
+	providerConfig, err := ResolveProviderConfig(providerSource, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var providerKey string
+	if err := providerConfig.OpenAI.APIKey.Use(func(value string) error { providerKey = value; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if providerConfig.Provider != "openai" || providerConfig.Model != "noema-home-model" ||
+		providerConfig.ReasoningEffort != "medium" || providerKey != "env-key" {
+		t.Fatalf("provider source resolution = %#v", providerConfig)
 	}
 
 	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
@@ -203,6 +221,15 @@ func TestRustHost_configuration_source_and_provider_contracts(t *testing.T) {
 	if err != nil || localDocument["provider"] != "local_models" || localDocument["model"] != "ternary-bonsai-8b" {
 		t.Fatalf("local model source document = %#v, %v", localDocument, err)
 	}
+	localConfig, err := ResolveProviderConfig(localSource, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if localConfig.Provider != "local_models" || localConfig.Model != "ternary-bonsai-8b" ||
+		localConfig.LocalModels.ContextWindowTokens != 16384 || localConfig.LocalModels.TimeoutSeconds != 900 ||
+		localConfig.LocalModels.StartupTimeoutSeconds != 240 {
+		t.Fatalf("local model resolution = %#v", localConfig)
+	}
 	codexSource, err := home.FromRoot(filepath.Join(t.TempDir(), "codex-source"))
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +250,15 @@ func TestRustHost_configuration_source_and_provider_contracts(t *testing.T) {
 	if err != nil || codexDocument["provider"] != "codex" || codexDocument["model"] != "yaml-model" {
 		t.Fatalf("codex source document = %#v, %v", codexDocument, err)
 	}
-	t.Fatal("unsupported port: Go host has no provider configuration source and resolution authority")
+	codexConfig, err := ResolveProviderConfig(codexSource, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codexConfig.Provider != "codex" || codexConfig.Model != "env-model" ||
+		codexConfig.ReasoningEffort != "high" || codexConfig.Codex.ToolClassificationModel != "env-codex-tool-classifier" ||
+		codexConfig.Codex.BaseURL != "https://env.example/codex" || codexConfig.Codex.TimeoutSeconds != 123 {
+		t.Fatalf("codex resolution = %#v", codexConfig)
+	}
 }
 
 // Rust source: crates/noema-host/src/config/tests/default_provider.rs:3::provider_resolution_precedence_and_secrecy_contracts
@@ -236,9 +271,12 @@ func TestRustHost_provider_resolution_precedence_and_secrecy_contracts(t *testin
 		t.Fatal(err)
 	}
 	t.Setenv("NOEMA_OPENAI__API_KEY", "env-key")
-	openAIDocument, err := readConfigDocument(openAIFile.Config())
-	if err != nil || openAIDocument["provider"] != "openai" {
-		t.Fatalf("OpenAI source document = %#v, %v", openAIDocument, err)
+	openAIConfig, err := ResolveProviderConfig(openAIFile, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openAIConfig.Provider != "openai" || openAIConfig.Model != "gpt-5.6-terra" || openAIConfig.ReasoningEffort != "medium" {
+		t.Fatalf("OpenAI defaults = %#v", openAIConfig)
 	}
 
 	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
@@ -259,7 +297,48 @@ func TestRustHost_provider_resolution_precedence_and_secrecy_contracts(t *testin
 	if strings.Contains(debug, "OPENAI_API_KEY") || strings.Contains(debug, "noema-debug-secret-sentinel") {
 		t.Fatal("configuration debug output exposed an environment credential name")
 	}
-	t.Fatal("unsupported port: Go host has no provider resolution precedence and credential-redaction authority")
+	precedence, err := home.FromRoot(filepath.Join(t.TempDir(), "precedence"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := home.AtomicWritePrivate(precedence.Config(), []byte("provider: openai\nmodel: yaml-model\nreasoning_effort: medium\nopenai:\n  base_url: https://yaml.example/v1\n  organization_id: yaml-org\n  project_id: yaml-project\n  timeout_seconds: 22\n")); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		"NOEMA_OPENAI__BASE_URL":        "https://env.example/v1",
+		"NOEMA_OPENAI__ORGANIZATION_ID": "env-org",
+		"NOEMA_OPENAI__PROJECT_ID":      "env-project",
+		"NOEMA_OPENAI__TIMEOUT_SECONDS": "33",
+		"NOEMA_MODEL":                   "env-model",
+		"NOEMA_REASONING_EFFORT":        "high",
+	} {
+		t.Setenv(key, value)
+	}
+	resolved, err := ResolveProviderConfig(precedence, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.OpenAI.BaseURL != "https://env.example/v1" || resolved.OpenAI.OrganizationID != "env-org" ||
+		resolved.OpenAI.ProjectID != "env-project" || resolved.OpenAI.TimeoutSeconds != 33 ||
+		resolved.Model != "env-model" || resolved.ReasoningEffort != "high" {
+		t.Fatalf("provider precedence = %#v", resolved)
+	}
+	secretHome, err := home.FromRoot(filepath.Join(t.TempDir(), "secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NOEMA_MODEL", "")
+	t.Setenv("NOEMA_REASONING_EFFORT", "")
+	const sentinel = "noema-debug-secret-sentinel"
+	t.Setenv("NOEMA_OPENAI__API_KEY", sentinel)
+	resolved, err = ResolveProviderConfig(secretHome, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	debug = fmt.Sprintf("%#v", resolved)
+	if strings.Contains(debug, sentinel) || !strings.Contains(debug, "[REDACTED]") {
+		t.Fatalf("resolved provider debug = %s", debug)
+	}
 }
 
 // Rust source: crates/noema-host/src/config/tests/validation.rs:3::configuration_validation_contracts
@@ -272,11 +351,13 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 		if err := home.AtomicWritePrivate(paths.Config(), []byte("provider: codex\ntool_classification_model: yaml-tool-classifier\ncodex:\n  tool_classification_model: yaml-codex-tool-classifier\n")); err != nil {
 			t.Fatal(err)
 		}
-		document, err := readConfigDocument(paths.Config())
-		if err != nil || document["tool_classification_model"] != "yaml-tool-classifier" {
-			t.Fatalf("tool classification source = %#v, %v", document, err)
+		resolved, err := ResolveProviderConfig(paths, "")
+		if err != nil {
+			t.Fatal(err)
 		}
-		t.Fatal("unsupported port: Go host has no Codex provider configuration resolver")
+		if resolved.Provider != "codex" || resolved.Codex.ToolClassificationModel != "yaml-tool-classifier" {
+			t.Fatalf("tool classification resolution = %#v", resolved)
+		}
 	})
 	t.Run("legacy and secret provider fields", func(t *testing.T) {
 		paths, err := home.FromRoot(filepath.Join(t.TempDir(), "openai-fields"))
@@ -287,11 +368,14 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 		if err := home.AtomicWritePrivate(paths.Config(), []byte("provider: openai\nopenai:\n  api_key: not-allowed\n")); err != nil {
 			t.Fatal(err)
 		}
-		document, err := readConfigDocument(paths.Config())
-		if err != nil || document["provider"] != "openai" {
-			t.Fatalf("OpenAI validation source = %#v, %v", document, err)
+		_, err = ResolveProviderConfig(paths, "")
+		if err == nil {
+			t.Fatal("YAML API key was accepted")
 		}
-		t.Fatal("unsupported port: Go host has no provider credential source validation authority")
+		var configErr *ProviderConfigError
+		if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigInvalid || configErr.Message != "openai.api_key must be supplied through NOEMA_OPENAI__API_KEY" {
+			t.Fatalf("YAML API key error = %v", err)
+		}
 	})
 	t.Run("Codex model selection", func(t *testing.T) {
 		for _, yaml := range []string{"provider: codex\ncodex:\n  model: gpt-5.5\n", "provider: codex\ncodex:\n  reasoning_effort: medium\n"} {
@@ -302,8 +386,10 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 			if err := home.AtomicWritePrivate(paths.Config(), []byte(yaml)); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := ResolveProviderConfig(paths, ""); err == nil || !strings.Contains(err.Error(), "reasoning_effort") {
+				t.Fatalf("partial Codex config error = %v", err)
+			}
 		}
-		t.Fatal("unsupported port: Go host has no Codex model and reasoning-effort validation authority")
 	})
 
 	for _, test := range []struct {
@@ -336,6 +422,36 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 			}
 		})
 	}
+
+	missingExplicit, err := home.FromRoot(filepath.Join(t.TempDir(), "missing-explicit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ResolveProviderConfig(missingExplicit, filepath.Join(missingExplicit.Root(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("missing explicit config was accepted")
+	}
+	var configErr *ProviderConfigError
+	if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigFileNotFound {
+		t.Fatalf("missing explicit config error = %v", err)
+	}
+
+	t.Run("zero Codex timeout", func(t *testing.T) {
+		paths, err := home.FromRoot(filepath.Join(t.TempDir(), "zero-timeout"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("NOEMA_PROVIDER", "codex")
+		t.Setenv("NOEMA_CODEX__TIMEOUT_SECONDS", "0")
+		_, err = ResolveProviderConfig(paths, "")
+		if err == nil {
+			t.Fatal("zero Codex timeout was accepted")
+		}
+		var configErr *ProviderConfigError
+		if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigInvalidNumber || configErr.Name != "NOEMA_CODEX__TIMEOUT_SECONDS" {
+			t.Fatalf("zero Codex timeout error = %v", err)
+		}
+	})
 	t.Setenv("NOEMA_PROVIDER", "codex")
 	t.Setenv("NOEMA_BROWSER__MAX_SESSIONS", "4")
 	t.Setenv("NOEMA_BROWSER__MAX_OLD_SPACE_MB", "2048")
@@ -368,5 +484,12 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 	if _, _, err := LoadConfig(missing, "127.0.0.1:3737"); err != nil {
 		t.Fatalf("missing configuration should receive protected defaults: %v", err)
 	}
-	t.Fatal("unsupported port: Go host has no provider validation, typed configuration errors, or explicit-file source authority")
+	t.Setenv("NOEMA_PROVIDER", "unknown")
+	_, err = ResolveProviderConfig(missing, "")
+	if err == nil {
+		t.Fatal("unsupported provider was accepted")
+	}
+	if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigUnsupported || configErr.Provider != "unknown" {
+		t.Fatalf("unsupported provider error = %v", err)
+	}
 }

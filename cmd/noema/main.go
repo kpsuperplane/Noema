@@ -90,12 +90,28 @@ func readDesktopOptions(input io.Reader) (*desktopOptions, *bufio.Reader) {
 }
 
 func run(ctx context.Context, address string, output io.Writer, desktop *desktopOptions) error {
+	return runWithLoadedConfig(ctx, address, output, desktop, nil)
+}
+
+// runWithLoadedConfig starts the host with a caller-owned web configuration.
+// A nil configuration loads the process configuration after home setup.
+func runWithLoadedConfig(ctx context.Context, address string, output io.Writer, desktop *desktopOptions, loadedConfig *auth.Config) error {
 	environmentProvider, err := readOpenAIEnvironment()
 	if err != nil {
 		return err
 	}
 	paths, err := home.Resolve()
 	if err != nil {
+		return err
+	}
+	initialConfig := []byte(nil)
+	firstRun := false
+	if loadedConfig == nil {
+		initialConfig = []byte(home.DefaultConfigYAML)
+		_, firstRunErr := os.Stat(paths.Config())
+		firstRun = errors.Is(firstRunErr, os.ErrNotExist)
+	}
+	if err := home.Initialize(paths, initialConfig); err != nil {
 		return err
 	}
 	root, err := paths.Open()
@@ -158,7 +174,16 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 	runTaskSchedules(ctx, root, taskStore, scheduleOutput)
 	var authConfig auth.Config
 	var recovery *auth.Recovery
-	authConfig, recovery, err = auth.LoadConfig(paths, address)
+	if loadedConfig != nil {
+		authConfig = *loadedConfig
+		recovery = auth.NewRecovery(paths)
+	} else {
+		if firstRun {
+			authConfig, recovery, err = auth.LoadWebConfig(paths, address)
+		} else {
+			authConfig, recovery, err = auth.LoadConfig(paths, address)
+		}
+	}
 	if desktop != nil && err == nil {
 		authConfig.Authority = address
 		authConfig.Origin = "http://" + address
