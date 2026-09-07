@@ -25,41 +25,85 @@ import (
 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::operation_token_contains_only_lookup_authority_and_round_trips (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_OperationTokenContainsOnlyLookupAuthorityAndRoundTrips(t *testing.T) {
-	binding := Binding{Name: "mcp.mcp:docs.read", ServerID: "mcp:docs", ToolID: "mcp_tool:read",
-		SourceRevision: "source:read", ConnectionRevision: "connection:read", InvokerKey: "mcp", OperationToken: "read",
-		InputSchema: json.RawMessage(`{"type":"object"}`), PersistencePolicy: BindingPersistenceRedacted}
+	_, database, service := newMCPParityService(t, false)
+	remote := parityMCPRemote(t, "read")
+	created, err := service.Create(t.Context(), SetupInput{
+		DisplayName: "Docs", TransportKind: "streamable_http", URL: remote.URL, AuthPreference: "USE_ANONYMOUS",
+	})
+	if err != nil || created.Server == nil {
+		t.Fatalf("create = %#v, %v", created, err)
+	}
+	server, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := service.Binding(t.Context(), "mcp."+server.ID+".read")
+	if err != nil {
+		t.Fatal(err)
+	}
 	encoded := binding.OperationToken
 	if strings.Contains(encoded, "safe_config") || strings.Contains(encoded, "secret") {
 		t.Fatalf("operation token exposed protected fields: %q", encoded)
 	}
-	copy := binding
-	copy.OperationToken = encoded
-	if !sameBindingAuthority(copy, binding) {
-		t.Fatalf("operation authority did not round trip: %#v != %#v", copy, binding)
+	roundTrip, err := service.Binding(t.Context(), binding.Name)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(binding.GoString(), "safe_config") || strings.Contains(binding.GoString(), "secret") {
-		t.Fatalf("binding debug exposed protected fields: %s", binding.GoString())
+	if !sameBindingAuthority(roundTrip, binding) {
+		t.Fatalf("operation authority did not round trip: %#v != %#v", roundTrip, binding)
+	}
+	tools, err := service.Tools(t.Context(), server.ID)
+	if err != nil || len(tools) != 1 {
+		t.Fatalf("live MCP tools = %#v, %v", tools, err)
+	}
+	snapshot, err := database.MCPInvocationSnapshot(t.Context(), server.ID, tools[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.ServerID != snapshot.Server.ID || binding.ToolID != snapshot.Tool.ID ||
+		binding.SourceRevision != snapshot.Tool.SourceRevision || binding.ConnectionRevision != snapshot.Server.ConnectionRevision ||
+		binding.ServerPolicyRevision != snapshot.Server.PolicyRevision || binding.ToolPolicyRevision != snapshot.Tool.PolicyRevision {
+		t.Fatalf("live operation authority does not match its persisted source: %#v", binding)
 	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::catalog_always_advertises_chat_first_service_discovery (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_CatalogAlwaysAdvertisesChatFirstServiceDiscovery(t *testing.T) {
-	if ConnectServiceToolName != "mcp.connect_service" {
-		t.Fatalf("connect service tool = %q", ConnectServiceToolName)
+	_, _, service := newMCPParityService(t, false)
+	catalog, err := service.Catalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
-	connectSchema := json.RawMessage(`{"type":"object","properties":{"service_url":{"type":"string"}},"required":["service_url"],"additionalProperties":false}`)
-	if err := ValidateArguments(connectSchema, json.RawMessage(`{"service_url":"https://example.com/"}`)); err != nil {
-		t.Fatalf("connect service schema rejected a valid URL: %v", err)
+	var binding *Binding
+	for index := range catalog.Bindings {
+		if catalog.Bindings[index].Name == ConnectServiceToolName {
+			binding = &catalog.Bindings[index]
+			break
+		}
 	}
-	if err := ValidateArguments(connectSchema, json.RawMessage(`{}`)); err == nil {
-		t.Fatal("connect service schema accepted missing service_url")
+	if binding == nil {
+		t.Fatalf("live MCP catalog omitted %q: %#v", ConnectServiceToolName, catalog.Bindings)
+	}
+	if binding.InvokerKey != "mcp" {
+		t.Fatalf("connect service invoker = %q", binding.InvokerKey)
+	}
+	var schema struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(binding.InputSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(schema.Required, []string{"service_url"}) {
+		t.Fatalf("connect service required fields = %#v", schema.Required)
+	}
+	if binding.Behavior.ReadOnly || !binding.Behavior.OpenWorld {
+		t.Fatalf("connect service behavior = %#v", binding.Behavior)
 	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::catalog_preserves_the_exact_bounded_schema_covered_by_human_review (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_CatalogPreservesTheExactBoundedSchemaCoveredByHumanReview(t *testing.T) {
-	paths, database, service := newMCPParityService(t, false)
-	_ = paths
+	_, database, service := newMCPParityService(t, false)
 	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat("1", 32), Revision: "mcp_definition_revision:" + strings.Repeat("2", 32), DisplayName: "Docs", TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"https://example.com/mcp","headers":{}}`)}
 	serverID := "mcp_server:" + strings.Repeat("3", 32)
 	schema := json.RawMessage(`{"type":"object","$defs":{"documentId":{"type":"string","description":"The durable document identifier"}},"properties":{"document_id":{"$ref":"#/$defs/documentId"}},"required":["document_id"]}`)
@@ -74,52 +118,135 @@ func TestRustMCP_CatalogPreservesTheExactBoundedSchemaCoveredByHumanReview(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	server, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+	if err != nil {
+		t.Fatal(err)
+	}
 	catalog, err := service.Catalog(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Bindings) != 1 || string(catalog.Bindings[0].InputSchema) != string(schema) {
-		t.Fatalf("catalog schema = %#v", catalog.Bindings)
+	var binding *Binding
+	for index := range catalog.Bindings {
+		if catalog.Bindings[index].Name == "mcp."+server.ID+".read" {
+			binding = &catalog.Bindings[index]
+			break
+		}
 	}
-	binding := catalog.Bindings[0]
-	if ValidateArguments(binding.InputSchema, json.RawMessage(`{"document_id":"doc_1"}`)) != nil || ValidateArguments(binding.InputSchema, json.RawMessage(`{"document_id":7}`)) == nil {
+	if binding == nil {
+		t.Fatalf("catalog omitted live MCP binding: %#v", catalog.Bindings)
+	}
+	if string(binding.InputSchema) != string(schema) {
+		t.Fatalf("catalog schema = %s, want %s", binding.InputSchema, schema)
+	}
+	if binding.InputCheck == nil || !binding.InputCheck(map[string]any{"document_id": "doc_1"}) || binding.InputCheck(map[string]any{"document_id": 7}) {
 		t.Fatal("catalog argument authority accepted the wrong values")
+	}
+	if server.ConnectionLabel != "Personal docs" {
+		t.Fatalf("catalog connection label = %q", server.ConnectionLabel)
 	}
 	if binding.Destination == nil || binding.Destination.ConnectionID != server.ID || binding.OperationToken != "read" {
 		t.Fatalf("catalog authority = %#v", binding)
+	}
+	if strings.Contains(binding.OperationToken, "Personal docs") {
+		t.Fatal("operation token exposed the connection label")
 	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::mcp_schema_version_and_unknown_rule_fail_closed (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_MCPSchemaVersionAndUnknownRuleFailClosed(t *testing.T) {
+	_, database, service := newMCPParityService(t, false)
+	publish := func(index int, schema json.RawMessage) error {
+		suffix := fmt.Sprintf("%032x", index)
+		definition := store.MCPDefinition{
+			ID: "mcp_definition:" + suffix, Revision: "mcp_definition_revision:" + suffix,
+			DisplayName: fmt.Sprintf("Schema %d", index), TransportKind: "streamable_http",
+			SafeConfig: json.RawMessage(`{"url":"https://example.com/mcp","headers":{}}`),
+		}
+		serverID := "mcp_server:" + suffix
+		tool := parityMCPTool("mcp_tool:"+suffix, serverID, "query", schema)
+		server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{
+			Definition: definition, ServerID: serverID, ConnectionRevision: "mcp_connection_revision:" + suffix,
+			AuthStatus: "none", Tools: []store.MCPTool{tool},
+		}, time.Now())
+		if err != nil {
+			return err
+		}
+		_, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+		return err
+	}
 	valid := []json.RawMessage{
 		json.RawMessage(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`),
 		json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`),
 	}
-	for _, schema := range valid {
-		if err := ValidateArguments(schema, json.RawMessage(`{"query":"rust"}`)); err != nil {
-			t.Fatalf("valid schema rejected: %v", err)
+	for index, schema := range valid {
+		if err := publish(index+1, schema); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Catalog(t.Context()); err != nil {
+			t.Fatalf("valid catalog rejected schema: %v", err)
 		}
 	}
-	for _, schema := range []json.RawMessage{
+	for index, schema := range []json.RawMessage{
 		json.RawMessage(`{"$schema":"https://example.test/unknown-schema","type":"object"}`),
 		json.RawMessage(`{"type":"object","unknownRule":true}`),
 	} {
-		if err := ValidateArguments(schema, json.RawMessage(`{}`)); err == nil {
-			t.Fatalf("unsupported schema accepted: %s", schema)
+		if err := publish(index+3, schema); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Catalog(t.Context()); !errors.Is(err, ErrInvalidBindingSource) {
+			t.Fatalf("unsupported schema error = %v", err)
 		}
 	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::safe_risky_sharing_and_approval_matrix_selects_the_execution_decision (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_SafeRiskySharingAndApprovalMatrixSelectsTheExecutionDecision(t *testing.T) {
-	base := store.MCPServer{DataSharingPolicy: "allow_automatically"}
+	_, database, service := newMCPParityService(t, false)
+	suffix := strings.Repeat("b", 32)
+	definition := store.MCPDefinition{ID: "mcp_definition:" + suffix, Revision: "mcp_definition_revision:" + suffix, DisplayName: "Docs", TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"https://example.com/mcp","headers":{}}`)}
+	serverID := "mcp_server:" + suffix
+	tool := parityMCPTool("mcp_tool:"+suffix, serverID, "read", json.RawMessage(`{"type":"object"}`))
+	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID, ConnectionRevision: "mcp_connection_revision:" + suffix, AuthStatus: "none", Tools: []store.MCPTool{tool}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setBehavior := func(behavior [4]bool) Binding {
+		currentTools, currentErr := service.Tools(t.Context(), server.ID)
+		if currentErr != nil || len(currentTools) != 1 {
+			t.Fatalf("live MCP tools = %#v, %v", currentTools, currentErr)
+		}
+		if _, currentErr = service.SaveToolBehavior(t.Context(), server.ID, server.ConnectionRevision, currentTools[0].ID, currentTools[0].SourceRevision, currentTools[0].PolicyRevision, behavior); currentErr != nil {
+			t.Fatal(currentErr)
+		}
+		catalog, currentErr := service.Catalog(t.Context())
+		if currentErr != nil {
+			t.Fatal(currentErr)
+		}
+		for index := range catalog.Bindings {
+			if catalog.Bindings[index].Name == "mcp."+server.ID+".read" {
+				return catalog.Bindings[index]
+			}
+		}
+		t.Fatalf("catalog omitted live MCP binding: %#v", catalog.Bindings)
+		return Binding{}
+	}
+	setPolicy := func(sharing, unsafe string) {
+		var currentErr error
+		server, currentErr = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, server.PolicyRevision, sharing, unsafe)
+		if currentErr != nil {
+			t.Fatal(currentErr)
+		}
+	}
 	for _, unsafePolicy := range []string{"always_ask", "reviewer_may_approve", "never_ask"} {
-		base.UnsafeActionPolicy = unsafePolicy
-		if got := reviewRoute(base, store.ActionBehavior{ReadOnly: true, RepeatSafe: true}); got != "" {
+		setPolicy("allow_automatically", unsafePolicy)
+		if got := setBehavior([4]bool{true, true, false, false}).ReviewRoute; got != "" {
 			t.Fatalf("safe route for %q = %q", unsafePolicy, got)
 		}
-		risky := store.ActionBehavior{ReadOnly: false, Destructive: true}
 		want := store.ActionReviewRoute("")
 		switch unsafePolicy {
 		case "always_ask":
@@ -127,22 +254,27 @@ func TestRustMCP_SafeRiskySharingAndApprovalMatrixSelectsTheExecutionDecision(t 
 		case "reviewer_may_approve":
 			want = store.ActionLLMReview
 		}
-		if got := reviewRoute(base, risky); got != want {
+		if got := setBehavior([4]bool{false, true, true, false}).ReviewRoute; got != want {
 			t.Fatalf("risky route for %q = %q, want %q", unsafePolicy, got, want)
 		}
-		if got := reviewRoute(base, store.ActionBehavior{ReadOnly: true, Destructive: true}); got != "" {
+		if got := setBehavior([4]bool{true, true, true, false}).ReviewRoute; got != "" {
 			t.Fatalf("contradictory route for %q = %q", unsafePolicy, got)
 		}
 	}
-	base.DataSharingPolicy = "review_every_call"
-	for _, unsafePolicy := range []string{"always_ask", "reviewer_may_approve"} {
-		base.UnsafeActionPolicy = unsafePolicy
-		want := store.ActionHumanReview
-		if unsafePolicy == "reviewer_may_approve" {
-			want = store.ActionLLMReview
+	for _, risky := range []bool{false, true} {
+		behavior := [4]bool{true, true, false, false}
+		if risky {
+			behavior = [4]bool{false, true, false, true}
 		}
-		if got := reviewRoute(base, store.ActionBehavior{ReadOnly: true}); got != want {
-			t.Fatalf("sharing route for %q = %q, want %q", unsafePolicy, got, want)
+		for _, unsafePolicy := range []string{"always_ask", "reviewer_may_approve"} {
+			setPolicy("review_every_call", unsafePolicy)
+			want := store.ActionHumanReview
+			if unsafePolicy == "reviewer_may_approve" {
+				want = store.ActionLLMReview
+			}
+			if got := setBehavior(behavior).ReviewRoute; got != want {
+				t.Fatalf("sharing route for %q (risky=%t) = %q, want %q", unsafePolicy, risky, got, want)
+			}
 		}
 	}
 }
