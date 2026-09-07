@@ -3373,22 +3373,6 @@ func TestRustProviders_DigestMismatchRemovesPartialAndPublishesNothing(t *testin
 	}
 }
 
-// Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::cancellation_leaves_no_partial_or_published_file (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_CancellationLeavesNoPartialOrPublishedFile(t *testing.T) {
-	root := t.TempDir()
-	cancelled, cancel := context.WithCancel(t.Context())
-	cancel()
-	bytesValue := []byte("GGUF cancelled evaluation model")
-	_, err := materializeProviderModelAtomically(cancelled, root, bytesValue, strings.NewReader(string(bytesValue)), providerLocalDigest(bytesValue))
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled materialization = %v", err)
-	}
-	entries, readErr := os.ReadDir(root)
-	if readErr != nil || len(entries) != 0 {
-		t.Fatalf("cancelled cache entries = %v, %v", entries, readErr)
-	}
-}
-
 // Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::successful_download_is_atomic_and_store_free (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_SuccessfulDownloadIsAtomicAndStoreFree(t *testing.T) {
 	root := t.TempDir()

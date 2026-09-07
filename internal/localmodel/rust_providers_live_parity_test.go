@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,6 +191,38 @@ func TestRustProviders_LargeLocalImportPersistsIncrementalProgressBeforeVerifica
 			}
 		case <-deadline:
 			t.Fatal("large import events did not include progress and verification")
+		}
+	}
+}
+
+// Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::cancellation_leaves_no_partial_or_published_file (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
+func TestRustProviders_CancellationLeavesNoPartialOrPublishedFile(t *testing.T) {
+	service, database, home := newTestService(t)
+	bytesValue := []byte("GGUF cancelled evaluation model")
+	source := filepath.Join(home, "cancelled.gguf")
+	if err := os.WriteFile(source, bytesValue, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := database.QueueLocalModel(t.Context(), store.LocalModelInstallation{
+		ID: "installation:cancelled", ModelID: "cancelled", Name: "Cancelled", File: filepath.Base(source),
+		SourceKind: "local_file", Backend: "cpu", TotalBytes: int64(len(bytesValue)), CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	err = service.copyLocal(cancelled, queued, source)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled materialization = %v", err)
+	}
+	for _, directory := range []string{filepath.Join(home, "system", "tmp"), filepath.Join(home, "models", "blobs")} {
+		entries, readErr := os.ReadDir(directory)
+		if readErr != nil && os.IsNotExist(readErr) {
+			continue
+		}
+		if readErr != nil || len(entries) != 0 {
+			t.Fatalf("cancelled cache entries in %s = %v, %v", directory, entries, readErr)
 		}
 	}
 }
