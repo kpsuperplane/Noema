@@ -724,6 +724,8 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var requireAuth atomic.Bool
+	var authorizationCodesMu sync.Mutex
+	authorizationCodes := map[string]string{}
 	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
 	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "search", Description: "Search documents",
 		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
@@ -746,9 +748,42 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 				"grant_types_supported":            []string{"authorization_code", "refresh_token"},
 				"code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_post"},
 			})
+		case "/authorize":
+			query := request.URL.Query()
+			if query.Get("client_id") != "mcp-client" || query.Get("response_type") != "code" ||
+				query.Get("code_challenge_method") != "S256" || query.Get("code_challenge") == "" ||
+				query.Get("redirect_uri") == "" || query.Get("state") == "" {
+				http.Error(w, "invalid authorization request", http.StatusBadRequest)
+				return
+			}
+			code := "oauth-issued-code"
+			authorizationCodesMu.Lock()
+			authorizationCodes[code] = query.Get("code_challenge")
+			authorizationCodesMu.Unlock()
+			callback, err := url.Parse(query.Get("redirect_uri"))
+			if err != nil {
+				http.Error(w, "invalid redirect URI", http.StatusBadRequest)
+				return
+			}
+			params := callback.Query()
+			params.Set("code", code)
+			params.Set("state", query.Get("state"))
+			callback.RawQuery = params.Encode()
+			http.Redirect(w, request, callback.String(), http.StatusFound)
 		case "/token":
 			if err := request.ParseForm(); err != nil || request.Form.Get("code") == "" || request.Form.Get("client_id") != "mcp-client" || request.Form.Get("client_secret") != "mcp-secret" {
 				http.Error(w, "invalid token request", http.StatusUnauthorized)
+				return
+			}
+			authorizationCodesMu.Lock()
+			challenge, issued := authorizationCodes[request.Form.Get("code")]
+			delete(authorizationCodes, request.Form.Get("code"))
+			authorizationCodesMu.Unlock()
+			verifier := request.Form.Get("code_verifier")
+			digest := sha256.Sum256([]byte(verifier))
+			if !issued || verifier == "" || request.Form.Get("grant_type") != "authorization_code" ||
+				base64.RawURLEncoding.EncodeToString(digest[:]) != challenge {
+				http.Error(w, "invalid PKCE authorization code", http.StatusUnauthorized)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -815,6 +850,11 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if binding.ServerID != setup.Server.ID {
 		t.Fatalf("MCP OAuth server binding = %#v, all = %#v", binding, bindings)
 	}
+	staleBinding := binding
+	staleBinding.ConnectionRevision = "mcp_connection_revision:" + strings.Repeat("0", 32)
+	if staleBinding.Destination != nil {
+		staleBinding.Destination.Revision = staleBinding.ConnectionRevision
+	}
 	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -832,7 +872,7 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	assignment := map[string]any{"role": string(store.HostedModelNoema), "provider_kind": "openrouter",
 		"provider_account_id": "provider_account:openrouter:default", "model_profile": "openai/gpt-5.6-luna",
 		"selection_mode": string(store.ModelSelectionNoemaRecommended), "reasoning_effort": string(store.ModelReasoningHigh)}
-	authority, err := json.Marshal(map[string]any{"binding": binding, "assignment": assignment})
+	authority, err := json.Marshal(map[string]any{"binding": staleBinding, "assignment": assignment})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -855,7 +895,20 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if err != nil || authorization.Query().Get("state") == "" {
 		t.Fatalf("MCP OAuth authorization URL = %q, %v", attempt.AuthorizationURL, err)
 	}
-	callback := "http://localhost/mcp/oauth/callback?attemptId=" + url.QueryEscape(attempt.ID) + "&code=oauth-code&state=" + url.QueryEscape(authorization.Query().Get("state"))
+	approvalClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	approvalRequest, err := http.NewRequest(http.MethodGet, attempt.AuthorizationURL, nil)
+	if err != nil {
+		t.Fatalf("MCP OAuth authorization request = %v", err)
+	}
+	approvalResponse, err := approvalClient.Do(approvalRequest)
+	if err != nil {
+		t.Fatalf("MCP OAuth authorization approval = %v", err)
+	}
+	defer approvalResponse.Body.Close()
+	if approvalResponse.StatusCode != http.StatusFound || approvalResponse.Header.Get("Location") == "" {
+		t.Fatalf("MCP OAuth authorization approval status = %d, location = %q", approvalResponse.StatusCode, approvalResponse.Header.Get("Location"))
+	}
+	callback := approvalResponse.Header.Get("Location")
 	if err := service.CompleteOAuth(context.Background(), attempt.ID, callback); err != nil {
 		t.Fatalf("MCP OAuth callback completion = %v", err)
 	}

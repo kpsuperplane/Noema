@@ -193,6 +193,12 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 		state, failure := "completed", ""
 		if decodeErr != nil {
 			state, failure = "cancelled", "authentication_failed"
+			message := "MCP authentication failed"
+			if errors.Is(decodeErr, noemamcp.ErrAuthorityChanged) {
+				state, failure = "superseded", "oauth_attempt_superseded"
+				message = "MCP authentication changed"
+			}
+			payload = toolFailure(failure, message)
 		}
 		if request.ActionID != "" {
 			actionState, actionFailure := store.ActionSucceeded, ""
