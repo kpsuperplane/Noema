@@ -202,6 +202,8 @@ type OutputSchema struct {
 type Definition struct {
 	Manifest            Manifest
 	SourceReference     string
+	SourceDigest        string
+	SourceFormat        string
 	SemanticDigest      string
 	Operations          []CompiledOperation
 	Replaces            []string

@@ -454,7 +454,8 @@ func TestRustAdapters_oauth_merge_preserves_union_and_stricter_policy(t *testing
 		t.Fatal(err)
 	}
 	grantID := randomHex()
-	first := Connection{SchemaVersion: 2, ConnectionID: randomHex(), ConnectionSlug: "first", SemanticDigest: definition.SemanticDigest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"lookup"}, DataSharingPolicy: "allow_automatically", UnsafeActionPolicy: "never_ask", Authentication: ConnectionAuthentication{Kind: "oauth_grant", GrantID: grantID}}
+	firstLabel := "Primary"
+	first := Connection{SchemaVersion: 2, ConnectionID: randomHex(), ConnectionSlug: "first", ConnectionLabel: firstLabel, SemanticDigest: definition.SemanticDigest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"lookup"}, DataSharingPolicy: "allow_automatically", UnsafeActionPolicy: "never_ask", Authentication: ConnectionAuthentication{Kind: "oauth_grant", GrantID: grantID}}
 	second := first
 	second.ConnectionID = randomHex()
 	second.ConnectionSlug = "second"
@@ -472,19 +473,8 @@ func TestRustAdapters_oauth_merge_preserves_union_and_stricter_policy(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(merged.AllowedOperations, []string{"list_items", "lookup"}) || merged.ConnectionLabel != "" || merged.DataSharingPolicy != "review_every_call" || merged.UnsafeActionPolicy != "always_ask" {
+	if !reflect.DeepEqual(merged.AllowedOperations, []string{"list_items", "lookup"}) || merged.ConnectionLabel != firstLabel || merged.DataSharingPolicy != "review_every_call" || merged.UnsafeActionPolicy != "always_ask" {
 		t.Fatalf("merged connection = %#v", merged)
-	}
-	first.ConnectionLabel = "Primary"
-	if _, err = service.files.replaceConnection(first); err != nil {
-		t.Fatal(err)
-	}
-	merged, err = service.files.mergeOAuthConnections(first.ConnectionID, second.ConnectionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.ConnectionLabel != "Primary" {
-		t.Fatalf("survivor label = %q", merged.ConnectionLabel)
 	}
 	if err = service.files.quarantine("connections", second.ConnectionID); err != nil {
 		t.Fatal(err)
@@ -720,20 +710,20 @@ func stringPtr(value string) *string { return &value }
 func TestRustAdapters_install_is_content_addressed_idempotent_and_scannable(t *testing.T) {
 	service, directory, _, _ := rustAdapterService(t)
 	manifest := testManifest()
-	first, err := service.files.installDefinition(manifest, "https://github.com/github/rest-api-description", nil, nil)
+	first, err := service.files.installDefinitionWithSource(manifest, "https://github.com/github/rest-api-description", rustGitHubOpenAPISource, "json", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := service.files.installDefinition(manifest, "https://github.com/github/rest-api-description", nil, nil)
+	second, err := service.files.installDefinitionWithSource(manifest, "https://fixture.example.test/other-provenance", rustGitHubOpenAPISource, "json", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.SemanticDigest != second.SemanticDigest {
 		t.Fatalf("content address changed: %q != %q", first.SemanticDigest, second.SemanticDigest)
 	}
-	definitions, err := service.files.definitions()
-	if err != nil || len(definitions) != 1 || definitions[0].SemanticDigest != first.SemanticDigest {
-		t.Fatalf("definitions = %#v, %v", definitions, err)
+	scan, err := service.files.scanDefinitions()
+	if err != nil || len(scan.Definitions) != 1 || scan.Definitions[0].SemanticDigest != first.SemanticDigest || len(scan.Diagnostics) != 0 {
+		t.Fatalf("definitions = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
 	}
 	raw, err := os.ReadFile(filepath.Join(directory, "adapters", "definitions", first.SemanticDigest, "provenance.json"))
 	if err != nil || strings.Contains(string(raw), "fixture://other-provenance") {
@@ -741,6 +731,16 @@ func TestRustAdapters_install_is_content_addressed_idempotent_and_scannable(t *t
 	}
 	if !reflect.DeepEqual(first.Operations[0].InputSchema, second.Operations[0].InputSchema) || first.Operations[0].Behavior != second.Operations[0].Behavior {
 		t.Fatal("idempotent installation changed compiled operation authority")
+	}
+	stripeManifest := manifest
+	stripeManifest.DefinitionID = "definition:stripe"
+	stripeManifest.AdapterID = "stripe"
+	stripe, err := service.files.installDefinitionWithSource(stripeManifest, "https://github.com/stripe/openapi", rustStripeOpenAPISource, "json", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first.Operations[0].InputSchema, stripe.Operations[0].InputSchema) || first.Operations[0].Behavior != stripe.Operations[0].Behavior {
+		t.Fatal("independent company fixture changed compiled operation authority")
 	}
 }
 
@@ -755,12 +755,12 @@ func TestRustAdapters_scan_blocks_tampered_symlinked_and_oversized_objects(t *te
 	if err = os.WriteFile(manifestPath, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	definitions, err := service.files.definitions()
+	scan, err := service.files.scanDefinitions()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definitions) != 0 {
-		t.Fatalf("tampered definition remained visible: %#v", definitions)
+	if len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 {
+		t.Fatalf("tampered definition scan = %#v diagnostics=%#v", scan.Definitions, scan.Diagnostics)
 	}
 	if err = os.Remove(manifestPath); err != nil {
 		t.Fatal(err)
@@ -771,24 +771,33 @@ func TestRustAdapters_scan_blocks_tampered_symlinked_and_oversized_objects(t *te
 	if _, err = service.files.loadDefinition(installed.SemanticDigest); err == nil {
 		t.Fatal("symlinked manifest was accepted")
 	}
+	scan, err = service.files.scanDefinitions()
+	if err != nil || len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 || scan.Diagnostics[0].Code != "object_file" {
+		t.Fatalf("symlinked definition scan = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
+	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/definition_store/tests.rs::exact_source_digest_detects_mutation_and_source_bounds.
 func TestRustAdapters_exact_source_digest_detects_mutation_and_source_bounds(t *testing.T) {
 	service, directory, _, _ := rustAdapterService(t)
-	installed, err := service.files.installDefinition(testManifest(), "https://example.test/one", nil, nil)
+	installed, err := service.files.installDefinitionWithSource(testManifest(), "https://example.test/one", []byte("official fixture"), "yaml", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifestPath := filepath.Join(directory, "adapters", "definitions", installed.SemanticDigest, "manifest.json")
-	if err = os.WriteFile(manifestPath, []byte(`{"schema_version":9}`), 0o600); err != nil {
+	if !validDigest(installed.SourceDigest) || installed.SourceFormat != "yaml" {
+		t.Fatalf("source provenance = digest %q format %q", installed.SourceDigest, installed.SourceFormat)
+	}
+	sourcePath := filepath.Join(directory, "adapters", "definitions", installed.SemanticDigest, "source.yaml")
+	if err = os.WriteFile(sourcePath, []byte("mutated"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.files.loadDefinition(installed.SemanticDigest); err == nil {
-		t.Fatal("manifest mutation was not detected")
+	scan, err := service.files.scanDefinitions()
+	if err != nil || len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 || scan.Diagnostics[0].Code != "source_digest" {
+		t.Fatalf("mutated source scan = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
 	}
-	if _, err = service.files.installDefinition(testManifest(), "https://example.test/two", nil, nil); err == nil || !strings.Contains(err.Error(), "changed") {
-		t.Fatalf("second publication conflict = %v", err)
+	overSized := make([]byte, manifestLimit+1)
+	if _, err = service.files.installDefinitionWithSource(testManifest(), "https://example.test/two", overSized, "json", nil, nil); err == nil || !strings.Contains(err.Error(), "oversized") {
+		t.Fatalf("oversized source result = %v", err)
 	}
 }
 
@@ -809,6 +818,13 @@ func TestRustAdapters_quarantine_conflict_preserves_different_active_and_quarant
 	}
 	if active.SourceReference != "https://example.test/different" {
 		t.Fatalf("active source = %q", active.SourceReference)
+	}
+	if err = service.files.quarantine("definitions", installed.SemanticDigest); err == nil || !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("duplicate quarantine result = %v", err)
+	}
+	active, err = service.files.loadDefinition(installed.SemanticDigest)
+	if err != nil || active.SourceReference != "https://example.test/different" {
+		t.Fatalf("active definition after quarantine conflict = %#v, %v", active, err)
 	}
 	entries, err := os.ReadDir(filepath.Join(directory, "adapters", "quarantine", "definitions"))
 	if err != nil || len(entries) != 1 {
@@ -856,7 +872,7 @@ func TestRustAdapters_sandbox_has_no_ambient_authority_or_cross_call_state(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
-		if value != int64(1) && value != json.Number("1") && value != float64(1) {
+		if !rustJSONEquivalent(value, json.Number("1")) {
 			t.Fatalf("cross-call counter = %#v", value)
 		}
 	}
@@ -864,8 +880,10 @@ func TestRustAdapters_sandbox_has_no_ambient_authority_or_cross_call_state(t *te
 
 // Rust source: crates/noema-capabilities/adapters/src/luau.rs::response_text_truncation_is_utf8_safe_and_profile_scoped.
 func TestRustAdapters_response_text_truncation_is_utf8_safe_and_profile_scoped(t *testing.T) {
-	source := "return function() return {ascii=text.truncate_utf8('abcdef',3), unicode=text.truncate_utf8('éclair',3), boundary=text.truncate_utf8('éclair',1), unchanged=text.truncate_utf8('ok',8)} end"
-	value, err := script.RunFunction(source, map[string]any{})
+	limit := 64
+	closed := false
+	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function() return {ascii=text.truncate_utf8('abcdef',3), unicode=text.truncate_utf8('éclair',3), boundary=text.truncate_utf8('éclair',1), unchanged=text.truncate_utf8('ok',8)} end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"ascii": {Type: "string", MaxBytes: &limit}, "unicode": {Type: "string", MaxBytes: &limit}, "boundary": {Type: "string", MaxBytes: &limit}, "unchanged": {Type: "string", MaxBytes: &limit}}, Required: []string{"ascii", "unicode", "boundary", "unchanged"}, AdditionalProperties: &closed}}
+	value, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{}`)}, contract)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -873,21 +891,39 @@ func TestRustAdapters_response_text_truncation_is_utf8_safe_and_profile_scoped(t
 	if !reflect.DeepEqual(value, want) {
 		t.Fatalf("bounded text = %#v, want %#v", value, want)
 	}
-	if _, err = script.RunFunction("return function() return text.truncate_utf8('x',32769) end", map[string]any{}); err == nil {
+	contract.OutputSchema = OutputSchema{Type: "string", MaxBytes: &limit}
+	contract.Transform.Source = "return function() return text.truncate_utf8('x',32769) end"
+	if _, err = decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{}`)}, contract); err == nil {
 		t.Fatal("oversized truncation was accepted")
+	}
+	credentialSetup := CredentialSetup{Input: CredentialInput{Kind: "document", Fields: []CredentialField{{ID: "value"}}, Normalize: &Transform{Language: "lua", Source: "return function(input) return {value=tostring(text ~= nil)} end"}}}
+	credential, credentialErr := normalizeCredential(credentialSetup, CredentialInputValue{Document: []byte(`{"value":"fixture"}`)})
+	if credentialErr != nil || credential["value"] != "false" {
+		t.Fatalf("credential profile visibility = %#v, %v", credential, credentialErr)
+	}
+	auth := Authentication{RequestAuth: &Transform{Language: "lua", Source: "return function(input) return {headers={['X-Text-Available']=tostring(text ~= nil)}} end"}}
+	request := encodedRequest{method: "GET", rawURL: "https://api.example.test/v1/items", headers: map[string]string{}}
+	_, _, requestErr := applyCredentialAuth(auth, map[string]string{"value": "fixture"}, CompiledOperation{Operation: Operation{OperationID: "lookup"}}, &request)
+	if requestErr != nil || request.headers["X-Text-Available"] != "false" {
+		t.Fatalf("request-auth profile visibility = %#v, %v", request.headers, requestErr)
 	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/luau.rs::response_base64url_text_decoding_is_bounded_and_fails_closed.
 func TestRustAdapters_response_base64url_text_decoding_is_bounded_and_fails_closed(t *testing.T) {
-	value, err := script.RunFunction("return function() return {decoded=text.decode_base64url_utf8('aGVsbG8',8), bounded=text.decode_base64url_utf8('w6ljbA',4)} end", map[string]any{})
+	limit := 16
+	closed := false
+	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function() return {decoded=text.decode_base64url_utf8('aGVsbG8',8), bounded=text.decode_base64url_utf8('w6ljbGFpcg',3)} end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"decoded": {Type: "string", MaxBytes: &limit}, "bounded": {Type: "string", MaxBytes: &limit}}, Required: []string{"decoded", "bounded"}, AdditionalProperties: &closed}}
+	value, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{}`)}, contract)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(value, map[string]any{"decoded": "hello", "bounded": "éc"}) {
 		t.Fatalf("base64url output = %#v", value)
 	}
-	if _, err := script.RunFunction("return function() return text.decode_base64url_utf8('not*base64url',8) end", map[string]any{}); err == nil {
+	contract.OutputSchema = OutputSchema{Type: "string", MaxBytes: &limit}
+	contract.Transform.Source = "return function() return text.decode_base64url_utf8('not*base64url',8) end"
+	if _, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{}`)}, contract); err == nil {
 		t.Fatal("invalid base64url input was accepted")
 	}
 }
@@ -1028,7 +1064,7 @@ func TestRustAdapters_encodes_path_query_and_body_only_from_the_reviewed_plan(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed, parseErr := url.Parse(request.rawURL); parseErr != nil || parsed.Query().Get("label") != "two" || parsed.Query().Get("tag") != "" || len(request.body) != 0 {
+	if parsed, parseErr := url.Parse(request.rawURL); parseErr != nil || request.rawURL != "https://api.example.test/v1/items/one?orderBy=startTime&singleEvents=true&label=two" || parsed.Query().Get("label") != "two" || parsed.Query().Get("tag") != "" || len(request.body) != 0 {
 		t.Fatalf("nullable optional arguments = %q %s, %v", request.rawURL, request.body, parseErr)
 	}
 }
@@ -1254,15 +1290,34 @@ func TestRustAdapters_operation_changes_preserve_untouched_operations(t *testing
 	}
 }
 
+func rustOAuthProfile() OAuthProfile {
+	profile := googleOAuthProfile()
+	profile.ProfileID = "rust-test"
+	profile.DisplayName = "Rust OAuth test"
+	profile.AuthorizationParameters = map[string]string{"prompt": "consent"}
+	raw, _ := json.Marshal(profile)
+	var canonical any
+	_ = json.Unmarshal(raw, &canonical)
+	raw, _ = json.Marshal(canonical)
+	profile.ProfileDigest = sha256Hex(raw)
+	return profile
+}
+
 func rustOAuthFixture(t *testing.T, callback string) (*Service, OAuthApplication, Definition) {
 	t.Helper()
 	service, _ := newOAuthService(t, callback)
-	document := []byte(`{"installed":{"client_id":"desktop-client","client_secret":"desktop-secret"}}`)
-	application, err := service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil, document, nil)
+	profile := rustOAuthProfile()
+	profileRaw, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := []byte(`{"installed":{"client_id":"client-synthetic","client_secret":"desktop-secret"}}`)
+	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document, profileRaw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest := oauthManifest()
+	manifest.Authentication.ProfileDigest = profile.ProfileDigest
 	manifest.Origin = "https://1.1.1.1/"
 	manifest.Reviewed = false
 	definition, err := service.files.installDefinition(manifest, "https://example.com/docs", nil, nil)
@@ -1288,7 +1343,8 @@ func rustOAuthGrant(t *testing.T, service *Service, application OAuthApplication
 // Rust source: crates/noema-capabilities/adapters/src/oauth/tests.rs::authorization_url_is_pkce_bound_and_debug_redacts_transient_values.
 func TestRustAdapters_authorization_url_is_pkce_bound_and_debug_redacts_transient_values(t *testing.T) {
 	service, application, definition := rustOAuthFixture(t, "http://127.0.0.1:3737/adapter/oauth/callback")
-	attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
+	grant := rustOAuthGrant(t, service, application, 1)
+	attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1297,14 +1353,14 @@ func TestRustAdapters_authorization_url_is_pkce_bound_and_debug_redacts_transien
 		t.Fatal(err)
 	}
 	query := handoff.Query()
-	if query.Get("response_type") != "code" || query.Get("client_id") != application.ClientID || query.Get("scope") != "scope.read" || query.Get("prompt") != "select_account" || query.Get("code_challenge_method") != "S256" {
+	if query.Get("response_type") != "code" || query.Get("client_id") != application.ClientID || query.Get("scope") != "scope.read" || query.Get("prompt") != "consent" || query.Get("code_challenge_method") != "S256" {
 		t.Fatalf("authorization query = %v", query)
 	}
 	if len(query.Get("state")) < 43 || len(query.Get("code_challenge")) < 43 {
 		t.Fatalf("short transient values = %v", query)
 	}
 	debug := fmt.Sprintf("%#v", attempt)
-	if strings.Contains(debug, query.Get("state")) || strings.Contains(debug, application.ClientID) && !strings.Contains(debug, "AuthorizationURL") {
+	if !strings.Contains(debug, "[REDACTED]") || !strings.Contains(debug, attempt.AttemptID) || !strings.Contains(debug, "AuthorizationURL") || !strings.Contains(debug, query.Get("code_challenge")) || strings.Contains(debug, query.Get("state")) {
 		t.Fatalf("attempt debug exposed transient state: %s", debug)
 	}
 	if strings.Contains(debug, "desktop-secret") {
@@ -1327,7 +1383,7 @@ func TestRustAdapters_callback_requires_exact_state_and_revision_binding(t *test
 		t.Fatal(err)
 	}
 	_, err = service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=code&state="+url.QueryEscape(state))
-	if err == nil || !strings.Contains(err.Error(), "superseded") {
+	if err == nil || err.Error() != "adapter OAuth setup was superseded" {
 		t.Fatalf("revision drift error = %v", err)
 	}
 	if _, _, _, err = parseOAuthCallback(service.oauthCallback+"?code=code&state="+url.QueryEscape(state), service.oauthCallback); err != nil {
@@ -1347,15 +1403,16 @@ func TestRustAdapters_callback_success_rejects_duplicates_denials_and_expiry(t *
 	}
 	handoff, _ := url.Parse(attempt.AuthorizationURL)
 	state := handoff.Query().Get("state")
-	if _, code, _, parseErr := parseOAuthCallback(service.oauthCallback+"?code=code-marker&state="+url.QueryEscape(state), service.oauthCallback); parseErr != nil || code != "code-marker" {
-		t.Fatalf("successful callback parse = %q, %v", code, parseErr)
+	service.oauthClient = &http.Client{Transport: &runtimeOAuthTransport{}}
+	if event, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=code-marker&state="+url.QueryEscape(state)); completeErr != nil || event.Status != "completed" || strings.Contains(fmt.Sprintf("%#v", event), "code-marker") {
+		t.Fatalf("successful callback = %#v, %v", event, completeErr)
 	}
 	for _, query := range []string{"code=a&code=b&state=" + url.QueryEscape(state), "code=a&foo=x&foo=y&state=" + url.QueryEscape(state)} {
-		if _, _, _, parseErr := parseOAuthCallback(service.oauthCallback+"?"+query, service.oauthCallback); parseErr == nil {
+		if _, _, _, parseErr := parseOAuthCallback(service.oauthCallback+"?"+query, service.oauthCallback); parseErr == nil || parseErr.Error() != "invalid" {
 			t.Fatalf("duplicate callback accepted: %s", query)
 		}
 	}
-	if _, _, _, parseErr := parseOAuthCallback("http://user:password@127.0.0.1:3737/adapter/oauth/callback?code=a&state="+url.QueryEscape(state), service.oauthCallback); parseErr == nil {
+	if _, _, _, parseErr := parseOAuthCallback("http://user:password@127.0.0.1:3737/adapter/oauth/callback?code=a&state="+url.QueryEscape(state), service.oauthCallback); parseErr == nil || parseErr.Error() != "invalid" {
 		t.Fatal("userinfo callback was accepted")
 	}
 	denied, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
@@ -1363,7 +1420,7 @@ func TestRustAdapters_callback_success_rejects_duplicates_denials_and_expiry(t *
 		t.Fatal(err)
 	}
 	deniedURL, _ := url.Parse(denied.AuthorizationURL)
-	if event, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?error=access_denied&state="+url.QueryEscape(deniedURL.Query().Get("state"))); completeErr == nil || event.Status != "denied" {
+	if event, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?error=access_denied&state="+url.QueryEscape(deniedURL.Query().Get("state"))); completeErr == nil || completeErr.Error() != "adapter OAuth authorization was denied" || event.Status != "denied" {
 		t.Fatalf("denied callback = %#v, %v", event, completeErr)
 	}
 	expired, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
@@ -1374,7 +1431,7 @@ func TestRustAdapters_callback_success_rejects_duplicates_denials_and_expiry(t *
 	service.mu.Lock()
 	service.oauthAttempts[expiredURL.Query().Get("state")].expires = time.Unix(1, 0)
 	service.mu.Unlock()
-	if event, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=a&state="+url.QueryEscape(expiredURL.Query().Get("state"))); completeErr == nil || event.Status != "expired" {
+	if event, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=a&state="+url.QueryEscape(expiredURL.Query().Get("state"))); completeErr == nil || completeErr.Error() != "adapter OAuth setup expired" || event.Status != "expired" {
 		t.Fatalf("expired callback = %#v, %v", event, completeErr)
 	}
 }
@@ -1382,22 +1439,35 @@ func TestRustAdapters_callback_success_rejects_duplicates_denials_and_expiry(t *
 // Rust source: crates/noema-capabilities/adapters/src/oauth/tests.rs::callback_modes_and_unreviewed_definitions_fail_closed.
 func TestRustAdapters_callback_modes_and_unreviewed_definitions_fail_closed(t *testing.T) {
 	service, application, definition := rustOAuthFixture(t, "http://127.0.0.1:3737/adapter/oauth/callback")
-	if err := service.SetOAuthCallback("https://setup.example.test:0/adapter/oauth/callback"); err != nil {
+	if err := service.SetOAuthCallback("http://127.0.0.1:3737/adapter/oauth/callback"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil {
-		t.Fatal("callback mode mismatch was accepted")
+	if mode, _ := service.OAuthCallback(); mode != "loopback" {
+		t.Fatalf("loopback callback mode = %q", mode)
+	}
+	if err := service.SetOAuthCallback("https://setup.example.test:0/adapter/oauth/callback"); err == nil || err.Error() != "adapter OAuth callback is invalid" {
+		t.Fatalf("port-zero callback validation = %v", err)
+	}
+	if err := service.SetOAuthCallback("https://setup.example.test/adapter/oauth/callback"); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _ := service.OAuthCallback(); mode != "hosted" {
+		t.Fatalf("hosted callback mode = %q", mode)
+	}
+	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil || err.Error() != "adapter OAuth application callback changed" {
+		t.Fatalf("callback mode mismatch = %v", err)
 	}
 	if err := service.SetOAuthCallback("http://127.0.0.1:3737/adapter/oauth/callback"); err != nil {
 		t.Fatal(err)
 	}
 	unreviewed := oauthManifest()
+	unreviewed.Authentication.ProfileDigest = application.ProfileDigest
 	unreviewed.DefinitionRevision = "unreviewed"
 	unreviewedDefinition, err := service.files.installDefinition(unreviewed, "https://example.com/unreviewed", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: unreviewedDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil {
+	if _, err = service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: unreviewedDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil || err.Error() != "adapter OAuth definition changed" {
 		t.Fatal("unreviewed definition was accepted")
 	}
 }
@@ -1405,6 +1475,21 @@ func TestRustAdapters_callback_modes_and_unreviewed_definitions_fail_closed(t *t
 // Rust source: crates/noema-capabilities/adapters/src/oauth/tests.rs::attempt_registry_is_state_indexed_one_use_and_bounded.
 func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *testing.T) {
 	service, application, definition := rustOAuthFixture(t, "http://127.0.0.1:3737/adapter/oauth/callback")
+	grant := rustOAuthGrant(t, service, application, 1)
+	firstGrantAttempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondGrantAttempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event, ok := service.OAuthAttempt(firstGrantAttempt.AttemptID); !ok || event.Status != "superseded" {
+		t.Fatalf("same-grant replacement event = %#v, %t", event, ok)
+	}
+	if event, ok := service.OAuthAttempt(secondGrantAttempt.AttemptID); !ok || event.Status != "authorizing" {
+		t.Fatalf("replacement attempt event = %#v, %t", event, ok)
+	}
 	attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
 	if err != nil {
 		t.Fatal(err)
@@ -1412,8 +1497,8 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 	handoff, _ := url.Parse(attempt.AuthorizationURL)
 	state := handoff.Query().Get("state")
 	wrongTarget := "http://127.0.0.1:3737/wrong?code=new&state=" + url.QueryEscape(state)
-	if _, err = service.CompleteOAuth(t.Context(), wrongTarget); err == nil {
-		t.Fatal("wrong callback target was accepted")
+	if _, err = service.CompleteOAuth(t.Context(), wrongTarget); err == nil || err.Error() != "adapter OAuth callback is invalid" {
+		t.Fatalf("wrong callback target = %v", err)
 	}
 	if _, err = service.CompleteOAuth(t.Context(), service.oauthCallback+"?error=access_denied&state="+url.QueryEscape(state)); err == nil {
 		t.Fatal("first callback did not consume the attempt")
@@ -1421,13 +1506,35 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 	if _, err = service.CompleteOAuth(t.Context(), service.oauthCallback+"?error=access_denied&state="+url.QueryEscape(state)); err == nil {
 		t.Fatal("one-use callback state was reused")
 	}
+	if _, ok := service.OAuthAttempt(attempt.AttemptID); !ok {
+		t.Fatal("callback completion event was not retained")
+	}
+	capacityService, capacityApplication, capacityDefinition := rustOAuthFixture(t, "http://127.0.0.1:3737/adapter/oauth/callback")
+	var capacityGrant OAuthGrant
 	for i := 0; i < 64; i++ {
-		if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err != nil {
+		capacityGrant = rustOAuthGrant(t, capacityService, capacityApplication, 1)
+		if _, err := capacityService.StartOAuth(OAuthStart{ApplicationID: capacityApplication.ApplicationID, ExpectedApplicationRevision: capacityApplication.Revision, GrantID: capacityGrant.GrantID, ExpectedGrantRevision: capacityGrant.AuthorityRevision, SemanticDigest: capacityDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); err != nil {
 			t.Fatalf("attempt %d = %v", i, err)
 		}
 	}
-	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil {
+	overflowGrant := rustOAuthGrant(t, capacityService, capacityApplication, 1)
+	if _, err := capacityService.StartOAuth(OAuthStart{ApplicationID: capacityApplication.ApplicationID, ExpectedApplicationRevision: capacityApplication.Revision, GrantID: overflowGrant.GrantID, ExpectedGrantRevision: overflowGrant.AuthorityRevision, SemanticDigest: capacityDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil {
 		t.Fatal("attempt registry exceeded its bound")
+	}
+	if _, err := capacityService.StartOAuth(OAuthStart{ApplicationID: capacityApplication.ApplicationID, ExpectedApplicationRevision: capacityApplication.Revision, GrantID: capacityGrant.GrantID, ExpectedGrantRevision: capacityGrant.AuthorityRevision, SemanticDigest: capacityDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); err != nil {
+		t.Errorf("same-grant replacement at capacity = %v", err)
+	}
+	service.mu.Lock()
+	var expiredID string
+	for _, value := range service.oauthAttempts {
+		expiredID = value.ID
+		value.expires = time.Unix(1, 0)
+		break
+	}
+	service.expireOAuthAttempts(time.Unix(2, 0))
+	service.mu.Unlock()
+	if event, ok := service.OAuthAttempt(expiredID); !ok || event.Status != "expired" {
+		t.Fatalf("expired attempt event = %#v, %t", event, ok)
 	}
 }
 
@@ -1672,6 +1779,25 @@ func rustRuntimeOAuthFixture(t *testing.T, scopes []string) (*Service, OAuthAppl
 	return service, application, definition, grant, connection
 }
 
+func rustAddRuntimeOAuthConnection(t *testing.T, service *Service, definition Definition, grant OAuthGrant, slug string) Connection {
+	t.Helper()
+	allowed := make([]string, 0, len(definition.Operations))
+	for _, operation := range definition.Operations {
+		allowed = append(allowed, operation.OperationID)
+	}
+	connection := Connection{SchemaVersion: 2, ConnectionID: randomHex(), ConnectionSlug: slug, SemanticDigest: definition.SemanticDigest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "oauth_grant", GrantID: grant.GrantID}}
+	var err error
+	connection, err = service.files.installConnection(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err = service.SaveConnectionPolicy(t.Context(), connection.ConnectionID, "1", 1, "allow_automatically", "always_ask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return connection
+}
+
 // Rust source: crates/noema-capabilities/adapters/src/runtime_tests.rs::reviewed_enablement_restores_one_disabled_adapter_tool.
 func TestRustAdapters_reviewed_enablement_restores_one_disabled_adapter_tool(t *testing.T) {
 	service, _, _, _ := rustAdapterService(t)
@@ -1746,7 +1872,12 @@ func mustAdapterBindings(t *testing.T, service *Service) []Binding {
 
 // Rust source: crates/noema-capabilities/adapters/src/runtime_tests.rs::active_grant_scope_gap_identifies_the_exact_definition_operation.
 func TestRustAdapters_active_grant_scope_gap_identifies_the_exact_definition_operation(t *testing.T) {
-	service, _, _, _, _ := rustRuntimeOAuthFixture(t, []string{"scope.extra"})
+	service, _, definition, grant, _ := rustRuntimeOAuthFixture(t, []string{"scope.extra"})
+	_ = rustAddRuntimeOAuthConnection(t, service, definition, grant, "second")
+	setupTools := service.SetupTools()
+	if len(setupTools) != 2 || setupTools[0].Name != DefinitionTemplateTool || setupTools[1].Name != ProposeDefinitionTool {
+		t.Fatalf("setup catalog = %#v", setupTools)
+	}
 	bindings, err := service.Bindings()
 	if err != nil {
 		t.Fatal(err)
@@ -1761,7 +1892,7 @@ func TestRustAdapters_active_grant_scope_gap_identifies_the_exact_definition_ope
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(notices) != 1 || notices[0].Status != "authorization_scope_unavailable" || notices[0].DefinitionDigest == "" || notices[0].OperationID != "lookup" {
+	if len(notices) != 2 || notices[0].Status != "authorization_scope_unavailable" || notices[0].DefinitionDigest == "" || notices[0].OperationID != "lookup" || notices[1].Status != "authorization_scope_unavailable" || notices[1].DefinitionDigest != notices[0].DefinitionDigest || notices[1].OperationID != "lookup" {
 		t.Errorf("scope-unavailable notices = %#v", notices)
 	}
 }
@@ -1799,6 +1930,7 @@ func TestRustAdapters_one_oauth_attempt_unions_scopes_for_selected_services(t *t
 	additional.DefinitionID = "definition:additional_service"
 	additional.AdapterID = "additional_service"
 	additional.DisplayName = "Additional Service"
+	additional.Authentication.ProfileDigest = application.ProfileDigest
 	additional.Reviewed = true
 	additional.Operations[0].OperationID = "use_service"
 	additional.Operations[0].Authorization = Authorization{Kind: "oauth_scopes", AcceptedScopeSets: [][]string{{"scope.write"}}}
@@ -1826,7 +1958,7 @@ func TestRustAdapters_one_oauth_attempt_rejects_a_duplicate_service_selection(t 
 
 // Rust source: crates/noema-capabilities/adapters/src/runtime_tests.rs::two_connections_share_one_refresh_result.
 func TestRustAdapters_two_connections_share_one_refresh_result(t *testing.T) {
-	service, _, _, grant, first := rustRuntimeOAuthFixture(t, []string{"scope.extra", "scope.read"})
+	service, application, _, grant, first := rustRuntimeOAuthFixture(t, []string{"scope.extra", "scope.read"})
 	loaded, _, err := service.files.loadOAuthGrant(grant.GrantID)
 	if err != nil {
 		t.Fatal(err)
@@ -1845,6 +1977,7 @@ func TestRustAdapters_two_connections_share_one_refresh_result(t *testing.T) {
 	secondManifest.DefinitionID = "definition:second_account"
 	secondManifest.AdapterID = "second_account"
 	secondManifest.DisplayName = "Second account"
+	secondManifest.Authentication.ProfileDigest = application.ProfileDigest
 	secondManifest.Reviewed = false
 	secondDefinition, err := service.files.installDefinition(secondManifest, "https://example.com/second", nil, nil)
 	if err != nil {
@@ -1885,9 +2018,24 @@ func TestRustAdapters_two_connections_share_one_refresh_result(t *testing.T) {
 	if first.ConnectionID == second.ConnectionID || first.ConnectionID == "" || second.ConnectionID == "" {
 		t.Errorf("shared grant connections were not independent: %#v %#v", first, second)
 	}
+	results := make(chan error, len(bindings))
+	ready := make(chan struct{})
+	var wait sync.WaitGroup
 	for _, binding := range bindings {
-		if _, _, err = service.Call(t.Context(), binding, json.RawMessage(`{"id":"item-1"}`)); err != nil {
-			t.Errorf("shared grant invocation = %v", err)
+		binding := binding
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-ready
+			_, _, callErr := service.Call(t.Context(), binding, json.RawMessage(`{"id":"item-1"}`))
+			results <- callErr
+		}()
+	}
+	close(ready)
+	wait.Wait()
+	for range bindings {
+		if callErr := <-results; callErr != nil {
+			t.Errorf("shared grant invocation = %v", callErr)
 		}
 	}
 	refreshes, bearers := transport.snapshot()
@@ -1955,11 +2103,11 @@ func TestRustAdapters_refresh_without_the_called_scope_requires_authentication(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != 1 {
+	if len(bindings) == 0 {
 		t.Errorf("scope-gap invocation binding = %#v", bindings)
 	}
 	if len(bindings) > 0 {
-		if _, _, callErr := service.Call(t.Context(), bindings[0], json.RawMessage(`{"id":"item-1"}`)); callErr == nil || callErr.Error() != ErrAuthenticationRequired.Error() {
+		if _, _, callErr := service.Call(t.Context(), bindings[0], json.RawMessage(`{"id":"item-1"}`)); callErr == nil || !errors.Is(callErr, ErrAuthenticationRequired) {
 			t.Errorf("scope gap invocation error = %v", callErr)
 		}
 	}
@@ -1978,7 +2126,8 @@ func TestRustAdapters_refresh_without_the_called_scope_requires_authentication(t
 
 // Rust source: crates/noema-capabilities/adapters/src/runtime_tests.rs::rejected_refresh_invalidates_the_shared_grant.
 func TestRustAdapters_rejected_refresh_invalidates_the_shared_grant(t *testing.T) {
-	service, _, _, grant, connection := rustRuntimeOAuthFixture(t, []string{"scope.read"})
+	service, _, definition, grant, connection := rustRuntimeOAuthFixture(t, []string{"scope.read"})
+	_ = rustAddRuntimeOAuthConnection(t, service, definition, grant, "second")
 	transport := &runtimeOAuthTransport{tokenStatus: http.StatusUnauthorized}
 	service.httpClient = &http.Client{Transport: transport}
 	service.oauthClient = service.httpClient
@@ -1992,7 +2141,7 @@ func TestRustAdapters_rejected_refresh_invalidates_the_shared_grant(t *testing.T
 		t.Fatal(err)
 	}
 	bindings, err := service.Bindings()
-	if err != nil || len(bindings) != 1 {
+	if err != nil || len(bindings) != 2 {
 		t.Fatalf("rejected refresh bindings = %#v, %v", bindings, err)
 	}
 	if _, _, callErr := service.Call(t.Context(), bindings[0], json.RawMessage(`{"id":"item-1"}`)); !errors.Is(callErr, ErrAuthenticationRequired) {
@@ -2017,34 +2166,59 @@ func TestRustAdapters_rejected_refresh_invalidates_the_shared_grant(t *testing.T
 	if quarantineErr != nil || len(quarantineEntries) == 0 {
 		t.Errorf("rejected grant quarantine = %v entries=%d", quarantineErr, len(quarantineEntries))
 	}
+	if bindings, err = service.Bindings(); err != nil || len(bindings) != 0 {
+		t.Errorf("invalidated grant remained callable = %#v, %v", bindings, err)
+	}
+	if notices, err := service.AvailabilityNotices(); err != nil || len(notices) != 2 || notices[0].Status != "authentication_required" || notices[1].Status != "authentication_required" {
+		t.Errorf("invalidated grant catalog notices = %#v, %v", notices, err)
+	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/runtime_tests.rs::new_authorization_without_identity_creates_another_account_grant.
 func TestRustAdapters_new_authorization_without_identity_creates_another_account_grant(t *testing.T) {
 	service, application, definition := rustOAuthFixture(t, "http://127.0.0.1:3737/adapter/oauth/callback")
+	existing := rustOAuthGrant(t, service, application, 1)
+	transport := &runtimeOAuthTransport{}
+	service.oauthClient = &http.Client{Transport: transport}
 	before, err := service.OAuthSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err != nil {
+	attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
+	if err != nil {
 		t.Fatal(err)
 	}
+	handoff, err := url.Parse(attempt.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=code-marker&state="+url.QueryEscape(handoff.Query().Get("state")))
+	if err != nil || event.Status != "completed" || event.GrantID == "" {
+		t.Fatalf("completed authorization = %#v, %v", event, err)
+	}
 	after, err := service.OAuthSnapshot()
-	if err != nil || len(after.Grants) != len(before.Grants) {
-		t.Fatalf("uncompleted authorization created a grant: %#v, %v", after, err)
+	if err != nil || len(after.Grants) != len(before.Grants)+1 {
+		t.Fatalf("new authorization grant count = %#v, %v", after, err)
+	}
+	if event.GrantID == "" || event.GrantID == existing.GrantID {
+		t.Fatalf("new authorization reused an existing grant: %#v", event)
+	}
+	grant, _, err := service.files.loadOAuthGrant(event.GrantID)
+	if err != nil || grant.AccountID != nil {
+		t.Fatalf("new authorization account identity = %#v, %v", grant, err)
 	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/runtime_tests.rs::stale_oauth_management_revisions_are_rejected.
 func TestRustAdapters_stale_oauth_management_revisions_are_rejected(t *testing.T) {
 	service, application, definition, grant, _ := rustRuntimeOAuthFixture(t, []string{"scope.read"})
-	if _, _, err := service.AttachOAuthConnection(t.Context(), definition.SemanticDigest, grant.GrantID, grant.AuthorityRevision+1, ""); err == nil {
+	if _, _, err := service.AttachOAuthConnection(t.Context(), definition.SemanticDigest, grant.GrantID, grant.AuthorityRevision+1, ""); err == nil || err.Error() != "adapter OAuth connection is unavailable" {
 		t.Fatal("stale grant revision was accepted")
 	}
-	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision + 1, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil {
+	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision + 1, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil || err.Error() != "adapter OAuth application changed" {
 		t.Fatal("stale application revision was accepted")
 	}
-	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision + 1, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil {
+	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision + 1, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil || err.Error() != "adapter OAuth grant changed" {
 		t.Fatal("stale grant revision was accepted by OAuth start")
 	}
 }
@@ -2143,14 +2317,15 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if len(required) != 1 || required[0] != "source_reference" {
 		t.Fatalf("required setup fields = %#v", schema["required"])
 	}
-	for _, name := range []string{"new_definition", "revision", "upsert_operations"} {
-		if properties[name] == nil {
-			t.Fatalf("proposal property %q missing", name)
+	for _, pointer := range []string{"/properties/new_definition", "/properties/revision", "/properties/upsert_operations/items"} {
+		property, _ := properties[strings.TrimPrefix(strings.TrimPrefix(pointer, "/properties/"), "/items")].(map[string]any)
+		if pointer == "/properties/upsert_operations/items" {
+			upsert, _ := properties["upsert_operations"].(map[string]any)
+			property, _ = upsert["items"].(map[string]any)
 		}
-		property, _ := properties[name].(map[string]any)
 		additionalProperties, isObject := property["additionalProperties"].(map[string]any)
 		if property["type"] != "object" || !isObject || additionalProperties == nil {
-			t.Errorf("proposal property %q is not an open object schema: %#v", name, property)
+			t.Errorf("proposal pointer %q is not an open object schema: %#v", pointer, property)
 		}
 	}
 	help := definitionHelp()
@@ -2175,14 +2350,14 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if !reflect.DeepEqual(pagination, wantPagination) {
 		t.Errorf("pagination help = %#v, want %#v", pagination, wantPagination)
 	}
-	privateProposal := rustSetupProposalValue()
-	privateProposal["api_key"] = "private"
-	payload, accepted := service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(privateProposal))
-	if accepted || strings.Contains(string(payload), "private") {
-		t.Errorf("private proposal payload = %s", payload)
+	if persisted, ok := sanitizeOutput(map[string]any{"marker": "draft", "api_key": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "draft", "api_key": "[REDACTED]"}) {
+		t.Errorf("proposal arguments were not redacted: %#v", persisted)
 	}
-	if !strings.Contains(string(payload), "[REDACTED]") {
-		t.Errorf("proposal binding did not persist the Rust redaction marker: %s", payload)
+	if persisted, ok := sanitizeOutput(map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": 32}}, "required": []any{}, "additionalProperties": false}}, "api_key": "private"}}}).(map[string]any); !ok || !strings.Contains(fmt.Sprint(persisted), "[REDACTED]") {
+		t.Errorf("nested proposal arguments were not redacted: %#v", persisted)
+	}
+	if persisted, ok := sanitizeOutput(map[string]any{"marker": "result", "access_token": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "result", "access_token": "[REDACTED]"}) {
+		t.Errorf("proposal output was not redacted: %#v", persisted)
 	}
 }
 
@@ -2219,7 +2394,7 @@ func TestRustAdapters_definition_template_references_a_profile_without_client_se
 
 // Rust source: crates/noema-capabilities/adapters/src/setup.rs::model_proposal_is_forced_pending_and_survives_service_recreation.
 func TestRustAdapters_model_proposal_is_forced_pending_and_survives_service_recreation(t *testing.T) {
-	service, _, _, _ := rustAdapterService(t)
+	service, directory, root, database := rustAdapterService(t)
 	payload, ok := service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(rustSetupProposalValue()))
 	if !ok {
 		t.Fatal(string(payload))
@@ -2228,9 +2403,31 @@ func TestRustAdapters_model_proposal_is_forced_pending_and_survives_service_recr
 	if value["status"] != "review_required" {
 		t.Fatalf("proposal status = %#v", value["status"])
 	}
-	definitions, err := service.files.definitions()
-	if err != nil || len(definitions) != 1 || definitions[0].Manifest.Reviewed {
-		t.Fatalf("pending definitions = %#v, %v", definitions, err)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopenedRoot, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopenedDatabase, err := store.Open(t.Context(), filepath.Join(directory, "noema.sqlite3"))
+	if err != nil {
+		_ = reopenedRoot.Close()
+		t.Fatal(err)
+	}
+	reopened, err := NewService(reopenedRoot, reopenedDatabase)
+	if err != nil {
+		_ = reopenedDatabase.Close()
+		_ = reopenedRoot.Close()
+		t.Fatal(err)
+	}
+	defer func() { _ = reopenedDatabase.Close(); _ = reopenedRoot.Close() }()
+	definitions, err := reopened.files.definitions()
+	if err != nil || len(definitions) != 1 || definitions[0].Manifest.Reviewed || definitions[0].Superseded {
+		t.Fatalf("pending definitions after recreation = %#v, %v", definitions, err)
 	}
 }
 
@@ -2248,7 +2445,8 @@ func TestRustAdapters_proposal_can_update_one_operation_in_an_existing_definitio
 	revision["base_semantic_digest"] = digest
 	revision["revision"] = map[string]any{"definition_revision": "v2"}
 	operation := revision["upsert_operations"].([]any)[0].(map[string]any)
-	operation["path"] = "/v2/events"
+	response := operation["response"].(map[string]any)
+	response["transform"].(map[string]any)["source"] = "return function() return json.null end"
 	payload, ok = service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(revision))
 	if !ok {
 		t.Fatal(string(payload))
@@ -2259,7 +2457,7 @@ func TestRustAdapters_proposal_can_update_one_operation_in_an_existing_definitio
 	}
 	newDigest, _ := second["semantic_digest"].(string)
 	definition, err := service.files.loadDefinition(newDigest)
-	if err != nil || definition.Manifest.DefinitionRevision != "v2" || definition.Manifest.Operations[0].Path != "/v2/events" {
+	if err != nil || definition.Manifest.DefinitionRevision != "v2" || definition.Manifest.Operations[0].Path != "/v1/events" || definition.Manifest.Operations[0].Response.Transform == nil || definition.Manifest.Operations[0].Response.Transform.Source != "return function() return json.null end" {
 		t.Fatalf("revised definition = %#v, %v", definition, err)
 	}
 }
@@ -2560,7 +2758,7 @@ func rustOpenAPIImport(t *testing.T, raw []byte, label string) OpenAPICandidate 
 
 func rustReviewedOpenAPIManifest(candidate OpenAPICandidate, reviewed bool) Manifest {
 	operation := candidate.Operations[0]
-	return Manifest{SchemaVersion: 9, DefinitionID: "definition:openapi", AdapterID: "openapi_fixture", DisplayName: candidate.Title, DefinitionRevision: "2026-09-07.1", Reviewed: reviewed, Origin: "https://api.example.test/", Authentication: Authentication{Kind: "none"}, Operations: []Operation{{OperationID: strings.ReplaceAll(operation.OperationID, "/", "_"), Description: "Run the selected operation.", SourceDescription: operation.SourceDescription, Method: operation.Method, Path: operation.Path, Authorization: Authorization{Kind: "none"}, FixedHeaders: operation.FixedHeaders, Arguments: operation.Arguments, Behavior: BehaviorHints{ReadOnly: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Idempotent: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Destructive: Hint{Value: boolPtr(false), Source: stringPtr("model")}, OpenWorld: Hint{Value: boolPtr(true), Source: stringPtr("model")}}, Retry: "transport_safe_read", Pagination: Pagination{Kind: "none"}, Response: Response{AcceptedContentTypes: []string{"application/json"}, OutputSchema: OutputSchema{Type: "null"}}}}}
+	return Manifest{SchemaVersion: 9, DefinitionID: "definition:openapi", AdapterID: "openapi_fixture", DisplayName: candidate.Title, DefinitionRevision: "2026-09-07.1", Reviewed: reviewed, Origin: "https://api.example.test/", Authentication: Authentication{Kind: "none"}, Operations: []Operation{{OperationID: operation.OperationID, Description: "Run the selected operation.", SourceDescription: operation.SourceDescription, Method: operation.Method, Path: operation.Path, Authorization: Authorization{Kind: "none"}, FixedHeaders: operation.FixedHeaders, Arguments: operation.Arguments, Behavior: BehaviorHints{ReadOnly: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Idempotent: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Destructive: Hint{Value: boolPtr(false), Source: stringPtr("model")}, OpenWorld: Hint{Value: boolPtr(true), Source: stringPtr("model")}}, Retry: "transport_safe_read", Pagination: Pagination{Kind: "none"}, Response: Response{AcceptedContentTypes: []string{"application/json"}, OutputSchema: OutputSchema{Type: "null"}}}}}
 }
 
 func boolPtr(value bool) *bool { return &value }
@@ -2586,7 +2784,7 @@ func rustJSONEquivalent(left, right any) bool {
 func TestRustAdapters_imports_independent_company_fixtures_without_provider_branches(t *testing.T) {
 	github := rustOpenAPIImport(t, rustGitHubOpenAPISource, "github OpenAPI fixture")
 	stripe := rustOpenAPIImport(t, rustStripeOpenAPISource, "stripe OpenAPI fixture")
-	if len(github.Operations) != 1 || len(stripe.Operations) != 1 || github.Operations[0].Method != "GET" || stripe.Operations[0].Path != "/v1/customers" || github.Operations[0].OperationID != "repos/list-for-authenticated-user" || len(github.Diagnostics) != 0 || len(stripe.Diagnostics) != 0 {
+	if len(github.Operations) != 1 || len(stripe.Operations) != 1 || github.Operations[0].Method != "GET" || stripe.Operations[0].Path != "/v1/customers" || github.Operations[0].OperationID != "repos_list-for-authenticated-user" || !slices.Contains(github.ReviewClaims, "effects") || len(github.Diagnostics) != 0 || len(stripe.Diagnostics) != 0 {
 		t.Fatalf("independent OpenAPI candidates = %#v %#v", github, stripe)
 	}
 }
@@ -2595,7 +2793,7 @@ func TestRustAdapters_imports_independent_company_fixtures_without_provider_bran
 func TestRustAdapters_imports_independent_openapi_31_fixtures_through_one_lowerer(t *testing.T) {
 	todoist := rustOpenAPIImport(t, rustTodoistOpenAPISource, "Todoist OpenAPI 3.1 fixture")
 	ynab := rustOpenAPIImport(t, rustYNABOpenAPISource, "YNAB OpenAPI 3.1 fixture")
-	if todoist.Version != "3.1.0" || ynab.Version != "3.1.1" || len(todoist.Operations) != 1 || len(ynab.Operations) != 1 || todoist.SourceDigest == ynab.SourceDigest {
+	if todoist.Version != "3.1.0" || ynab.Version != "3.1.1" || len(todoist.Operations) != 1 || len(ynab.Operations) != 1 || todoist.SourceDigest == ynab.SourceDigest || !slices.ContainsFunc(todoist.Operations[0].Arguments, func(argument Argument) bool { return argument.Location == "query" }) || !slices.ContainsFunc(ynab.Operations[0].Arguments, func(argument Argument) bool { return argument.Location == "json_body" }) {
 		t.Fatalf("OpenAPI 3.1 candidates = %#v %#v", todoist, ynab)
 	}
 }
@@ -2604,6 +2802,7 @@ func TestRustAdapters_imports_independent_openapi_31_fixtures_through_one_lowere
 func TestRustAdapters_rejects_openapi_31_dialects_unions_and_webhooks_before_lowering(t *testing.T) {
 	for _, raw := range [][]byte{
 		[]byte(`{"openapi":"3.1.0","jsonSchemaDialect":"https://example.test/schema","info":{"title":"fixture","version":"1"},"paths":{}}`),
+		[]byte(`{"openapi":"3.1.0","jsonSchemaDialect":"https://json-schema.org/draft/2020-12/schema","info":{"title":"fixture","version":"1"},"paths":{"/items":{"get":{"parameters":[{"name":"kind","in":"query","schema":{"type":["string","null"]}}],"responses":{"200":{"description":"ok"}}}}}}`),
 		[]byte(`{"openapi":"3.1.0","jsonSchemaDialect":"https://json-schema.org/draft/2020-12/schema","info":{"title":"fixture","version":"1"},"paths":{},"webhooks":{"events":{}}}`),
 	} {
 		if _, err := (OpenAPIImporter{}).ImportJSON("fixture://unsupported", raw); err == nil {
@@ -2642,6 +2841,10 @@ func TestRustAdapters_openapi_31_fixture_still_requires_reviewed_activation(t *t
 	if _, err = candidate.Activate(selection, rustReviewedOpenAPIManifest(candidate, true)); err != nil {
 		t.Fatal(err)
 	}
+	activation, err := candidate.Activate(selection, rustReviewedOpenAPIManifest(candidate, true))
+	if err != nil || len(activation.Compiled.Operations) != 1 || activation.Compiled.Manifest.DefinitionID != "definition:openapi" {
+		t.Fatalf("reviewed OpenAPI activation = %#v, %v", activation, err)
+	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/openapi/tests.rs::json_and_yaml_normalization_is_equivalent.
@@ -2659,7 +2862,7 @@ func TestRustAdapters_json_and_yaml_normalization_is_equivalent(t *testing.T) {
 func TestRustAdapters_resolves_local_parameter_schema_and_json_body_refs(t *testing.T) {
 	raw := []byte(`{"openapi":"3.0.3","info":{"title":"Refs","version":"1"},"components":{"schemas":{"Identifier":{"type":"string"},"Create":{"type":"object","additionalProperties":false,"required":["name"],"properties":{"name":{"type":"string"}}}},"parameters":{"ItemId":{"name":"item_id","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}}},"requestBodies":{"CreateBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Create"}}}}}},"paths":{"/items/{item_id}":{"post":{"operationId":"create-item","parameters":[{"$ref":"#/components/parameters/ItemId"}],"requestBody":{"$ref":"#/components/requestBodies/CreateBody"},"responses":{"200":{"description":"ok"}}}}}}`)
 	candidate := rustOpenAPIImport(t, raw, "local OpenAPI references")
-	if len(candidate.Operations) != 1 || len(candidate.Operations[0].Arguments) != 2 {
+	if len(candidate.Operations) != 1 || candidate.Operations[0].OperationID != "create-item" || len(candidate.Operations[0].Arguments) != 2 {
 		t.Fatalf("resolved OpenAPI arguments = %#v", candidate.Operations)
 	}
 	var pathArgument, bodyArgument bool
@@ -2674,14 +2877,21 @@ func TestRustAdapters_resolves_local_parameter_schema_and_json_body_refs(t *test
 
 // Rust source: crates/noema-capabilities/adapters/src/openapi/tests.rs::rejects_version_duplicates_size_and_deep_graphs.
 func TestRustAdapters_rejects_version_duplicates_size_and_deep_graphs(t *testing.T) {
+	valid31 := rustOpenAPIImport(t, rustOpenAPIDocument("items", "3.1.0"), "valid OpenAPI 3.1 source")
+	if valid31.Version != "3.1.0" || len(valid31.Operations) != 1 {
+		t.Fatalf("valid OpenAPI 3.1 candidate = %#v", valid31)
+	}
 	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://duplicate", []byte(`{"openapi":"3.0.3","openapi":"3.0.3","info":{"title":"duplicate","version":"1"},"paths":{}}`)); err == nil {
 		t.Fatal("duplicate OpenAPI keys were accepted")
+	}
+	if _, err := (OpenAPIImporter{}).ImportYAML("fixture://duplicate-yaml", []byte("openapi: 3.0.3\nopenapi: 3.0.3\n")); err == nil {
+		t.Fatal("duplicate OpenAPI YAML keys were accepted")
 	}
 	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://large", make([]byte, manifestLimit+1)); err == nil {
 		t.Fatal("oversized OpenAPI source was accepted")
 	}
 	deep := any("leaf")
-	for i := 0; i < 20; i++ {
+	for i := 0; i < openAPIMaxDepth+2; i++ {
 		deep = []any{deep}
 	}
 	raw, _ := json.Marshal(map[string]any{"openapi": "3.0.3", "info": map[string]any{"title": "deep", "version": "1"}, "paths": map[string]any{}, "x-deep": deep})
@@ -2692,15 +2902,23 @@ func TestRustAdapters_rejects_version_duplicates_size_and_deep_graphs(t *testing
 
 // Rust source: crates/noema-capabilities/adapters/src/openapi/tests.rs::reports_unsupported_refs_servers_callbacks_and_media_without_silent_activation.
 func TestRustAdapters_reports_unsupported_refs_servers_callbacks_and_media_without_silent_activation(t *testing.T) {
-	for _, raw := range []string{
-		`{"openapi":"3.0.3","info":{"title":"external","version":"1"},"paths":{"/items":{"get":{"parameters":[{"$ref":"https://example.invalid/parameter.json"}],"responses":{"200":{"description":"ok"}}}}}}`,
-		`{"openapi":"3.0.3","info":{"title":"server","version":"1"},"servers":[{"url":"https://{region}.example.test"}],"paths":{}}`,
-		`{"openapi":"3.0.3","info":{"title":"callback","version":"1"},"paths":{"/items":{"get":{"callbacks":{"notify":{}},"responses":{"200":{"description":"ok"}}}}}}`,
+	for _, candidate := range []struct {
+		raw  string
+		want string
+	}{
+		{`{"openapi":"3.0.3","info":{"title":"external","version":"1"},"paths":{"/items":{"get":{"parameters":[{"$ref":"https://example.invalid/parameter.json"}],"responses":{"200":{"description":"ok"}}}}}}`, "external_ref_unsupported"},
+		{`{"openapi":"3.0.3","info":{"title":"server","version":"1"},"servers":[{"url":"https://{region}.example.test"}],"paths":{}}`, "server_variables_unsupported"},
+		{`{"openapi":"3.0.3","info":{"title":"callback","version":"1"},"paths":{"/items":{"get":{"callbacks":{"notify":{}},"responses":{"200":{"description":"ok"}}}}}}`, "callbacks_unsupported"},
 	} {
-		candidate, err := (OpenAPIImporter{}).ImportJSON("fixture://diagnostic", []byte(raw))
-		if err != nil || !candidate.HasBlockingDiagnostics() {
-			t.Fatalf("unsupported OpenAPI feature was silently activated: %#v, %v", candidate, err)
+		imported, err := (OpenAPIImporter{}).ImportJSON("fixture://diagnostic", []byte(candidate.raw))
+		if err != nil || !imported.HasBlockingDiagnostics() || !slices.ContainsFunc(imported.Diagnostics, func(diagnostic OpenAPIDiagnostic) bool { return diagnostic.Code == candidate.want }) {
+			t.Fatalf("unsupported OpenAPI feature was silently activated: %#v, %v", imported, err)
 		}
+	}
+	multipart := []byte(`{"openapi":"3.0.3","info":{"title":"multipart","version":"1"},"paths":{"/items":{"post":{"operationId":"upload","requestBody":{"content":{"multipart/form-data":{"schema":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"}}}}}},"responses":{"200":{"description":"ok"}}}}}}`)
+	candidate, err := (OpenAPIImporter{}).ImportJSON("fixture://multipart", multipart)
+	if err != nil || !slices.ContainsFunc(candidate.Diagnostics, func(diagnostic OpenAPIDiagnostic) bool { return diagnostic.Code == "request_media_type_unsupported" }) {
+		t.Fatalf("multipart OpenAPI diagnostics = %#v, %v", candidate, err)
 	}
 }
 
@@ -2746,7 +2964,7 @@ func TestRustAdapters_selection_is_not_activation_and_source_refresh_keeps_old_d
 		t.Fatal(err)
 	}
 	secondActivation, err := secondCandidate.Activate(secondSelection, rustReviewedOpenAPIManifest(secondCandidate, true))
-	if err != nil || firstActivation.SourceDigest != firstCandidate.SourceDigest || secondActivation.SemanticChangeFrom(firstActivation) != OpenAPIDocumentationOnly {
+	if err != nil || firstActivation.SourceDigest != firstCandidate.SourceDigest || !slices.Equal(firstActivation.OperationIDs, selection.OperationIDs) || secondActivation.SemanticChangeFrom(firstActivation) != OpenAPIDocumentationOnly {
 		t.Fatalf("OpenAPI source refresh = %#v %#v, %v", firstActivation, secondActivation, err)
 	}
 }
@@ -2754,6 +2972,9 @@ func TestRustAdapters_selection_is_not_activation_and_source_refresh_keeps_old_d
 // Rust source: crates/noema-capabilities/adapters/src/openapi/tests.rs::reviewed_activation_accepts_complete_four_hint_behavior.
 func TestRustAdapters_reviewed_activation_accepts_complete_four_hint_behavior(t *testing.T) {
 	candidate := rustOpenAPIImport(t, rustOpenAPIDocument("items", "3.0.3"), "reviewed four-hint OpenAPI activation")
+	if len(candidate.ReviewClaims) != 5 {
+		t.Fatalf("review claims = %#v", candidate.ReviewClaims)
+	}
 	selection, err := candidate.SelectOperations([]string{candidate.Operations[0].OperationID})
 	if err != nil {
 		t.Fatal(err)

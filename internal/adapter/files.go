@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,8 @@ const (
 
 type provenance struct {
 	SourceReference     string   `json:"source_reference"`
+	SourceDigest        string   `json:"source_digest,omitempty"`
+	SourceFormat        string   `json:"source_format,omitempty"`
 	Replaces            []string `json:"replaces_semantic_digests,omitempty"`
 	AffectedConnections []string `json:"affected_connection_ids,omitempty"`
 }
@@ -132,9 +135,19 @@ func (f *fileAuthority) recoverStages(path string) error {
 }
 
 func (f *fileAuthority) installDefinition(manifest Manifest, sourceReference string, replaces, affected []string) (Definition, error) {
+	return f.installDefinitionWithSource(manifest, sourceReference, nil, "", replaces, affected)
+}
+
+func (f *fileAuthority) installDefinitionWithSource(manifest Manifest, sourceReference string, source []byte, sourceFormat string, replaces, affected []string) (Definition, error) {
 	definition, err := Compile(manifest)
 	if err != nil {
 		return Definition{}, err
+	}
+	if len(source) > manifestLimit {
+		return Definition{}, errors.New("adapter source is oversized")
+	}
+	if len(source) > 0 && sourceFormat != "json" && sourceFormat != "yaml" {
+		return Definition{}, errors.New("adapter source format is invalid")
 	}
 	manifestRaw, err := json.Marshal(manifest)
 	if err != nil || len(manifestRaw) > manifestLimit {
@@ -142,7 +155,11 @@ func (f *fileAuthority) installDefinition(manifest Manifest, sourceReference str
 	}
 	sort.Strings(replaces)
 	sort.Strings(affected)
-	metadataRaw, err := json.Marshal(provenance{SourceReference: sourceReference, Replaces: replaces, AffectedConnections: affected})
+	sourceDigest := ""
+	if len(source) > 0 {
+		sourceDigest = fmt.Sprintf("%x", sha256.Sum256(source))
+	}
+	metadataRaw, err := json.Marshal(provenance{SourceReference: sourceReference, SourceDigest: sourceDigest, SourceFormat: sourceFormat, Replaces: replaces, AffectedConnections: affected})
 	if err != nil || len(metadataRaw) > 64<<10 {
 		return Definition{}, errors.New("adapter provenance is invalid")
 	}
@@ -152,12 +169,16 @@ func (f *fileAuthority) installDefinition(manifest Manifest, sourceReference str
 		if loadErr != nil {
 			return Definition{}, loadErr
 		}
-		if existing.SourceReference != sourceReference || strings.Join(existing.Replaces, "\x00") != strings.Join(replaces, "\x00") || strings.Join(existing.AffectedConnections, "\x00") != strings.Join(affected, "\x00") {
+		if sourceDigest != "" && existing.SourceDigest != sourceDigest || strings.Join(existing.Replaces, "\x00") != strings.Join(replaces, "\x00") || strings.Join(existing.AffectedConnections, "\x00") != strings.Join(affected, "\x00") {
 			return Definition{}, errors.New("adapter definition publication conflicts")
 		}
 		return existing, nil
 	}
-	if err := f.installDirectory("adapters/definitions", definition.SemanticDigest, map[string][]byte{"manifest.json": manifestRaw, "provenance.json": metadataRaw}); err != nil {
+	files := map[string][]byte{"manifest.json": manifestRaw, "provenance.json": metadataRaw}
+	if sourceDigest != "" {
+		files["source."+sourceFormat] = append([]byte(nil), source...)
+	}
+	if err := f.installDirectory("adapters/definitions", definition.SemanticDigest, files); err != nil {
 		return Definition{}, err
 	}
 	return f.loadDefinition(definition.SemanticDigest)
@@ -439,9 +460,6 @@ func (f *fileAuthority) loadDefinition(digest string) (Definition, error) {
 		return Definition{}, errors.New("adapter definition is unavailable")
 	}
 	defer directory.Close()
-	if err := exactFiles(directory, []string{"manifest.json", "provenance.json"}); err != nil {
-		return Definition{}, err
-	}
 	manifestRaw, err := readRegular(directory, "manifest.json", manifestLimit)
 	if err != nil {
 		return Definition{}, err
@@ -458,6 +476,22 @@ func (f *fileAuthority) loadDefinition(digest string) (Definition, error) {
 	if decodeExactJSON(metadataRaw, &metadata) != nil || validateSourceReference(metadata.SourceReference) != nil {
 		return Definition{}, errors.New("adapter definition provenance is invalid")
 	}
+	expectedFiles := []string{"manifest.json", "provenance.json"}
+	if metadata.SourceDigest != "" {
+		if !validDigest(metadata.SourceDigest) || metadata.SourceFormat != "json" && metadata.SourceFormat != "yaml" {
+			return Definition{}, errors.New("adapter definition source is invalid")
+		}
+		expectedFiles = append(expectedFiles, "source."+metadata.SourceFormat)
+	}
+	if err := exactFiles(directory, expectedFiles); err != nil {
+		return Definition{}, err
+	}
+	if metadata.SourceDigest != "" {
+		source, sourceErr := readRegular(directory, "source."+metadata.SourceFormat, manifestLimit)
+		if sourceErr != nil || fmt.Sprintf("%x", sha256.Sum256(source)) != metadata.SourceDigest {
+			return Definition{}, errors.New("adapter definition source digest changed")
+		}
+	}
 	for _, replaced := range metadata.Replaces {
 		if !validDigest(replaced) || replaced == digest {
 			return Definition{}, errors.New("adapter definition lineage is invalid")
@@ -469,27 +503,44 @@ func (f *fileAuthority) loadDefinition(digest string) (Definition, error) {
 		}
 	}
 	definition.SourceReference = metadata.SourceReference
+	definition.SourceDigest = metadata.SourceDigest
+	definition.SourceFormat = metadata.SourceFormat
 	definition.Replaces = append([]string(nil), metadata.Replaces...)
 	definition.AffectedConnections = append([]string(nil), metadata.AffectedConnections...)
 	return definition, nil
 }
 
-func (f *fileAuthority) definitions() ([]Definition, error) {
+type definitionDiagnostic struct{ Code string }
+
+type definitionScan struct {
+	Definitions []Definition
+	Diagnostics []definitionDiagnostic
+}
+
+func (f *fileAuthority) scanDefinitions() (definitionScan, error) {
 	entries, err := readBoundedEntries(f.root, "adapters/definitions", definitionLimit)
 	if err != nil {
-		return nil, err
+		return definitionScan{}, err
 	}
 	result := make([]Definition, 0, len(entries))
+	diagnostics := make([]definitionDiagnostic, 0)
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() || !validDigest(entry.Name()) {
+			if entry.Type()&os.ModeSymlink != 0 {
+				diagnostics = append(diagnostics, definitionDiagnostic{Code: "object_file"})
+			}
 			continue
 		}
 		value, loadErr := f.loadDefinition(entry.Name())
 		if loadErr == nil {
 			result = append(result, value)
+		} else if strings.Contains(loadErr.Error(), "source digest") {
+			diagnostics = append(diagnostics, definitionDiagnostic{Code: "source_digest"})
+		} else {
+			diagnostics = append(diagnostics, definitionDiagnostic{Code: "object_file"})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].SemanticDigest < result[j].SemanticDigest })
@@ -510,7 +561,15 @@ func (f *fileAuthority) definitions() ([]Definition, error) {
 			}
 		}
 	}
-	return result, nil
+	return definitionScan{Definitions: result, Diagnostics: diagnostics}, nil
+}
+
+func (f *fileAuthority) definitions() ([]Definition, error) {
+	scan, err := f.scanDefinitions()
+	if err != nil {
+		return nil, err
+	}
+	return scan.Definitions, nil
 }
 
 func (f *fileAuthority) loadConnection(id string) (Connection, error) {
@@ -615,7 +674,11 @@ func (f *fileAuthority) quarantine(kind, id string) error {
 	if kind != "definitions" && kind != "connections" && kind != "oauth-applications" {
 		return errors.New("adapter quarantine kind is invalid")
 	}
-	if err := f.root.Rename("adapters/"+kind+"/"+id, "adapters/quarantine/"+kind+"/"+id+"-"+randomHex()); err != nil {
+	target := "adapters/quarantine/" + kind + "/" + id
+	if _, err := f.root.Lstat(target); err == nil {
+		return errors.New("adapter quarantine conflict")
+	}
+	if err := f.root.Rename("adapters/"+kind+"/"+id, target); err != nil {
 		return err
 	}
 	if err := home.SyncRootDirectory(f.root, "adapters/"+kind); err != nil {

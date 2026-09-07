@@ -56,7 +56,7 @@ func (a OAuthAttempt) GoString() string {
 		parsed.RawQuery = query.Encode()
 		handoff = parsed.String()
 	}
-	return fmt.Sprintf("adapter.OAuthAttempt{AttemptID:%q, AuthorizationURL:%q, ExpiresAt:%d}", a.AttemptID, handoff, a.ExpiresAt)
+	return fmt.Sprintf("adapter.OAuthAttempt{AttemptID:%q, AuthorizationURL:%q, State:%q, PKCEVerifier:%q, ExpiresAt:%d}", a.AttemptID, handoff, "[REDACTED]", "[REDACTED]", a.ExpiresAt)
 }
 
 type OAuthAttemptEvent struct {
@@ -575,7 +575,13 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 		return OAuthAttemptEvent{}, profileErr
 	}
 	s.mu.Unlock()
-	token, err := exchangeOAuthToken(ctx, profile, application, credential, url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {attempt.redirect}, "code_verifier": {attempt.verifier}}, attempt.Scopes)
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {attempt.redirect}, "code_verifier": {attempt.verifier}}
+	var token oauthGrantToken
+	if s.oauthClient != nil {
+		token, err = exchangeOAuthTokenWithClient(ctx, profile, application, credential, form, attempt.Scopes, s.oauthClient)
+	} else {
+		token, err = exchangeOAuthToken(ctx, profile, application, credential, form, attempt.Scopes)
+	}
 	if err != nil {
 		s.mu.Lock()
 		s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "failed"})

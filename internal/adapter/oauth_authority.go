@@ -187,7 +187,15 @@ func (f *fileAuthority) loadOAuthProfile(digest string) (OAuthProfile, error) {
 	if !validDigest(digest) {
 		return OAuthProfile{}, errors.New("adapter OAuth profile is unavailable")
 	}
-	raw, err := readObject(f.root, "adapters/oauth-profiles/"+digest, "profile.json")
+	directory, err := f.root.OpenRoot("adapters/oauth-profiles/" + digest)
+	if err != nil {
+		return OAuthProfile{}, errors.New("adapter OAuth profile is unavailable")
+	}
+	defer directory.Close()
+	if err := exactFiles(directory, []string{"profile.json"}); err != nil {
+		return OAuthProfile{}, err
+	}
+	raw, err := readRegular(directory, "profile.json", oauthObjectLimit)
 	if err != nil {
 		return OAuthProfile{}, err
 	}
