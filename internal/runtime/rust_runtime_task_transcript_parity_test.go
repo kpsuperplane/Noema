@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 )
 
@@ -34,7 +35,16 @@ func TestRustRuntime_hosted_web_search_items_preserve_ordered_sources(t *testing
 
 func TestRustRuntime_task_transcript_redacts_secret_fields_recursively(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/task_transcript.rs::task_transcript_redacts_secret_fields_recursively.
-	payload := boundedModelToolPayload(json.RawMessage(`{"query":"safe","headers":{"Authorization":"Bearer private"},"nested":[{"api_key":"private"}]}`), modelToolResultLimit)
+	payload := persistedCapabilityArguments(map[string]noemamcp.Binding{
+		"web.search": {Name: "web.search", PersistencePolicy: noemamcp.BindingPersistenceRedacted},
+	}, "web.search", json.RawMessage(`{"query":"safe","headers":{"Authorization":"Bearer private"},"nested":[{"api_key":"private"}]}`))
+	var value map[string]any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value["query"] != "safe" || value["headers"].(map[string]any)["Authorization"] != "[REDACTED]" || value["nested"].([]any)[0].(map[string]any)["api_key"] != "[REDACTED]" {
+		t.Fatalf("task transcript redaction = %s", payload)
+	}
 	if strings.Contains(string(payload), "Bearer private") || strings.Contains(string(payload), `"api_key":"private"`) {
 		t.Fatalf("task transcript exposed secret fields: %s", payload)
 	}
@@ -42,7 +52,12 @@ func TestRustRuntime_task_transcript_redacts_secret_fields_recursively(t *testin
 
 func TestRustRuntime_task_transcript_uses_binding_policy_after_mcp_rename(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/task_transcript.rs::task_transcript_uses_binding_policy_after_mcp_rename.
-	payload := boundedModelToolPayload(json.RawMessage(`{"query":"private workspace query"}`), modelToolResultLimit)
+	payload := persistedCapabilityArguments(map[string]noemamcp.Binding{
+		"workspace.lookup": {Name: "workspace.lookup", PersistencePolicy: noemamcp.BindingPersistenceOmitted},
+	}, "workspace.lookup", json.RawMessage(`{"query":"private workspace query"}`))
+	if string(payload) != `{"redacted":true,"reason":"capability_persistence_policy"}` {
+		t.Fatalf("renamed MCP persistence policy = %s", payload)
+	}
 	if strings.Contains(string(payload), "private workspace query") {
 		t.Fatal("renamed MCP capability payload bypassed persistence policy")
 	}
@@ -50,7 +65,9 @@ func TestRustRuntime_task_transcript_uses_binding_policy_after_mcp_rename(t *tes
 
 func TestRustRuntime_task_transcript_preserves_artifact_file_contents(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/task_transcript.rs::task_transcript_preserves_artifact_file_contents.
-	payload := boundedModelToolPayload(json.RawMessage(`{"arguments":{"filename":"private.md","title":"Safe title","api_key":"private secret","versions":[{"title":"Draft","content":"private artifact body"}]}}`), modelToolResultLimit)
+	payload := persistedCapabilityArguments(map[string]noemamcp.Binding{
+		"artifact.create_local_file": {Name: "artifact.create_local_file", PersistencePolicy: noemamcp.BindingPersistenceRedacted},
+	}, "artifact.create_local_file", json.RawMessage(`{"arguments":{"filename":"private.md","title":"Safe title","api_key":"private secret","versions":[{"title":"Draft","content":"private artifact body"}]}}`))
 	if !strings.Contains(string(payload), "private artifact body") || !strings.Contains(string(payload), `"filename":"private.md"`) {
 		t.Fatalf("artifact contents were concealed: %s", payload)
 	}
@@ -61,7 +78,10 @@ func TestRustRuntime_task_transcript_preserves_artifact_file_contents(t *testing
 
 func TestRustRuntime_unknown_tool_arguments_are_omitted_without_inspection(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/task_transcript.rs::unknown_tool_arguments_are_omitted_without_inspection.
-	payload := boundedModelToolPayload(json.RawMessage(`{"private":"must not persist"}`), modelToolResultLimit)
+	payload := persistedCapabilityArguments(nil, "forged.tool", json.RawMessage(`{"private":"must not persist"}`))
+	if string(payload) != `{"redacted":true,"reason":"capability_persistence_policy"}` {
+		t.Fatalf("unknown tool persistence = %s", payload)
+	}
 	if strings.Contains(string(payload), "must not persist") {
 		t.Fatal("unknown tool arguments were persisted")
 	}

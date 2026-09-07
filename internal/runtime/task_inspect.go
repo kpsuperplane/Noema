@@ -114,6 +114,29 @@ func modelToolPayload(payload json.RawMessage) json.RawMessage {
 	return boundedModelToolPayload(payload, modelToolPayloadLimit)
 }
 
+// persistedCapabilityArguments applies the source binding's durable argument
+// policy before a tool call can enter a task transcript. Unknown names fail
+// closed with the same omission marker used by the capability router.
+func persistedCapabilityArguments(bindings map[string]noemamcp.Binding, name string, payload json.RawMessage) json.RawMessage {
+	var value any
+	if json.Unmarshal(payload, &value) != nil {
+		return json.RawMessage(`{"redacted":true,"reason":"capability_persistence_policy"}`)
+	}
+	binding, ok := bindings[name]
+	if !ok {
+		return json.RawMessage(`{"redacted":true,"reason":"capability_persistence_policy"}`)
+	}
+	value = binding.PersistedViews(value, nil).Arguments
+	if value == nil {
+		return json.RawMessage(`{"redacted":true,"reason":"capability_persistence_policy"}`)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return json.RawMessage(`{"redacted":true,"reason":"capability_persistence_policy"}`)
+	}
+	return encoded
+}
+
 func boundedModelToolPayload(payload json.RawMessage, limit int) json.RawMessage {
 	if len(payload) <= limit {
 		return append(json.RawMessage(nil), payload...)

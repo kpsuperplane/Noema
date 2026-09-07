@@ -12,6 +12,14 @@ import (
 )
 
 const maxConversationHostedSearches = 64
+const redactedSensitiveWebURL = "[redacted sensitive web.fetch URL]"
+
+var hostedWebCredentialQueryNames = map[string]struct{}{
+	"access_token": {}, "api_key": {}, "apikey": {}, "client_assertion": {},
+	"client_secret": {}, "code_verifier": {}, "device_code": {}, "id_token": {},
+	"password": {}, "refresh_token": {}, "sig": {}, "user_code": {},
+	"x-amz-security-token": {}, "x-amz-signature": {}, "x-goog-signature": {},
+}
 
 // ConversationWebSource is one exact public source used by hosted search.
 type ConversationWebSource struct {
@@ -229,10 +237,30 @@ func hostedCallDisplay(name string, arguments map[string]any) map[string]any {
 	if target, ok := arguments["query"].(string); ok && strings.TrimSpace(target) != "" {
 		display["target"] = strings.TrimSpace(target)
 	} else if target, ok := arguments["url"].(string); ok && strings.TrimSpace(target) != "" {
-		display["target"] = strings.TrimSpace(target)
+		display["target"] = hostedDisplayURL(target)
 	}
 	display["marker"] = hostedMarker(identity, name, "complete", display["target"])
 	return display
+}
+
+func hostedDisplayURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == redactedSensitiveWebURL {
+		return trimmed
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return redactedSensitiveWebURL
+	}
+	parsed.User = nil
+	query := parsed.Query()
+	for name := range query {
+		if _, sensitive := hostedWebCredentialQueryNames[strings.ToLower(name)]; sensitive {
+			query.Del(name)
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func hostedResultDisplay(
