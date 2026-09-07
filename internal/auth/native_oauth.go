@@ -162,7 +162,7 @@ func (n *nativeOAuth) approve(w http.ResponseWriter, r *http.Request, sessions *
 		return
 	}
 	browser, exists, err := sessions.current(r, false)
-	if err != nil || !exists || !devNoAuth && !recentPasskey(browser.record, time.Now()) {
+	if err != nil || !devNoAuth && (!exists || !recentPasskey(browser.record, time.Now())) {
 		writeAuthorizationError(w, http.StatusForbidden, "expired")
 		return
 	}

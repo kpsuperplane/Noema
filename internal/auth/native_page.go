@@ -16,7 +16,7 @@ func writeConsentPage(w http.ResponseWriter, request authorizationRequest, csrf 
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' "+target)
 
 	publicpage.Write(w, http.StatusOK, publicpage.Page{
-		Title:      "Connect " + displayName(request.clientID) + "?",
+		Title:      "Connect " + displayName(request.clientID),
 		Intro:      "Give this app access to your Noema.",
 		ClientName: displayName(request.clientID), CSRF: csrf,
 	})

@@ -393,8 +393,16 @@ func (s *Service) CallbackHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if r.Method != http.MethodGet || r.URL.Path != "/mcp/oauth/callback" || len(r.URL.RawQuery) > 16384 {
+		if r.Method != http.MethodGet || r.URL.Path != "/mcp/oauth/callback" {
 			publicpage.Callback(w, http.StatusBadRequest, false)
+			return
+		}
+		if r.URL.RawQuery == "" {
+			writeOAuthCallbackError(w, "missing OAuth callback query")
+			return
+		}
+		if len(r.URL.RawQuery) > 16384 {
+			writeOAuthCallbackError(w, "invalid OAuth callback query")
 			return
 		}
 		id := r.URL.Query().Get("attemptId")
@@ -404,6 +412,14 @@ func (s *Service) CallbackHandler() http.Handler {
 		}
 		publicpage.Callback(w, http.StatusOK, true)
 	})
+}
+
+func writeOAuthCallbackError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusBadRequest)
+	_, _ = w.Write([]byte(message))
 }
 
 func validateOAuthCallback(raw string) (*url.URL, error) {

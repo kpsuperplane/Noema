@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -617,9 +616,7 @@ func sessionHashes(ctx context.Context, tx bun.Tx, query string, arguments ...an
 }
 
 func validCredential(credential HumanPasskey) bool {
-	decoded, err := base64.RawURLEncoding.DecodeString(credential.CredentialID)
-	return err == nil && len(decoded) > 0 && len(decoded) <= 1024 &&
-		base64.RawURLEncoding.EncodeToString(decoded) == credential.CredentialID &&
+	return credential.CredentialID != "" && len(credential.CredentialID) <= 1024 &&
 		json.Valid([]byte(credential.CredentialJSON))
 }
 

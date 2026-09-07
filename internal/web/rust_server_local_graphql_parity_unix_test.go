@@ -98,14 +98,21 @@ func TestRustServer_router_has_local_authority_and_exposes_only_bounded_graphql_
 	}}
 	client := &http.Client{Transport: transport}
 	defer transport.CloseIdleConnections()
-	for _, target := range []string{"/graphql", "/auth/recovery"} {
-		response, err := client.Get("http://local" + target)
+	for _, target := range []struct {
+		method string
+		path   string
+	}{{method: http.MethodGet, path: "/graphql"}, {method: http.MethodPost, path: "/auth/recovery"}} {
+		request, err := http.NewRequest(target.method, "http://local"+target.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
 		if response.StatusCode != http.StatusNotFound {
-			t.Fatalf("GET %s = %d", target, response.StatusCode)
+			t.Fatalf("%s %s = %d", target.method, target.path, response.StatusCode)
 		}
 	}
 	request, err := http.NewRequest(http.MethodPost, "http://local/graphql", strings.NewReader(`{"query":"{ task(taskId: \"task:transport\") { taskId } }"}`))
@@ -125,6 +132,7 @@ func TestRustServer_router_has_local_authority_and_exposes_only_bounded_graphql_
 	if err != nil {
 		t.Fatal(err)
 	}
+	oversized.Header.Set("Content-Type", "application/json")
 	response, err = client.Do(oversized)
 	if err != nil {
 		t.Fatal(err)

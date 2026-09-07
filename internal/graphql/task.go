@@ -732,6 +732,9 @@ func (r *Resolver) tasksEvents(
 	workspaceID string,
 	after *string,
 ) (<-chan *model.TasksEvent, error) {
+	if r.Store == nil {
+		return nil, errNoemaStoreUnavailable
+	}
 	cursor, supplied, err := parseEventCursor(after)
 	if err != nil {
 		return nil, invalidEventCursorError()

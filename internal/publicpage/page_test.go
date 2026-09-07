@@ -9,7 +9,7 @@ import (
 
 func TestConsentEscapesValuesAndKeepsNativeFormContract(t *testing.T) {
 	response := httptest.NewRecorder()
-	Write(response, http.StatusOK, Page{Title: "Connect app?", ClientName: `<script>alert(1)</script>`, CSRF: `"><input name="decision" value="approve">`})
+	Write(response, http.StatusOK, Page{Title: "Connect app", ClientName: `<script>alert(1)</script>`, CSRF: `"><input name="decision" value="approve">`})
 	body := response.Body.String()
 	for _, unsafe := range []string{"<script>", `<input name="decision"`} {
 		if strings.Contains(body, unsafe) {

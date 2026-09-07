@@ -3,7 +3,7 @@
 <meta name="referrer" content="no-referrer"><title>{{.Title}} · Noema</title><link rel="stylesheet" href="/assets/supporting.css"></head>
 <body data-setup="public"><main data-setup="body"><div data-setup="surface">
 <div data-setup="avatar" aria-hidden="true"><img src="/assets/noema-avatar.svg" alt=""></div>
-<section data-setup="card" aria-labelledby="title"><header data-setup="header"><h1 id="title" data-setup="title">{{.Title}}</h1><p data-setup="note">{{.Intro}}</p></header>
+<section data-setup="card" aria-labelledby="title"><header data-setup="header"><h1 id="title" data-setup="title">{{.Title}}{{if .ClientName}}?{{end}}</h1><p data-setup="note">{{.Intro}}</p></header>
 {{if .ClientName}}<section data-setup="detail" aria-label="App access"><strong>Full access to Noema</strong><p>{{.ClientName}} can access all data and actions available through Noema.</p><p>You can remove its access in Settings.</p></section>
 <p data-setup="note">Connect only if you started this request.</p><form method="post" action="/oauth/authorize" data-setup="actions"><input type="hidden" name="csrf" value="{{.CSRF}}">{{template "deny" .}}{{template "approve" .}}</form>
 {{else}}<p data-setup="note">{{.Note}}</p>{{if .Return}}<div data-setup="actions">{{template "return" .}}</div>{{end}}{{end}}

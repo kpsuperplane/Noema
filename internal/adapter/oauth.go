@@ -259,8 +259,12 @@ func (s *Service) SetOAuthCompletionHandler(handler func(OAuthAttemptEvent)) {
 }
 func (s *Service) OAuthCallbackHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" || len(r.URL.RequestURI()) > 8<<10 {
+		if r.Method != "GET" {
 			publicpage.Callback(w, http.StatusBadRequest, false)
+			return
+		}
+		if len(r.URL.RawQuery) > 8<<10 {
+			writeAdapterOAuthCallbackError(w, "invalid OAuth callback query")
 			return
 		}
 		event, err := s.CompleteOAuth(r.Context(), s.oauthCallback+"?"+r.URL.RawQuery)
@@ -269,11 +273,48 @@ func (s *Service) OAuthCallbackHandler() http.Handler {
 				publicpage.Write(w, http.StatusBadRequest, publicpage.Page{Return: true, Title: "You’re signed in. Setup needs attention", Intro: "Your account access is saved.", Note: "Return to Noema to review this connection and finish setup."})
 				return
 			}
-			publicpage.Callback(w, http.StatusBadRequest, false)
+			writeAdapterOAuthResult(w, http.StatusBadRequest, adapterOAuthFailureMessage(event, err))
 			return
 		}
 		publicpage.Callback(w, http.StatusOK, true)
 	})
+}
+
+func adapterOAuthFailureMessage(event OAuthAttemptEvent, err error) string {
+	switch event.Status {
+	case "superseded":
+		return "A newer connection attempt replaced this one. Return to Noema and continue there."
+	case "expired":
+		return "This connection attempt expired. Return to Noema and start again."
+	case "denied":
+		return "The provider rejected this connection. Return to Noema and try again."
+	}
+	if errors.Is(err, errOAuthAttemptExpired) {
+		return "This connection attempt expired. Return to Noema and start again."
+	}
+	if errors.Is(err, errOAuthAttemptUnavailable) {
+		return "A newer connection attempt replaced this one. Return to Noema and continue there."
+	}
+	if event.Status == "failed" {
+		return "Noema could not finish activating this connection. Return to Noema to review its status or try again."
+	}
+	return "Noema no longer recognizes this connection attempt. Return to Noema and start again."
+}
+
+func writeAdapterOAuthResult(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>"+message+"</p><p><a href=\"/\">Return to Noema</a></p></main>")
+}
+
+func writeAdapterOAuthCallbackError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusBadRequest)
+	_, _ = w.Write([]byte(message))
 }
 
 func parseOAuthClient(profile OAuthProfile, raw []byte, callback string) (string, string, string, error) {

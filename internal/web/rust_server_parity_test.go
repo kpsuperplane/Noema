@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
@@ -128,9 +129,9 @@ func TestRustServer_image_normalization_bounds_and_converts_raster_input(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, format, err := image.DecodeConfig(bytes.NewReader(normalized))
-	if err != nil || format != "png" || config.Width != faviconSize || config.Height != faviconSize {
-		t.Fatalf("normalized image = %#v, %q, %v", config, format, err)
+	decoded, format, err := image.Decode(bytes.NewReader(normalized))
+	if err != nil || format != "png" || decoded.Bounds().Dx() != faviconSize || decoded.Bounds().Dy() != faviconSize {
+		t.Fatalf("normalized image = %#v, %q, %v", decoded, format, err)
 	}
 	if _, err := normalizeFaviconImage([]byte("<svg/>")); err != faviconMissing {
 		t.Fatalf("SVG normalization error = %v", err)
@@ -148,28 +149,50 @@ func TestRustServer_image_normalization_bounds_and_converts_raster_input(t *test
 func TestRustServer_cache_preserves_positive_and_negative_outcomes(t *testing.T) {
 	directory := t.TempDir()
 	handler := NewFaviconHandler(directory)
-	handler.write("example.com", []byte("png"))
+	routes := http.NewServeMux()
+	routes.Handle("GET /favicons/{hostname}", handler)
+	var source bytes.Buffer
+	if err := png.Encode(&source, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	pngBody, err := normalizeFaviconImage(source.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.write("example.com", pngBody)
 	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("example.com")+".json")); err != nil {
 		t.Fatalf("positive cache metadata was not durable: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("example.com")+".png")); err != nil {
 		t.Fatalf("positive cache body was not durable: %v", err)
 	}
-	if got := handler.read("example.com"); !bytes.Equal(got, []byte("png")) {
+	if got := handler.read("example.com"); !bytes.Equal(got, pngBody) {
 		t.Fatalf("positive cache = %q", got)
+	}
+	if _, format, err := image.Decode(bytes.NewReader(handler.read("example.com"))); err != nil || format != "png" {
+		t.Fatalf("positive cache body = format %q, err=%v", format, err)
 	}
 	now := time.Now()
 	handler.writeOutcome("missing.example", faviconCachedMissing, nil, now)
-	if entry, fresh := handler.cacheEntry("missing.example", now); !fresh || entry.outcome != faviconCachedMissing {
-		t.Fatalf("missing cache = %#v, fresh=%v", entry, fresh)
+	missing := httptest.NewRecorder()
+	routes.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "http://localhost/favicons/missing.example", nil))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing cache response = %d %q", missing.Code, missing.Body.String())
 	}
 	handler.writeOutcome("transient.example", faviconCachedTransient, nil, now)
-	if entry, fresh := handler.cacheEntry("transient.example", now); !fresh || entry.outcome != faviconCachedTransient {
-		t.Fatalf("transient cache = %#v, fresh=%v", entry, fresh)
+	transient := httptest.NewRecorder()
+	routes.ServeHTTP(transient, httptest.NewRequest(http.MethodGet, "http://localhost/favicons/transient.example", nil))
+	if transient.Code != http.StatusBadGateway {
+		t.Fatalf("transient cache response = %d %q", transient.Code, transient.Body.String())
 	}
-	handler.writeOutcome("stale.example", faviconAvailable, []byte("png"), time.Unix(1, 0))
-	if entry, fresh := handler.cacheEntry("stale.example", now); fresh || entry.outcome != faviconAvailable || !bytes.Equal(entry.body, []byte("png")) {
-		t.Fatalf("stale cache = %#v, fresh=%v", entry, fresh)
+	handler.writeOutcome("stale.example", faviconAvailable, pngBody, time.Unix(1, 0))
+	stale := httptest.NewRecorder()
+	routes.ServeHTTP(stale, httptest.NewRequest(http.MethodGet, "http://localhost/favicons/stale.example", nil))
+	if stale.Code != http.StatusOK || !bytes.Equal(stale.Body.Bytes(), pngBody) {
+		t.Fatalf("stale cache response = %d %q", stale.Code, stale.Body.Bytes())
+	}
+	if _, format, err := image.Decode(bytes.NewReader(stale.Body.Bytes())); err != nil || format != "png" {
+		t.Fatalf("stale cache body = format %q, err=%v", format, err)
 	}
 }
 

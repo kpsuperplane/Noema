@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
@@ -61,6 +62,18 @@ type NativeOAuthRotation struct {
 	IssuedAt      int64
 	AccessExpires int64
 	IdleExpiresAt int64
+}
+
+// NewNativeOAuthFamily contains one already-issued native OAuth credential family.
+type NewNativeOAuthFamily struct {
+	FamilyID          string
+	ClientID          string
+	AccessHash        [32]byte
+	RefreshHash       [32]byte
+	IssuedAt          int64
+	AccessExpiresAt   int64
+	IdleExpiresAt     int64
+	AbsoluteExpiresAt int64
 }
 
 // SaveNativeOAuthBrowserRequest replaces one browser's resume or consent state.
@@ -250,6 +263,51 @@ VALUES (?, ?, ?, ?)`, accessHash[:], familyID, now, now+15*60); err != nil {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit native OAuth exchange: %w", err)
+	}
+	return nil
+}
+
+// InsertNativeOAuthFamily stores one issued native OAuth credential family.
+func (s *Store) InsertNativeOAuthFamily(ctx context.Context, input NewNativeOAuthFamily) error {
+	if len(input.FamilyID) != 32 || input.FamilyID != strings.ToLower(input.FamilyID) ||
+		input.ClientID == "" || len(input.ClientID) > 128 ||
+		input.AccessExpiresAt <= input.IssuedAt || input.IdleExpiresAt <= input.IssuedAt ||
+		input.AbsoluteExpiresAt < input.IdleExpiresAt {
+		return ErrOAuthGrant
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return fmt.Errorf("begin native OAuth family: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var active bool
+	if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS(SELECT 1 FROM clients WHERE client_id = ? AND revoked_at IS NULL)`, input.ClientID).Scan(&active); err != nil {
+		return fmt.Errorf("inspect native OAuth client: %w", err)
+	}
+	if !active {
+		return ErrOAuthGrant
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO native_oauth_families
+    (family_id, client_id, created_at, last_used_at, idle_expires_at, absolute_expires_at)
+VALUES (?, ?, ?, ?, ?, ?)`, input.FamilyID, input.ClientID, input.IssuedAt, input.IssuedAt,
+		input.IdleExpiresAt, input.AbsoluteExpiresAt); err != nil {
+		return fmt.Errorf("insert native OAuth family: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO native_oauth_refresh_tokens
+    (token_hash, family_id, sequence, status, issued_at)
+VALUES (?, ?, 0, 'active', ?)`, input.RefreshHash[:], input.FamilyID, input.IssuedAt); err != nil {
+		return fmt.Errorf("insert native OAuth refresh credential: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO native_oauth_access_tokens (token_hash, family_id, issued_at, expires_at)
+VALUES (?, ?, ?, ?)`, input.AccessHash[:], input.FamilyID, input.IssuedAt, input.AccessExpiresAt); err != nil {
+		return fmt.Errorf("insert native OAuth access credential: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit native OAuth family: %w", err)
 	}
 	return nil
 }
