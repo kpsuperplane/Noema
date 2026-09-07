@@ -140,9 +140,12 @@ func TestRustModelEvals_BundledCandidateAndSuiteManifestsAreValid(t *testing.T) 
 	if localSuite.ContextWindowTokens != 8192 {
 		t.Fatalf("local context window = %d, want 8192", localSuite.ContextWindowTokens)
 	}
-	_, _, _, err = loadMatrix(filepath.Dir(root), nil)
+	_, _, matrixCandidates, err := loadMatrix(filepath.Dir(root), nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(matrixCandidates) == 0 {
+		t.Fatal("cross-provider candidate manifest is empty")
 	}
 }
 
@@ -588,7 +591,7 @@ func rustModelEvalRunnerPolicies(incumbent string) rolePolicies {
 }
 
 func rustModelEvalPoliciesForReport(incumbent string, margin float64) rolePolicies {
-	policies := rolePolicies{SchemaVersion: 2, Judge: judgePolicy{Model: "judge/model", MaximumOutputTokens: 256}}
+	policies := rolePolicies{SchemaVersion: 1, Judge: judgePolicy{Model: "judge/model", MaximumOutputTokens: 256}}
 	for _, role := range roles() {
 		policies.Policies = append(policies.Policies, rolePolicy{Role: role, IncumbentCandidateID: incumbent, MinimumCases: 1, MinimumQualityScore: 1, MaximumErrorRate: 0, MaximumP95LatencyMS: 100, ReplacementQualityMargin: margin, DeterministicWeight: 1})
 	}
