@@ -1,6 +1,8 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -3940,17 +3942,56 @@ func TestRustStore_overlap_policies_skip_coalesce_or_materialize_a_due_slot(t *t
 
 // Rust source: crates/noema-store/src/work_commands.rs::normalized_commands_have_stable_sha256_fingerprints.
 func TestRustStore_normalized_commands_have_stable_sha256_fingerprints(t *testing.T) {
-	value := TaskCommand{Name: "queue_task", ClientMutationID: "rust-store", RequestDigest: "digest", CorrelationID: "correlation"}
-	if value.Name != "queue_task" || value.ClientMutationID == "" || value.RequestDigest == "" {
-		t.Fatalf("command = %#v", value)
+	type commandMeta struct {
+		ActorID        string  `json:"actor_id"`
+		CausationID    *string `json:"causation_id"`
+		CorrelationID  string  `json:"correlation_id"`
+		IdempotencyKey *string `json:"idempotency_key"`
 	}
-	database := openTestStore(t)
-	var fk int
-	if err := database.db.QueryRowContext(t.Context(), "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatal(err)
+	type provenance struct {
+		SourceKind       string  `json:"source_kind"`
+		ConversationID   *string `json:"conversation_id"`
+		TurnID           *string `json:"turn_id"`
+		ItemID           *string `json:"item_id"`
+		SourceToolCallID *string `json:"source_tool_call_id"`
+		CreatedByActorID string  `json:"created_by_actor_id"`
 	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d", fk)
+	type captureTask struct {
+		Meta                 commandMeta `json:"meta"`
+		WorkspaceID          string      `json:"workspace_id"`
+		Title                string      `json:"title"`
+		TaskDocumentMarkdown string      `json:"task_document_markdown"`
+		ProjectID            *string     `json:"project_id"`
+		Provenance           provenance  `json:"provenance"`
+		Schedule             any         `json:"schedule"`
+		ExecutorAgentID      *string     `json:"executor_agent_id"`
+		CWDOverride          *string     `json:"cwd_override"`
+	}
+	type workCommand struct {
+		CaptureTask captureTask `json:"CaptureTask"`
+	}
+	key := "idem:one"
+	command := func() workCommand {
+		return workCommand{CaptureTask: captureTask{
+			Meta:        commandMeta{ActorID: "actor:human:local", CorrelationID: "correlation:test", IdempotencyKey: &key},
+			WorkspaceID: "workspace:personal", Title: strings.TrimSpace(" capture "),
+			TaskDocumentMarkdown: "", Provenance: provenance{SourceKind: "chat_capture", CreatedByActorID: "actor:human:local"},
+		}}
+	}
+	fingerprint := func(value workCommand) string {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(encoded)
+		return hex.EncodeToString(digest[:])
+	}
+	first, second := fingerprint(command()), fingerprint(command())
+	if first != second {
+		t.Fatalf("normalized command fingerprints differ: %q != %q", first, second)
+	}
+	if first != "e20c0f04aa40108988bbb74aab0e7b674d9496d19d90f368fca5067371ca15b1" || len(first) != 64 {
+		t.Fatalf("normalized command fingerprint = %q", first)
 	}
 }
 
