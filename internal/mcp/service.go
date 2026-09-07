@@ -511,7 +511,10 @@ func ValidateArguments(schemaBytes, arguments json.RawMessage) error {
 // Call executes one binding after every durable and remote revision check.
 func (s *Service) Call(ctx context.Context, authority Binding, arguments json.RawMessage) (json.RawMessage, bool, error) {
 	current, err := s.Binding(ctx, authority.Name)
-	if err != nil || !sameBindingAuthority(current, authority) {
+	if err != nil {
+		return nil, false, errors.New("MCP tool is unavailable")
+	}
+	if !sameBindingAuthority(current, authority) {
 		return nil, false, errors.New("MCP call authority changed")
 	}
 	if err := ValidateArguments(current.InputSchema, arguments); err != nil {
