@@ -24,14 +24,41 @@ import (
 )
 
 const (
-	oauthAttemptTTL = 10 * time.Minute
-	oauthEventLimit = 64
+	oauthAttemptTTL   = 10 * time.Minute
+	oauthEventLimit   = 64
+	oauthAttemptLimit = 64
 )
 
 var (
 	errOAuthRejected      = errors.New("adapter OAuth grant was rejected")
 	errOAuthScopeMismatch = errors.New("adapter OAuth response scopes are invalid")
 )
+
+// OAuthClientDocumentError is the safe recovery category returned when a
+// transient provider client document cannot be imported.
+type OAuthClientDocumentError string
+
+const (
+	OAuthClientInvalidJSON      OAuthClientDocumentError = "invalid_json"
+	OAuthClientInvalidDocument  OAuthClientDocumentError = "invalid_document"
+	OAuthClientRedirectMismatch OAuthClientDocumentError = "redirect_mismatch"
+	OAuthClientOversized        OAuthClientDocumentError = "oversized"
+)
+
+func (e OAuthClientDocumentError) Error() string {
+	switch e {
+	case OAuthClientInvalidJSON:
+		return "adapter credential document is not valid JSON"
+	case OAuthClientInvalidDocument:
+		return "adapter credential document does not match this setup"
+	case OAuthClientRedirectMismatch:
+		return "adapter credential redirect URI does not match"
+	case OAuthClientOversized:
+		return "adapter credential setup is oversized"
+	default:
+		return "adapter credential document is invalid"
+	}
+}
 
 func cloneValues(value url.Values) url.Values {
 	clone := make(url.Values, len(value))
@@ -74,7 +101,67 @@ type oauthAttempt struct {
 	Operations                    []string
 	Additional                    []OAuthServiceSelection
 	Scopes                        []string
+	completing                    bool
 }
+
+var (
+	errOAuthAttemptUnavailable = errors.New("adapter OAuth attempt is unavailable")
+	errOAuthAttemptExpired     = errors.New("adapter OAuth setup expired")
+	errOAuthCallbackMismatch   = errors.New("adapter OAuth callback is invalid")
+)
+
+type oauthAttemptExpiredError struct{ event OAuthAttemptEvent }
+
+func (e *oauthAttemptExpiredError) Error() string { return errOAuthAttemptExpired.Error() }
+func (e *oauthAttemptExpiredError) Unwrap() error { return errOAuthAttemptExpired }
+
+// oauthAttemptReservation keeps one callback state occupied while the token
+// exchange and authority publication complete. A replacement cannot race it.
+type oauthAttemptReservation struct {
+	service *Service
+	state   string
+	attempt *oauthAttempt
+	code    string
+	denied  string
+}
+
+func (r *oauthAttemptReservation) stateKey() string { return r.state }
+
+func (r *oauthAttemptReservation) finish() {
+	if r == nil || r.service == nil {
+		return
+	}
+	r.service.mu.Lock()
+	if current := r.service.oauthAttempts[r.state]; current == r.attempt {
+		delete(r.service.oauthAttempts, r.state)
+	}
+	r.service.mu.Unlock()
+}
+
+func (s *Service) reserveOAuthAttempt(callback string, now time.Time) (*oauthAttemptReservation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, code, providerError, err := parseOAuthCallback(callback, s.oauthCallback)
+	if err != nil {
+		return nil, errOAuthCallbackMismatch
+	}
+	attempt := s.oauthAttempts[state]
+	if attempt == nil || subtle.ConstantTimeCompare([]byte(state), []byte(attempt.state)) != 1 {
+		return nil, errOAuthCallbackMismatch
+	}
+	if attempt.completing {
+		return nil, errOAuthAttemptUnavailable
+	}
+	if !now.Before(attempt.expires) {
+		delete(s.oauthAttempts, state)
+		event := OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "expired"}
+		s.setOAuthEvent(event)
+		return nil, &oauthAttemptExpiredError{event: event}
+	}
+	attempt.completing = true
+	return &oauthAttemptReservation{service: s, state: state, attempt: attempt, code: code, denied: providerError}, nil
+}
+
 type OAuthServiceSelection struct {
 	SemanticDigest string
 	OperationIDs   []string
@@ -93,7 +180,7 @@ func (s *Service) SetOAuthCallback(raw string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/adapter/oauth/callback" {
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/adapter/oauth/callback" || parsed.Port() == "0" {
 		return errors.New("adapter OAuth callback is invalid")
 	}
 	if oauthCallbackMode(parsed) == "" {
@@ -147,8 +234,11 @@ func (s *Service) OAuthCallbackHandler() http.Handler {
 }
 
 func parseOAuthClient(profile OAuthProfile, raw []byte, callback string) (string, string, string, error) {
-	if len(raw) == 0 || len(raw) > oauthObjectLimit {
-		return "", "", "", errors.New("adapter OAuth client document is invalid")
+	if len(raw) > oauthObjectLimit {
+		return "", "", "", OAuthClientOversized
+	}
+	if len(raw) == 0 || !json.Valid(raw) {
+		return "", "", "", OAuthClientInvalidJSON
 	}
 	target, err := url.Parse(callback)
 	if err != nil {
@@ -161,19 +251,19 @@ func parseOAuthClient(profile OAuthProfile, raw []byte, callback string) (string
 		}
 		fields, err := normalizeCredential(entry.Setup, CredentialInputValue{Document: raw})
 		if err != nil {
-			return "", "", "", errors.New("adapter OAuth client document is invalid")
+			return "", "", "", OAuthClientInvalidDocument
 		}
 		if mode == "hosted" {
 			var redirects []string
 			if json.Unmarshal([]byte(fields["redirect_uris"]), &redirects) != nil {
-				return "", "", "", errors.New("adapter OAuth client redirect URI is invalid")
+				return "", "", "", OAuthClientInvalidDocument
 			}
 			found := false
 			for _, redirect := range redirects {
 				found = found || redirect == callback
 			}
 			if !found {
-				return "", "", "", errors.New("adapter OAuth client redirect URI does not match")
+				return "", "", "", OAuthClientRedirectMismatch
 			}
 		}
 		return mode, fields["client_id"], fields["client_secret"], nil
@@ -371,12 +461,6 @@ func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 	if s.oauthCallback == "" {
 		return OAuthAttempt{}, errors.New("adapter OAuth callback is unavailable")
 	}
-	if len(s.oauthAttempts) >= 64 {
-		s.expireOAuthAttempts(time.Now())
-		if len(s.oauthAttempts) >= 64 {
-			return OAuthAttempt{}, errors.New("adapter OAuth setup is unavailable")
-		}
-	}
 	application, _, err := s.files.loadOAuthApplication(start.ApplicationID)
 	if err != nil || application.Revision != start.ExpectedApplicationRevision || application.Status != "active" {
 		return OAuthAttempt{}, errors.New("adapter OAuth application changed")
@@ -428,9 +512,16 @@ func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 	}
 	for _, attempt := range s.oauthAttempts {
 		if start.GrantID != "" && attempt.GrantID == start.GrantID {
+			if attempt.completing {
+				return OAuthAttempt{}, errOAuthAttemptUnavailable
+			}
 			delete(s.oauthAttempts, attempt.state)
 			s.setOAuthEvent(OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "superseded"})
 		}
+	}
+	s.expireOAuthAttempts(time.Now())
+	if len(s.oauthAttempts) >= oauthAttemptLimit {
+		return OAuthAttempt{}, errOAuthAttemptUnavailable
 	}
 	state := randomURL(32)
 	verifier := randomURL(32)
@@ -469,7 +560,7 @@ func randomURL(size int) string {
 }
 func (s *Service) expireOAuthAttempts(now time.Time) {
 	for state, a := range s.oauthAttempts {
-		if !now.Before(a.expires) {
+		if !a.completing && !now.Before(a.expires) {
 			delete(s.oauthAttempts, state)
 			s.setOAuthEvent(OAuthAttemptEvent{AttemptID: a.ID, SemanticDigest: a.SemanticDigest, GrantID: a.GrantID, GrantRevision: a.GrantRevision, Status: "expired"})
 		}
@@ -516,21 +607,23 @@ func parseOAuthCallback(raw, expected string) (string, string, string, error) {
 }
 
 func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAttemptEvent, error) {
+	reservation, err := s.reserveOAuthAttempt(callback, time.Now())
+	if err != nil {
+		var expired *oauthAttemptExpiredError
+		if errors.As(err, &expired) {
+			return expired.event, err
+		}
+		return OAuthAttemptEvent{}, err
+	}
+	defer reservation.finish()
+	attempt := reservation.attempt
+	code, providerError := reservation.code, reservation.denied
 	s.mu.Lock()
-	state, code, providerError, err := parseOAuthCallback(callback, s.oauthCallback)
-	attempt := s.oauthAttempts[state]
-	if attempt != nil {
-		delete(s.oauthAttempts, state)
-	}
-	if err != nil || attempt == nil || subtle.ConstantTimeCompare([]byte(state), []byte(attempt.state)) != 1 {
-		s.mu.Unlock()
-		return OAuthAttemptEvent{}, errors.New("adapter OAuth callback is invalid")
-	}
 	if time.Now().After(attempt.expires) {
 		event := OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "expired"}
 		s.setOAuthEvent(event)
 		s.mu.Unlock()
-		return event, errors.New("adapter OAuth setup expired")
+		return event, errOAuthAttemptExpired
 	}
 	if providerError != "" || code == "" {
 		event := OAuthAttemptEvent{AttemptID: attempt.ID, SemanticDigest: attempt.SemanticDigest, GrantID: attempt.GrantID, GrantRevision: attempt.GrantRevision, Status: "denied"}
@@ -655,14 +748,31 @@ func exchangeOAuthToken(ctx context.Context, profile OAuthProfile, application O
 // the production OAuth boundary while allowing deterministic transport tests.
 func exchangeOAuthTokenWithClient(ctx context.Context, profile OAuthProfile, application OAuthApplication, credential oauthApplicationCredential, form url.Values, expected []string, client *http.Client) (oauthGrantToken, error) {
 	form = cloneValues(form)
-	form.Set("client_id", application.ClientID)
-	form.Set("client_secret", credential.ClientSecret)
 	if client == nil {
 		return oauthGrantToken{}, errors.New("adapter OAuth service is unavailable")
+	}
+	switch profile.ClientAuthentication {
+	case "none":
+		form.Set("client_id", application.ClientID)
+		form.Del("client_secret")
+	case "client_secret_basic":
+		if application.ClientID == "" || credential.ClientSecret == "" {
+			return oauthGrantToken{}, errors.New("adapter OAuth token request is invalid")
+		}
+		form.Del("client_id")
+		form.Del("client_secret")
+	case "client_secret_post":
+		form.Set("client_id", application.ClientID)
+		form.Set("client_secret", credential.ClientSecret)
+	default:
+		return oauthGrantToken{}, errors.New("adapter OAuth token request is invalid")
 	}
 	request, err := http.NewRequestWithContext(ctx, "POST", profile.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return oauthGrantToken{}, err
+	}
+	if profile.ClientAuthentication == "client_secret_basic" {
+		request.SetBasicAuth(application.ClientID, credential.ClientSecret)
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept-Encoding", "identity")

@@ -19,39 +19,202 @@ import (
 )
 
 const (
-	manifestLimit     = 1 << 20
-	modelResultLimit  = 32 << 10
-	argumentLimit     = 256 << 10
-	maximumOperations = 256
-	maximumArguments  = 128
+	manifestLimit              = 1 << 20
+	modelResultLimit           = 32 << 10
+	argumentLimit              = 256 << 10
+	maximumOperations          = 256
+	maximumArguments           = 128
+	maximumTokenBytes          = 160
+	maximumAuthorityTokenBytes = 1024
 )
+
+// CompileError is the typed failure at the closed manifest boundary. Kind is
+// one of manifest, invalid, or unsupported. Field identifies the exact Rust
+// compatibility category when the compiler can classify the rejection.
+type CompileError struct {
+	Kind  string
+	Field string
+	Cause error
+}
+
+func (e *CompileError) Error() string {
+	if e == nil {
+		return "adapter manifest is invalid"
+	}
+	if e.Cause != nil {
+		return e.Cause.Error()
+	}
+	if e.Kind == "manifest" {
+		return "adapter manifest is invalid"
+	}
+	if e.Field == "" {
+		return "adapter manifest field is invalid"
+	}
+	return "adapter manifest field is " + e.Kind + ": " + e.Field
+}
+
+func (e *CompileError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func compileManifestError(cause error) error {
+	return &CompileError{Kind: "manifest", Cause: cause}
+}
+
+func classifyCompileError(manifest Manifest, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	message := cause.Error()
+	if strings.Contains(message, "operations[") && strings.Contains(message, "duplicated") {
+		return &CompileError{Kind: "invalid", Field: "duplicate_operation_id", Cause: cause}
+	}
+	field := ""
+	kind := "invalid"
+	switch {
+	case manifest.SchemaVersion != 9:
+		kind, field = "unsupported", "schema_version"
+	case strings.Contains(manifest.Origin, "{") || strings.Contains(manifest.Origin, "}"):
+		field = "dynamic_origin"
+	case strings.Contains(message, "origin"):
+		field = "origin"
+	case hasAuthorityHeader(manifest):
+		field = "authority_header"
+	case strings.Contains(message, "fixed header") && strings.Contains(strings.ToLower(message), "invalid"):
+		field = "authority_header"
+	case strings.Contains(message, "fixed query") || strings.Contains(message, "pagination query conflicts"):
+		field = "fixed_query"
+	case strings.Contains(message, "ambiguous"):
+		field = "ambiguous_operation_scope_set"
+	case manifest.Authentication.Kind == "credential" && manifest.Authentication.Setup != nil && manifest.Authentication.Setup.Input.Kind == "document" && manifest.Authentication.Setup.Input.MediaType != "application/json":
+		kind, field = "unsupported", "credential_document_media_type"
+	case strings.Contains(message, "response schema"):
+		field = "response_schema"
+	case strings.Contains(message, "response content type"):
+		field = "response_content_type"
+	case strings.Contains(message, "paginated response"):
+		field = "paginated_response"
+	case strings.Contains(message, "pagination"):
+		field = "pagination"
+	case strings.Contains(message, "authorization"):
+		field = "authorization"
+	case strings.Contains(message, "authentication"):
+		field = "authentication"
+	}
+	return &CompileError{Kind: kind, Field: field, Cause: cause}
+}
+
+func hasAuthorityHeader(manifest Manifest) bool {
+	for _, operation := range manifest.Operations {
+		for name := range operation.FixedHeaders {
+			if strings.EqualFold(name, "authorization") || strings.EqualFold(name, "cookie") || strings.EqualFold(name, "proxy-authorization") {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func CompileJSON(raw []byte) (Definition, error) {
 	if len(raw) == 0 || len(raw) > manifestLimit {
-		return Definition{}, errors.New("adapter manifest is invalid")
+		return Definition{}, compileManifestError(errors.New("adapter manifest is invalid"))
+	}
+	if err := validateManifestShape(raw); err != nil {
+		return Definition{}, compileManifestError(err)
 	}
 	var manifest Manifest
 	if err := decodeExactJSON(raw, &manifest); err != nil {
-		return Definition{}, errors.New("adapter manifest is invalid")
+		return Definition{}, compileManifestError(errors.New("adapter manifest is invalid"))
 	}
 	return Compile(manifest)
 }
 
+// validateManifestShape keeps JSON-shape failures in the manifest category.
+// Go's struct decoder cannot distinguish a missing required field from a zero
+// value, while the Rust serde boundary rejects both before compilation.
+func validateManifestShape(raw []byte) error {
+	value, err := script.DecodeJSON(raw)
+	if err != nil {
+		return errors.New("adapter manifest is invalid")
+	}
+	manifest, ok := value.(map[string]any)
+	if !ok {
+		return errors.New("adapter manifest is invalid")
+	}
+	for _, field := range []string{"schema_version", "definition_id", "adapter_id", "definition_revision", "reviewed", "origin", "authentication", "operations"} {
+		if _, exists := manifest[field]; !exists {
+			return errors.New("adapter manifest is invalid")
+		}
+	}
+	authentication, ok := manifest["authentication"].(map[string]any)
+	if !ok {
+		return errors.New("adapter manifest is invalid")
+	}
+	if _, exists := authentication["kind"]; !exists {
+		return errors.New("adapter manifest is invalid")
+	}
+	operations, ok := manifest["operations"].([]any)
+	if !ok {
+		return errors.New("adapter manifest is invalid")
+	}
+	for _, rawOperation := range operations {
+		operation, ok := rawOperation.(map[string]any)
+		if !ok {
+			return errors.New("adapter manifest is invalid")
+		}
+		for _, field := range []string{"operation_id", "description", "method", "path", "authorization", "behavior", "retry", "pagination", "response"} {
+			if _, exists := operation[field]; !exists {
+				return errors.New("adapter manifest is invalid")
+			}
+		}
+		pagination, ok := operation["pagination"].(map[string]any)
+		if !ok {
+			return errors.New("adapter manifest is invalid")
+		}
+		kind, _ := pagination["kind"].(string)
+		if kind != "none" && kind != "response_token" {
+			return errors.New("adapter manifest is invalid")
+		}
+		response, ok := operation["response"].(map[string]any)
+		if !ok {
+			return errors.New("adapter manifest is invalid")
+		}
+		for _, field := range []string{"accepted_content_types", "output_schema"} {
+			if _, exists := response[field]; !exists {
+				return errors.New("adapter manifest is invalid")
+			}
+		}
+	}
+	return nil
+}
+
 func Compile(manifest Manifest) (Definition, error) {
 	if err := validateManifest(&manifest); err != nil {
-		return Definition{}, err
+		return Definition{}, classifyCompileError(manifest, err)
 	}
 	digest, err := manifestDigest(manifest)
 	if err != nil {
-		return Definition{}, err
+		return Definition{}, compileManifestError(err)
 	}
 	operations := make([]CompiledOperation, len(manifest.Operations))
 	for index, operation := range manifest.Operations {
-		encoded, _ := normalizedJSON(operation)
+		// The source description is provenance for reviewers. Rust's semantic
+		// operation digest excludes it, so keep it out of the model authority
+		// and operation token as well as the definition digest.
+		semanticOperation := operation
+		semanticOperation.SourceDescription = ""
+		encoded, _ := normalizedJSON(semanticOperation)
 		opDigest := sha256Hex(append([]byte(digest+":"), encoded...))
+		token := "adp1:" + digest + ":" + opDigest
+		if len(token) > maximumTokenBytes {
+			return Definition{}, &CompileError{Kind: "invalid", Field: "operation_token", Cause: errors.New("adapter operation token is too large")}
+		}
 		behavior := storeBehavior(operation.Behavior)
 		schema, _ := json.Marshal(inputSchema(operation))
-		operations[index] = CompiledOperation{Operation: operation, Digest: opDigest, InputSchema: schema, Behavior: behavior}
+		operations[index] = CompiledOperation{Operation: operation, Digest: opDigest, Token: token, InputSchema: schema, Behavior: behavior}
 	}
 	sort.Slice(operations, func(i, j int) bool { return operations[i].OperationID < operations[j].OperationID })
 	return Definition{Manifest: manifest, SemanticDigest: digest, Operations: operations}, nil
@@ -163,7 +326,7 @@ func validateAuthentication(value Authentication) error {
 }
 
 func validTransform(value *Transform) bool {
-	return value != nil && value.Language == "lua" && len(value.Source) > 0 && len(value.Source) <= 32<<10 &&
+	return value != nil && (value.Language == "lua" || value.Language == "luau") && len(value.Source) > 0 && len(value.Source) <= 32<<10 &&
 		strings.IndexFunc(value.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) < 0 && script.ValidateFunction(value.Source) == nil
 }
 
@@ -396,6 +559,11 @@ func validatePagination(operation *Operation) error {
 	if pagination.Kind != "response_token" || !validPointer(pagination.ResponsePointer) || !validID(pagination.RequestArgument) {
 		return errors.New("pagination is invalid")
 	}
+	for _, argument := range operation.Arguments {
+		if argument.Location == "query" && argument.Name == pagination.RequestArgument {
+			return errors.New("pagination argument collides")
+		}
+	}
 	if operation.FixedQuery[pagination.RequestArgument] != "" {
 		return errors.New("pagination query conflicts")
 	}
@@ -614,6 +782,9 @@ func manifestDigest(manifest Manifest) (string, error) {
 		sort.Strings(manifest.Operations[i].Response.OutputSchema.Required)
 		sort.Slice(manifest.Operations[i].Arguments, func(a, b int) bool {
 			return manifest.Operations[i].Arguments[a].Name < manifest.Operations[i].Arguments[b].Name
+		})
+		sort.Slice(manifest.Operations[i].Authorization.AcceptedScopeSets, func(a, b int) bool {
+			return strings.Join(manifest.Operations[i].Authorization.AcceptedScopeSets[a], "\x00") < strings.Join(manifest.Operations[i].Authorization.AcceptedScopeSets[b], "\x00")
 		})
 		for j := range manifest.Operations[i].Arguments {
 			sort.Strings(manifest.Operations[i].Arguments[j].EnumValues)

@@ -16,6 +16,17 @@ import (
 
 const oauthObjectLimit = 128 << 10
 
+// OAuthIntegrityError identifies a filesystem integrity category without
+// exposing object contents.
+type OAuthIntegrityError struct{ Code string }
+
+func (e *OAuthIntegrityError) Error() string {
+	if e == nil {
+		return "adapter OAuth authority integrity failed"
+	}
+	return "adapter OAuth authority integrity failed: " + e.Code
+}
+
 // OAuthProfile is one reviewed public OAuth protocol contract.
 type OAuthProfile struct {
 	SchemaVersion                   int               `json:"schema_version"`
@@ -120,7 +131,7 @@ func googleOAuthProfile() OAuthProfile {
 
 func validateOAuthProfile(p OAuthProfile) error {
 	if p.SchemaVersion != 1 || !validID(p.ProfileID) || !boundedText(p.DisplayName, 256, false) ||
-		!boundedText(p.GrantAudience, 256, false) || p.ClientAuthentication != "client_secret_post" ||
+		!boundedText(p.GrantAudience, 256, false) || p.ClientAuthentication != "none" && p.ClientAuthentication != "client_secret_basic" && p.ClientAuthentication != "client_secret_post" ||
 		p.OmittedScopePolicy != "requested_scopes" || !p.PreserveRefreshTokenOnExpansion || len(p.Setups) == 0 || len(p.Setups) > 2 {
 		return errors.New("adapter OAuth profile uses an unsupported contract")
 	}
@@ -193,7 +204,7 @@ func (f *fileAuthority) loadOAuthProfile(digest string) (OAuthProfile, error) {
 	}
 	defer directory.Close()
 	if err := exactFiles(directory, []string{"profile.json"}); err != nil {
-		return OAuthProfile{}, err
+		return OAuthProfile{}, &OAuthIntegrityError{Code: "object_entries"}
 	}
 	raw, err := readRegular(directory, "profile.json", oauthObjectLimit)
 	if err != nil {

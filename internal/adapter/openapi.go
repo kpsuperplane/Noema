@@ -3,6 +3,7 @@ package adapter
 import (
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -171,7 +172,13 @@ func importOpenAPI(reference string, source []byte, format OpenAPISourceFormat, 
 		}
 	}
 	paths, _ := document["paths"].(map[string]any)
-	for path, rawPath := range paths {
+	pathNames := make([]string, 0, len(paths))
+	for path := range paths {
+		pathNames = append(pathNames, path)
+	}
+	sort.Strings(pathNames)
+	for _, path := range pathNames {
+		rawPath := paths[path]
 		pathObject, _ := rawPath.(map[string]any)
 		for _, method := range []string{"get", "post", "put", "patch", "delete"} {
 			rawOperation, exists := pathObject[method]
@@ -183,8 +190,9 @@ func importOpenAPI(reference string, source []byte, format OpenAPISourceFormat, 
 				return OpenAPICandidate{}, ErrOpenAPIInvalidDocument
 			}
 			id, _ := operation["operationId"].(string)
+			id = normalizedOpenAPIOperationID(id, method, path)
 			if id == "" {
-				id = method + " " + path
+				return OpenAPICandidate{}, ErrOpenAPIInvalidDocument
 			}
 			description, _ := operation["summary"].(string)
 			candidate.Operations = append(candidate.Operations, OpenAPIOperation{OperationID: id, Method: strings.ToUpper(method), Path: path, SourceDescription: boundedOpenAPIText(description), Arguments: openAPIArguments(document, pathObject, operation)})
@@ -328,7 +336,13 @@ func openAPIArguments(document map[string]any, pathObject, operation map[string]
 					required[name] = true
 				}
 			}
-			for name, rawProperty := range properties {
+			names := make([]string, 0, len(properties))
+			for name := range properties {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				rawProperty := properties[name]
 				property, _ := resolveOpenAPIRef(document, rawProperty, "schemas")
 				typ, _ := property["type"].(string)
 				if typ == "" {
@@ -338,7 +352,31 @@ func openAPIArguments(document map[string]any, pathObject, operation map[string]
 			}
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name == result[j].Name {
+			return result[i].Location < result[j].Location
+		}
+		return result[i].Name < result[j].Name
+	})
 	return result
+}
+
+func normalizedOpenAPIOperationID(source, method, path string) string {
+	if source == "" {
+		source = method + "_" + path
+	}
+	var builder strings.Builder
+	for _, character := range source {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || strings.ContainsRune("_-.:", character) {
+			builder.WriteRune(character)
+		} else {
+			builder.WriteByte('_')
+		}
+		if builder.Len() >= 96 {
+			break
+		}
+	}
+	return strings.Trim(builder.String(), "_")
 }
 
 func asArray(value any) []any { array, _ := value.([]any); return array }

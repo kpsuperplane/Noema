@@ -269,7 +269,15 @@ func renderTemplate(value any, arguments map[string]any) (any, error) {
 			return arguments[name], nil
 		}
 		result := map[string]any{}
+		hadPlaceholder := false
 		for name, child := range value {
+			if placeholderMap, ok := child.(map[string]any); ok {
+				if placeholder, exists := placeholderMap["$argument"]; exists && len(placeholderMap) == 1 {
+					if _, ok := placeholder.(string); ok {
+						hadPlaceholder = true
+					}
+				}
+			}
 			rendered, err := renderTemplate(child, arguments)
 			if err != nil {
 				return nil, err
@@ -277,6 +285,9 @@ func renderTemplate(value any, arguments map[string]any) (any, error) {
 			if rendered != nil {
 				result[name] = rendered
 			}
+		}
+		if len(result) == 0 && hadPlaceholder {
+			return nil, nil
 		}
 		return result, nil
 	case []any:
@@ -527,6 +538,60 @@ func sanitizeOutput(value any) any {
 		}
 	}
 	return value
+}
+
+// sanitizeProposalPayload preserves reviewed proposal metadata while removing
+// credential values from the payload that can be retained in ordinary logs.
+func sanitizeProposalPayload(value any) any {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return sanitizeOutput(value)
+	}
+	var source, persisted any
+	if json.Unmarshal(raw, &source) != nil || json.Unmarshal(raw, &persisted) != nil {
+		return sanitizeOutput(value)
+	}
+	persisted = sanitizeOutput(persisted)
+	restoreProposalMetadata(source, persisted)
+	return persisted
+}
+
+func restoreProposalMetadata(source, persisted any) {
+	sourceObject, sourceOK := source.(map[string]any)
+	persistedObject, persistedOK := persisted.(map[string]any)
+	if sourceOK && persistedOK {
+		for key, sourceValue := range sourceObject {
+			persistedValue, exists := persistedObject[key]
+			if !exists {
+				continue
+			}
+			if key == "authorization" {
+				if metadata, ok := sourceValue.(map[string]any); ok {
+					if _, valid := metadata["kind"].(string); valid {
+						persistedObject[key] = sourceValue
+						continue
+					}
+				}
+			}
+			if key == "output_schema" {
+				if metadata, ok := sourceValue.(map[string]any); ok {
+					if _, valid := metadata["type"].(string); valid {
+						persistedObject[key] = sourceValue
+						continue
+					}
+				}
+			}
+			restoreProposalMetadata(sourceValue, persistedValue)
+		}
+		return
+	}
+	sourceArray, sourceOK := source.([]any)
+	persistedArray, persistedOK := persisted.([]any)
+	if sourceOK && persistedOK {
+		for index := 0; index < len(sourceArray) && index < len(persistedArray); index++ {
+			restoreProposalMetadata(sourceArray[index], persistedArray[index])
+		}
+	}
 }
 
 func sanitizeURL(raw string) (string, bool) {

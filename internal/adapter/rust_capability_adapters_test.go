@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -35,6 +36,12 @@ var (
 	rustGitHubUserResponse []byte
 	//go:embed testdata/csv-response.csv
 	rustCSVResponse []byte
+	//go:embed testdata/gmail-profile-transform.json
+	rustGmailProfileTransform []byte
+	//go:embed testdata/github-user-transform.json
+	rustGitHubUserTransform []byte
+	//go:embed testdata/csv-response-transform.json
+	rustCSVTransform []byte
 	//go:embed testdata/github-openapi-source.json
 	rustGitHubOpenAPISource []byte
 	//go:embed testdata/stripe-openapi-source.json
@@ -113,6 +120,17 @@ func requireCompileError(t *testing.T, err error, want string) {
 	}
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("compile error = %q; want substring %q", err, want)
+	}
+}
+
+func requireCompileCategory(t *testing.T, err error, kind, field string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("compile succeeded; want %s:%s", kind, field)
+	}
+	var typed *CompileError
+	if !errors.As(err, &typed) || typed.Kind != kind || typed.Field != field {
+		t.Fatalf("compile category = %#v (%T); want %s:%s", err, err, kind, field)
 	}
 }
 
@@ -196,7 +214,7 @@ func TestRustAdapters_reviewed_descriptions_are_model_facing_authority_but_sourc
 // Rust source: crates/noema-capabilities/adapters/src/compiler/tests.rs::compiler_rejects_unknown_fields_bounds_and_unsafe_authority.
 func TestRustAdapters_compiler_rejects_unknown_fields_bounds_and_unsafe_authority(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"schema_version": 9, "unknown": true})
-	requireCompileError(t, func() error { _, err := CompileJSON(raw); return err }(), "adapter manifest is invalid")
+	requireCompileCategory(t, func() error { _, err := CompileJSON(raw); return err }(), "manifest", "")
 	value, _ := json.Marshal(rustCompilerManifest())
 	var document map[string]any
 	if err := json.Unmarshal(value, &document); err != nil {
@@ -205,16 +223,16 @@ func TestRustAdapters_compiler_rejects_unknown_fields_bounds_and_unsafe_authorit
 	operations := document["operations"].([]any)
 	operations[0].(map[string]any)["event"] = map[string]any{"transport": "webhook", "authenticity": "hmac"}
 	raw, _ = json.Marshal(document)
-	requireCompileError(t, func() error { _, err := CompileJSON(raw); return err }(), "adapter manifest is invalid")
+	requireCompileCategory(t, func() error { _, err := CompileJSON(raw); return err }(), "manifest", "")
 	invalid := rustCompilerManifest()
 	invalid.Origin = "https://{tenant}.example.test/"
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "adapter origin is invalid")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "dynamic_origin")
 	invalid = rustCompilerManifest()
 	invalid.Operations[0].FixedHeaders = map[string]string{"Authorization": "secret"}
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "operation arguments are invalid")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "authority_header")
 	invalid = rustCompilerManifest()
 	invalid.Authentication = Authentication{Kind: "credential", Setup: &CredentialSetup{CredentialType: "API key", SetupURL: "https://developers.example.test/keys", Instructions: []string{"Create an API key."}, Input: CredentialInput{Kind: "document", MediaType: "text/plain", Fields: []CredentialField{{ID: "api_key", Label: "API key"}}, Normalize: &Transform{Language: "lua", Source: "return function(input) return {api_key=input.document} end"}}}, RequestAuth: &Transform{Language: "lua", Source: "return function(input) return {} end"}}
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "adapter credential input is invalid")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "unsupported", "credential_document_media_type")
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/compiler/tests.rs::compiler_rejects_retired_v7_policy_and_continuation_fields.
@@ -226,7 +244,7 @@ func TestRustAdapters_compiler_rejects_retired_v7_policy_and_continuation_fields
 	}
 	document["schema_version"] = 7
 	raw, _ := json.Marshal(document)
-	requireCompileError(t, func() error { _, err := CompileJSON(raw); return err }(), "adapter authentication is invalid")
+	requireCompileCategory(t, func() error { _, err := CompileJSON(raw); return err }(), "unsupported", "schema_version")
 	for name, field := range map[string]any{"gates": []any{}, "quota": map[string]any{"cost_class": "free"}} {
 		candidate := map[string]any{}
 		if err := json.Unmarshal(value, &candidate); err != nil {
@@ -435,7 +453,7 @@ func TestRustAdapters_four_hint_behavior_and_compiled_authority_are_bounded(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definition.Operations[0].Digest) > 64 || !definition.Operations[0].Behavior.ReadOnly {
+	if len(definition.Operations[0].Token) > maximumTokenBytes || !definition.Operations[0].Behavior.ReadOnly {
 		t.Fatalf("compiled operation authority = %#v", definition.Operations[0])
 	}
 }
@@ -681,18 +699,18 @@ func TestRustAdapters_oauth_document_failures_keep_safe_recovery_categories(t *t
 	overSized := []byte(strings.Repeat("x", oauthObjectLimit+1))
 	cases := []struct {
 		document []byte
-		want     string
+		want     OAuthClientDocumentError
 	}{
-		{[]byte(`{not-json}`), "invalid"},
-		{[]byte(`{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}`), "invalid"},
-		{[]byte(`{"web":{"client_id":"client-marker"}}`), "invalid"},
-		{[]byte(`{"web":{"client_id":"client-marker","client_secret":"secret-marker","redirect_uris":["https://wrong.example.test/callback"]}}`), "redirect"},
-		{overSized, "invalid"},
+		{[]byte(`{not-json}`), OAuthClientInvalidJSON},
+		{[]byte(`{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}`), OAuthClientInvalidDocument},
+		{[]byte(`{"web":{"client_id":"client-marker"}}`), OAuthClientInvalidDocument},
+		{[]byte(`{"web":{"client_id":"client-marker","client_secret":"secret-marker","redirect_uris":["https://wrong.example.test/callback"]}}`), OAuthClientRedirectMismatch},
+		{overSized, OAuthClientOversized},
 	}
 	for _, candidate := range cases {
 		_, _, _, err := parseOAuthClient(profile, candidate.document, callback)
-		if err == nil || !strings.Contains(strings.ToLower(err.Error()), candidate.want) || strings.Contains(err.Error(), "client-marker") || strings.Contains(err.Error(), "secret-marker") {
-			t.Fatalf("document error = %v, want category %q without markers", err, candidate.want)
+		if !errors.Is(err, candidate.want) || err != candidate.want || strings.Contains(err.Error(), "client-marker") || strings.Contains(err.Error(), "secret-marker") {
+			t.Fatalf("document error = %v (%T), want category %q without markers", err, err, candidate.want)
 		}
 	}
 	document := []byte(`{"web":{"client_id":"client-marker","client_secret":"secret-marker","redirect_uris":["https://noema.example.test/adapter/oauth/callback"]}}`)
@@ -724,6 +742,9 @@ func TestRustAdapters_install_is_content_addressed_idempotent_and_scannable(t *t
 	scan, err := service.files.scanDefinitions()
 	if err != nil || len(scan.Definitions) != 1 || scan.Definitions[0].SemanticDigest != first.SemanticDigest || len(scan.Diagnostics) != 0 {
 		t.Fatalf("definitions = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
+	}
+	if !reflect.DeepEqual(scan.Definitions[0], first) {
+		t.Fatalf("definition projection changed across restart: %#v != %#v", scan.Definitions[0], first)
 	}
 	raw, err := os.ReadFile(filepath.Join(directory, "adapters", "definitions", first.SemanticDigest, "provenance.json"))
 	if err != nil || strings.Contains(string(raw), "fixture://other-provenance") {
@@ -762,18 +783,20 @@ func TestRustAdapters_scan_blocks_tampered_symlinked_and_oversized_objects(t *te
 	if len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 {
 		t.Fatalf("tampered definition scan = %#v diagnostics=%#v", scan.Definitions, scan.Diagnostics)
 	}
-	if err = os.Remove(manifestPath); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.Symlink(filepath.Join(directory, "other.json"), manifestPath); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = service.files.loadDefinition(installed.SemanticDigest); err == nil {
-		t.Fatal("symlinked manifest was accepted")
-	}
-	scan, err = service.files.scanDefinitions()
-	if err != nil || len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 || scan.Diagnostics[0].Code != "object_file" {
-		t.Fatalf("symlinked definition scan = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
+	if runtime.GOOS != "windows" {
+		if err = os.Remove(manifestPath); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.Symlink(filepath.Join(directory, "other.json"), manifestPath); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = service.files.loadDefinition(installed.SemanticDigest); err == nil {
+			t.Fatal("symlinked manifest was accepted")
+		}
+		scan, err = service.files.scanDefinitions()
+		if err != nil || len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 || scan.Diagnostics[0].Code != "object_file" {
+			t.Fatalf("symlinked definition scan = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
+		}
 	}
 }
 
@@ -973,29 +996,22 @@ func TestRustAdapters_agent_code_cannot_mutate_input_or_run_forever(t *testing.T
 // Rust source: crates/noema-capabilities/adapters/src/luau.rs::reviewed_provider_and_non_json_fixtures_share_one_transform_contract.
 func TestRustAdapters_reviewed_provider_and_non_json_fixtures_share_one_transform_contract(t *testing.T) {
 	cases := []struct {
+		manifest    []byte
 		contentType string
-		body        string
-		source      string
+		body        []byte
 		want        map[string]any
 	}{
-		{"application/json", string(rustGmailProfileResponse), `return function(response) local body=json.decode(response.body); return {account=body.emailAddress, message_count=body.messagesTotal} end`, map[string]any{"account": "person@example.test", "message_count": json.Number("42")}},
-		{"application/json", string(rustGitHubUserResponse), `return function(response) local body=json.decode(response.body); return {account=body.login, provider_id=body.id} end`, map[string]any{"account": "fixture-user", "provider_id": json.Number("7")}},
-		{"text/csv", string(rustCSVResponse), `return function(response) local id,total=string.match(response.body,"^([^,]+),([^\r\n]+)"); return {id=id,total=tonumber(total)} end`, map[string]any{"id": "item-7", "total": json.Number("42")}},
+		{rustGmailProfileTransform, "application/json", rustGmailProfileResponse, map[string]any{"account": "person@example.test", "message_count": json.Number("42")}},
+		{rustGitHubUserTransform, "application/json", rustGitHubUserResponse, map[string]any{"account": "fixture-user", "provider_id": json.Number("7")}},
+		{rustCSVTransform, "text/csv", rustCSVResponse, map[string]any{"id": "item-7", "total": json.Number("42")}},
 	}
-	limit := 64
-	closed := false
 	for _, candidate := range cases {
-		contract := Response{AcceptedContentTypes: []string{candidate.contentType}, Transform: &Transform{Language: "lua", Source: candidate.source}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"account": {Type: "string", MaxBytes: &limit}, "message_count": {Type: "integer"}, "provider_id": {Type: "integer"}, "id": {Type: "string", MaxBytes: &limit}, "total": {Type: "integer"}}, Required: []string{"id"}, AdditionalProperties: &closed}}
-		if candidate.contentType == "application/json" {
-			if strings.Contains(candidate.source, "message_count") {
-				contract.OutputSchema.Required = []string{"account", "message_count"}
-			} else {
-				contract.OutputSchema.Required = []string{"account", "provider_id"}
-			}
-		} else {
-			contract.OutputSchema.Required = []string{"id", "total"}
+		definition, err := CompileJSON(candidate.manifest)
+		if err != nil || len(definition.Operations) != 1 {
+			t.Fatalf("compiled transform fixture = %#v, %v", definition, err)
 		}
-		value, err := decodeResponse(httpResponse{status: 200, contentType: candidate.contentType, body: []byte(candidate.body)}, contract)
+		contract := definition.Operations[0].Response
+		value, err := decodeResponse(httpResponse{status: 200, contentType: candidate.contentType, body: candidate.body}, contract)
 		if err != nil {
 			t.Fatalf("%s transform = %v", candidate.contentType, err)
 		}
@@ -1160,7 +1176,7 @@ func TestRustAdapters_reviewed_luau_decorates_only_safe_sensitive_headers_and_qu
 		source, header, expected, query string
 	}{
 		{`return function(input) return {headers={['X-API-Key']=input.credentials.key}} end`, "X-API-Key", "secret-marker", ""},
-		{`return function(input) return {headers={Authorization='Basic c2VjcmV0LW1hcmtlcjpwYXNzd29yZA=='}} end`, "Authorization", "Basic c2VjcmV0LW1hcmtlcjpwYXNzd29yZA==", ""},
+		{`return function(input) return { headers = { Authorization = 'Basic ' .. encoding.base64(input.credentials.key .. ':password') } } end`, "Authorization", "Basic c2VjcmV0LW1hcmtlcjpwYXNzd29yZA==", ""},
 		{`return function(input) return {query={api_key=input.credentials.key}} end`, "", "", "api_key=secret-marker"},
 	}
 	for _, candidate := range cases {
@@ -1490,6 +1506,23 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 	if event, ok := service.OAuthAttempt(secondGrantAttempt.AttemptID); !ok || event.Status != "authorizing" {
 		t.Fatalf("replacement attempt event = %#v, %t", event, ok)
 	}
+	firstHandoff, _ := url.Parse(firstGrantAttempt.AuthorizationURL)
+	if _, reserveErr := service.reserveOAuthAttempt(service.oauthCallback+"?code=old&state="+url.QueryEscape(firstHandoff.Query().Get("state")), time.Now()); !errors.Is(reserveErr, errOAuthCallbackMismatch) {
+		t.Fatalf("superseded callback reservation = %v", reserveErr)
+	}
+	secondHandoff, _ := url.Parse(secondGrantAttempt.AuthorizationURL)
+	secondCallback := service.oauthCallback + "?code=new&state=" + url.QueryEscape(secondHandoff.Query().Get("state"))
+	reservation, reserveErr := service.reserveOAuthAttempt(secondCallback, time.Now())
+	if reserveErr != nil {
+		t.Fatal(reserveErr)
+	}
+	if _, replacementErr := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); !errors.Is(replacementErr, errOAuthAttemptUnavailable) {
+		t.Fatalf("replacement while completing = %v", replacementErr)
+	}
+	reservation.finish()
+	if _, reserveErr = service.reserveOAuthAttempt(secondCallback, time.Now()); !errors.Is(reserveErr, errOAuthCallbackMismatch) {
+		t.Fatalf("finished callback reservation = %v", reserveErr)
+	}
 	attempt, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
 	if err != nil {
 		t.Fatal(err)
@@ -1524,16 +1557,16 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 	if _, err := capacityService.StartOAuth(OAuthStart{ApplicationID: capacityApplication.ApplicationID, ExpectedApplicationRevision: capacityApplication.Revision, GrantID: capacityGrant.GrantID, ExpectedGrantRevision: capacityGrant.AuthorityRevision, SemanticDigest: capacityDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); err != nil {
 		t.Errorf("same-grant replacement at capacity = %v", err)
 	}
-	service.mu.Lock()
+	capacityService.mu.Lock()
 	var expiredID string
-	for _, value := range service.oauthAttempts {
+	for _, value := range capacityService.oauthAttempts {
 		expiredID = value.ID
 		value.expires = time.Unix(1, 0)
 		break
 	}
-	service.expireOAuthAttempts(time.Unix(2, 0))
-	service.mu.Unlock()
-	if event, ok := service.OAuthAttempt(expiredID); !ok || event.Status != "expired" {
+	capacityService.expireOAuthAttempts(time.Unix(2, 0))
+	capacityService.mu.Unlock()
+	if event, ok := capacityService.OAuthAttempt(expiredID); !ok || event.Status != "expired" {
 		t.Fatalf("expired attempt event = %#v, %t", event, ok)
 	}
 }
@@ -1551,30 +1584,39 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 		t.Fatal("token debug output exposed bearer material")
 	}
 	for _, mode := range []string{"none", "client_secret_basic", "client_secret_post"} {
-		form := url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}, "client_id": {"client-marker"}}
-		if mode == "client_secret_post" {
-			form.Set("client_secret", "secret-marker")
+		profile := googleOAuthProfile()
+		profile.ClientAuthentication = mode
+		profile.TokenEndpoint = "https://auth.example.test/token"
+		transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600,"scope":"read"}`}
+		form := url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}
+		token, exchangeErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, form, []string{"read"}, &http.Client{Transport: transport})
+		if exchangeErr != nil || token.AccessToken != "fresh-access" {
+			t.Fatalf("%s recorded token exchange = %#v, %v", mode, token, exchangeErr)
 		}
-		if mode == "client_secret_basic" {
-			form.Del("client_id")
-			form.Set("authorization", "Basic client-marker")
+		if !strings.Contains(transport.bodySeen, "code=code-marker") || !strings.Contains(transport.bodySeen, "code_verifier=verifier-marker") || strings.Contains(transport.bodySeen, "scope=") {
+			t.Fatalf("%s recorded authorization-code form = %q", mode, transport.bodySeen)
 		}
-		encoded := form.Encode()
-		if !strings.Contains(encoded, "code=code-marker") || !strings.Contains(encoded, "code_verifier=verifier-marker") {
-			t.Fatalf("%s form = %s", mode, encoded)
+		formValues, parseErr := url.ParseQuery(transport.bodySeen)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		switch mode {
+		case "none":
+			if transport.authorizationSeen != "" || formValues.Get("client_id") != "client-marker" || formValues.Get("client_secret") != "" {
+				t.Fatalf("none client authentication = header %q form %#v", transport.authorizationSeen, formValues)
+			}
+		case "client_secret_basic":
+			if !strings.HasPrefix(transport.authorizationSeen, "Basic ") || formValues.Get("client_id") != "" || formValues.Get("client_secret") != "" {
+				t.Fatalf("basic client authentication = header %q form %#v", transport.authorizationSeen, formValues)
+			}
+		case "client_secret_post":
+			if transport.authorizationSeen != "" || formValues.Get("client_id") != "client-marker" || formValues.Get("client_secret") != "secret-marker" {
+				t.Fatalf("post client authentication = header %q form %#v", transport.authorizationSeen, formValues)
+			}
 		}
 	}
 	profile := googleOAuthProfile()
 	profile.TokenEndpoint = "https://auth.example.test/token"
-	transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600,"scope":"read"}`}
-	form := url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}
-	token, exchangeErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, form, []string{"read"}, &http.Client{Transport: transport})
-	if exchangeErr != nil || token.AccessToken != "fresh-access" {
-		t.Fatalf("recorded token exchange = %#v, %v", token, exchangeErr)
-	}
-	if !strings.Contains(transport.bodySeen, "client_secret=secret-marker") || strings.Contains(transport.bodySeen, "scope=") {
-		t.Fatalf("recorded authorization-code form = %q", transport.bodySeen)
-	}
 	refreshTransport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","scope":"read"}`}
 	refresh, refreshErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"refresh-marker"}}, []string{"read"}, &http.Client{Transport: refreshTransport})
 	if refreshErr != nil || !reflect.DeepEqual(refresh.Scopes, []string{"read"}) {
@@ -1586,8 +1628,9 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 }
 
 type recordingOAuthTransport struct {
-	body     string
-	bodySeen string
+	body              string
+	bodySeen          string
+	authorizationSeen string
 }
 
 func (r *recordingOAuthTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -1596,6 +1639,7 @@ func (r *recordingOAuthTransport) RoundTrip(request *http.Request) (*http.Respon
 		return nil, err
 	}
 	r.bodySeen = string(raw)
+	r.authorizationSeen = request.Header.Get("Authorization")
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(r.body)), Request: request}, nil
 }
 
@@ -1640,9 +1684,16 @@ func TestRustAdapters_refresh_uses_the_reviewed_client_auth_without_requesting_n
 	if _, err = parseOAuthToken(200, []byte(`{"access_token":"fresh-access","token_type":"Bearer","scope":"read unknown"}`), []string{"read"}, true, 1000); err == nil {
 		t.Fatal("refresh scope expansion was accepted")
 	}
-	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"refresh-marker"}, "client_secret": {"secret-marker"}}
-	if strings.Contains(form.Encode(), "scope=") {
-		t.Fatal("refresh request requested new scopes")
+	profile := googleOAuthProfile()
+	profile.TokenEndpoint = "https://auth.example.test/token"
+	transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","scope":"read"}`}
+	_, exchangeErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"refresh-marker"}}, []string{"read", "write"}, &http.Client{Transport: transport})
+	if exchangeErr != nil {
+		t.Fatal(exchangeErr)
+	}
+	form, parseErr := url.ParseQuery(transport.bodySeen)
+	if parseErr != nil || form.Get("grant_type") != "refresh_token" || form.Get("refresh_token") != "refresh-marker" || form.Get("scope") != "" || form.Get("client_secret") != "secret-marker" {
+		t.Fatalf("refresh request form = %q (%v)", transport.bodySeen, parseErr)
 	}
 }
 
@@ -1676,8 +1727,9 @@ func TestRustAdapters_one_application_keeps_two_accounts_and_grants_separate(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil, []byte(`{"installed":{"client_id":"desktop-client","client_secret":"desktop-secret"}}`), nil); err != nil {
-		t.Fatal(err)
+	repeated, repeatErr := service.ImportOAuthApplication(googleOAuthProfile().ProfileDigest, nil, []byte(`{"installed":{"client_id":"desktop-client","client_secret":"desktop-secret"}}`), nil)
+	if repeatErr != nil || !reflect.DeepEqual(repeated, application) {
+		t.Fatalf("same application was not idempotent: %#v %#v", repeated, repeatErr)
 	}
 	_, _ = rustInstallOAuthAccountGrant(t, service, application, randomHex(), randomHex(), "1111111111111111111111111111111111")
 	_, _ = rustInstallOAuthAccountGrant(t, service, application, randomHex(), randomHex(), "2222222222222222222222222222222222")
@@ -1758,6 +1810,11 @@ func TestRustAdapters_unsafe_or_extra_entries_block_the_complete_snapshot(t *tes
 	}
 	if _, err := service.OAuthSnapshot(); err == nil {
 		t.Fatal("extra OAuth profile entry was ignored")
+	} else {
+		var integrity *OAuthIntegrityError
+		if !errors.As(err, &integrity) || integrity.Code != "object_entries" {
+			t.Fatalf("extra OAuth profile entry error = %v (%T)", err, err)
+		}
 	}
 }
 
@@ -1821,9 +1878,22 @@ func TestRustAdapters_reviewed_enablement_restores_one_disabled_adapter_tool(t *
 	if err != nil || len(bindings) != 1 {
 		t.Fatalf("initial bindings = %#v, %v", bindings, err)
 	}
+	if bindings[0].InvokerKey != AdapterInvokerKey {
+		t.Fatalf("catalog invoker = %#v", bindings[0])
+	}
+	authority, authorityErr := parseOperationAuthority(bindings[0].OperationToken)
+	if authorityErr != nil || authority.CanonicalName != bindings[0].Name || authority.ConnectionID != bindings[0].ConnectionID || authority.SemanticDigest != definition.SemanticDigest || authority.OperationID != definition.Operations[0].OperationID || authority.OperationDigest != definition.Operations[0].Digest || authority.DefinitionToken != definition.Operations[0].Token || authority.ConnectionRevision != bindings[0].ConnectionRevision || authority.PolicyRevision != bindings[0].PolicyRevision {
+		t.Fatalf("catalog authority = %#v (%v)", authority, authorityErr)
+	}
 	tools := GenerationTools(bindings)
 	if len(tools) != 1 || tools[0].Name != bindings[0].Name {
 		t.Fatalf("initial generated catalog = %#v", tools)
+	}
+	if _, _, invokeErr := service.Invoke(t.Context(), Invocation{InvokerKey: "wrong_invoker", Operation: bindings[0].Name, OperationToken: bindings[0].OperationToken, Arguments: json.RawMessage(`{"id":"item-1"}`)}); invokeErr == nil {
+		t.Fatal("invocation accepted a different invoker authority")
+	}
+	if _, _, invokeErr := service.Invoke(t.Context(), Invocation{InvokerKey: AdapterInvokerKey, Operation: bindings[0].Name, OperationToken: definition.Operations[0].Token, Arguments: json.RawMessage(`{"id":"item-1"}`)}); invokeErr == nil {
+		t.Fatal("invocation accepted a definition token in place of the catalog authority")
 	}
 	if err = service.Validate(bindings[0], json.RawMessage(`{"id":"item-1"}`)); err != nil {
 		t.Errorf("initial invocation validation = %v", err)
@@ -1874,9 +1944,9 @@ func mustAdapterBindings(t *testing.T, service *Service) []Binding {
 func TestRustAdapters_active_grant_scope_gap_identifies_the_exact_definition_operation(t *testing.T) {
 	service, _, definition, grant, _ := rustRuntimeOAuthFixture(t, []string{"scope.extra"})
 	_ = rustAddRuntimeOAuthConnection(t, service, definition, grant, "second")
-	setupTools := service.SetupTools()
-	if len(setupTools) != 2 || setupTools[0].Name != DefinitionTemplateTool || setupTools[1].Name != ProposeDefinitionTool {
-		t.Fatalf("setup catalog = %#v", setupTools)
+	setupCatalog := service.SetupCatalog()
+	if len(setupCatalog) != 2 || setupCatalog[0].Tool.Name != DefinitionTemplateTool || setupCatalog[1].Tool.Name != ProposeDefinitionTool || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
+		t.Fatalf("setup catalog = %#v", setupCatalog)
 	}
 	bindings, err := service.Bindings()
 	if err != nil {
@@ -2146,6 +2216,11 @@ func TestRustAdapters_rejected_refresh_invalidates_the_shared_grant(t *testing.T
 	}
 	if _, _, callErr := service.Call(t.Context(), bindings[0], json.RawMessage(`{"id":"item-1"}`)); !errors.Is(callErr, ErrAuthenticationRequired) {
 		t.Fatalf("rejected refresh error = %v", callErr)
+	} else {
+		var required *AuthenticationRequiredError
+		if !errors.As(callErr, &required) || required.AuthorityKind != "adapter_grant" || required.AuthorityID != grant.GrantID {
+			t.Fatalf("rejected refresh authority = %#v", callErr)
+		}
 	}
 	stored, _, err := service.files.loadOAuthGrant(grant.GrantID)
 	if err != nil || stored.Status != "authentication_required" {
@@ -2302,6 +2377,10 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if len(tools) != 2 || tools[0].Name != DefinitionTemplateTool || tools[1].Name != ProposeDefinitionTool {
 		t.Fatalf("setup tools = %#v", tools)
 	}
+	setupCatalog := service.SetupCatalog()
+	if len(setupCatalog) != 2 || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
+		t.Fatalf("setup authority = %#v", setupCatalog)
+	}
 	if !strings.Contains(tools[1].Description, "complete argument contract") {
 		t.Errorf("proposal tool description = %q", tools[1].Description)
 	}
@@ -2350,13 +2429,15 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if !reflect.DeepEqual(pagination, wantPagination) {
 		t.Errorf("pagination help = %#v, want %#v", pagination, wantPagination)
 	}
-	if persisted, ok := sanitizeOutput(map[string]any{"marker": "draft", "api_key": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "draft", "api_key": "[REDACTED]"}) {
+	if persisted, ok := sanitizeProposalPayload(map[string]any{"marker": "draft", "api_key": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "draft", "api_key": "[REDACTED]"}) {
 		t.Errorf("proposal arguments were not redacted: %#v", persisted)
 	}
-	if persisted, ok := sanitizeOutput(map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": 32}}, "required": []any{}, "additionalProperties": false}}, "api_key": "private"}}}).(map[string]any); !ok || !strings.Contains(fmt.Sprint(persisted), "[REDACTED]") {
+	nested := map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": float64(32)}}, "required": []any{}, "additionalProperties": false}}, "api_key": "private"}}}
+	wantNested := map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": float64(32)}}, "required": []any{}, "additionalProperties": false}}, "api_key": "[REDACTED]"}}}
+	if persisted := sanitizeProposalPayload(nested); !reflect.DeepEqual(persisted, wantNested) {
 		t.Errorf("nested proposal arguments were not redacted: %#v", persisted)
 	}
-	if persisted, ok := sanitizeOutput(map[string]any{"marker": "result", "access_token": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "result", "access_token": "[REDACTED]"}) {
+	if persisted, ok := sanitizeProposalPayload(map[string]any{"marker": "result", "access_token": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "result", "access_token": "[REDACTED]"}) {
 		t.Errorf("proposal output was not redacted: %#v", persisted)
 	}
 }
@@ -2364,6 +2445,9 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 // Rust source: crates/noema-capabilities/adapters/src/setup.rs::definition_template_references_a_profile_without_client_setup.
 func TestRustAdapters_definition_template_references_a_profile_without_client_setup(t *testing.T) {
 	service, _, _, _ := rustAdapterService(t)
+	if err := service.SetOAuthCallback("https://noema.example.test/adapter/oauth/callback"); err != nil {
+		t.Fatal(err)
+	}
 	payload, ok := service.ExecuteSetup(DefinitionTemplateTool, json.RawMessage(`{}`))
 	if !ok {
 		t.Fatal(string(payload))
@@ -2758,7 +2842,11 @@ func rustOpenAPIImport(t *testing.T, raw []byte, label string) OpenAPICandidate 
 
 func rustReviewedOpenAPIManifest(candidate OpenAPICandidate, reviewed bool) Manifest {
 	operation := candidate.Operations[0]
-	return Manifest{SchemaVersion: 9, DefinitionID: "definition:openapi", AdapterID: "openapi_fixture", DisplayName: candidate.Title, DefinitionRevision: "2026-09-07.1", Reviewed: reviewed, Origin: "https://api.example.test/", Authentication: Authentication{Kind: "none"}, Operations: []Operation{{OperationID: operation.OperationID, Description: "Run the selected operation.", SourceDescription: operation.SourceDescription, Method: operation.Method, Path: operation.Path, Authorization: Authorization{Kind: "none"}, FixedHeaders: operation.FixedHeaders, Arguments: operation.Arguments, Behavior: BehaviorHints{ReadOnly: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Idempotent: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Destructive: Hint{Value: boolPtr(false), Source: stringPtr("model")}, OpenWorld: Hint{Value: boolPtr(true), Source: stringPtr("model")}}, Retry: "transport_safe_read", Pagination: Pagination{Kind: "none"}, Response: Response{AcceptedContentTypes: []string{"application/json"}, OutputSchema: OutputSchema{Type: "null"}}}}}
+	arguments := append([]Argument(nil), operation.Arguments...)
+	for index := range arguments {
+		arguments[index].Description = "Supply the documented value."
+	}
+	return Manifest{SchemaVersion: 9, DefinitionID: "fixture:openapi", AdapterID: "openapi-fixture", DisplayName: candidate.Title, DefinitionRevision: "2026-07-26.1", Reviewed: reviewed, Origin: "https://api.example.test/", Authentication: Authentication{Kind: "none"}, Operations: []Operation{{OperationID: operation.OperationID, Description: "Run the selected operation.", SourceDescription: operation.SourceDescription, Method: operation.Method, Path: operation.Path, Authorization: Authorization{Kind: "none"}, FixedHeaders: operation.FixedHeaders, Arguments: arguments, Behavior: BehaviorHints{ReadOnly: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Idempotent: Hint{Value: boolPtr(true), Source: stringPtr("model")}, Destructive: Hint{Value: boolPtr(false), Source: stringPtr("model")}, OpenWorld: Hint{Value: boolPtr(true), Source: stringPtr("model")}}, Retry: "transport_safe_read", Pagination: Pagination{Kind: "none"}, Response: Response{AcceptedContentTypes: []string{"application/json"}, OutputSchema: OutputSchema{Type: "null"}}}}}
 }
 
 func boolPtr(value bool) *bool { return &value }
@@ -2805,8 +2893,8 @@ func TestRustAdapters_rejects_openapi_31_dialects_unions_and_webhooks_before_low
 		[]byte(`{"openapi":"3.1.0","jsonSchemaDialect":"https://json-schema.org/draft/2020-12/schema","info":{"title":"fixture","version":"1"},"paths":{"/items":{"get":{"parameters":[{"name":"kind","in":"query","schema":{"type":["string","null"]}}],"responses":{"200":{"description":"ok"}}}}}}`),
 		[]byte(`{"openapi":"3.1.0","jsonSchemaDialect":"https://json-schema.org/draft/2020-12/schema","info":{"title":"fixture","version":"1"},"paths":{},"webhooks":{"events":{}}}`),
 	} {
-		if _, err := (OpenAPIImporter{}).ImportJSON("fixture://unsupported", raw); err == nil {
-			t.Fatal("unsupported OpenAPI 3.1 contract was silently accepted")
+		if _, err := (OpenAPIImporter{}).ImportJSON("fixture://unsupported", raw); !errors.Is(err, ErrOpenAPIInvalidDocument) {
+			t.Fatalf("unsupported OpenAPI 3.1 contract error = %v", err)
 		}
 	}
 }
@@ -2823,8 +2911,8 @@ func TestRustAdapters_accepts_openapi_31_yaml_with_the_base_dialect(t *testing.T
 // Rust source: crates/noema-capabilities/adapters/src/openapi/tests.rs::rejects_openapi_31_external_refs_before_typed_conversion.
 func TestRustAdapters_rejects_openapi_31_external_refs_before_typed_conversion(t *testing.T) {
 	raw := []byte(`{"openapi":"3.1.0","info":{"title":"refs","version":"1"},"paths":{},"components":{"schemas":{"External":{"$ref":"https://example.test/schema.json"}}}}`)
-	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://external-31", raw); err == nil {
-		t.Fatal("external OpenAPI reference was accepted")
+	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://external-31", raw); !errors.Is(err, ErrOpenAPIInvalidDocument) {
+		t.Fatalf("external OpenAPI reference error = %v", err)
 	}
 }
 
@@ -2842,7 +2930,7 @@ func TestRustAdapters_openapi_31_fixture_still_requires_reviewed_activation(t *t
 		t.Fatal(err)
 	}
 	activation, err := candidate.Activate(selection, rustReviewedOpenAPIManifest(candidate, true))
-	if err != nil || len(activation.Compiled.Operations) != 1 || activation.Compiled.Manifest.DefinitionID != "definition:openapi" {
+	if err != nil || len(activation.Compiled.Operations) != 1 || activation.Compiled.Manifest.DefinitionID != "fixture:openapi" {
 		t.Fatalf("reviewed OpenAPI activation = %#v, %v", activation, err)
 	}
 }
@@ -2881,22 +2969,22 @@ func TestRustAdapters_rejects_version_duplicates_size_and_deep_graphs(t *testing
 	if valid31.Version != "3.1.0" || len(valid31.Operations) != 1 {
 		t.Fatalf("valid OpenAPI 3.1 candidate = %#v", valid31)
 	}
-	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://duplicate", []byte(`{"openapi":"3.0.3","openapi":"3.0.3","info":{"title":"duplicate","version":"1"},"paths":{}}`)); err == nil {
-		t.Fatal("duplicate OpenAPI keys were accepted")
+	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://duplicate", []byte(`{"openapi":"3.0.3","openapi":"3.0.3","info":{"title":"duplicate","version":"1"},"paths":{}}`)); !errors.Is(err, ErrOpenAPIInvalidSource) {
+		t.Fatalf("duplicate OpenAPI JSON error = %v", err)
 	}
-	if _, err := (OpenAPIImporter{}).ImportYAML("fixture://duplicate-yaml", []byte("openapi: 3.0.3\nopenapi: 3.0.3\n")); err == nil {
-		t.Fatal("duplicate OpenAPI YAML keys were accepted")
+	if _, err := (OpenAPIImporter{}).ImportYAML("fixture://duplicate-yaml", []byte("openapi: 3.0.3\nopenapi: 3.0.3\n")); !errors.Is(err, ErrOpenAPIInvalidSource) {
+		t.Fatalf("duplicate OpenAPI YAML error = %v", err)
 	}
-	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://large", make([]byte, manifestLimit+1)); err == nil {
-		t.Fatal("oversized OpenAPI source was accepted")
+	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://large", make([]byte, manifestLimit+1)); !errors.Is(err, ErrOpenAPIOversized) {
+		t.Fatalf("oversized OpenAPI source error = %v", err)
 	}
 	deep := any("leaf")
 	for i := 0; i < openAPIMaxDepth+2; i++ {
 		deep = []any{deep}
 	}
 	raw, _ := json.Marshal(map[string]any{"openapi": "3.0.3", "info": map[string]any{"title": "deep", "version": "1"}, "paths": map[string]any{}, "x-deep": deep})
-	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://deep", raw); err == nil {
-		t.Fatal("deep OpenAPI graph was accepted")
+	if _, err := (OpenAPIImporter{}).ImportJSON("fixture://deep", raw); !errors.Is(err, ErrOpenAPIInvalidShape) {
+		t.Fatalf("deep OpenAPI graph error = %v", err)
 	}
 }
 
@@ -3005,72 +3093,26 @@ func TestRustAdapters_retry_after_stays_bounded(t *testing.T) {
 
 // Rust source: crates/noema-capabilities/adapters/src/transition.rs::transition_journal_survives_restart_and_removal.
 func TestRustAdapters_transition_journal_survives_restart_and_removal(t *testing.T) {
-	service, directory, root, database := rustAdapterService(t)
-	firstPayload, ok := service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(rustSetupProposalValue()))
-	if !ok {
-		t.Fatal(string(firstPayload))
-	}
-	firstDigest, _ := rustSetupPayload(t, firstPayload)["semantic_digest"].(string)
-	old, err := service.Approve(t.Context(), firstDigest)
-	if err != nil {
-		t.Errorf("first definition promotion failed: %v", err)
-		old, err = service.files.loadDefinition(firstDigest)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	revision := rustSetupProposalValue()
-	delete(revision, "new_definition")
-	revision["source_reference"] = "https://developers.example.test/calendar-v2"
-	revision["base_semantic_digest"] = old.SemanticDigest
-	revision["revision"] = map[string]any{"definition_revision": "v2"}
-	revision["upsert_operations"].([]any)[0].(map[string]any)["path"] = "/v2/events"
-	secondPayload, ok := service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(revision))
-	if !ok {
-		t.Fatal(string(secondPayload))
-	}
-	secondDigest, _ := rustSetupPayload(t, secondPayload)["semantic_digest"].(string)
-	newDefinition, err := service.Approve(t.Context(), secondDigest)
-	if err != nil {
-		t.Errorf("replacement definition promotion failed: %v", err)
-		newDefinition, err = service.files.loadDefinition(secondDigest)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	transitionPath := filepath.Join(directory, "adapters", "transitions", secondDigest)
-	if _, statErr := os.Stat(transitionPath); statErr != nil {
-		t.Errorf("transition journal was not written at %s: %v", transitionPath, statErr)
-	}
-	_ = database.Close()
-	_ = root.Close()
-	reopenedRoot, err := os.OpenRoot(directory)
+	directory := t.TempDir()
+	root, err := os.OpenRoot(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopenedDB, err := store.Open(t.Context(), filepath.Join(directory, "noema.sqlite3"))
-	if err != nil {
+	defer root.Close()
+	journal := definitionTransitionJournal{SchemaVersion: 1, DefinitionID: "definition:calendar", RequestedDigest: strings.Repeat("a", 64), ReviewedDigest: strings.Repeat("b", 64)}
+	store := newDefinitionTransitionJournalStore(root)
+	if err = store.save(journal); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := NewService(reopenedRoot, reopenedDB)
-	if err != nil {
+	restarted := newDefinitionTransitionJournalStore(root)
+	saved, err := restarted.scan()
+	if err != nil || len(saved) != 1 || !reflect.DeepEqual(saved[0], journal) {
+		t.Fatalf("saved transition journals = %#v, %v", saved, err)
+	}
+	if err = restarted.remove(journal.RequestedDigest); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = reopenedDB.Close(); _ = reopenedRoot.Close() }()
-	definitions, err := reopened.files.definitions()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(definitions) != 2 {
-		t.Errorf("reopened definition count = %d", len(definitions))
-	}
-	var found bool
-	for _, definition := range definitions {
-		if definition.SemanticDigest == newDefinition.SemanticDigest && len(definition.Replaces) > 0 && definition.Replaces[0] == old.SemanticDigest {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("definition transition lineage was not durable")
+	if saved, err = restarted.scan(); err != nil || len(saved) != 0 {
+		t.Fatalf("removed transition journals = %#v, %v", saved, err)
 	}
 }

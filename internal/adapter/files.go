@@ -36,7 +36,7 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 	if root == nil {
 		return nil, errors.New("adapter home is unavailable")
 	}
-	for _, path := range []string{"adapters", "adapters/definitions", "adapters/connections", "adapters/cursors", "adapters/oauth-profiles", "adapters/oauth-applications", "adapters/oauth-accounts", "adapters/oauth-grants", "adapters/quarantine", "adapters/quarantine/definitions", "adapters/quarantine/connections", "adapters/quarantine/oauth-applications", "adapters/quarantine/oauth-grants"} {
+	for _, path := range []string{"adapters", "adapters/definitions", "adapters/connections", "adapters/cursors", "adapters/transitions", "adapters/oauth-profiles", "adapters/oauth-applications", "adapters/oauth-accounts", "adapters/oauth-grants", "adapters/quarantine", "adapters/quarantine/definitions", "adapters/quarantine/connections", "adapters/quarantine/oauth-applications", "adapters/quarantine/oauth-grants"} {
 		if err := root.MkdirAll(path, 0o700); err != nil {
 			return nil, errors.New("adapter home could not be prepared")
 		}

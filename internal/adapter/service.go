@@ -25,6 +25,20 @@ var (
 	errCursorExpired          = errors.New("adapter continuation expired")
 )
 
+// AuthenticationRequiredError preserves the authority that needs new human
+// authentication while remaining compatible with ErrAuthenticationRequired.
+type AuthenticationRequiredError struct {
+	AuthorityKind string
+	AuthorityID   string
+}
+
+func (e *AuthenticationRequiredError) Error() string { return ErrAuthenticationRequired.Error() }
+func (e *AuthenticationRequiredError) Unwrap() error { return ErrAuthenticationRequired }
+
+func authenticationRequired(kind, id string) error {
+	return &AuthenticationRequiredError{AuthorityKind: kind, AuthorityID: id}
+}
+
 // Service owns reviewed adapter files, public indexes, and calls.
 type Service struct {
 	files            *fileAuthority
@@ -62,8 +76,18 @@ func newService(root *os.Root, database *store.Store, client *http.Client) (*Ser
 // SetupTools returns the two fixed adapter definition tools.
 func (s *Service) SetupTools() []provider.GenerationTool {
 	return []provider.GenerationTool{
-		{Name: DefinitionTemplateTool, Description: "List current API definitions or return one concise revision base.", InputSchema: json.RawMessage(`{"type":"object","properties":{"semantic_digest":{"type":"string","maxLength":64},"operation_ids":{"type":"array","maxItems":32,"items":{"type":"string"}}},"additionalProperties":false}`)},
-		{Name: ProposeDefinitionTool, Description: "Propose one public HTTP API definition from official HTTPS documentation for human review. Call adapter.definition_template first. Follow its examples for new definitions and revisions. Never include credentials or private user data.", InputSchema: json.RawMessage(`{"type":"object","properties":{"source_reference":{"type":"string","maxLength":4096},"new_definition":{"type":"object","additionalProperties":true},"base_semantic_digest":{"type":"string"},"revision":{"type":"object","additionalProperties":true},"upsert_operations":{"type":"array","maxItems":128,"items":{"type":"object","additionalProperties":true}},"remove_operation_ids":{"type":"array","maxItems":128,"items":{"type":"string"}}},"required":["source_reference"],"additionalProperties":false}`)},
+		{Name: DefinitionTemplateTool, Description: "List current API definitions or return a concise revision base. Before a revision, provide its exact digest and only the operation IDs that need inspection. Reuse the result during corrections.", InputSchema: json.RawMessage(`{"type":"object","properties":{"semantic_digest":{"type":"string","description":"Optional exact definition digest selected for revision."},"operation_ids":{"type":"array","maxItems":32,"items":{"type":"string"},"description":"Exact operation IDs whose direct proposal form should be returned. Requires semantic_digest."}},"required":[],"additionalProperties":false}`)},
+		{Name: ProposeDefinitionTool, Description: "Propose one public HTTP API definition after researching official documentation. Call the definition-template tool first. For a new service, provide new_definition and the required upsert_operations. For a revision, provide the exact base_semantic_digest, revision, and operation changes. An upsert adds or replaces one complete operation by operation_id. remove_operation_ids removes exact operations. Noema compiles one complete immutable pending revision. For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. For each OAuth operation, include every documented scope alternative that supports its complete argument contract. Prefer the least privileged alternative. Never include credentials, tokens, cookies, or private user data. Prefer the smallest required operation set. Do not use MCP endpoints as adapter origins.", InputSchema: json.RawMessage(`{"type":"object","properties":{"source_reference":{"type":"string","maxLength":4096,"description":"Official HTTPS API or authorization documentation URL used as primary provenance."},"new_definition":{"type":"object","additionalProperties":{},"description":"Direct JSON service header for a new definition. Include definition_id, adapter_id, optional display_name, definition_revision, origin, and authentication. Omit for a revision."},"base_semantic_digest":{"type":"string","description":"Exact digest loaded for a revision. Omit for a new definition."},"revision":{"type":"object","additionalProperties":{},"description":"Direct JSON revision header. Include definition_revision. Optionally replace display_name, origin, or authentication."},"upsert_operations":{"type":"array","maxItems":128,"description":"Direct JSON operations added or replaced by stable operation_id.","items":{"type":"object","additionalProperties":{},"description":"One operation proposal from the definition-template contract."}},"remove_operation_ids":{"type":"array","maxItems":128,"items":{"type":"string"},"description":"Stable operation IDs removed from the exact base revision."}},"required":["source_reference"],"additionalProperties":false}`)},
+	}
+}
+
+// SetupCatalog returns the reviewed setup bindings, including the invoker and
+// operation authority that are hidden from the model-facing tool shape.
+func (s *Service) SetupCatalog() []SetupBinding {
+	tools := s.SetupTools()
+	return []SetupBinding{
+		{Tool: tools[0], InvokerKey: AdapterInvokerKey, OperationToken: DefinitionTemplateToken, ExecutionDecision: "ExecuteImmediately"},
+		{Tool: tools[1], InvokerKey: AdapterInvokerKey, OperationToken: ProposeDefinitionToken, ExecutionDecision: "ExecuteImmediately"},
 	}
 }
 
@@ -91,79 +115,73 @@ func (s *Service) ExecuteSetup(name string, raw json.RawMessage) (json.RawMessag
 	return payload, true
 }
 
+// Invoke executes a catalog binding after checking the exact invoker and
+// definition operation authority selected by the catalog.
+func (s *Service) Invoke(ctx context.Context, invocation Invocation) (json.RawMessage, bool, error) {
+	if invocation.InvokerKey != AdapterInvokerKey || invocation.Operation == "" || invocation.OperationToken == "" {
+		return nil, false, errors.New("adapter invocation authority is invalid")
+	}
+	binding, err := s.Binding(invocation.Operation)
+	if err != nil || binding.InvokerKey != invocation.InvokerKey || binding.OperationToken != invocation.OperationToken {
+		return nil, false, errors.New("adapter invocation authority changed")
+	}
+	return s.Call(ctx, binding, invocation.Arguments)
+}
+
 // definitionHelp restores the worked examples from the Rust setup tool.
 // The current parser and compiler remain the authority for proposal validation.
 func definitionHelp() map[string]any {
+	googleProfileDigest := googleOAuthProfile().ProfileDigest
 	return map[string]any{
 		"instructions": []string{
-			"Replace example values with facts from the service's HTTPS documentation.",
-			"For a new API, submit new_definition and complete upsert_operations.",
-			"For a revision, load its exact semantic_digest and submit revision with operation changes.",
-			"Use a root HTTPS origin with path /. Put every API prefix in operation paths.",
-			"Declare read_only, idempotent, destructive, and open_world for each operation.",
-			"Use flat_object, object_list, or scalar_list responses when their fields cover the documented response.",
-			"Use custom for other responses. Bound each string with maxBytes and each array with maxItems.",
-			"Each string in a response recipe needs max_bytes. Use truncate only for display text, never identifiers.",
-			"Use language lua for transforms. Each source must return a function.",
-			"Credential field input accepts kind and fields only. Document input also requires media_type and normalize.",
-			"Request authentication reads input.credentials. Never include credential values in a proposal or Chat.",
-			"OAuth authentication uses only kind and profile_digest from oauth_profiles. Do not add profile_id, scopes, setup, or request_auth.",
-			"For OAuth, upsert each operation with authorization.kind oauth_scopes and accepted_scope_sets. Retain its other fields from the revision template.",
-			"Reuse this template when correcting a proposal.",
+			"Replace example values with facts from official HTTPS documentation.",
+			"Use the smallest operation set needed. Never include credentials or private user data.",
+			"Use direct JSON. Do not serialize a manifest or response value into a string.",
+			"For a revision, load the exact digest once and submit operation-keyed changes.",
+			"Noema adds canonical schema fields, review state, behavior provenance, retry policy, and common response transforms.",
+			"Declare all four behavior booleans from researched semantics.",
+			"For each OAuth operation, research its official authorization documentation.",
+			"Include every documented scope alternative that supports the complete operation and all accepted arguments.",
+			"Prefer the least privileged scope alternative. Exclude alternatives that reject an accepted argument.",
+			"Use response kind flat_object, object_list, or scalar_list when possible.",
+			"Use kind custom only when pointer-based field projection cannot express the documented response.",
+			"A string field requires max_bytes. Set truncate only for display text, never opaque identifiers.",
+			"If authentication needs unsupported signing, mTLS, or challenges, report it as unsupported.",
 		},
 		"proposal_template": json.RawMessage(`{
-			"source_reference":"https://developers.example.com/api",
+			"source_reference":"https://developers.example.test/api",
 			"new_definition":{
-				"definition_id":"example_service","adapter_id":"example_service","display_name":"Example Service",
-				"definition_revision":"v1","origin":"https://api.example.com/","authentication":{"kind":"none"}
+				"definition_id":"definition:example_service","adapter_id":"example_service","display_name":"Example Service",
+				"definition_revision":"v1","origin":"https://api.example.test/","authentication":{"kind":"oauth2_authorization_code_pkce","profile_digest":"` + googleProfileDigest + `"}
 			},
 			"upsert_operations":[{
-				"operation_id":"list_items","description":"List a page of items.","method":"GET","path":"/v1/items",
-				"authorization":{"kind":"none"},"arguments":[],
+				"operation_id":"list_items","description":"List a bounded page of items.","method":"GET","path":"/v1/items",
+				"authorization":{"kind":"oauth_scopes","accepted_scope_sets":[["official read scope URL"]]},"arguments":[],
 				"read_only":true,"idempotent":true,"destructive":false,"open_world":true,
 				"pagination":{"kind":"none"},
-				"response":{"kind":"object_list","source_pointer":"/items","output_name":"items","max_items":4,
+				"response":{"kind":"object_list","source_pointer":"/items","output_name":"items","max_items":8,
 					"fields":[{"name":"id","source_pointer":"/id","type":"string","max_bytes":256,"required":true},
 						{"name":"name","source_pointer":"/name","type":"string","max_bytes":512,"truncate":true}]}
-			}]
+			}],
+			"remove_operation_ids":[]
 		}`),
-		"revision_template": json.RawMessage(`{
-			"source_reference":"https://developers.example.com/api","base_semantic_digest":"exact digest from revision_base",
-			"revision":{"definition_revision":"v2"},"upsert_operations":[],"remove_operation_ids":["removed_operation_id"]
-		}`),
-		"credential_authentication_example": json.RawMessage(`{
-			"kind":"credential",
-			"setup":{"credential_type":"API key","setup_url":"https://developers.example.com/api-keys",
-				"instructions":["Create an API key and enter it in the protected setup field."],
-				"input":{"kind":"fields","fields":[{"id":"api_key","label":"API key"}]}},
-			"request_auth":{"language":"lua","source":"return function(input) return {headers={['X-API-Key']=input.credentials.api_key}} end"}
-		}`),
-		"oauth_authentication_example":          json.RawMessage(`{"kind":"oauth2_authorization_code_pkce","profile_digest":"0000000000000000000000000000000000000000000000000000000000000000"}`),
+		"revision_template":                     json.RawMessage(`{"source_reference":"https://developers.example.test/api","base_semantic_digest":"exact digest from revision_base","revision":{"definition_revision":"v2"},"upsert_operations":["complete changed or added operation objects"],"remove_operation_ids":["removed_operation_id"]}`),
+		"flat_object_response_example":          json.RawMessage(`{"kind":"flat_object","fields":[{"name":"id","source_pointer":"/id","type":"string","max_bytes":256,"required":true},{"name":"count","source_pointer":"/count","type":"integer"}]}`),
+		"scalar_list_response_example":          json.RawMessage(`{"kind":"scalar_list","source_pointer":"/labels","output_name":"labels","max_items":16,"item":{"type":"string","max_bytes":128,"truncate":true}}`),
+		"custom_response_example":               json.RawMessage(`{"kind":"custom","accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local body = json.decode(response.body) return { id = body.id } end"},"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":256}},"required":["id"],"additionalProperties":false}}`),
+		"credential_authentication_example":     json.RawMessage(`{"kind":"credential","setup":{"credential_type":"API key","setup_url":"https://developers.example.test/api-keys","instructions":["Create an API key and paste it below."],"input":{"kind":"fields","fields":[{"id":"api_key","label":"API key"}]}},"request_auth":{"language":"luau","source":"return function(input) return { headers = { ['X-API-Key'] = input.credentials.api_key } } end"}}`),
+		"oauth_authentication_example":          json.RawMessage(`{"kind":"oauth2_authorization_code_pkce","profile_digest":"` + googleProfileDigest + `"}`),
 		"oauth_operation_authorization_example": json.RawMessage(`{"kind":"oauth_scopes","accepted_scope_sets":[["scope.read"]]}`),
-		"flat_object_response_example": json.RawMessage(`{
-			"kind":"flat_object","fields":[{"name":"id","source_pointer":"/id","type":"string","max_bytes":256,"required":true}]
-		}`),
-		"scalar_list_response_example": json.RawMessage(`{
-			"kind":"scalar_list","source_pointer":"/labels","output_name":"labels","max_items":16,
-			"item":{"type":"string","max_bytes":128}
-		}`),
-		"custom_response_example": json.RawMessage(`{
-			"kind":"custom","accepted_content_types":["application/json"],
-			"transform":{"language":"lua","source":"return function(response) local body=json.decode(response.body); return {id=body.id} end"},
-			"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":256}},"required":["id"],"additionalProperties":false}
-		}`),
-		"response_token_pagination_example": json.RawMessage(`{
-			"kind":"response_token","response_pointer":"/nextPageToken","request_argument":"pageToken",
-			"page_size":{"request_argument":"maxResults","value":8}
-		}`),
-		"argument_example": json.RawMessage(`{
-			"name":"query","description":"Search terms.","location":"query","type":"string","required":false
-		}`),
+		"nested_json_body_example":              json.RawMessage(`{"arguments":[{"name":"response_status","description":"Attendance response to apply.","location":"json_body","type":"string","required":true,"enum_values":["accepted","tentative","declined"]}],"json_body_template":{"attendees":[{"responseStatus":{"$argument":"response_status"}}]}}`),
+		"response_token_pagination_example":     json.RawMessage(`{"kind":"response_token","response_pointer":"/next_cursor","request_argument":"cursor","page_size":{"request_argument":"page_size","value":8},"request_argument_is_runtime_only":true}`),
 		"enums": map[string][]string{
 			"authentication.kind":          {"none", "credential", "oauth2_authorization_code_pkce"},
+			"operation.authorization.kind": {"none", "oauth_scopes"},
+			"operation.method":             {"GET", "POST", "PUT", "PATCH", "DELETE"},
 			"argument.location":            {"path", "query", "json_body"},
 			"argument.type":                {"string", "integer", "number", "boolean", "string_array"},
-			"operation.authorization.kind": {"none", "oauth_scopes"},
+			"operation.pagination.kind":    {"none", "response_token"},
+			"response.kind":                {"flat_object", "object_list", "scalar_list", "custom"},
 		},
 	}
 }
@@ -512,6 +530,7 @@ func sameOperationContract(left, right CompiledOperation) bool {
 		right.Arguments[index].Description = ""
 	}
 	left.Digest, right.Digest = "", ""
+	left.Token, right.Token = "", ""
 	left.InputSchema, right.InputSchema = nil, nil
 	leftRaw, leftErr := normalizedJSON(left.Operation)
 	rightRaw, rightErr := normalizedJSON(right.Operation)
@@ -828,11 +847,11 @@ func (s *Service) AvailabilityNotices() ([]AvailabilityNotice, error) {
 	result := make([]AvailabilityNotice, 0)
 	for _, connection := range snapshot.Connections {
 		definition, ok := definitions[connection.SemanticDigest]
-		if !ok || connection.Status != "active" || definition.Manifest.Authentication.Kind != "oauth2_authorization_code_pkce" {
+		if !ok || connection.Status != "active" && connection.Status != "authentication_required" || definition.Manifest.Authentication.Kind != "oauth2_authorization_code_pkce" {
 			continue
 		}
 		grant, _, loadErr := s.files.loadOAuthGrant(connection.Authentication.GrantID)
-		if loadErr != nil || grant.Status != "active" {
+		if loadErr != nil {
 			continue
 		}
 		allowed := make(map[string]bool, len(connection.AllowedOperations))
@@ -840,8 +859,17 @@ func (s *Service) AvailabilityNotices() ([]AvailabilityNotice, error) {
 			allowed[operationID] = true
 		}
 		for _, operation := range definition.Operations {
-			if allowed[operation.OperationID] && !operationScopesSatisfied(operation, grant.GrantedScopes) {
-				result = append(result, AvailabilityNotice{Name: definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID, Status: "authorization_scope_unavailable", DefinitionDigest: definition.SemanticDigest, OperationID: operation.OperationID})
+			if !allowed[operation.OperationID] {
+				continue
+			}
+			status := ""
+			if connection.Status == "authentication_required" || grant.Status != "active" {
+				status = "authentication_required"
+			} else if !operationScopesSatisfied(operation, grant.GrantedScopes) {
+				status = "authorization_scope_unavailable"
+			}
+			if status != "" {
+				result = append(result, AvailabilityNotice{Name: definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID, Status: status, DefinitionDigest: definition.SemanticDigest, OperationID: operation.OperationID})
 			}
 		}
 	}
@@ -924,7 +952,13 @@ func (s *Service) bindings() ([]Binding, error) {
 			}
 			route := reviewRoute(connection, behavior)
 			name := definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID
-			result = append(result, Binding{Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, AccountID: accountID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
+			binding := Binding{Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, InvokerKey: AdapterInvokerKey, OperationToken: operation.Token, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, AccountID: accountID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route}
+			authorityToken, tokenErr := makeOperationAuthority(binding, connection.ConnectionSlug)
+			if tokenErr != nil {
+				return nil, tokenErr
+			}
+			binding.OperationToken = authorityToken
+			result = append(result, binding)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -1010,7 +1044,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	if definition.Manifest.Authentication.Kind == "credential" {
 		fields, loadErr := s.files.loadCredential(connection)
 		if loadErr != nil || !validCredentialFields(*definition.Manifest.Authentication.Setup, fields) {
-			return nil, false, ErrAuthenticationRequired
+			return nil, false, authenticationRequired("adapter_credential", connection.ConnectionID)
 		}
 		sensitive, secretValues, err = applyCredentialAuth(definition.Manifest.Authentication, fields, operation, &request)
 		if err != nil {
@@ -1022,10 +1056,10 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		if loadErr != nil {
 			if errors.Is(loadErr, errOAuthRejected) {
 				_ = s.invalidateOAuthAuthentication(ctx, &grant)
-				return nil, false, ErrAuthenticationRequired
+				return nil, false, authenticationRequired("adapter_grant", grant.GrantID)
 			}
 			if errors.Is(loadErr, ErrAuthenticationRequired) {
-				return nil, false, ErrAuthenticationRequired
+				return nil, false, authenticationRequired("adapter_grant", grant.GrantID)
 			}
 			return nil, false, loadErr
 		}
@@ -1034,7 +1068,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		}
 		if !operationScopesSatisfied(operation, token.Scopes) {
 			_ = s.requireOAuthAuthentication(ctx, &grant)
-			return nil, false, ErrAuthenticationRequired
+			return nil, false, authenticationRequired("adapter_grant", grant.GrantID)
 		}
 	}
 	digest := argumentsDigest(arguments)
@@ -1072,7 +1106,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			} else {
 				_ = s.requireOAuthAuthentication(ctx, &grant)
 			}
-			return nil, false, ErrAuthenticationRequired
+			return nil, false, authenticationRequired("adapter_grant", grant.GrantID)
 		}
 	}
 	if response.status < 200 || response.status >= 300 {
@@ -1086,7 +1120,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			if updateErr := s.reconcile(ctx); updateErr != nil {
 				return nil, false, updateErr
 			}
-			return nil, false, ErrAuthenticationRequired
+			return nil, false, authenticationRequired("adapter_credential", connection.ConnectionID)
 		}
 		if (response.status >= 500 || response.status >= 300 && response.status < 400) && !current.Behavior.ReadOnly {
 			return nil, false, ErrOutcomeUncertain
@@ -1218,7 +1252,7 @@ func continuationReference(raw json.RawMessage) string {
 	return text
 }
 func sameBinding(left, right Binding) bool {
-	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.CredentialRevision == right.CredentialRevision && left.GrantID == right.GrantID && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
+	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.InvokerKey == right.InvokerKey && left.OperationToken == right.OperationToken && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.CredentialRevision == right.CredentialRevision && left.GrantID == right.GrantID && left.AccountID == right.AccountID && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
 }
 
 func (s *Service) putCursor(value Cursor) error {

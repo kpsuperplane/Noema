@@ -2,6 +2,7 @@
 package adapter
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +13,11 @@ import (
 )
 
 const (
-	DefinitionTemplateTool = "adapter.definition_template"
-	ProposeDefinitionTool  = "adapter.propose_definition"
+	DefinitionTemplateTool  = "adapter.definition_template"
+	ProposeDefinitionTool   = "adapter.propose_definition"
+	AdapterInvokerKey       = "adapter_json_v1"
+	DefinitionTemplateToken = "adapter-setup-v1:definition-template"
+	ProposeDefinitionToken  = "adapter-setup-v1:propose-definition"
 )
 
 // Manifest is one closed reviewed HTTP API definition.
@@ -213,7 +217,10 @@ type Definition struct {
 
 type CompiledOperation struct {
 	Operation
-	Digest      string
+	Digest string
+	// Token is the bounded, model-visible definition authority. Invocation
+	// wraps it with connection and authentication revisions before use.
+	Token       string
 	InputSchema json.RawMessage
 	Behavior    store.ActionBehavior
 }
@@ -256,14 +263,101 @@ type OperationOverride struct {
 
 // Binding is one immutable model-visible adapter operation authority.
 type Binding struct {
-	Name, Description, ConnectionID, DefinitionID          string
-	SemanticDigest, OperationID, OperationDigest           string
+	Name, Description, ConnectionID, DefinitionID string
+	SemanticDigest, OperationID, OperationDigest  string
+	// InvokerKey and OperationToken identify the exact runtime authority used
+	// by the adapter catalog and invoker boundary.
+	InvokerKey, OperationToken                             string
 	ConnectionRevision, PolicyRevision, ToolPolicyRevision int
 	CredentialRevision                                     int
 	GrantID, AccountID                                     string
 	InputSchema                                            json.RawMessage
 	Behavior                                               store.ActionBehavior
 	ReviewRoute                                            store.ActionReviewRoute
+}
+
+// Invocation is the adapter invoker boundary. The caller must provide the
+// catalog's exact invoker key and operation authority token.
+type Invocation struct {
+	InvokerKey     string
+	Operation      string
+	OperationToken string
+	Arguments      json.RawMessage
+}
+
+const operationAuthorityVersion = 1
+
+// operationAuthorityV1 is the opaque catalog authority carried with one
+// invocation. It binds the model-visible operation to every current revision.
+type operationAuthorityV1 struct {
+	AccountID              string `json:"account_id,omitempty"`
+	CanonicalName          string `json:"canonical_name"`
+	ConnectionID           string `json:"connection_id"`
+	ConnectionRevision     int    `json:"connection_revision"`
+	ConnectionSlug         string `json:"connection_slug"`
+	CredentialRevision     int    `json:"credential_revision,omitempty"`
+	DefinitionToken        string `json:"definition_token"`
+	GrantAuthorityRevision int    `json:"grant_authority_revision,omitempty"`
+	GrantID                string `json:"grant_id,omitempty"`
+	OperationDigest        string `json:"operation_digest"`
+	OperationID            string `json:"operation_id"`
+	PolicyRevision         int    `json:"policy_revision"`
+	SemanticDigest         string `json:"semantic_digest"`
+	Version                int    `json:"version"`
+}
+
+func makeOperationAuthority(binding Binding, connectionSlug string) (string, error) {
+	authority := operationAuthorityV1{
+		Version:            operationAuthorityVersion,
+		CanonicalName:      binding.Name,
+		ConnectionID:       binding.ConnectionID,
+		ConnectionSlug:     connectionSlug,
+		AccountID:          binding.AccountID,
+		SemanticDigest:     binding.SemanticDigest,
+		OperationID:        binding.OperationID,
+		OperationDigest:    binding.OperationDigest,
+		DefinitionToken:    binding.OperationToken,
+		ConnectionRevision: binding.ConnectionRevision,
+		PolicyRevision:     binding.PolicyRevision,
+	}
+	if binding.GrantID != "" {
+		authority.GrantID = binding.GrantID
+		authority.GrantAuthorityRevision = binding.CredentialRevision
+	} else if binding.CredentialRevision != 0 {
+		authority.CredentialRevision = binding.CredentialRevision
+	}
+	raw, err := json.Marshal(authority)
+	if err != nil || len(raw) > maximumAuthorityTokenBytes {
+		return "", errors.New("adapter operation authority is invalid")
+	}
+	return string(raw), nil
+}
+
+func parseOperationAuthority(raw string) (operationAuthorityV1, error) {
+	if len(raw) == 0 || len(raw) > maximumAuthorityTokenBytes {
+		return operationAuthorityV1{}, errors.New("adapter operation authority is invalid")
+	}
+	var authority operationAuthorityV1
+	if decodeExactJSON([]byte(raw), &authority) != nil || authority.Version != operationAuthorityVersion || authority.CanonicalName == "" || authority.ConnectionID == "" || authority.ConnectionSlug == "" || !validDigest(authority.SemanticDigest) || !validDigest(authority.OperationDigest) || authority.DefinitionToken == "" || authority.ConnectionRevision <= 0 || authority.PolicyRevision <= 0 || authority.GrantID != "" && authority.GrantAuthorityRevision <= 0 || authority.GrantID == "" && authority.GrantAuthorityRevision != 0 || authority.CredentialRevision != 0 && authority.GrantID != "" {
+		return operationAuthorityV1{}, errors.New("adapter operation authority is invalid")
+	}
+	var canonical operationAuthorityV1
+	if json.Unmarshal([]byte(raw), &canonical) != nil {
+		return operationAuthorityV1{}, errors.New("adapter operation authority is invalid")
+	}
+	canonicalRaw, _ := json.Marshal(canonical)
+	if !bytes.Equal(canonicalRaw, []byte(raw)) {
+		return operationAuthorityV1{}, errors.New("adapter operation authority is invalid")
+	}
+	return authority, nil
+}
+
+// SetupBinding describes one setup tool at the catalog boundary.
+type SetupBinding struct {
+	Tool              provider.GenerationTool
+	InvokerKey        string
+	OperationToken    string
+	ExecutionDecision string
 }
 
 func GenerationTools(bindings []Binding) []provider.GenerationTool {
