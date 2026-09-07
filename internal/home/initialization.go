@@ -62,9 +62,11 @@ func Initialize(paths Paths, initialConfig []byte) error {
 	}
 	_, err := os.Lstat(paths.Config())
 	switch {
-	case errors.Is(err, os.ErrNotExist) && initialConfig != nil:
-		if err := AtomicWritePrivate(paths.Config(), initialConfig); err != nil {
-			return fmt.Errorf("write initial config: %w", err)
+	case errors.Is(err, os.ErrNotExist):
+		if initialConfig != nil {
+			if err := AtomicWritePrivate(paths.Config(), initialConfig); err != nil {
+				return fmt.Errorf("write initial config: %w", err)
+			}
 		}
 	case err == nil:
 		if err := ProtectFile(paths.Config()); err != nil {

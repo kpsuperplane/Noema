@@ -44,15 +44,15 @@ func TestRustHome_appends_jsonl_events_without_overwriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := writer.Write("first_failure",
-		Text("message", "first failure"),
-		Text("context", `{"provider_kind":"test"}`),
-		Text("raw", `{"provider_text":"line one\nline two"}`),
+		Field{name: "message", value: "first failure"},
+		Field{name: "context", value: `{"provider_kind":"test"}`},
+		Field{name: "raw", value: `{"provider_text":"line one\nline two"}`},
 	); err != nil {
 		t.Fatalf("first append: %v", err)
 	}
 	if err := writer.Write("second_failure",
-		Text("message", "second failure"),
-		Text("error_chain", `["outer","inner"]`),
+		Field{name: "message", value: "second failure"},
+		Field{name: "error_chain", value: `["outer","inner"]`},
 	); err != nil {
 		t.Fatalf("second append: %v", err)
 	}
@@ -140,11 +140,11 @@ func TestRustHome_replaces_oversized_raw_data_and_preserves_small_raw_data(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Write("small_failure", Text("raw", `{"ordinary_value":"preserved"}`)); err != nil {
+	if err := writer.Write("small_failure", Field{name: "raw", value: `{"ordinary_value":"preserved"}`}); err != nil {
 		t.Fatal(err)
 	}
 	large := strings.Repeat("x", 64*1024)
-	if err := writer.Write("large_failure", Text("raw", `{"content":"`+large+`"}`)); err != nil {
+	if err := writer.Write("large_failure", Field{name: "raw", value: `{"content":"` + large + `"}`}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {

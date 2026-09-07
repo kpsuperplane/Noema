@@ -19,6 +19,13 @@ type Paths struct {
 	root string
 }
 
+// MissingHomeError means that no explicit or fallback home directory exists.
+type MissingHomeError struct{}
+
+func (MissingHomeError) Error() string {
+	return "could not determine Noema directory; set NOEMA_HOME or a platform home directory"
+}
+
 // Resolve reads the current process environment.
 func Resolve() (Paths, error) {
 	return resolve(os.LookupEnv, os.UserHomeDir)
@@ -220,7 +227,7 @@ func resolve(
 		return Paths{}, fmt.Errorf("resolve user home: %w", err)
 	}
 	if root == "" {
-		return Paths{}, errors.New("user home cannot be empty")
+		return Paths{}, MissingHomeError{}
 	}
 	return FromRoot(filepath.Join(root, defaultName))
 }

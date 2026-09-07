@@ -16,11 +16,9 @@ func TestRustHome_initialization_creates_layout_and_honors_config_write_policy(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := paths.Open()
-	if err != nil {
-		t.Fatalf("open home: %v", err)
+	if err := Initialize(paths, []byte(testConfig)); err != nil {
+		t.Fatalf("initialize home: %v", err)
 	}
-	t.Cleanup(func() { _ = root.Close() })
 
 	if info, err := os.Stat(paths.Root()); err != nil || !info.IsDir() {
 		t.Fatalf("home layout = %v, %v", info, err)
@@ -57,12 +55,8 @@ func TestRustHome_initialization_creates_layout_and_honors_config_write_policy(t
 	if err := os.WriteFile(paths.Config(), custom, 0o600); err != nil {
 		t.Fatalf("custom config: %v", err)
 	}
-	reopened, err := paths.Open()
-	if err != nil {
+	if err := Initialize(paths, []byte(testConfig)); err != nil {
 		t.Fatalf("preserving init: %v", err)
-	}
-	if err := reopened.Close(); err != nil {
-		t.Fatal(err)
 	}
 	got, err := os.ReadFile(paths.Config())
 	if err != nil || string(got) != string(custom) {
@@ -73,11 +67,9 @@ func TestRustHome_initialization_creates_layout_and_honors_config_write_policy(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	noConfigRoot, err := noConfig.Open()
-	if err != nil {
+	if err := Initialize(noConfig, nil); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = noConfigRoot.Close() })
 	if _, err := os.Stat(noConfig.Root()); err != nil {
 		t.Fatalf("no-config home: %v", err)
 	}
@@ -92,7 +84,18 @@ func TestRustHome_initialization_creates_layout_and_honors_config_write_policy(t
 // Rust source: crates/noema-home/src/paths.rs:516::noema_paths_preserve_environment_layout_digest_and_confinement_contracts
 func TestRustHome_noema_paths_preserve_environment_layout_digest_and_confinement_contracts(t *testing.T) {
 	customRoot := filepath.Join(t.TempDir(), "custom-noema")
-	override, err := FromRoot(customRoot)
+	override, err := resolve(
+		func(name string) (string, bool) {
+			if name != EnvironmentName {
+				t.Fatalf("unexpected environment name %q", name)
+			}
+			return customRoot, true
+		},
+		func() (string, error) {
+			t.Fatal("fallback home must not be read for an explicit override")
+			return "", nil
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +115,8 @@ func TestRustHome_noema_paths_preserve_environment_layout_digest_and_confinement
 	if override.ErrorsLog() != filepath.Join(abs, "errors.log") {
 		t.Errorf("errors log = %q, want %q", override.ErrorsLog(), filepath.Join(abs, "errors.log"))
 	}
+	// The Rust authority stores db/noema.sqlite3. Go currently stores the
+	// database at the home root; retain the Rust assertion to document drift.
 	if override.Database() != filepath.Join(abs, "db", "noema.sqlite3") {
 		t.Errorf("database = %q, want %q", override.Database(), filepath.Join(abs, "db", "noema.sqlite3"))
 	}
@@ -192,11 +197,15 @@ func TestRustHome_noema_paths_preserve_environment_layout_digest_and_confinement
 	if fallback.Config() != filepath.Join(fallback.Root(), "config.yaml") {
 		t.Errorf("fallback config = %q, want %q", fallback.Config(), filepath.Join(fallback.Root(), "config.yaml"))
 	}
-	if _, err := resolve(
+	missing, err := resolve(
 		func(string) (string, bool) { return "", false },
 		func() (string, error) { return "", nil },
-	); err == nil {
-		t.Error("empty fallback home was accepted")
+	)
+	var missingHome MissingHomeError
+	if !errors.As(err, &missingHome) {
+		t.Errorf("empty fallback home error = %v, want MissingHomeError", err)
+	} else if missing.Root() != "" {
+		t.Errorf("missing fallback paths = %#v", missing)
 	}
 	if _, err := resolve(
 		func(string) (string, bool) { return "", true },
