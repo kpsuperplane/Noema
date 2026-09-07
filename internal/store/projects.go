@@ -499,6 +499,13 @@ func insertWorkEvent(ctx context.Context, tx bun.Tx, workspaceID, projectID, tas
 	if causationID != nil && !hasAnyPrefix(*causationID, "event:", "command:", "run:") {
 		return WorkEvent{}, errors.New("invalid work event causation")
 	}
+	if kind == "task.recurrence_changed" {
+		validated, err := ParseRecurrenceChangedPayload(payload)
+		if err != nil {
+			return WorkEvent{}, err
+		}
+		payload = validated.Value()
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return WorkEvent{}, err

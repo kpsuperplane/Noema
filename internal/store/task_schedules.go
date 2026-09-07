@@ -492,7 +492,7 @@ func (s *Store) UpdateTaskRecurrence(
 		changes.TimeZone == nil && changes.MissedRunPolicy == nil && changes.OverlapPolicy == nil && !changes.DocumentChanged {
 		return TaskCommandResult{}, errors.New("empty recurrence update")
 	}
-	return s.recurrenceCommand(ctx, id, expectedRevision, command, now,
+	return s.recurrenceCommand(ctx, id, expectedRevision, command, now, "updated",
 		func(tx bun.Tx, value *TaskRecurrence) error {
 			if value.Lifecycle == RecurrenceEnded {
 				return ErrInvalidTransition
@@ -556,7 +556,7 @@ func (s *Store) SetTaskRecurrenceLifecycle(
 	ctx context.Context, id string, expectedRevision int64, next RecurrenceLifecycle,
 	command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
-	return s.recurrenceCommand(ctx, id, expectedRevision, command, now,
+	return s.recurrenceCommand(ctx, id, expectedRevision, command, now, string(next),
 		func(tx bun.Tx, value *TaskRecurrence) error {
 			valid := value.Lifecycle == RecurrenceActive && (next == RecurrencePaused || next == RecurrenceEnded) ||
 				value.Lifecycle == RecurrencePaused && (next == RecurrenceActive || next == RecurrenceEnded)
@@ -592,7 +592,7 @@ next_run_at_ms = ?, revision = ?, updated_at_ms = ? WHERE recurrence_id = ? AND 
 func (s *Store) SkipTaskRecurrenceNext(
 	ctx context.Context, id string, expectedRevision int64, command TaskCommand, now time.Time,
 ) (TaskCommandResult, error) {
-	return s.recurrenceCommand(ctx, id, expectedRevision, command, now,
+	return s.recurrenceCommand(ctx, id, expectedRevision, command, now, "skipped_next",
 		func(tx bun.Tx, value *TaskRecurrence) error {
 			if value.Lifecycle != RecurrenceActive || value.NextRunAt == nil {
 				return ErrInvalidTransition
@@ -663,6 +663,7 @@ func (s *Store) RunTaskRecurrenceNow(
 
 func (s *Store) recurrenceCommand(
 	ctx context.Context, id string, expectedRevision int64, command TaskCommand, now time.Time,
+	reason string,
 	change func(bun.Tx, *TaskRecurrence) error,
 ) (TaskCommandResult, error) {
 	if expectedRevision <= 0 || validateTaskCommand(command) != nil {
@@ -694,9 +695,13 @@ func (s *Store) recurrenceCommand(
 	if err != nil {
 		return TaskCommandResult{}, err
 	}
+	payload, err := NewRecurrenceChangedPayload(id, uint64(value.Revision), reason)
+	if err != nil {
+		return TaskCommandResult{}, err
+	}
 	event, err := insertWorkEvent(ctx, tx, personalWorkspaceIDStore, value.ProjectID, task.ID, "",
 		value.Revision, "task.recurrence_changed", "actor:human:local", nil, command.CorrelationID,
-		map[string]any{"v": 1, "recurrence_id": id, "revision": value.Revision}, value.UpdatedAt)
+		payload.Value(), value.UpdatedAt)
 	if err != nil {
 		return TaskCommandResult{}, err
 	}
@@ -938,10 +943,13 @@ pending_coalesced_at_ms = ?, updated_at_ms = ? WHERE recurrence_id = ? AND revis
 		if taskErr != nil {
 			return "", taskErr
 		}
+		payload, payloadErr := NewRecurrenceChangedPayload(id, uint64(value.Revision), resolution)
+		if payloadErr != nil {
+			return "", payloadErr
+		}
 		_, err = insertWorkEvent(ctx, tx, personalWorkspaceIDStore, value.ProjectID, task.ID, "",
 			value.Revision, "task.recurrence_changed", "actor:system:scheduler", nil,
-			"correlation:schedule:"+id, map[string]any{"v": 1, "recurrence_id": id,
-				"revision": value.Revision, "resolution": resolution}, now)
+			"correlation:schedule:"+id, payload.Value(), now)
 	}
 	return createdID, err
 }

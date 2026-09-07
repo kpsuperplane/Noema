@@ -142,6 +142,9 @@ func parseRecurrenceChangedPayload(value map[string]any) (WorkEventPayload, erro
 			return WorkEventPayload{}, errors.New("invalid recurrence payload: payload fields do not match recurrence.changed")
 		}
 	}
+	if _, ok := value["reason"].(string); !ok {
+		return WorkEventPayload{}, errors.New("invalid recurrence payload: reason must be a string")
+	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return WorkEventPayload{}, fmt.Errorf("invalid recurrence payload: payload is not encodable: %w", err)
