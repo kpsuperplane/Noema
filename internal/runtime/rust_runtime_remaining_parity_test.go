@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -619,7 +620,15 @@ func rustRuntimeRunningTask(t *testing.T) (*Chat, *store.Store, store.Task, stor
 func TestRustRuntime_delayed_claim_renewal_records_the_required_timing_and_phase(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/task_runtime/tests.rs::delayed_claim_renewal_records_the_required_timing_and_phase.
 	_, database, _, run := rustRuntimeRunningTask(t)
-	payload := map[string]any{"planned_at_unix_ms": int64(1_000), "started_at_unix_ms": int64(7_000), "start_delay_ms": int64(6_000), "sqlite_duration_ms": int64(19), "time_before_expiry_ms": int64(84_000), "shutdown_requested": false, "run_cancellation_requested": false, "active_phase": "initial"}
+	event := claimRenewalEvent(claimRenewalEvidence{
+		RunID: run.ID, PlannedAtUnixMs: 1_000, StartedAtUnixMs: 7_000,
+		StartDelay: 6 * time.Second, SQLiteDuration: 19 * time.Millisecond,
+		TimeBeforeExpiry: 84 * time.Second, ActivePhase: "initial",
+	}, nil)
+	if event.Category != "task_run_claim_renewal_delayed" {
+		t.Fatalf("claim renewal category = %q", event.Category)
+	}
+	payload := event.Context
 	if err := database.AppendTaskRunItems(context.Background(), run.ID, run.Generation, []store.TaskRunItemInput{{Kind: "progress_notice", Status: "completed", CorrelationID: "task_run_claim_renewal_delayed", Content: "task_run_claim_renewal_delayed", Payload: payload}}, store.TaskRunUsage{}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +636,7 @@ func TestRustRuntime_delayed_claim_renewal_records_the_required_timing_and_phase
 	if err != nil || len(items) != 1 {
 		t.Fatalf("claim renewal evidence = %#v, %v", items, err)
 	}
-	if items[0].Payload["planned_at_unix_ms"] != float64(1_000) || items[0].Payload["started_at_unix_ms"] != float64(7_000) || items[0].Payload["active_phase"] != "initial" {
+	if items[0].Payload["run_id"] != run.ID || items[0].Payload["planned_at_unix_ms"] != float64(1_000) || items[0].Payload["started_at_unix_ms"] != float64(7_000) || items[0].Payload["start_delay_ms"] != float64(6_000) || items[0].Payload["sqlite_duration_ms"] != float64(19) || items[0].Payload["time_before_expiry_ms"] != float64(84_000) || items[0].Payload["shutdown_requested"] != false || items[0].Payload["run_cancellation_requested"] != false || items[0].Payload["active_phase"] != "initial" {
 		t.Fatalf("claim renewal payload = %#v", items[0].Payload)
 	}
 }
@@ -710,10 +719,33 @@ func TestRustRuntime_supervisor_enforces_fifo_cap_and_releases_ninth_only_after_
 		t.Errorf("Go Task supervisor worker cap = %d, Rust contract requires 8", taskExecutionWorkerCount)
 	}
 	chat, database, _ := chatFixture(t)
-	tasks := make([]store.Task, 0, taskExecutionWorkerCount)
-	for index := 0; index < taskExecutionWorkerCount; index++ {
+	tasks := make([]store.Task, 0, taskExecutionWorkerCount+1)
+	for index := 0; index <= taskExecutionWorkerCount; index++ {
 		tasks = append(tasks, createQueuedRuntimeTask(t, database, chat.home, fmt.Sprintf("FIFO %d", index)))
 	}
+	type queuedRun struct {
+		id string
+		at time.Time
+	}
+	queued := make([]queuedRun, 0, len(tasks))
+	for _, task := range tasks {
+		runs, err := database.TaskRuns(t.Context(), task.ID, 10)
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("durable FIFO run for %s = %#v, %v", task.ID, runs, err)
+		}
+		queued = append(queued, queuedRun{id: runs[0].ID, at: runs[0].QueuedAt})
+	}
+	sort.Slice(queued, func(i, j int) bool {
+		if queued[i].at.Equal(queued[j].at) {
+			return queued[i].id < queued[j].id
+		}
+		return queued[i].at.Before(queued[j].at)
+	})
+	expectedFirst := make(map[string]bool, taskExecutionWorkerCount)
+	for _, run := range queued[:taskExecutionWorkerCount] {
+		expectedFirst[run.id] = true
+	}
+	expectedNinth := queued[taskExecutionWorkerCount].id
 	started := make(chan string, taskExecutionWorkerCount+2)
 	settling := make(chan struct{})
 	release := make(chan struct{})
@@ -746,11 +778,25 @@ func TestRustRuntime_supervisor_enforces_fifo_cap_and_releases_ninth_only_after_
 		t.Fatal(err)
 	}
 	t.Cleanup(runtime.Close)
+	startedIDs := make([]string, 0, taskExecutionWorkerCount)
 	for index := 0; index < taskExecutionWorkerCount; index++ {
 		select {
-		case <-started:
+		case runID := <-started:
+			startedIDs = append(startedIDs, runID)
 		case <-time.After(5 * time.Second):
 			t.Fatalf("only %d of %d Task providers started", index, taskExecutionWorkerCount)
+		}
+	}
+	startedSet := make(map[string]bool, len(startedIDs))
+	for _, runID := range startedIDs {
+		startedSet[runID] = true
+	}
+	if len(startedSet) != taskExecutionWorkerCount {
+		t.Fatalf("started run identities were not distinct: %#v", startedIDs)
+	}
+	for runID := range expectedFirst {
+		if !startedSet[runID] {
+			t.Fatalf("FIFO prefix omitted run %q: started=%#v", runID, startedIDs)
 		}
 	}
 	firstMu.Lock()
@@ -758,6 +804,26 @@ func TestRustRuntime_supervisor_enforces_fifo_cap_and_releases_ninth_only_after_
 	firstMu.Unlock()
 	if oldRunID == "" {
 		t.Fatal("Task supervisor did not identify the first provider run")
+	}
+	if len(expectedFirst) != taskExecutionWorkerCount {
+		t.Fatalf("expected FIFO prefix size = %d", len(expectedFirst))
+	}
+	for runID := range expectedFirst {
+		found := false
+		for index := range tasks {
+			runs, runErr := database.TaskRuns(t.Context(), tasks[index].ID, 10)
+			if runErr != nil {
+				t.Fatal(runErr)
+			}
+			for _, run := range runs {
+				if run.ID == runID {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("expected FIFO run %q was not durable", runID)
+		}
 	}
 	var oldTask store.Task
 	for _, task := range tasks {
@@ -783,15 +849,8 @@ func TestRustRuntime_supervisor_enforces_fifo_cap_and_releases_ninth_only_after_
 	if err != nil {
 		t.Fatal(err)
 	}
-	complexity := "simple"
-	reopened, err := database.ReopenTask(t.Context(), oldTask.ID, cancelled.Task.Revision, cancelled.Task.Generation,
-		"Continue after the cancelled run settles", &complexity, "", runtimeTaskCommand("reopen_task", "settlement"), time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	successorRunID := reopened.Task.CurrentRunID
-	if successorRunID == "" || successorRunID == oldRunID {
-		t.Fatalf("reopen did not create a queued successor: %#v", reopened.Task)
+	if cancelled.Task.CurrentRunID != "" || cancelled.Task.State != store.TaskCancelled {
+		t.Fatalf("cancelled Task remained active: %#v", cancelled.Task)
 	}
 	select {
 	case <-settling:
@@ -802,21 +861,18 @@ func TestRustRuntime_supervisor_enforces_fifo_cap_and_releases_ninth_only_after_
 	if err != nil {
 		t.Fatal(err)
 	}
-	var oldStatus, successorStatus string
+	var oldStatus string
 	for _, run := range runs {
-		switch run.ID {
-		case oldRunID:
+		if run.ID == oldRunID {
 			oldStatus = run.Status
-		case successorRunID:
-			successorStatus = run.Status
 		}
 	}
-	if oldStatus != "cancelled" || successorStatus != "queued" {
-		t.Fatalf("durable cancellation state before release = old %q successor %q", oldStatus, successorStatus)
+	if oldStatus != "cancelled" {
+		t.Fatalf("durable cancellation state before release = old %q", oldStatus)
 	}
 	select {
 	case runID := <-started:
-		if runID == successorRunID {
+		if runID == expectedNinth {
 			t.Fatal("queued successor started while predecessor provider was settling")
 		}
 	default:
@@ -826,23 +882,132 @@ func TestRustRuntime_supervisor_enforces_fifo_cap_and_releases_ninth_only_after_
 	for time.Now().Before(deadline) {
 		select {
 		case runID := <-started:
-			if runID == successorRunID {
-				runs, runErr := database.TaskRuns(t.Context(), oldTask.ID, 10)
-				if runErr != nil {
-					t.Fatal(runErr)
-				}
-				for _, run := range runs {
-					if run.ID == successorRunID && run.Status != "running" && run.Status != "leased" {
-						t.Fatalf("successor started with durable status %q", run.Status)
+			if runID == expectedNinth {
+				for _, task := range tasks {
+					candidateRuns, runErr := database.TaskRuns(t.Context(), task.ID, 10)
+					if runErr != nil {
+						t.Fatal(runErr)
+					}
+					for _, run := range candidateRuns {
+						if run.ID == expectedNinth && run.Status != "running" && run.Status != "leased" {
+							t.Fatalf("ninth run started with durable status %q", run.Status)
+						}
 					}
 				}
 				return
+			}
+			if runID == oldRunID {
+				continue
 			}
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
 	t.Fatal("queued successor did not start after predecessor provider settled")
+}
+
+type rustTaskProviderEvent struct {
+	kind  string
+	runID string
+}
+
+func nextRustTaskProviderEvent(t *testing.T, events <-chan rustTaskProviderEvent, want string) string {
+	t.Helper()
+	select {
+	case event := <-events:
+		if event.kind != want {
+			t.Fatalf("provider event = %#v, want %q", event, want)
+		}
+		return event.runID
+	case <-time.After(5 * time.Second):
+		t.Fatalf("provider did not emit %q", want)
+		return ""
+	}
+}
+
+func TestRustRuntime_cancelled_run_stays_excluded_until_its_provider_future_fully_settles(t *testing.T) {
+	// Rust source: crates/noema-runtime/src/daemon/task_runtime/tests.rs::cancelled_run_stays_excluded_until_its_provider_future_fully_settles.
+	chat, database, _ := chatFixture(t)
+	task := createQueuedRuntimeTask(t, database, chat.home, "Same-task settlement")
+	events := make(chan rustTaskProviderEvent, 8)
+	releaseCleanup := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseCleanup) }) }
+	generator := generatorFunc(func(ctx context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		events <- rustTaskProviderEvent{kind: "started", runID: request.ConversationID}
+		<-ctx.Done()
+		events <- rustTaskProviderEvent{kind: "settling", runID: request.ConversationID}
+		<-releaseCleanup
+		events <- rustTaskProviderEvent{kind: "settled", runID: request.ConversationID}
+		return provider.GenerationResult{}, ctx.Err()
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		release()
+		runtime.Close()
+	})
+	oldRunID := nextRustTaskProviderEvent(t, events, "started")
+	current, err := database.Task(t.Context(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := database.CancelTask(t.Context(), task.ID, current.Revision, current.Generation,
+		"Replace execution generation", runtimeTaskCommand("cancel-overlap", "settlement"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := nextRustTaskProviderEvent(t, events, "settling"); got != oldRunID {
+		t.Fatalf("settling run = %q, want %q", got, oldRunID)
+	}
+	complexity := "simple"
+	reopened, err := database.ReopenTask(t.Context(), task.ID, cancelled.Task.Revision, cancelled.Task.Generation,
+		"Continue after the cancelled run settles", &complexity, "", runtimeTaskCommand("reopen-overlap", "settlement"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Task.StageKey != "queue" {
+		t.Fatalf("reopened Task stage = %q, want queue", reopened.Task.StageKey)
+	}
+	successorRunID := reopened.Task.CurrentRunID
+	if successorRunID == "" || successorRunID == oldRunID {
+		t.Fatalf("reopen did not create a successor: %#v", reopened.Task)
+	}
+	runs, err := database.TaskRuns(t.Context(), task.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var successorStatus string
+	for _, run := range runs {
+		if run.ID == successorRunID {
+			successorStatus = run.Status
+		}
+	}
+	if successorStatus != "queued" {
+		t.Fatalf("successor status before predecessor settlement = %q", successorStatus)
+	}
+	settleTimer := time.NewTimer(150 * time.Millisecond)
+	defer settleTimer.Stop()
+	for {
+		select {
+		case event := <-events:
+			if event.kind == "started" && event.runID == successorRunID {
+				t.Fatal("successor provider started during predecessor cleanup")
+			}
+		case <-settleTimer.C:
+			goto successorHeld
+		}
+	}
+successorHeld:
+	release()
+	if got := nextRustTaskProviderEvent(t, events, "settled"); got != oldRunID {
+		t.Fatalf("settled run = %q, want %q", got, oldRunID)
+	}
+	if got := nextRustTaskProviderEvent(t, events, "started"); got != successorRunID {
+		t.Fatalf("successor run = %q, want %q", got, successorRunID)
+	}
 }
 
 func TestRustRuntime_failed_run_publishes_work_invalidation_for_automatic_replacement(t *testing.T) {
