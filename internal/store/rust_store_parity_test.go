@@ -5412,11 +5412,11 @@ func TestRustStore_executor_continuation_receives_actions_after_latest_task_save
 		}}, TaskRunUsage{}, now); err != nil {
 			t.Fatal(err)
 		}
-		items, err := database.TaskRunReplayItems(ctx, first.ID)
-		if err != nil {
-			t.Fatal(err)
+		page, err := database.TaskRunItems(ctx, first.ID, 100, nil)
+		if err != nil || len(page.Items) == 0 {
+			t.Fatalf("latest run item = %#v, %v", page.Items, err)
 		}
-		return items[len(items)-1]
+		return page.Items[0]
 	}
 	appendResult := func(round int64, correlation, name, status, parent string, payload map[string]any) {
 		t.Helper()
@@ -5442,7 +5442,7 @@ func TestRustStore_executor_continuation_receives_actions_after_latest_task_save
 	if err := database.StartTaskExecution(ctx, second.ID, second.Generation, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	admitted, err := database.TaskRunReplayItems(ctx, first.ID)
+	admitted, err := database.TaskRunContinuationItems(ctx, second.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

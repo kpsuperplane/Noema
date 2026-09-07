@@ -348,6 +348,9 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		return
 	}
 	items, err := r.database.TaskRunReplayItems(ctx, run.ID)
+	if run.Kind == "executor" && run.ParentRunID != "" {
+		items, err = r.database.TaskRunContinuationItems(ctx, run.ID)
+	}
 	if err != nil {
 		r.failRun(ctx, run, "task_replay_unavailable", false)
 		return

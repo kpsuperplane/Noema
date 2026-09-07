@@ -369,6 +369,187 @@ ORDER BY sequence_index LIMIT 4097`, runID)
 	return items, rows.Err()
 }
 
+// TaskRunContinuationItems admits the bounded Executor action lineage that a
+// new current run may send to its provider. The lineage ends after the latest
+// successful TASK.md save and excludes terminal control calls.
+func (s *Store) TaskRunContinuationItems(ctx context.Context, runID string) ([]TaskRunItem, error) {
+	run, err := taskRunTx(ctx, s.db, runID)
+	if err != nil {
+		return nil, err
+	}
+	if run.Kind != "executor" {
+		return []TaskRunItem{}, nil
+	}
+	currentTask, err := taskTx(ctx, s.db, run.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if run.Status != "running" || currentTask.CurrentRunID != run.ID || currentTask.Generation != run.Generation {
+		return nil, ErrStaleRun
+	}
+
+	const (
+		maxLineageRuns        = 4
+		maxItemsPerLineageRun = 24
+		maxLineageItems       = 24
+	)
+	executorRuns := make([]TaskRun, 0, maxLineageRuns)
+	seen := make(map[string]struct{}, maxLineageRuns)
+	for current := run; current.ID != ""; {
+		if _, exists := seen[current.ID]; exists {
+			return nil, errors.New("Task run parent cycle")
+		}
+		seen[current.ID] = struct{}{}
+		if current.TaskID != run.TaskID {
+			return nil, errors.New("Task run parent crosses task boundary")
+		}
+		if current.Generation != run.Generation {
+			break
+		}
+		if current.Kind == "executor" {
+			executorRuns = append(executorRuns, current)
+			if len(executorRuns) == maxLineageRuns {
+				break
+			}
+		}
+		if current.ParentRunID == "" {
+			break
+		}
+		current, err = taskRunTx(ctx, s.db, current.ParentRunID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	items := make([]TaskRunItem, 0, maxLineageItems)
+	for index := len(executorRuns) - 1; index >= 0; index-- {
+		runItems, err := s.taskRunContinuationItemsForRun(ctx, executorRuns[index].ID, maxItemsPerLineageRun)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, runItems...)
+	}
+	afterSave := 0
+	for index := len(items) - 1; index >= 0; index-- {
+		if !successfulTaskDocumentSave(items[index]) {
+			continue
+		}
+		afterSave = index + 1
+		correlation := items[index].CorrelationID
+		for next := index + 1; next < len(items); next++ {
+			if correlation != nil && items[next].CorrelationID != nil &&
+				*items[next].CorrelationID == *correlation && itemContent(items[next]) == "task.files.write" {
+				afterSave = next + 1
+			}
+		}
+		break
+	}
+	items = items[afterSave:]
+	filtered := make([]TaskRunItem, 0, len(items))
+	for _, item := range items {
+		if isTaskExecutionControlItem(item) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	filtered = continuationLineageOrder(filtered)
+	if len(filtered) > maxLineageItems {
+		filtered = filtered[len(filtered)-maxLineageItems:]
+	}
+	return filtered, nil
+}
+
+func (s *Store) taskRunContinuationItemsForRun(ctx context.Context, runID string, limit int) ([]TaskRunItem, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms
+FROM task_run_items WHERE run_id=? AND item_kind IN ('tool_call','tool_result')
+ORDER BY sequence_index DESC,item_id DESC LIMIT ?`, runID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]TaskRunItem, 0, limit)
+	for rows.Next() {
+		var item TaskRunItem
+		var correlation, parent, content sql.NullString
+		var payload string
+		var created, updated int64
+		if err := rows.Scan(&item.ID, &item.RunID, &item.Sequence, &item.Round, &item.Kind, &item.Status,
+			&correlation, &parent, &content, &payload, &created, &updated); err != nil {
+			return nil, err
+		}
+		item.CorrelationID, item.ParentID, item.Content = nullStringPointer(correlation), nullStringPointer(parent), nullStringPointer(content)
+		item.CreatedAt, item.UpdatedAt = fromMillis(created), fromMillis(updated)
+		if err := json.Unmarshal([]byte(payload), &item.Payload); err != nil {
+			return nil, errors.New("invalid Task continuation item payload")
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
+		items[left], items[right] = items[right], items[left]
+	}
+	return items, nil
+}
+
+func successfulTaskDocumentSave(item TaskRunItem) bool {
+	if item.Kind != "tool_result" || item.Status != "completed" || itemContent(item) != "task.files.write" {
+		return false
+	}
+	success, _ := item.Payload["success"].(bool)
+	payload, _ := item.Payload["payload"].(map[string]any)
+	path, _ := payload["path"].(string)
+	return success && path == "TASK.md"
+}
+
+func isTaskExecutionControlItem(item TaskRunItem) bool {
+	switch itemContent(item) {
+	case "task.continue_execution", "task.finish_execution", "task.report_blocked":
+		return true
+	default:
+		return false
+	}
+}
+
+func itemContent(item TaskRunItem) string {
+	if item.Content == nil {
+		return ""
+	}
+	return *item.Content
+}
+
+// continuationLineageOrder presents each completed tool action in the same
+// result-before-call order as the Rust context record.
+func continuationLineageOrder(items []TaskRunItem) []TaskRunItem {
+	calls := make(map[string]struct{})
+	results := make(map[string]TaskRunItem)
+	for _, item := range items {
+		if item.Kind == "tool_call" {
+			calls[item.ID] = struct{}{}
+		}
+		if item.Kind == "tool_result" && item.ParentID != nil {
+			results[*item.ParentID] = item
+		}
+	}
+	ordered := make([]TaskRunItem, 0, len(items))
+	for _, item := range items {
+		if item.Kind == "tool_result" && item.ParentID != nil {
+			if _, hasCall := calls[*item.ParentID]; hasCall {
+				continue
+			}
+		}
+		if item.Kind == "tool_call" {
+			if result, exists := results[item.ID]; exists {
+				ordered = append(ordered, result, item)
+				continue
+			}
+		}
+		ordered = append(ordered, item)
+	}
+	return ordered
+}
+
 // FinishTaskPlanning completes the Planner and queues the first Executor.
 func (s *Store) FinishTaskPlanning(ctx context.Context, runID string, generation int64, complexity string, now time.Time) error {
 	if complexity != "simple" && complexity != "medium" && complexity != "difficult" {
