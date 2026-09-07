@@ -434,22 +434,17 @@ func memoryEvidencePayload(item store.ConversationItem) string {
 	}
 	metadata, _ := item.Payload["metadata"].(map[string]any)
 	action, _ := metadata["action"].(map[string]any)
+	name, _ := action["name"].(string)
+	if strings.HasPrefix(name, "task.") {
+		return ""
+	}
 	payload, exists := action["payload"]
 	if !exists {
 		return ""
 	}
 	if item.Kind == store.ConversationToolResult {
-		name, _ := action["name"].(string)
 		if strings.HasPrefix(name, "web.browse.") {
-			if object, ok := payload.(map[string]any); ok {
-				visible := make(map[string]any, len(object))
-				for key, value := range object {
-					if key != "screenshot" {
-						visible[key] = value
-					}
-				}
-				payload = visible
-			}
+			payload = withoutBrowserScreenshots(payload)
 		}
 	}
 	encoded, err := json.Marshal(payload)
@@ -457,6 +452,31 @@ func memoryEvidencePayload(item store.ConversationItem) string {
 		return ""
 	}
 	return string(encoded)
+}
+
+// withoutBrowserScreenshots copies a browser result without its image data.
+// Screenshots can be nested below result, while the other fields remain useful
+// evidence for memory updates.
+func withoutBrowserScreenshots(value any) any {
+	switch current := value.(type) {
+	case map[string]any:
+		visible := make(map[string]any, len(current))
+		for key, nested := range current {
+			if key == "screenshot" {
+				continue
+			}
+			visible[key] = withoutBrowserScreenshots(nested)
+		}
+		return visible
+	case []any:
+		visible := make([]any, len(current))
+		for index, nested := range current {
+			visible[index] = withoutBrowserScreenshots(nested)
+		}
+		return visible
+	default:
+		return value
+	}
 }
 
 func renderMemorySourceItem(item store.ConversationItem) string {

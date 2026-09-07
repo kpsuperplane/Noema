@@ -149,9 +149,11 @@ func TestMemoryAutomaticThresholdUsesPendingSourceSize(t *testing.T) {
 
 func TestMemorySourceOmitsBrowserScreenshotAndPreservesOrdinaryPayload(t *testing.T) {
 	payload := map[string]any{
-		"snapshot":   map[string]any{"url": "https://example.test", "node_id": "node:opaque"},
-		"screenshot": map[string]any{"data": "encoded-image"},
-		"status":     "complete",
+		"snapshot": map[string]any{"url": "https://example.test", "node_id": "node:opaque"},
+		"result": map[string]any{
+			"screenshot": map[string]any{"data": "encoded-image"},
+			"status":     "complete",
+		},
 	}
 	item := store.ConversationItem{
 		ID: "item:browser", Kind: store.ConversationToolResult,
@@ -168,11 +170,28 @@ func TestMemorySourceOmitsBrowserScreenshotAndPreservesOrdinaryPayload(t *testin
 		!strings.Contains(evidence, `"status":"complete"`) {
 		t.Fatalf("browser evidence removed ordinary payload: %s", evidence)
 	}
-	if payload["screenshot"].(map[string]any)["data"] != "encoded-image" {
+	if payload["result"].(map[string]any)["screenshot"].(map[string]any)["data"] != "encoded-image" {
 		t.Fatalf("stored browser payload changed: %#v", payload)
 	}
 	if rendered := renderMemorySourceItem(item); strings.Contains(rendered, "encoded-image") {
 		t.Fatalf("rendered browser source retained screenshot: %s", rendered)
+	}
+}
+
+func TestMemorySourceOmitsTaskHistory(t *testing.T) {
+	item := store.ConversationItem{
+		ID: "item:tasks", Kind: store.ConversationToolResult,
+		Payload: map[string]any{"metadata": map[string]any{"action": map[string]any{
+			"name": "task.list", "payload": map[string]any{
+				"tasks": []any{map[string]any{"task_id": "task:opaque"}},
+			},
+		}}},
+	}
+	if evidence := memoryEvidencePayload(item); evidence != "" {
+		t.Fatalf("task history was retained as memory evidence: %s", evidence)
+	}
+	if rendered := renderMemorySourceItem(item); rendered != "" {
+		t.Fatalf("task history was rendered for memory: %s", rendered)
 	}
 }
 
