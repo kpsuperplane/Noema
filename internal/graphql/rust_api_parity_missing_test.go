@@ -87,7 +87,7 @@ func rustAPIAssertGraphQLError(t *testing.T, response rustAPIGraphQLResponse, me
 
 func rustAPIPortSubscriptionProjectionFailure(t *testing.T) {
 	t.Helper()
-	original := int64(1)
+	original := uint64(1)
 	cursor := original
 	if _, err := store.DecodeWorkEventCursor("malformed"); err == nil {
 		t.Fatal("malformed subscription cursor was accepted")
@@ -95,15 +95,21 @@ func rustAPIPortSubscriptionProjectionFailure(t *testing.T) {
 	if cursor != original {
 		t.Fatalf("cursor changed after failed projection: %d", cursor)
 	}
-	// A cursor at the largest representable sequence is still valid. The
-	// projection must keep the caller cursor unchanged if a later conversion
-	// fails.
-	maxCursor, err := store.EncodeWorkEventCursor(math.MaxInt64)
+	if _, err := projectWorkEventCursor(uint64(math.MaxInt64)+1, &cursor); err == nil {
+		t.Fatal("overflowing subscription projection was accepted")
+	}
+	if cursor != original {
+		t.Fatalf("cursor advanced after failed projection: %d", cursor)
+	}
+	maxCursor, err := projectWorkEventCursor(uint64(math.MaxInt64), &cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.DecodeWorkEventCursor(maxCursor); err != nil {
 		t.Fatal(err)
+	}
+	if cursor != uint64(math.MaxInt64) {
+		t.Fatalf("valid projection did not advance cursor: %d", cursor)
 	}
 }
 
@@ -523,6 +529,37 @@ func rustAPIInsertForeignConversation(t *testing.T, resolver *Resolver) string {
 	return id
 }
 
+func rustAPIInsertForeignArtifact(t *testing.T, resolver *Resolver, conversationID string) string {
+	t.Helper()
+	paths, err := home.FromRoot(resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := sql.Open("sqlite3", paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	artifactID := "artifact:" + strings.Repeat("e", 32)
+	versionID := "artifact_version:" + strings.Repeat("f", 32)
+	now := time.Now().UnixMilli()
+	if _, err := database.Exec(`INSERT INTO artifacts
+ (artifact_id, owner_object_type, owner_object_id, title, artifact_kind, storage_kind,
+  current_version_id, created_by_actor_id, source_conversation_id, metadata_json,
+  created_at_ms, updated_at_ms)
+ VALUES (?, 'conversation', ?, 'Foreign notes', 'document', 'external_url', ?,
+  'human:other', ?, '{}', ?, ?)`, artifactID, conversationID, versionID, conversationID, now, now); err != nil {
+		t.Fatalf("foreign Artifact insert = %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO artifact_versions
+ (artifact_version_id, artifact_id, version_index, external_url, media_type,
+  created_by_actor_id, source_conversation_id, metadata_json, created_at_ms)
+ VALUES (?, ?, 1, 'https://example.com/foreign', 'text/html', 'human:other', ?, '{}', ?)`, versionID, artifactID, conversationID, now); err != nil {
+		t.Fatalf("foreign Artifact version insert = %v", err)
+	}
+	return versionID
+}
+
 func rustAPIPortMCPRouteAndSetup(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
@@ -921,6 +958,28 @@ func rustAPIPortConversationLiveEvents(t *testing.T) {
 	if _, ok := <-stream; ok == false {
 		t.Fatal("conversation stream closed before events")
 	}
+	resolver.Chat.NotifyHumanInterventionsChanged(conversation.ID)
+	intervention := <-stream
+	if value, ok := intervention.(model.HumanInterventionsChangedEvent); !ok || value.ConversationID != conversation.ID {
+		t.Fatalf("human intervention event = %#v", intervention)
+	}
+	for index := 0; index < 256; index++ {
+		resolver.Chat.NotifyHumanInterventionsChanged(conversation.ID)
+	}
+	resynchronized := false
+	for index := 0; index < 256; index++ {
+		value, open := <-stream
+		if !open {
+			t.Fatal("conversation stream closed after lag")
+		}
+		if _, ok := value.(model.SubscriptionReadyEvent); ok {
+			resynchronized = true
+			break
+		}
+	}
+	if !resynchronized {
+		t.Fatal("conversation stream did not publish a readiness resynchronization")
+	}
 	itemID := "item_1"
 	event, err := resolver.conversationEventModel(ctx, noemaruntime.Event{Kind: noemaruntime.EventAssistantDelta, ConversationID: conversation.ID, TurnID: "turn_1", StreamID: "assistant_stream:turn_1:initial", Delta: "Hel"})
 	if err != nil {
@@ -937,6 +996,16 @@ func rustAPIPortConversationLiveEvents(t *testing.T) {
 	if !ok || value.ItemID != itemID || value.Cursor == nil || *value.Cursor != "conversation_item:1" || len(value.Metadata) != 0 {
 		t.Fatalf("conversation item event = %#v", itemEvent)
 	}
+	transientEvent, err := resolver.conversationEventModel(ctx, noemaruntime.Event{Kind: noemaruntime.EventConversationItem, ConversationID: conversation.ID, Item: &store.ConversationItem{
+		ID: "transient:activity_1", Kind: store.ConversationAssistantText, ContentText: "Hello", Metadata: map[string]any{"runtime_item_id": "activity_1", "transient": true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transientValue, ok := transientEvent.(model.ConversationItemEvent)
+	if !ok || transientValue.Cursor != nil || len(transientValue.Metadata) != 2 || transientValue.Metadata["runtime_item_id"] != "activity_1" || transientValue.Metadata["transient"] != true {
+		t.Fatalf("transient conversation item event = %#v", transientEvent)
+	}
 }
 
 func rustAPIPortForeignConversationSubscription(t *testing.T) {
@@ -945,7 +1014,7 @@ func rustAPIPortForeignConversationSubscription(t *testing.T) {
 	foreignConversation := rustAPIInsertForeignConversation(t, resolver)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if _, err := resolver.conversationEvents(ctx, foreignConversation); err == nil || !strings.Contains(err.Error(), "conversation") {
+	if _, err := resolver.conversationEvents(ctx, foreignConversation); err == nil || err.Error() != "conversation is unavailable" {
 		t.Fatalf("foreign conversation subscription = %v", err)
 	}
 }
@@ -1192,6 +1261,41 @@ func rustAPIPortProjectExecutorCWD(t *testing.T) {
 	if err != nil || updated.Project.Folder == nil {
 		t.Fatalf("move Project = %#v, %v", updated, err)
 	}
+	acp, err := resolver.createAcpAgent(ctx, model.CreateAcpAgentInput{DisplayName: "Fake ACP", Command: "/bin/false"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwdResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation($project:String!, $agent:String!) {
+  captureTask(input: {
+    workspaceId: "workspace:personal", projectId: $project, title: "Use ACP",
+    executorAgentId: $agent, cwdOverride: "/tmp/task-work", clientMutationId: "acp-capture"
+  }) { task { executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource project { folder } } }
+}`, map[string]any{"project": created.Project.ProjectID, "agent": acp.AgentID})
+	if len(cwdResponse.Errors) != 0 {
+		t.Fatalf("ACP CWD GraphQL errors = %#v", cwdResponse.Errors)
+	}
+	cwdTask := cwdResponse.Data["captureTask"].(map[string]any)["task"].(map[string]any)
+	if cwdTask["executorAgentId"] != acp.AgentID || cwdTask["executorBackend"] != "acp" || cwdTask["cwdOverride"] != "/tmp/task-work" || cwdTask["effectiveCwd"] != "/tmp/task-work" || cwdTask["effectiveCwdSource"] != "task" || cwdTask["project"].(map[string]any)["folder"] != folder {
+		t.Fatalf("ACP CWD projection = %#v", cwdTask)
+	}
+	listedCWD := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query { tasks(input: { workspaceId: "workspace:personal" }) { edges { node { taskId executorBackend effectiveCwd effectiveCwdSource } } } }`, nil)
+	if len(listedCWD.Errors) != 0 {
+		t.Fatalf("ACP CWD task list errors = %#v", listedCWD.Errors)
+	}
+	edges := listedCWD.Data["tasks"].(map[string]any)["edges"].([]any)
+	if len(edges) == 0 {
+		t.Fatal("ACP CWD task list is empty")
+	}
+	seenCWD := false
+	for _, edge := range edges {
+		node := edge.(map[string]any)["node"].(map[string]any)
+		if node["executorBackend"] == "acp" {
+			seenCWD = node["effectiveCwd"] == "/tmp/task-work" && node["effectiveCwdSource"] == "task"
+		}
+	}
+	if !seenCWD {
+		t.Fatalf("ACP CWD task list = %#v", edges)
+	}
 	archiveInput := model.ArchiveProjectInput{ProjectID: created.Project.ProjectID,
 		ExpectedRevision: 3, ClientMutationID: "project-archive"}
 	archived, err := resolver.setProjectArchived(ctx, archiveInput.ProjectID,
@@ -1346,29 +1450,46 @@ mutation Capture($input: CaptureTaskInput!) {
   captureTask(input: $input) {
     clientMutationId
     eventCursor
-    task { taskId title taskDocument taskDocumentDigest revision stage { key behavior } }
+    task {
+      taskId title taskDocument taskDocumentDigest revision generation
+      stage { key behavior }
+      schedule { scheduledFor timeZone recurrenceId recurrenceRevision }
+      resultDocument resultMetadata reviewDocument
+    }
   }
 }`, map[string]any{
 		"input": map[string]any{
-			"workspaceId":      "workspace:personal",
-			"title":            "Audit dependencies",
-			"taskDocument":     document,
-			"executorAgentId":  "agent:task-executor",
+			"workspaceId":  "workspace:personal",
+			"title":        "Audit dependencies",
+			"taskDocument": "Exact request\n\nA durable capture.\n",
+			"schedule": map[string]any{
+				"scheduledFor": "2030-01-01T08:00:00Z", "timeZone": "UTC",
+				"recurrence": map[string]any{"startsAt": "2030-01-01T08:00:00Z", "cronExpression": "0 8 * * *"},
+			},
 			"clientMutationId": "capture-1",
 		},
 	})
 	capture := mutation.Data["captureTask"].(map[string]any)
 	task := capture["task"].(map[string]any)
 	taskID := task["taskId"].(string)
-	wantEventCursor, _ := store.EncodeWorkEventCursor(1)
-	if capture["clientMutationId"] != "capture-1" || capture["eventCursor"] != wantEventCursor {
+	if capture["clientMutationId"] != "capture-1" || capture["eventCursor"] == "" {
 		t.Fatalf("unexpected mutation payload: %#v", capture)
 	}
-	if task["title"] != "Audit dependencies" || task["revision"] != float64(1) {
+	if task["title"] != "Audit dependencies" || task["revision"] != float64(1) || task["generation"] != float64(1) {
 		t.Fatalf("unexpected captured Task: %#v", task)
 	}
+	document = "Exact request\n\nA durable capture.\n"
+	digest = sha256.Sum256([]byte(document))
+	wantDigest = hex.EncodeToString(digest[:])
 	if task["taskDocument"] != document || task["taskDocumentDigest"] != wantDigest {
 		t.Fatalf("unexpected captured Task document: %#v", task)
+	}
+	schedule, ok := task["schedule"].(map[string]any)
+	if !ok || schedule["scheduledFor"] != "2030-01-01T08:00:00Z" || schedule["timeZone"] != "UTC" || schedule["recurrenceRevision"] != float64(1) || schedule["recurrenceId"] == "" {
+		t.Fatalf("unexpected captured Task schedule: %#v", task["schedule"])
+	}
+	if task["resultDocument"] != nil || len(task["resultMetadata"].(map[string]any)) != 0 || task["reviewDocument"] != nil {
+		t.Fatalf("unexpected initial Task result projection: %#v", task)
 	}
 	stored, err := resolver.home.ReadFile(filepath.Join(
 		"tasks",
@@ -1389,7 +1510,9 @@ mutation Capture($input: CaptureTaskInput!) {
 	query := postGraphQL(t, server.URL, `
 query Task($taskId: String!) {
   task(taskId: $taskId) {
-    taskId title taskDocument taskDocumentDigest revision stage { key behavior }
+    taskId title taskDocument taskDocumentDigest revision generation stage { key behavior }
+    schedule { scheduledFor timeZone recurrenceId recurrenceRevision }
+    resultDocument resultMetadata reviewDocument
   }
 }`, map[string]any{"taskId": taskID})
 	readTask := query.Data["task"].(map[string]any)
@@ -1398,6 +1521,28 @@ query Task($taskId: String!) {
 	}
 	if readTask["taskDocument"] != document || readTask["taskDocumentDigest"] != wantDigest {
 		t.Fatalf("unexpected read Task document: %#v", readTask)
+	}
+	if readTask["generation"] != float64(1) || readTask["resultDocument"] != nil || readTask["reviewDocument"] != nil {
+		t.Fatalf("unexpected read Task projection: %#v", readTask)
+	}
+	resultDocument := "Current result.[^noema-source-1]\n\n[^noema-source-1]: [Current source](<https://example.com/current>)\n"
+	if err := home.WriteTaskFile(resolver.home, taskID, "RESULT.md", resultDocument); err != nil {
+		t.Fatal(err)
+	}
+	resultQuery := postGraphQL(t, server.URL, `query TaskResult($taskId: String!) {
+  task(taskId: $taskId) { resultDocument resultMetadata }
+}`, map[string]any{"taskId": taskID})
+	result := resultQuery.Data["task"].(map[string]any)
+	if result["resultDocument"] != "Current result.\n\n" {
+		t.Fatalf("Task result document = %#v", result["resultDocument"])
+	}
+	metadata, ok := result["resultMetadata"].(map[string]any)
+	if !ok || len(metadata["citations"].([]any)) != 1 {
+		t.Fatalf("Task result metadata = %#v", result["resultMetadata"])
+	}
+	citation := metadata["citations"].([]any)[0].(map[string]any)
+	if citation["title"] != "Current source" || citation["url"] != "https://example.com/current" || citation["end_index"] != float64(15) {
+		t.Fatalf("Task citation = %#v", citation)
 	}
 	if got := taskDocumentPreview(strings.Repeat("é", 281)); got != strings.Repeat("é", 280) {
 		t.Fatalf("Unicode Task preview has %d characters, want 280", len([]rune(got)))
@@ -1618,14 +1763,15 @@ func rustAPIPortTaskSubscription(t *testing.T) {
 
 func rustAPIPortAuthoritativeU64(t *testing.T) {
 	t.Helper()
-	if debugInt(math.MaxInt64) != int(math.MaxInt64) {
-		t.Fatalf("authoritative i64 maximum changed: %d", debugInt(math.MaxInt64))
+	maximum, err := exactU64(uint64(math.MaxInt64))
+	if err != nil || maximum != math.MaxInt64 {
+		t.Fatalf("authoritative u64 maximum = %d, %v", maximum, err)
 	}
-	// The Rust projection also calls an error-returning u64 boundary with
-	// i64::MAX+1 and u64::MAX. Go exposes only the saturating int64 helper, so
-	// keep this parity case red until the authoritative GraphQL projection has
-	// an equivalent boundary to exercise.
-	t.Fatalf("authoritative u64 projection boundary is not exposed")
+	for _, value := range []uint64{uint64(math.MaxInt64) + 1, ^uint64(0)} {
+		if _, err := exactU64(value); err == nil {
+			t.Fatalf("authoritative u64 overflow %d was accepted", value)
+		}
+	}
 }
 
 func rustAPIPortStalePoolRoute(t *testing.T) {

@@ -104,6 +104,9 @@ func (r *Resolver) conversationEvents(
 	}
 	runtimeEvents, err := r.Chat.Subscribe(ctx, conversationID)
 	if err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			return nil, errors.New("conversation is unavailable")
+		}
 		return nil, err
 	}
 	events := make(chan model.ConversationEvent, 16)
@@ -157,11 +160,15 @@ func (r *Resolver) conversationEventModel(ctx context.Context, event runtime.Eve
 		if err != nil {
 			return nil, err
 		}
-		cursor := event.Item.Cursor
+		var cursor *string
+		if event.Item.Cursor != "" {
+			value := event.Item.Cursor
+			cursor = &value
+		}
 		turnID := chatOptionalString(event.Item.TurnID)
 		return model.ConversationItemEvent{
 			ConversationID: event.ConversationID, ClientMessageID: event.ClientMessageID,
-			ItemID: event.Item.ID, Cursor: &cursor, TurnID: turnID,
+			ItemID: event.Item.ID, Cursor: cursor, TurnID: turnID,
 			Metadata: event.Item.Metadata, Item: item,
 		}, nil
 	case runtime.EventTurnCompleted:

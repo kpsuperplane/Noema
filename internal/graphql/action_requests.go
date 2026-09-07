@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
@@ -87,10 +88,19 @@ func (r *Resolver) pendingHumanInterventions(
 		if definitionErr != nil {
 			return nil, definitionErr
 		}
-		for _, definition := range definitions {
-			if adapterDefinitionNeedsChatIntervention(definition) {
-				result = append(result, definition)
-			}
+		oauth, oauthErr := r.adapterOauthState(ctx)
+		if oauthErr != nil {
+			return nil, oauthErr
+		}
+		reviews, accountSetups, clientSetups := projectAdapterInterventions(definitions, oauth)
+		for _, definition := range reviews {
+			result = append(result, definition)
+		}
+		for _, setup := range accountSetups {
+			result = append(result, setup)
+		}
+		for _, setup := range clientSetups {
+			result = append(result, setup)
 		}
 	}
 	if len(result) > limit {
@@ -99,9 +109,188 @@ func (r *Resolver) pendingHumanInterventions(
 	return result, nil
 }
 
+func projectAdapterInterventions(
+	definitions []*model.AdapterDefinition,
+	oauth *model.AdapterOauthState,
+) ([]model.HumanIntervention, []model.HumanIntervention, []model.HumanIntervention) {
+	if oauth == nil {
+		return nil, nil, nil
+	}
+	profiles := make(map[string]*model.AdapterOauthProfile, len(oauth.Profiles))
+	applications := make(map[string]*model.AdapterOauthApplication, len(oauth.Applications))
+	grants := make(map[string]*model.AdapterAuthorizationGrant, len(oauth.Grants))
+	for _, profile := range oauth.Profiles {
+		profiles[profile.ProfileDigest] = profile
+	}
+	for _, application := range oauth.Applications {
+		applications[application.ApplicationID] = application
+	}
+	for _, grant := range oauth.Grants {
+		grants[grant.GrantID] = grant
+	}
+	clientSetups := make(map[string]*model.AdapterOauthClientSetupIntervention)
+	accountSetups := make(map[string]*model.AdapterOauthAccountSetupIntervention)
+	var reviews []model.HumanIntervention
+	for _, definition := range definitions {
+		if definition == nil || definition.Superseded {
+			continue
+		}
+		needsImport := definition.Reviewed && definition.ConnectionCount == 0 &&
+			definition.NextAction != nil && definition.NextAction.Kind == "import_application"
+		if needsImport && definition.OauthProfileDigest != nil {
+			profile := profiles[*definition.OauthProfileDigest]
+			if profile != nil && profile.CredentialSetup != nil {
+				setup := clientSetups[*definition.OauthProfileDigest]
+				if setup == nil {
+					setup = &model.AdapterOauthClientSetupIntervention{
+						ProfileDigest:   *definition.OauthProfileDigest,
+						DisplayName:     profile.DisplayName,
+						CredentialSetup: profile.CredentialSetup,
+					}
+					clientSetups[*definition.OauthProfileDigest] = setup
+				}
+				setup.DependentDefinitions = append(setup.DependentDefinitions, &model.AdapterOauthClientSetupDependency{
+					SemanticDigest: definition.SemanticDigest,
+					DisplayName:    definition.DisplayName,
+				})
+				continue
+			}
+		}
+
+		needsDefinition := !definition.Reviewed ||
+			(definition.ConnectionCount == 0 && definition.CredentialSetup != nil)
+		for _, connection := range definition.Connections {
+			if adapterConnectionNeedsChatIntervention(connection) {
+				needsDefinition = true
+				break
+			}
+		}
+		if !needsDefinition {
+			continue
+		}
+		action := definition.NextAction
+		if action != nil && (action.Kind == "attach_account" || action.Kind == "add_account" || action.Kind == "add_access" || action.Kind == "reconnect_account") {
+			if setupKey, providerDisplayName, accountLabel, ok := adapterAccountSetupIdentity(action, applications, grants); ok {
+				setup := accountSetups[setupKey]
+				if setup == nil {
+					setup = &model.AdapterOauthAccountSetupIntervention{
+						SetupKey: setupKey, ProviderDisplayName: providerDisplayName,
+						AccountLabel: accountLabel, NextAction: action,
+					}
+					accountSetups[setupKey] = setup
+				} else if adapterAccountActionRank(action) < adapterAccountActionRank(setup.NextAction) {
+					setup.NextAction = action
+				}
+				setup.DependentDefinitions = append(setup.DependentDefinitions, &model.AdapterOauthAccountSetupDependency{
+					SemanticDigest: definition.SemanticDigest,
+					DisplayName:    definition.DisplayName,
+					Action:         action,
+				})
+				continue
+			}
+		}
+		reviews = append(reviews, definition)
+	}
+
+	clientKeys := make([]string, 0, len(clientSetups))
+	for key := range clientSetups {
+		clientKeys = append(clientKeys, key)
+	}
+	sort.Strings(clientKeys)
+	accountKeys := make([]string, 0, len(accountSetups))
+	for key := range accountSetups {
+		accountKeys = append(accountKeys, key)
+	}
+	sort.Strings(accountKeys)
+	for _, setup := range clientSetups {
+		sort.Slice(setup.DependentDefinitions, func(i, j int) bool {
+			left, right := setup.DependentDefinitions[i], setup.DependentDefinitions[j]
+			if left.DisplayName == right.DisplayName {
+				return left.SemanticDigest < right.SemanticDigest
+			}
+			return left.DisplayName < right.DisplayName
+		})
+	}
+	for _, setup := range accountSetups {
+		sort.Slice(setup.DependentDefinitions, func(i, j int) bool {
+			left, right := setup.DependentDefinitions[i], setup.DependentDefinitions[j]
+			if left.DisplayName == right.DisplayName {
+				return left.SemanticDigest < right.SemanticDigest
+			}
+			return left.DisplayName < right.DisplayName
+		})
+	}
+	accountInterventions := make([]model.HumanIntervention, 0, len(accountKeys))
+	for _, key := range accountKeys {
+		accountInterventions = append(accountInterventions, accountSetups[key])
+	}
+	clientInterventions := make([]model.HumanIntervention, 0, len(clientKeys))
+	for _, key := range clientKeys {
+		clientInterventions = append(clientInterventions, clientSetups[key])
+	}
+	return reviews, accountInterventions, clientInterventions
+}
+
+func adapterAccountSetupIdentity(
+	action *model.AdapterNextAction,
+	applications map[string]*model.AdapterOauthApplication,
+	grants map[string]*model.AdapterAuthorizationGrant,
+) (string, string, *string, bool) {
+	if action.GrantID != nil {
+		grant := grants[*action.GrantID]
+		if grant == nil {
+			return "", "", nil, false
+		}
+		return "grant:" + grant.GrantID, grant.ProviderDisplayName, grant.AccountLabel, true
+	}
+	if action.ApplicationID == nil {
+		return "", "", nil, false
+	}
+	application := applications[*action.ApplicationID]
+	if application == nil {
+		return "", "", nil, false
+	}
+	return "application:" + application.ApplicationID, application.ProviderDisplayName, nil, true
+}
+
+func adapterAccountActionRank(action *model.AdapterNextAction) int {
+	if action == nil {
+		return 99
+	}
+	switch action.Kind {
+	case "reconnect_account":
+		return 0
+	case "add_access":
+		return 1
+	case "add_account":
+		return 2
+	default:
+		return 3
+	}
+}
+
 func adapterDefinitionNeedsChatIntervention(definition *model.AdapterDefinition) bool {
-	return !definition.Superseded && (!definition.Reviewed ||
-		definition.Reviewed && definition.CredentialSetup != nil && definition.NextAction != nil && definition.NextAction.Kind == "set_up_credential")
+	if definition.Superseded {
+		return false
+	}
+	if !definition.Reviewed || definition.Reviewed && definition.CredentialSetup != nil && definition.NextAction != nil && definition.NextAction.Kind == "set_up_credential" {
+		return true
+	}
+	for _, connection := range definition.Connections {
+		if adapterConnectionNeedsChatIntervention(connection) {
+			return true
+		}
+	}
+	return false
+}
+
+// adapterConnectionNeedsChatIntervention keeps an OAuth connection without a
+// reusable grant in the human intervention stream. A grant that needs repair
+// has a deterministic reconnect action and does not need a duplicate setup.
+func adapterConnectionNeedsChatIntervention(connection *model.AdapterConnection) bool {
+	return connection != nil &&
+		((connection.Status == "active" && !connection.PolicyConfigured) ||
+			(connection.Status == "authentication_required" && connection.GrantID == nil))
 }
 
 func (r *Resolver) resolveActionRequest(

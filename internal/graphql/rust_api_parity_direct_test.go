@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -212,11 +213,16 @@ func rustAPIPortAuthorizedDownload(t *testing.T) {
 func rustAPIPortAuthorizedDownloadForeignOwner(t *testing.T) {
 	t.Helper()
 	resolver, _ := rustAPIArtifactFixture(t)
-	if listed, err := resolver.artifacts(context.Background(), "conversation", "conversation:foreign", nil); err != nil || len(listed) != 0 {
+	foreignConversation := rustAPIInsertForeignConversation(t, resolver)
+	foreignVersion := rustAPIInsertForeignArtifact(t, resolver, foreignConversation)
+	if _, found, err := resolver.Artifacts.AuthorizedFile(context.Background(), foreignVersion); err != nil || found {
+		t.Fatalf("foreign Artifact download = %t, %v", found, err)
+	}
+	if listed, err := resolver.artifacts(context.Background(), "conversation", foreignConversation, nil); err != nil || len(listed) != 0 {
 		t.Fatalf("foreign Artifact list = %#v, %v", listed, err)
 	}
 	if _, err := resolver.createConversationExternalArtifact(context.Background(), model.CreateConversationExternalArtifactInput{
-		ConversationID: "conversation:foreign", Title: "Foreign", ArtifactKind: "document", ExternalURL: "https://example.com/foreign",
+		ConversationID: foreignConversation, Title: "Foreign", ArtifactKind: "document", ExternalURL: "https://example.com/foreign",
 	}); err == nil || !strings.Contains(err.Error(), "conversation is unavailable") {
 		t.Fatalf("foreign Artifact mutation error = %v", err)
 	}
@@ -957,6 +963,22 @@ func rustAPIPortExistingGrant(t *testing.T) {
 	if action == nil || action.Kind != "reconnect_account" || action.ApplicationID == nil || *action.ApplicationID != "application-current" || action.ExpectedApplicationRevision == nil || *action.ExpectedApplicationRevision != 1 {
 		t.Fatalf("pending grant action = %#v", action)
 	}
+	sharedRepair := &model.AdapterConnection{ConnectionID: "shared", Status: "authentication_required", GrantID: stringPointer("grant-a")}
+	if adapterConnectionNeedsChatIntervention(sharedRepair) {
+		t.Fatal("existing OAuth grant incorrectly created a chat intervention")
+	}
+	initialSetup := &model.AdapterConnection{ConnectionID: "initial", Status: "authentication_required"}
+	if !adapterConnectionNeedsChatIntervention(initialSetup) {
+		t.Fatal("missing OAuth grant did not create a chat intervention")
+	}
+	connections := []*model.AdapterConnection{
+		{ConnectionID: "b", Status: "active", GrantID: stringPointer("grant-a")},
+		{ConnectionID: "a", Status: "active", GrantID: stringPointer("grant-a")},
+	}
+	sort.Slice(connections, func(i, j int) bool { return connections[i].ConnectionID < connections[j].ConnectionID })
+	if connections[0].ConnectionID != "a" {
+		t.Fatalf("grant fallback was not deterministic: %#v", connections)
+	}
 }
 
 func openAdapterParityService(t *testing.T) (*Resolver, *adapter.Service) {
@@ -1025,7 +1047,7 @@ func installAdapterParityDefinitionNamed(t *testing.T, service *adapter.Service,
 
 func rustAPIPortAdapterApproval(t *testing.T) {
 	t.Helper()
-	_, service := openAdapterParityService(t)
+	resolver, service := openAdapterParityService(t)
 	pending := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "none"}, "lookup")
 	approved, err := service.Approve(context.Background(), pending.SemanticDigest)
 	if err != nil || !approved.Manifest.Reviewed {
@@ -1042,6 +1064,27 @@ func rustAPIPortAdapterApproval(t *testing.T) {
 	if view == nil || !view.Reviewed || view.ConnectionCount != 1 {
 		t.Fatalf("approved GraphQL definition = %#v", view)
 	}
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query {
+  adapterDefinitions { semanticDigest reviewed connectionCount connections { connectionId status policyConfigured } }
+}`, nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("approved adapter GraphQL errors = %#v", response.Errors)
+	}
+	definitions := response.Data["adapterDefinitions"].([]any)
+	var projected map[string]any
+	for _, value := range definitions {
+		candidate := value.(map[string]any)
+		if candidate["semanticDigest"] == approved.SemanticDigest {
+			projected = candidate
+		}
+	}
+	if projected == nil || projected["reviewed"] != true || projected["connectionCount"] != float64(1) {
+		t.Fatalf("approved adapter GraphQL projection = %#v", definitions)
+	}
+	projectedConnections := projected["connections"].([]any)
+	if len(projectedConnections) != 1 || projectedConnections[0].(map[string]any)["status"] != "active" || projectedConnections[0].(map[string]any)["policyConfigured"] != false {
+		t.Fatalf("approved adapter connection projection = %#v", projectedConnections)
+	}
 	if _, err := service.Approve(context.Background(), strings.Repeat("0", 64)); err == nil {
 		t.Fatal("unknown adapter digest was approved")
 	}
@@ -1053,30 +1096,52 @@ func rustAPIPortAdapterApproval(t *testing.T) {
 
 func rustAPIPortAdapterManagement(t *testing.T) {
 	t.Helper()
-	_, service := openAdapterParityService(t)
+	resolver, service := openAdapterParityService(t)
 	pending := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "none"}, "lookup")
 	approved, err := service.Approve(context.Background(), pending.SemanticDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := service.Snapshot()
-	if err != nil {
-		t.Fatal(err)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query {
+  adapterManagement {
+    definitions { semanticDigest connectionCount }
+    oauthState { profiles { profileDigest } }
+    integrations { connections { connectionId } }
+  }
+}`, nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("adapter management errors = %#v", response.Errors)
 	}
-	definitions := 0
-	connections := 0
-	for _, definition := range snapshot.Definitions {
-		if definition.SemanticDigest == approved.SemanticDigest && !definition.Superseded {
-			definitions++
+	management, ok := response.Data["adapterManagement"].(map[string]any)
+	if !ok {
+		t.Fatalf("adapter management data = %#v", response.Data)
+	}
+	definitions, ok := management["definitions"].([]any)
+	if !ok {
+		t.Fatalf("adapter management definitions = %#v", management["definitions"])
+	}
+	definitionConnections := 0
+	for _, value := range definitions {
+		definition, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("adapter management definition = %#v", value)
 		}
+		definitionConnections += int(definition["connectionCount"].(float64))
 	}
-	for _, connection := range snapshot.Connections {
-		if connection.SemanticDigest == approved.SemanticDigest {
-			connections++
+	integrations, ok := management["integrations"].([]any)
+	if !ok {
+		t.Fatalf("adapter management integrations = %#v", management["integrations"])
+	}
+	integrationConnections := 0
+	for _, value := range integrations {
+		integration, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("adapter management integration = %#v", value)
 		}
+		integrationConnections += len(integration["connections"].([]any))
 	}
-	if definitions != 1 || connections != 1 {
-		t.Fatalf("management snapshot counts = definitions %d connections %d", definitions, connections)
+	if definitionConnections != 1 || integrationConnections != definitionConnections {
+		t.Fatalf("management GraphQL counts = definitions %d integrations %d (approved %s)", definitionConnections, integrationConnections, approved.SemanticDigest)
 	}
 }
 
@@ -1099,8 +1164,15 @@ func rustAPIPortAdapterApprovalIdempotence(t *testing.T) {
 
 func rustAPIPortAdapterCancellation(t *testing.T) {
 	t.Helper()
-	_, service := openAdapterParityService(t)
+	resolver, service := openAdapterParityService(t)
 	pending := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "none"}, "lookup")
+	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interventions := rustAPIAdapterInterventions(t, resolver, conversation.ID); len(interventions) != 1 {
+		t.Fatalf("pending adapter review interventions = %#v", interventions)
+	}
 	removed, err := service.Cancel(context.Background(), pending.SemanticDigest)
 	if err != nil || !removed {
 		t.Fatalf("cancel = %t, %v", removed, err)
@@ -1111,6 +1183,13 @@ func rustAPIPortAdapterCancellation(t *testing.T) {
 	}
 	if len(snapshot.Definitions) != 0 {
 		t.Fatalf("cancelled definitions = %#v", snapshot.Definitions)
+	}
+	if interventions := rustAPIAdapterInterventions(t, resolver, conversation.ID); len(interventions) != 0 {
+		t.Fatalf("cancelled adapter interventions = %#v", interventions)
+	}
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query { adapterDefinitions { semanticDigest } }`, nil)
+	if len(response.Errors) != 0 || len(response.Data["adapterDefinitions"].([]any)) != 0 {
+		t.Fatalf("cancelled adapter GraphQL definitions = %#v", response)
 	}
 }
 
@@ -1146,9 +1225,13 @@ func rustAPIPortPolicyIntervention(t *testing.T) {
 
 func rustAPIPortAdapterReplacement(t *testing.T) {
 	t.Helper()
-	_, service := openAdapterParityService(t)
+	resolver, service := openAdapterParityService(t)
 	first := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "none"}, "lookup")
 	approved, err := service.Approve(context.Background(), first.SemanticDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1171,6 +1254,22 @@ func rustAPIPortAdapterReplacement(t *testing.T) {
 	if definitionModel(updated, snapshot).ConnectionCount != 1 {
 		t.Fatalf("replacement GraphQL projection = %#v", definitionModel(updated, snapshot))
 	}
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query {
+  adapterDefinitions { semanticDigest superseded connectionCount }
+}`, nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("replacement GraphQL errors = %#v", response.Errors)
+	}
+	definitions := response.Data["adapterDefinitions"].([]any)
+	if len(definitions) != 1 || definitions[0].(map[string]any)["semanticDigest"] != updated.SemanticDigest || definitions[0].(map[string]any)["superseded"] != false || definitions[0].(map[string]any)["connectionCount"] != float64(1) {
+		t.Fatalf("replacement GraphQL definitions = %#v", definitions)
+	}
+	interventions := rustAPIAdapterInterventions(t, resolver, conversation.ID)
+	for _, intervention := range interventions {
+		if intervention["semanticDigest"] == first.SemanticDigest {
+			t.Fatalf("superseded adapter intervention remained: %#v", interventions)
+		}
+	}
 }
 
 func rustAPIPortAdapterBreakingRevision(t *testing.T) {
@@ -1182,6 +1281,14 @@ func rustAPIPortAdapterBreakingRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := installAdapterParityDefinition(t, service, "v2", approved.SemanticDigest, map[string]any{"kind": "none"}, "get_item")
+	preApproval, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition := definitionModel(second, preApproval).Transition
+	if transition == nil || len(transition.AddedOperations) != 1 || transition.AddedOperations[0] != "get_item" || len(transition.RemovedOperations) != 1 || transition.RemovedOperations[0] != "lookup" || transition.AffectedConnections != 1 {
+		t.Fatalf("breaking adapter transition = %#v", transition)
+	}
 	updated, err := service.Approve(context.Background(), second.SemanticDigest)
 	if err != nil {
 		t.Fatal(err)
@@ -1203,15 +1310,20 @@ func rustAPIPortAdapterAuthRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	snapshot, err := service.Snapshot()
+	if err != nil || len(snapshot.Connections) != 1 {
+		t.Fatalf("initial authentication connection = %#v, %v", snapshot.Connections, err)
+	}
+	connectionID := snapshot.Connections[0].ConnectionID
 	replacement := installAdapterParityDefinition(t, service, "v2", approved.SemanticDigest, map[string]any{"kind": "credential", "setup": map[string]any{"credential_type": "API key", "setup_url": "https://example.com/keys", "instructions": []string{"Create a key."}, "input": map[string]any{"kind": "fields", "fields": []any{map[string]any{"id": "token", "label": "API key"}}}}, "request_auth": map[string]any{"language": "lua", "source": "return function(input) return {} end"}}, "lookup")
 	if _, err := service.Approve(context.Background(), replacement.SemanticDigest); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := service.Snapshot()
+	snapshot, err = service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Connections) != 1 || snapshot.Connections[0].Status != "authentication_required" || len(snapshot.Connections[0].AllowedOperations) != 0 {
+	if len(snapshot.Connections) != 1 || snapshot.Connections[0].ConnectionID != connectionID || snapshot.Connections[0].Status != "authentication_required" || len(snapshot.Connections[0].AllowedOperations) != 0 {
 		t.Fatalf("authentication revision = %#v", snapshot.Connections)
 	}
 }
@@ -1249,7 +1361,7 @@ func rustAPIPortAdapterDeletion(t *testing.T) {
 
 func rustAPIPortAdapterOAuthImport(t *testing.T) {
 	t.Helper()
-	_, service := openAdapterParityService(t)
+	resolver, service := openAdapterParityService(t)
 	if err := service.SetOAuthCallback("http://localhost:3737/adapter/oauth/callback"); err != nil {
 		t.Fatal(err)
 	}
@@ -1258,12 +1370,17 @@ func rustAPIPortAdapterOAuthImport(t *testing.T) {
 		t.Fatalf("OAuth profiles = %#v, %v", oauth.Profiles, err)
 	}
 	profile := oauth.Profiles[0]
-	document := []byte(`{"installed":{"client_id":"ordinary-client","client_secret":"secret-marker"}}`)
-	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document, nil)
+	document := []byte(`{"installed":{"client_id":"ordinary-client","client_secret":"secret-marker","discard":"raw-upload-marker"}}`)
+	wrongClientType := []byte(`{"web":{"client_id":"ordinary-client","client_secret":"secret-marker"}}`)
+	if _, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, wrongClientType, nil); err == nil {
+		t.Fatal("wrong OAuth client type was accepted")
+	}
+	projectLabel := "Personal APIs"
+	application, err := service.ImportOAuthApplication(profile.ProfileDigest, &projectLabel, document, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	repeated, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document, nil)
+	repeated, err := service.ImportOAuthApplication(profile.ProfileDigest, &projectLabel, document, nil)
 	if err != nil || repeated.ApplicationID != application.ApplicationID {
 		t.Fatalf("repeated OAuth import = %#v, %#v, %v", application, repeated, err)
 	}
@@ -1277,6 +1394,41 @@ func rustAPIPortAdapterOAuthImport(t *testing.T) {
 	}
 	if bytes.Contains(encoded, []byte("secret-marker")) {
 		t.Fatalf("OAuth snapshot exposed client secret: %s", encoded)
+	}
+	graphqlDocument := base64.StdEncoding.EncodeToString(document)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `mutation($profile:String!, $document:String!) {
+  importAdapterOauthApplication(input: { profileDigest: $profile, projectLabel: "Personal APIs", clientDocumentBase64: $document }) {
+    applicationId clientId projectLabel grantCount accountCount revision
+  }
+}`, map[string]any{"profile": profile.ProfileDigest, "document": graphqlDocument})
+	if len(response.Errors) != 0 {
+		t.Fatalf("OAuth import GraphQL errors = %#v", response.Errors)
+	}
+	imported, ok := response.Data["importAdapterOauthApplication"].(map[string]any)
+	if !ok || imported["clientId"] != "ordinary-client" || imported["projectLabel"] != "Personal APIs" || imported["grantCount"] != float64(0) || imported["accountCount"] != float64(0) {
+		t.Fatalf("OAuth import GraphQL projection = %#v", response.Data)
+	}
+	stateResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query { adapterManagement { oauthState { applications { applicationId clientId projectLabel grantCount accountCount } } } }`, nil)
+	if len(stateResponse.Errors) != 0 {
+		t.Fatalf("OAuth state GraphQL errors = %#v", stateResponse.Errors)
+	}
+	state := stateResponse.Data["adapterManagement"].(map[string]any)["oauthState"].(map[string]any)
+	applications := state["applications"].([]any)
+	if len(applications) != 1 || applications[0].(map[string]any)["clientId"] != "ordinary-client" {
+		t.Fatalf("OAuth state GraphQL projection = %#v", state)
+	}
+	paths, err := home.FromRoot(resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationDir, err := paths.AdapterOAuthApplicationDir(application.ApplicationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialPath := filepath.Join(applicationDir, "credentials", application.CredentialGeneration+".json")
+	credential, err := os.ReadFile(credentialPath)
+	if err != nil || !bytes.Contains(credential, []byte("secret-marker")) || bytes.Contains(credential, []byte("raw-upload-marker")) {
+		t.Fatalf("persisted OAuth credential = %s, %v", credential, err)
 	}
 }
 
@@ -1339,6 +1491,60 @@ func rustAPIPortAdapterOAuthSetup(t *testing.T) {
 		if !ok || !want[dependency["semanticDigest"].(string)] {
 			t.Fatalf("shared OAuth setup dependency = %#v", value)
 		}
+	}
+	document := []byte(`{"installed":{"client_id":"shared-client","client_secret":"shared-secret","discard":"raw-upload-marker"}}`)
+	application, err := service.ImportOAuthApplication(profile.ProfileDigest, nil, document, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query($conversation:String!) {
+  pendingHumanInterventions(conversationId: $conversation, first: 50) {
+    __typename
+    ... on AdapterOauthAccountSetupIntervention {
+      setupKey nextAction { kind applicationId } dependentDefinitions { semanticDigest }
+    }
+  }
+}`, map[string]any{"conversation": conversation.ID})
+	if len(accountResponse.Errors) != 0 {
+		t.Fatalf("OAuth account setup errors = %#v", accountResponse.Errors)
+	}
+	accountValues := accountResponse.Data["pendingHumanInterventions"].([]any)
+	if len(accountValues) != 1 {
+		t.Fatalf("OAuth account setup interventions = %#v", accountValues)
+	}
+	accountSetup := accountValues[0].(map[string]any)
+	if accountSetup["setupKey"] != "application:"+application.ApplicationID {
+		t.Fatalf("OAuth account setup key = %#v", accountSetup)
+	}
+	dependencies, ok = accountSetup["dependentDefinitions"].([]any)
+	if !ok || len(dependencies) != 2 {
+		t.Fatalf("OAuth account setup dependencies = %#v", accountSetup)
+	}
+	unauthorizedResponse := rustAPIRawGraphQLContext(t, resolver, context.Background(), `mutation($input: StartAdapterOauthSetupInput!) {
+	  startAdapterOauthSetup(input: $input) { attemptId authorizationUrl }
+}`, map[string]any{"input": map[string]any{
+		"applicationId": application.ApplicationID, "expectedApplicationRevision": application.Revision,
+		"semanticDigest": firstReviewed.SemanticDigest, "operationIds": []string{"lookup"},
+	}})
+	if len(unauthorizedResponse.Errors) == 0 {
+		t.Fatal("unauthorized OAuth setup was accepted")
+	}
+	startResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `mutation($input: StartAdapterOauthSetupInput!) {
+  startAdapterOauthSetup(input: $input) { attemptId authorizationUrl }
+}`, map[string]any{"input": map[string]any{
+		"applicationId": application.ApplicationID, "expectedApplicationRevision": application.Revision,
+		"semanticDigest": firstReviewed.SemanticDigest, "operationIds": []string{"lookup"},
+	}})
+	if len(startResponse.Errors) != 0 {
+		t.Fatalf("OAuth setup errors = %#v", startResponse.Errors)
+	}
+	attempt, ok := startResponse.Data["startAdapterOauthSetup"].(map[string]any)
+	if !ok || attempt["attemptId"] == "" || attempt["authorizationUrl"] == "" {
+		t.Fatalf("OAuth setup attempt = %#v", startResponse.Data)
+	}
+	parsed, err := url.Parse(attempt["authorizationUrl"].(string))
+	if err != nil || parsed.Query().Get("redirect_uri") != "http://localhost:3737/adapter/oauth/callback" {
+		t.Fatalf("OAuth setup redirect URI = %#v, %v", attempt, err)
 	}
 }
 

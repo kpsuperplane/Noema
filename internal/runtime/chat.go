@@ -731,15 +731,20 @@ func (c *Chat) publishTransientFailure(input SendTurnInput, cause error) {
 func (c *Chat) publish(event Event) {
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
-	for id, current := range c.subscribers {
+	for _, current := range c.subscribers {
 		if current.conversationID != "" && current.conversationID != event.ConversationID {
 			continue
 		}
 		select {
 		case current.events <- event:
 		default:
-			close(current.events)
-			delete(c.subscribers, id)
+			// A slow subscriber must resynchronize instead of disappearing. Drop
+			// stale live events and put a readiness marker at the front of the
+			// same lane before accepting newer events.
+			for len(current.events) > 0 {
+				<-current.events
+			}
+			current.events <- Event{Kind: EventSubscriptionReady, ConversationID: event.ConversationID}
 		}
 	}
 }

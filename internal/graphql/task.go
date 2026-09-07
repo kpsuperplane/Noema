@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +19,32 @@ import (
 const personalWorkspaceID = "workspace:personal"
 
 const taskDocumentPreviewLimit = 280
+
+// exactU64 is the GraphQL integer boundary for persisted unsigned sequences.
+func exactU64(value uint64) (int64, error) {
+	const maxInt64 = uint64(^uint64(0) >> 1)
+	if value > maxInt64 {
+		return 0, errors.New("unsigned sequence exceeds GraphQL integer range")
+	}
+	return int64(value), nil
+}
+
+// projectWorkEventCursor advances the caller cursor only after the sequence
+// passes both the GraphQL and persisted cursor encoders.
+func projectWorkEventCursor(sequence uint64, cursor *uint64) (string, error) {
+	value, err := exactU64(sequence)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := store.EncodeWorkEventCursor(value)
+	if err != nil {
+		return "", err
+	}
+	if cursor != nil {
+		*cursor = sequence
+	}
+	return encoded, nil
+}
 
 func (r *Resolver) captureTask(
 	ctx context.Context,
@@ -136,6 +164,108 @@ func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDet
 	return detail
 }
 
+type taskResultCitationSource struct {
+	title string
+	url   string
+}
+
+// projectTaskResult removes generated source definitions and markers at the
+// API boundary while preserving the Rust result citation offsets.
+func projectTaskResult(text string) (string, map[string]any) {
+	const sourcePrefix = "[^noema-source-"
+	sources := make(map[int]taskResultCitationSource)
+	var body strings.Builder
+	for _, line := range strings.SplitAfter(text, "\n") {
+		value := strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(value, sourcePrefix) && strings.Contains(value, "]:") {
+			if number, source, ok := parseTaskResultSource(value); ok {
+				if _, exists := sources[number]; !exists {
+					sources[number] = source
+				}
+			}
+			continue
+		}
+		body.WriteString(line)
+	}
+
+	clean := strings.Builder{}
+	remaining := body.String()
+	citations := make([]any, 0)
+	for {
+		start := strings.Index(remaining, sourcePrefix)
+		if start < 0 {
+			clean.WriteString(remaining)
+			break
+		}
+		clean.WriteString(remaining[:start])
+		marker := remaining[start:]
+		close := strings.IndexByte(marker, ']')
+		if close < 0 {
+			// Rust drops an unterminated generated marker from the projection.
+			break
+		}
+		marker = marker[:close+1]
+		number, parseErr := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(marker, sourcePrefix), "]"))
+		if parseErr == nil {
+			if source, ok := sources[number]; ok {
+				citations = append(citations, map[string]any{
+					"title":     source.title,
+					"url":       source.url,
+					"end_index": taskResultUTF16Len(clean.String()),
+				})
+			}
+		}
+		remaining = remaining[start+len(marker):]
+	}
+	return clean.String(), map[string]any{"citations": citations}
+}
+
+func parseTaskResultSource(value string) (int, taskResultCitationSource, bool) {
+	const sourcePrefix = "[^noema-source-"
+	marker, definition, ok := strings.Cut(value, ": [")
+	if !ok || !strings.HasPrefix(marker, sourcePrefix) || !strings.HasSuffix(marker, "]") {
+		return 0, taskResultCitationSource{}, false
+	}
+	number, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(marker, sourcePrefix), "]"))
+	if err != nil || number < 1 {
+		return 0, taskResultCitationSource{}, false
+	}
+	title, urlAndLocator, ok := strings.Cut(definition, "](<")
+	if !ok {
+		return 0, taskResultCitationSource{}, false
+	}
+	valueURL, locator, ok := strings.Cut(urlAndLocator, ">)")
+	if !ok {
+		return 0, taskResultCitationSource{}, false
+	}
+	parsed, err := url.Parse(valueURL)
+	if err != nil || parsed.Host == "" && parsed.Scheme != "artifact" ||
+		parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "artifact" {
+		return 0, taskResultCitationSource{}, false
+	}
+	title = strings.ReplaceAll(title, "\\]", "]")
+	title = strings.ReplaceAll(title, "\\[", "[")
+	title = strings.ReplaceAll(title, "\\\\", "\\")
+	if strings.TrimSpace(locator) != "" {
+		title += " " + strings.TrimSpace(locator)
+	}
+	if strings.TrimSpace(title) == "" {
+		return 0, taskResultCitationSource{}, false
+	}
+	return number, taskResultCitationSource{title: title, url: parsed.String()}, true
+}
+
+func taskResultUTF16Len(value string) int {
+	length := 0
+	for _, character := range value {
+		length++
+		if character > 0xffff {
+			length++
+		}
+	}
+	return length
+}
+
 func (r *Resolver) task(ctx context.Context, taskID string) (*model.TaskDetail, error) {
 	task, err := r.Store.Task(ctx, taskID)
 	if err != nil {
@@ -213,7 +343,8 @@ func (r *Resolver) taskSummaryModel(
 func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, document home.TaskDocument) *model.TaskDetail {
 	result := taskDetailModel(task, document)
 	if content, err := home.ReadTaskFile(r.home, task.ID, "RESULT.md"); err == nil {
-		result.ResultDocument = &content
+		projected, metadata := projectTaskResult(content)
+		result.ResultDocument, result.ResultMetadata = &projected, metadata
 	}
 	if content, err := home.ReadTaskFile(r.home, task.ID, "REVIEW.md"); err == nil {
 		result.ReviewDocument = &content
@@ -563,7 +694,7 @@ func (r *Resolver) taskRuntimeEvents(ctx context.Context, taskID string) (<-chan
 }
 
 func workEventModel(event store.WorkEvent, task *model.TaskSummary) *model.TasksEvent {
-	cursor, _ := store.EncodeWorkEventCursor(event.ID)
+	cursor, _ := projectWorkEventCursor(uint64(event.ID), nil)
 	result := &model.TasksEvent{
 		Cursor:        cursor,
 		EventID:       event.EventID,

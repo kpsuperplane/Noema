@@ -335,6 +335,13 @@ func (r *Resolver) adapterDefinition(ctx context.Context, digest string) (*model
 }
 
 func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.Definition, snapshot adapter.ServiceSnapshot, oauth adapter.OAuthSnapshot) {
+	for _, profile := range oauth.Profiles {
+		if profile.ProfileDigest == definition.Manifest.Authentication.ProfileDigest && len(profile.Setups) != 0 {
+			setup := profile.Setups[0].Setup
+			view.CredentialSetup = credentialSetupValue(&setup, nil)
+			break
+		}
+	}
 	apps := map[string]adapter.OAuthApplication{}
 	for _, app := range oauth.Applications {
 		if app.ProfileDigest == definition.Manifest.Authentication.ProfileDigest && app.Status == "active" {
