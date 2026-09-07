@@ -57,6 +57,7 @@ type Service struct {
 	jobsWG         sync.WaitGroup
 	runtimeMu      sync.Mutex
 	runtime        runtimeProcess
+	evalMu         sync.Mutex
 	eventsMu       sync.Mutex
 	subscribers    map[uint64]chan Event
 	nextSubscriber uint64

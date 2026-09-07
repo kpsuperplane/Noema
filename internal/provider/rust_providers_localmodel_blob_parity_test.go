@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -67,9 +66,9 @@ func TestRustProviders_VerifiedModelBlobPathAcceptsCanonicalUntamperedBlob(t *te
 		t.Fatal(err)
 	}
 	installation := seedProviderBlobInstallation(t, database, "installation:verified", "verified", digest, filepath.ToSlash(filepath.Join("models", "blobs", digest+".gguf")), int64(len(bytesValue)))
-	verified, err := service.Activate(context.Background(), installation.ID)
-	if err != nil || filepath.Join(root, filepath.FromSlash(verified.BlobPath)) != blob {
-		t.Fatalf("verified model blob = %q, %v", filepath.Join(root, filepath.FromSlash(verified.BlobPath)), err)
+	verified, err := service.VerifiedModelBlobPath(context.Background(), installation.ID)
+	if err != nil || verified != blob {
+		t.Fatalf("verified model blob = %q, %v", verified, err)
 	}
 }
 
@@ -80,7 +79,7 @@ func TestRustProviders_VerifiedModelBlobPathRejectsMissingAndTamperedBlob(t *tes
 	digestBytes := sha256.Sum256(bytesValue)
 	digest := hex.EncodeToString(digestBytes[:])
 	missing := seedProviderBlobInstallation(t, database, "installation:missing", "missing", digest, filepath.ToSlash(filepath.Join("models", "blobs", digest+".gguf")), int64(len(bytesValue)))
-	if _, err := service.Activate(context.Background(), missing.ID); err == nil || !strings.Contains(err.Error(), "unavailable") {
+	if _, err := service.VerifiedModelBlobPath(context.Background(), missing.ID); err == nil || err.Error() != "installed model blob is unavailable" {
 		t.Fatalf("missing blob error = %v", err)
 	}
 	blob := filepath.Join(root, "models", "blobs", digest+".gguf")
@@ -91,7 +90,7 @@ func TestRustProviders_VerifiedModelBlobPathRejectsMissingAndTamperedBlob(t *tes
 		t.Fatal(err)
 	}
 	tampered := seedProviderBlobInstallation(t, database, "installation:tampered", "tampered", digest, filepath.ToSlash(filepath.Join("models", "blobs", digest+".gguf")), int64(len(bytesValue)))
-	if _, err := service.Activate(context.Background(), tampered.ID); err == nil || !strings.Contains(err.Error(), "does not match") {
+	if _, err := service.VerifiedModelBlobPath(context.Background(), tampered.ID); err == nil || err.Error() != "installed model blob digest does not match its verified digest" {
 		t.Fatalf("tampered blob error = %v", err)
 	}
 }
@@ -104,7 +103,7 @@ func TestRustProviders_VerifiedModelBlobPathRejectsNoncanonicalDurablePath(t *te
 	digest := hex.EncodeToString(digestBytes[:])
 	errText := "models/blobs/other.gguf"
 	installation := seedProviderBlobInstallation(t, database, "installation:noncanonical", "noncanonical", digest, errText, int64(len(bytesValue)))
-	if _, err := service.Activate(context.Background(), installation.ID); err == nil || !strings.Contains(err.Error(), "does not match") {
+	if _, err := service.VerifiedModelBlobPath(context.Background(), installation.ID); err == nil || err.Error() != "verified blob path does not match its digest" {
 		t.Fatalf("noncanonical path error = %v", err)
 	}
 	_ = root

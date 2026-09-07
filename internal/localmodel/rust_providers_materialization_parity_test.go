@@ -11,12 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
-func newMaterializationParityService(t *testing.T) (*Service, *store.Store, string) {
+func newMaterializationParityService(t *testing.T) (*Service, string) {
 	t.Helper()
 	home := t.TempDir()
 	databaseRoot := t.TempDir()
@@ -30,60 +29,70 @@ func newMaterializationParityService(t *testing.T) (*Service, *store.Store, stri
 		t.Fatal(err)
 	}
 	t.Cleanup(service.Close)
-	return service, database, home
+	return service, home
 }
 
-func queueMaterializationParityInstallation(t *testing.T, database *store.Store, id string, total int64) store.LocalModelInstallation {
-	t.Helper()
-	value, err := database.QueueLocalModel(context.Background(), store.LocalModelInstallation{
-		ID: id, ModelID: id, Name: id, File: id + ".gguf", SourceKind: "public_gguf",
-		Backend: "cpu", TotalBytes: total, CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
+func materializationParityRequest(root string, bytesValue []byte) MaterializeVerifiedEvalModelRequest {
+	digestBytes := sha256.Sum256(bytesValue)
+	return MaterializeVerifiedEvalModelRequest{
+		Source:        VerifiedEvalModelSource{Repo: "owner/repository", Revision: "a" + "000000000000000000000000000000000000000", File: "model.gguf"},
+		ExpectedBytes: int64(len(bytesValue)),
+		SHA256:        hex.EncodeToString(digestBytes[:]),
+		CacheRoot:     root,
 	}
-	return value
 }
 
 // Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::digest_mismatch_removes_partial_and_publishes_nothing (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_DigestMismatchRemovesPartialAndPublishesNothing(t *testing.T) {
-	service, database, root := newMaterializationParityService(t)
+	service, root := newMaterializationParityService(t)
 	expected := []byte("GGUF expected evaluation model")
-	digestBytes := sha256.Sum256(expected)
-	digest := hex.EncodeToString(digestBytes[:])
-	queued := queueMaterializationParityInstallation(t, database, "installation:digest-mismatch", int64(len(expected)))
+	request := materializationParityRequest(root, expected)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte("GGUF incorrect evaluation bytes"))
+		// Flush before writing so the response has no fixed content length. This
+		// reaches the pinned digest check with the Rust fixture's bytes.
+		writer.WriteHeader(http.StatusOK)
+		if flusher, ok := writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = writer.Write([]byte("GGUF incorrect evaluation byte"))
 	}))
 	t.Cleanup(server.Close)
-	err := service.download(t.Context(), queued, server.URL, digest, false)
-	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+	_, err := service.materializeVerifiedEvalModelFromURL(t.Context(), request, server.URL)
+	if err == nil || err.Error() != "downloaded artifact did not match its pinned SHA-256" {
 		t.Fatalf("checksum error = %v", err)
 	}
-	if entries, readErr := os.ReadDir(filepath.Join(root, "system", "tmp")); readErr != nil || len(entries) != 0 {
-		t.Fatalf("partial cache entries = %v, %v", entries, readErr)
+	destination := filepath.Join(root, request.SHA256+".gguf")
+	if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+		t.Fatalf("published destination = %v", statErr)
+	}
+	entries, readErr := os.ReadDir(root)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".partial") {
+			t.Fatalf("partial cache entry = %q", entry.Name())
+		}
 	}
 }
 
 // Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::successful_download_is_atomic_and_store_free (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_SuccessfulDownloadIsAtomicAndStoreFree(t *testing.T) {
-	service, database, root := newMaterializationParityService(t)
+	service, root := newMaterializationParityService(t)
 	bytesValue := []byte("GGUF successful evaluation model")
-	digestBytes := sha256.Sum256(bytesValue)
-	digest := hex.EncodeToString(digestBytes[:])
-	queued := queueMaterializationParityInstallation(t, database, "installation:successful", int64(len(bytesValue)))
+	request := materializationParityRequest(root, bytesValue)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write(bytesValue)
 	}))
 	t.Cleanup(server.Close)
-	if err := service.download(t.Context(), queued, server.URL, digest, false); err != nil {
+	path, err := service.materializeVerifiedEvalModelFromURL(t.Context(), request, server.URL)
+	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := database.LocalModelInstallation(t.Context(), queued.ID)
-	if err != nil || installed.Status != "installed" || installed.SHA256 != digest {
-		t.Fatalf("materialized installation = %#v, %v", installed, err)
+	expectedPath := filepath.Join(root, request.SHA256+".gguf")
+	if path != expectedPath {
+		t.Fatalf("materialized path = %q, want %q", path, expectedPath)
 	}
-	path := filepath.Join(root, filepath.FromSlash(installed.BlobPath))
 	got, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(got, bytesValue) {
 		t.Fatalf("materialized bytes = %q, %v", got, err)

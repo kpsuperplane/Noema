@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
@@ -45,6 +46,47 @@ type lineHistory struct {
 	mu      sync.Mutex
 	lines   []string
 	partial string
+}
+
+// VerifiedModelBlobPath checks an installed model's durable blob without
+// starting its runtime process.
+func (s *Service) VerifiedModelBlobPath(ctx context.Context, id string) (string, error) {
+	installation, err := s.database.LocalModelInstallation(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return verifiedModelBlobPath(ctx, s.home, installation)
+}
+
+func verifiedModelBlobPath(ctx context.Context, home string, installation store.LocalModelInstallation) (string, error) {
+	if installation.Status != "installed" {
+		return "", errors.New("installation status is not installed")
+	}
+	if installation.SHA256 == "" {
+		return "", errors.New("verified digest is missing")
+	}
+	if !validDigest(installation.SHA256) {
+		return "", errors.New("verified digest is invalid")
+	}
+	expected := filepath.ToSlash(filepath.Join("models", "blobs", installation.SHA256+".gguf"))
+	if installation.BlobPath != expected {
+		return "", errors.New("verified blob path does not match its digest")
+	}
+	blob := filepath.Join(home, filepath.FromSlash(expected))
+	digest, _, err := hashFile(ctx, blob)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return "", err
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return "", errors.New("installed model blob is unavailable")
+		}
+		return "", errors.New("installed model blob could not be verified")
+	}
+	if digest != installation.SHA256 {
+		return "", errors.New("installed model blob digest does not match its verified digest")
+	}
+	return blob, nil
 }
 
 func (h *lineHistory) String() string {
