@@ -10,6 +10,15 @@ import (
 // ErrGenerationRequestTooLarge means local replay exceeded a provider request bound.
 var ErrGenerationRequestTooLarge = errors.New("provider generation request is too large")
 
+var (
+	// ErrGenerationToolNameInvalid identifies a non-canonical tool name.
+	ErrGenerationToolNameInvalid = errors.New("tool name is invalid")
+	// ErrGenerationToolDescriptionInvalid identifies a missing model description.
+	ErrGenerationToolDescriptionInvalid = errors.New("tool description is required")
+	// ErrGenerationToolSchemaInvalid identifies a non-object input schema.
+	ErrGenerationToolSchemaInvalid = errors.New("tool input schema root must be an object")
+)
+
 // Generator performs one provider-neutral model generation.
 type Generator interface {
 	Generate(context.Context, GenerateRequest, func(StreamEvent)) (GenerationResult, error)
@@ -133,6 +142,42 @@ type GenerationTool struct {
 	InputSchema json.RawMessage `json:"input_schema"`
 }
 
+// ToolSchema preserves one provider-neutral JSON schema without mapping it
+// through a Go object model.
+type ToolSchema struct {
+	raw json.RawMessage
+}
+
+// NewInputToolSchema validates one model input schema and keeps its exact JSON.
+func NewInputToolSchema(toolName string, raw json.RawMessage) (ToolSchema, error) {
+	if err := validateGenerationToolName(toolName); err != nil {
+		return ToolSchema{}, err
+	}
+	var object map[string]any
+	if json.Unmarshal(raw, &object) != nil || object["type"] != "object" {
+		return ToolSchema{}, ErrGenerationToolSchemaInvalid
+	}
+	return ToolSchema{raw: append(json.RawMessage(nil), raw...)}, nil
+}
+
+// MarshalJSON writes the schema as its raw object value.
+func (schema ToolSchema) MarshalJSON() ([]byte, error) {
+	if len(schema.raw) == 0 {
+		return []byte("null"), nil
+	}
+	return schema.raw, nil
+}
+
+// UnmarshalJSON validates and preserves one raw object schema.
+func (schema *ToolSchema) UnmarshalJSON(raw []byte) error {
+	var object map[string]any
+	if json.Unmarshal(raw, &object) != nil || object["type"] != "object" {
+		return ErrGenerationToolSchemaInvalid
+	}
+	schema.raw = append(schema.raw[:0], raw...)
+	return nil
+}
+
 // Validate checks the provider-neutral tool contract before a provider maps it
 // into its own request format.
 func (tool GenerationTool) Validate() error {
@@ -140,25 +185,25 @@ func (tool GenerationTool) Validate() error {
 		return err
 	}
 	if strings.TrimSpace(tool.Description) == "" {
-		return errors.New("tool description is required")
+		return ErrGenerationToolDescriptionInvalid
 	}
 	var schema map[string]any
 	if json.Unmarshal(tool.InputSchema, &schema) != nil || schema["type"] != "object" {
-		return errors.New("tool input schema root must be an object")
+		return ErrGenerationToolSchemaInvalid
 	}
 	return nil
 }
 
 func validateGenerationToolName(name string) error {
 	if name == "" || strings.TrimSpace(name) != name {
-		return errors.New("tool name is invalid")
+		return ErrGenerationToolNameInvalid
 	}
 	for _, character := range name {
 		if !((character >= 'a' && character <= 'z') ||
 			(character >= 'A' && character <= 'Z') ||
 			(character >= '0' && character <= '9') ||
 			character == '_' || character == '-' || character == '.' || character == ':') {
-			return errors.New("tool name is invalid")
+			return ErrGenerationToolNameInvalid
 		}
 	}
 	for _, segment := range strings.Split(name, ".") {
@@ -172,7 +217,7 @@ func validateGenerationToolName(name string) error {
 			}
 		}
 		if !valid {
-			return errors.New("tool name is invalid")
+			return ErrGenerationToolNameInvalid
 		}
 	}
 	return nil

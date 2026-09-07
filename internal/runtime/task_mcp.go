@@ -78,7 +78,10 @@ func (r *TaskExecution) executeTaskMCPAction(ctx context.Context, task store.Tas
 	if err != nil {
 		return nil, false, false, err
 	}
-	payload, success, callErr := r.mcp.Call(ctx, binding, mustJSON(claimed.Arguments))
+	arguments := mustJSON(claimed.Arguments)
+	payload, success, callErr := r.mcp.CallReviewed(ctx, binding, arguments, noemamcp.ReviewedAuthorization{
+		ActionID: claimed.ID, Revision: claimed.Revision, ArgumentsSHA256: claimed.ArgumentsSHA256,
+	})
 	if errors.Is(callErr, noemamcp.ErrAuthenticationRequired) {
 		return nil, false, true, r.createTaskMCPAuth(ctx, task, run, call, binding, mustJSON(claimed.Arguments), claimed.ID)
 	}
@@ -189,7 +192,25 @@ func (r *TaskExecution) ResumeMCPAuthentication(ctx context.Context, attemptID s
 		if json.Unmarshal([]byte(request.BindingJSON), &authority) != nil {
 			return true, errors.New("stored MCP Task authority is invalid")
 		}
-		payload, success, callErr := r.mcp.Call(ctx, authority.Binding, json.RawMessage(request.ArgumentsJSON))
+		arguments := json.RawMessage(request.ArgumentsJSON)
+		var reviewed *store.ActionRequest
+		if request.ActionID != "" {
+			loaded, loadErr := r.database.ActionRequest(ctx, request.ActionID, 1)
+			if loadErr != nil {
+				return true, loadErr
+			}
+			reviewed = &loaded
+		}
+		var payload json.RawMessage
+		var success bool
+		var callErr error
+		if reviewed != nil {
+			payload, success, callErr = r.mcp.CallReviewed(ctx, authority.Binding, arguments, noemamcp.ReviewedAuthorization{
+				ActionID: reviewed.ID, Revision: reviewed.Revision, ArgumentsSHA256: reviewed.ArgumentsSHA256,
+			})
+		} else {
+			payload, success, callErr = r.mcp.Call(ctx, authority.Binding, arguments)
+		}
 		state, failure := store.ActionSucceeded, ""
 		if callErr != nil {
 			state, failure, payload, success = store.ActionFailed, "mcp_call_failed", toolFailure("mcp_call_failed", "MCP tool call failed"), false

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,26 @@ const (
 	discoveryTimeout = 30 * time.Second
 	callTimeout      = 60 * time.Second
 )
+
+var (
+	// ErrUnknownOperation identifies a name that is absent from the current catalog.
+	ErrUnknownOperation = errors.New("MCP tool is unavailable")
+	// ErrUnknownInvoker identifies a dispatch request for an unregistered source.
+	ErrUnknownInvoker = errors.New("MCP invoker is unavailable")
+	// ErrAuthorityChanged identifies a stale binding or operation authority.
+	ErrAuthorityChanged = errors.New("MCP call authority changed")
+	// ErrInvalidArguments identifies arguments rejected by the source schema.
+	ErrInvalidArguments = errors.New("MCP arguments do not match the source schema")
+	// ErrDenied identifies an unreviewed dispatch of a reviewed binding.
+	ErrDenied = errors.New("MCP capability dispatch denied")
+)
+
+// ReviewedAuthorization binds one reviewed dispatch to its durable proposal.
+type ReviewedAuthorization struct {
+	ActionID        string
+	Revision        int
+	ArgumentsSHA256 string
+}
 
 // SetupInput contains one GraphQL MCP setup request.
 type SetupInput struct {
@@ -53,9 +74,11 @@ type Binding struct {
 	Name, Description, ServerID, ToolID, SourceRevision string
 	ConnectionRevision                                  string
 	ServerPolicyRevision, ToolPolicyRevision            int
+	InvokerKey, OperationToken                          string
 	InputSchema                                         json.RawMessage
 	Behavior                                            store.ActionBehavior
 	ReviewRoute                                         store.ActionReviewRoute
+	PersistencePolicy                                   BindingPersistencePolicy `json:"persistence_policy,omitempty"`
 }
 
 // Service owns MCP setup, credentials, catalogs, and calls.
@@ -381,6 +404,32 @@ func (s *Service) SaveToolBehavior(ctx context.Context, serverID, revision, tool
 	return s.database.SaveMCPToolPolicy(ctx, serverID, revision, toolID, source, expected, nil, &behavior, time.Now())
 }
 
+// ClassifyToolResponse validates and applies one exact model classification
+// response at the MCP authority boundary.
+func (s *Service) ClassifyToolResponse(ctx context.Context, serverID, connectionRevision, toolID, sourceRevision string, expected int, raw string) (store.MCPTool, error) {
+	tools, err := s.database.MCPTools(ctx, serverID)
+	if err != nil {
+		return store.MCPTool{}, err
+	}
+	var current store.MCPTool
+	for _, tool := range tools {
+		if tool.ID == toolID {
+			current = tool
+			break
+		}
+	}
+	if current.ID == "" {
+		return store.MCPTool{}, errors.New("MCP tool was not found")
+	}
+	completion, err := ParseToolClassificationResponse(raw, current)
+	if err != nil {
+		return store.MCPTool{}, err
+	}
+	merged := ApplyToolClassification(current, completion)
+	return s.database.ClassifyMCPTool(ctx, serverID, connectionRevision, toolID, sourceRevision, expected,
+		[4]bool{*merged.ReadOnly.Value, *merged.Idempotent.Value, *merged.Destructive.Value, *merged.OpenWorld.Value}, time.Now())
+}
+
 // SetToolEnabled changes only one exact tool availability state.
 func (s *Service) SetToolEnabled(ctx context.Context, serverID, revision, toolID, source string, expected int, enabled bool) (store.MCPTool, error) {
 	return s.database.SaveMCPToolPolicy(ctx, serverID, revision, toolID, source, expected, &enabled, nil, time.Now())
@@ -467,7 +516,8 @@ func (s *Service) Bindings(ctx context.Context) ([]Binding, error) {
 				ServerID: server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
 				ConnectionRevision: server.ConnectionRevision, ServerPolicyRevision: server.PolicyRevision,
 				ToolPolicyRevision: tool.PolicyRevision, InputSchema: append(json.RawMessage(nil), tool.InputSchema...),
-				Behavior: behavior, ReviewRoute: route})
+				Behavior: behavior, ReviewRoute: route, InvokerKey: "mcp", OperationToken: tool.Name,
+				PersistencePolicy: BindingPersistenceRedacted})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -500,22 +550,50 @@ func ValidateArguments(schemaBytes, arguments json.RawMessage) error {
 	}
 	var value map[string]any
 	if json.Unmarshal(arguments, &value) != nil {
-		return errors.New("MCP arguments are invalid")
+		return fmt.Errorf("%w: invalid JSON", ErrInvalidArguments)
 	}
 	if err := resolved.Validate(value); err != nil {
-		return errors.New("MCP arguments do not match the source schema")
+		return ErrInvalidArguments
 	}
 	return nil
 }
 
 // Call executes one binding after every durable and remote revision check.
 func (s *Service) Call(ctx context.Context, authority Binding, arguments json.RawMessage) (json.RawMessage, bool, error) {
+	if authority.ReviewRoute != "" {
+		return nil, false, ErrDenied
+	}
+	return s.call(ctx, authority, arguments, nil)
+}
+
+// CallReviewed executes one reviewed binding only when its exact durable
+// authorization and argument digest are supplied.
+func (s *Service) CallReviewed(ctx context.Context, authority Binding, arguments json.RawMessage, authorization ReviewedAuthorization) (json.RawMessage, bool, error) {
+	if authority.ReviewRoute == "" || authorization.ActionID == "" || authorization.Revision != 1 || authorization.ArgumentsSHA256 == "" {
+		return nil, false, ErrDenied
+	}
+	digest := sha256.Sum256(arguments)
+	if hex.EncodeToString(digest[:]) != authorization.ArgumentsSHA256 {
+		return nil, false, ErrInvalidArguments
+	}
+	return s.call(ctx, authority, arguments, &authorization)
+}
+
+func (s *Service) call(ctx context.Context, authority Binding, arguments json.RawMessage, reviewed *ReviewedAuthorization) (json.RawMessage, bool, error) {
+	if authority.InvokerKey != "" && authority.InvokerKey != "mcp" {
+		return nil, false, ErrUnknownInvoker
+	}
 	current, err := s.Binding(ctx, authority.Name)
 	if err != nil {
-		return nil, false, errors.New("MCP tool is unavailable")
+		return nil, false, ErrUnknownOperation
+	}
+	if authority.OperationToken != "" && current.OperationToken != authority.OperationToken &&
+		current.Name == authority.Name && current.ServerID == authority.ServerID && current.ToolID == authority.ToolID &&
+		current.SourceRevision == authority.SourceRevision && current.ConnectionRevision == authority.ConnectionRevision {
+		return nil, false, ErrUnknownOperation
 	}
 	if !sameBindingAuthority(current, authority) {
-		return nil, false, errors.New("MCP call authority changed")
+		return nil, false, ErrAuthorityChanged
 	}
 	if err := ValidateArguments(current.InputSchema, arguments); err != nil {
 		return nil, false, err
@@ -542,8 +620,12 @@ func (s *Service) Call(ctx context.Context, authority Binding, arguments json.Ra
 	}
 	callContext, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+	operation := current.OperationToken
+	if operation == "" {
+		operation = strings.TrimPrefix(current.Name, "mcp."+server.ID+".")
+	}
 	result, success, err := CallExact(callContext, Config{TransportKind: server.TransportKind, SafeConfig: server.SafeConfig, Secrets: secrets},
-		strings.TrimPrefix(current.Name, "mcp."+server.ID+"."), current.SourceRevision, object)
+		operation, current.SourceRevision, object)
 	if err != nil {
 		_ = s.errors.Write("mcp.call_failed", diagnostics.Text("server_id", server.ID),
 			diagnostics.Text("tool_name", current.Name), diagnostics.Text("detail", err.Error()))
@@ -741,7 +823,9 @@ func sameBindingAuthority(left, right Binding) bool {
 	return left.Name == right.Name && left.ServerID == right.ServerID && left.ToolID == right.ToolID &&
 		left.SourceRevision == right.SourceRevision && left.ConnectionRevision == right.ConnectionRevision &&
 		left.ServerPolicyRevision == right.ServerPolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision &&
-		left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
+		left.InvokerKey == right.InvokerKey && left.OperationToken == right.OperationToken &&
+		left.PersistencePolicy == right.PersistencePolicy && left.Behavior == right.Behavior &&
+		left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
 }
 func emptyNil(value string) any {
 	if value == "" {

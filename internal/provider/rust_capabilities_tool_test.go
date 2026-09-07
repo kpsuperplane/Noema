@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -10,7 +11,7 @@ import (
 func TestRustCapabilities_canonical_tool_spec_requires_object_input_schema(t *testing.T) {
 	if err := (GenerationTool{
 		Name: "web.search", Description: "Search.", InputSchema: json.RawMessage(`{"type":"string"}`),
-	}).Validate(); err == nil {
+	}).Validate(); err == nil || !errors.Is(err, ErrGenerationToolSchemaInvalid) {
 		t.Error("non-object input schema was accepted")
 	}
 	if err := (GenerationTool{
@@ -20,7 +21,7 @@ func TestRustCapabilities_canonical_tool_spec_requires_object_input_schema(t *te
 	}
 	if err := (GenerationTool{
 		Name: "web.search", Description: "  ", InputSchema: json.RawMessage(`{"type":"object"}`),
-	}).Validate(); err == nil {
+	}).Validate(); err == nil || !errors.Is(err, ErrGenerationToolDescriptionInvalid) {
 		t.Error("empty description was accepted")
 	}
 }
@@ -53,7 +54,11 @@ func TestRustCapabilities_tool_schema_serializes_as_raw_json_schema(t *testing.T
 	if err := tool.Validate(); err != nil {
 		t.Fatalf("object schema: %v", err)
 	}
-	raw, err := json.Marshal(tool)
+	schema, err := NewInputToolSchema("web.search", tool.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(schema)
 	if err != nil {
 		t.Fatalf("schema serialization: %v", err)
 	}
@@ -61,14 +66,35 @@ func TestRustCapabilities_tool_schema_serializes_as_raw_json_schema(t *testing.T
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("schema JSON: %v", err)
 	}
-	if !reflect.DeepEqual(got, map[string]any{
+	if !reflect.DeepEqual(got, map[string]any{"type": "object", "required": []any{}}) {
+		t.Errorf("schema = %#v", got)
+	}
+	toolRaw, err := json.Marshal(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var toolJSON map[string]any
+	if err := json.Unmarshal(toolRaw, &toolJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(toolJSON, map[string]any{
 		"name": "web.search", "description": "Search.", "input_schema": map[string]any{"type": "object", "required": []any{}},
 	}) {
-		t.Errorf("schema = %#v", got)
+		t.Errorf("tool schema = %#v", toolJSON)
+	}
+	var decoded ToolSchema
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewInputToolSchema("web.search", json.RawMessage(`{"type":"array"}`)); !errors.Is(err, ErrGenerationToolSchemaInvalid) {
+		t.Fatalf("array schema error = %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"type":"object"}`), &decoded); err != nil {
+		t.Fatalf("object schema unmarshal: %v", err)
 	}
 	if err := (GenerationTool{
 		Name: "web.search", Description: "Search.", InputSchema: json.RawMessage(`{"type":"array"}`),
-	}).Validate(); err == nil {
+	}).Validate(); err == nil || !errors.Is(err, ErrGenerationToolSchemaInvalid) {
 		t.Error("array schema was accepted")
 	}
 }

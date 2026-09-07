@@ -2,7 +2,10 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -138,13 +141,18 @@ func TestRustCapabilities_strict_resolution_rejects_unknown_and_forwards_exact_t
 	if calls != 1 || operation != "read" || !reflect.DeepEqual(forwarded, map[string]any{"text": "ordinary", "forged_invoker": "forged", "operation_token": "forged"}) {
 		t.Fatalf("forwarded MCP invocation = calls %d, operation %q, arguments %#v", calls, operation, forwarded)
 	}
-	if fixture.binding.Name != "mcp."+fixture.binding.ServerID+".read" || fixture.binding.ToolID == "" || fixture.binding.SourceRevision == "" || fixture.binding.ConnectionRevision == "" {
+	if fixture.binding.Name != "mcp."+fixture.binding.ServerID+".read" || fixture.binding.InvokerKey != "mcp" || fixture.binding.OperationToken != operation || fixture.binding.ToolID == "" || fixture.binding.SourceRevision == "" || fixture.binding.ConnectionRevision == "" {
 		t.Fatalf("forwarded MCP target authority = %#v", fixture.binding)
 	}
 	unknown := fixture.binding
 	unknown.Name = "mcp.hidden.write"
-	if _, _, err := fixture.service.Call(t.Context(), unknown, arguments); err == nil || err.Error() != "MCP tool is unavailable" {
+	if payload, success, err := fixture.service.Call(t.Context(), unknown, arguments); err == nil || payload != nil || success || !errors.Is(err, noemamcp.ErrUnknownOperation) {
 		t.Fatalf("unknown advertised name error = %v", err)
+	}
+	staleOperation := fixture.binding
+	staleOperation.OperationToken = "stale-operation"
+	if payload, success, err := fixture.service.Call(t.Context(), staleOperation, arguments); err == nil || payload != nil || success || !errors.Is(err, noemamcp.ErrUnknownOperation) {
+		t.Fatalf("stale operation error = %v", err)
 	}
 	if pending, err := fixture.database.PendingActionRequests(t.Context(), "human:local", &fixture.conversation.ID, nil, 10); err != nil || len(pending) != 0 {
 		t.Fatalf("unknown call persistence = %#v, %v", pending, err)
@@ -156,6 +164,9 @@ func TestRustCapabilities_reviewed_decision_requires_explicit_reviewed_dispatch(
 	fixture := newRustCapabilityRuntimeMCPFixture(t, false, false, true, true, false)
 	if fixture.binding.ReviewRoute != store.ActionHumanReview {
 		t.Fatalf("risky MCP route = %q", fixture.binding.ReviewRoute)
+	}
+	if payload, success, err := fixture.service.Call(t.Context(), fixture.binding, json.RawMessage(`{"text":"reviewed"}`)); err == nil || payload != nil || success || !errors.Is(err, noemamcp.ErrDenied) {
+		t.Fatalf("ordinary risky dispatch = payload %s, success %t, err=%v", payload, success, err)
 	}
 	_, success, approval, _, _ := fixture.prepare(t, json.RawMessage(`{"text":"reviewed"}`))
 	if approval == nil || success {
@@ -175,6 +186,18 @@ func TestRustCapabilities_reviewed_decision_requires_explicit_reviewed_dispatch(
 	if action.OperationToken != fixture.binding.Name || action.CapabilityName != fixture.binding.Name ||
 		action.Arguments["text"] != "reviewed" || action.AuthorizationContext["mcp_binding"] == nil {
 		t.Fatalf("reviewed authorization lost exact target or arguments = %#v", action)
+	}
+	if action.ID == "" || action.Revision != 1 || action.ArgumentsSHA256 != rustCapabilityArgumentDigest(json.RawMessage(`{"text":"reviewed"}`)) {
+		t.Fatalf("reviewed authorization identity = id %q revision %d digest %q", action.ID, action.Revision, action.ArgumentsSHA256)
+	}
+	var authorizedBinding noemamcp.Binding
+	if err := json.Unmarshal(mustJSON(action.AuthorizationContext["mcp_binding"]), &authorizedBinding); err != nil {
+		t.Fatal(err)
+	}
+	if authorizedBinding.Name != fixture.binding.Name || authorizedBinding.ServerID != fixture.binding.ServerID ||
+		authorizedBinding.ToolID != fixture.binding.ToolID || authorizedBinding.SourceRevision != fixture.binding.SourceRevision ||
+		authorizedBinding.ConnectionRevision != fixture.binding.ConnectionRevision || authorizedBinding.OperationToken != fixture.binding.OperationToken {
+		t.Fatalf("reviewed binding authority = %#v", authorizedBinding)
 	}
 	payload, success, notice, err := fixture.chat.executeReviewedMCP(action)
 	if err != nil || notice != nil || !success || len(payload) == 0 {
@@ -208,6 +231,15 @@ func TestRustCapabilities_source_input_check_protects_immediate_and_reviewed_dis
 		}
 		if err := noemamcp.ValidateArguments(fixture.binding.InputSchema, invalid); err == nil {
 			t.Fatalf("reviewed=%t invalid source arguments accepted", reviewed)
+		}
+		if reviewed {
+			if _, _, err := fixture.service.CallReviewed(t.Context(), fixture.binding, invalid, noemamcp.ReviewedAuthorization{
+				ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityArgumentDigest(invalid),
+			}); !errors.Is(err, noemamcp.ErrInvalidArguments) {
+				t.Fatalf("reviewed invalid arguments error = %v", err)
+			}
+		} else if _, _, err := fixture.service.Call(t.Context(), fixture.binding, invalid); !errors.Is(err, noemamcp.ErrInvalidArguments) {
+			t.Fatalf("immediate invalid arguments error = %v", err)
 		}
 		if _, _, approval, _, _ := fixture.prepare(t, valid); reviewed && approval == nil {
 			t.Fatal("reviewed valid dispatch did not create an approval")
@@ -336,13 +368,18 @@ func TestRustCapabilities_unknown_invoker_and_stale_token_are_typed_and_sanitize
 	fixture := newRustCapabilityRuntimeMCPFixture(t, true, true, false, true, false)
 	stale := fixture.binding
 	stale.SourceRevision = "stale-source"
-	if _, _, err := fixture.service.Call(t.Context(), stale, json.RawMessage(`{"text":"stale","api_key":"private"}`)); err == nil || err.Error() != "MCP call authority changed" || strings.Contains(err.Error(), "private") {
+	if _, _, err := fixture.service.Call(t.Context(), stale, json.RawMessage(`{"text":"stale","api_key":"private"}`)); err == nil || !errors.Is(err, noemamcp.ErrAuthorityChanged) || strings.Contains(err.Error(), "private") {
 		t.Fatalf("stale MCP authority error = %v", err)
 	}
 	unknown := fixture.binding
 	unknown.Name = "mcp.unknown.read"
-	if _, _, err := fixture.service.Call(t.Context(), unknown, json.RawMessage(`{"text":"unknown","api_key":"private"}`)); err == nil || err.Error() != "MCP tool is unavailable" || strings.Contains(err.Error(), "private") {
+	if _, _, err := fixture.service.Call(t.Context(), unknown, json.RawMessage(`{"text":"unknown","api_key":"private"}`)); err == nil || !errors.Is(err, noemamcp.ErrUnknownOperation) || strings.Contains(err.Error(), "private") {
 		t.Fatalf("unknown MCP authority error = %v", err)
+	}
+	unknownInvoker := fixture.binding
+	unknownInvoker.InvokerKey = "missing"
+	if _, _, err := fixture.service.Call(t.Context(), unknownInvoker, json.RawMessage(`{"text":"unknown","api_key":"private"}`)); err == nil || !errors.Is(err, noemamcp.ErrUnknownInvoker) || strings.Contains(err.Error(), "private") {
+		t.Fatalf("unknown MCP invoker error = %v", err)
 	}
 }
 
@@ -371,3 +408,8 @@ func TestRustCapabilities_duplicate_invoker_registration_is_rejected(t *testing.
 }
 
 func rustCapabilityBool(value bool) *bool { return &value }
+
+func rustCapabilityArgumentDigest(arguments json.RawMessage) string {
+	digest := sha256.Sum256(arguments)
+	return hex.EncodeToString(digest[:])
+}

@@ -230,18 +230,29 @@ func decodeExact(raw json.RawMessage, target any) error {
 }
 
 func normalizePublicURL(ctx context.Context, raw string) (string, error) {
-	if !utf8.ValidString(raw) || utf8.RuneCountInString(raw) > 2048 {
-		return "", errors.New("public URL is invalid")
+	normalized, err := normalizePublicURLTarget(raw)
+	if err != nil {
+		return "", err
 	}
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.User != nil {
-		return "", errors.New("public URL is invalid")
-	}
-	checked, err := netpolicy.CheckURL(ctx, parsed.String())
+	checked, err := netpolicy.CheckURL(ctx, normalized)
 	if err != nil {
 		return "", err
 	}
 	return checked.URL.String(), nil
+}
+
+// normalizePublicURLTarget validates and normalizes a public URL without DNS
+// resolution. Callers that perform a network request must use normalizePublicURL.
+func normalizePublicURLTarget(raw string) (string, error) {
+	if !utf8.ValidString(raw) || utf8.RuneCountInString(raw) > 2048 {
+		return "", errors.New("public URL is invalid")
+	}
+	checked, err := netpolicy.CheckURLTarget(strings.TrimSpace(raw))
+	if err != nil {
+		return "", err
+	}
+	checked.Fragment = ""
+	return checked.String(), nil
 }
 
 func observationURL(ctx context.Context, raw string) (string, error) {

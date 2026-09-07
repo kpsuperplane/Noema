@@ -1,7 +1,6 @@
 package webtool
 
 import (
-	"context"
 	"net/netip"
 	"testing"
 
@@ -17,7 +16,7 @@ func TestRustCapabilities_accepts_public_url_without_resolving_dns(t *testing.T)
 	if url.Hostname() != "www.rust-lang.org" {
 		t.Errorf("public URL host = %q", url.Hostname())
 	}
-	normalized, err := observationURL(context.Background(), " HTTPS://Example.COM:443/a/../b?q=1#section ")
+	normalized, err := normalizePublicURLTarget(" HTTPS://Example.COM:443/a/../b?q=1#section ")
 	if err != nil {
 		t.Fatalf("normalize URL: %v", err)
 	}

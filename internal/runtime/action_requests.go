@@ -104,7 +104,10 @@ func (c *Chat) executeReviewedMCP(action store.ActionRequest) (json.RawMessage, 
 	if err != nil {
 		return nil, false, nil, err
 	}
-	payload, success, callErr := c.mcp.Call(c.ctx, binding, mustJSON(claimed.Arguments))
+	arguments := mustJSON(claimed.Arguments)
+	payload, success, callErr := c.mcp.CallReviewed(c.ctx, binding, arguments, noemamcp.ReviewedAuthorization{
+		ActionID: claimed.ID, Revision: claimed.Revision, ArgumentsSHA256: claimed.ArgumentsSHA256,
+	})
 	if errors.Is(callErr, noemamcp.ErrAuthenticationRequired) {
 		assignment, assignmentErr := storedModelAssignment(claimed.AuthorizationContext)
 		if assignmentErr != nil {

@@ -177,7 +177,18 @@ func (c *Chat) resolveMCPAuthentication(input mcpAuthResolution) (store.MCPAuthR
 		binding, assignment, responseID, hostedState, decodeErr := decodeMCPAuthAuthority(request.BindingJSON)
 		payload, success := toolFailure("mcp_authentication_failed", "MCP authentication failed"), false
 		if decodeErr == nil {
-			payload, success, decodeErr = c.mcp.Call(c.ctx, binding, json.RawMessage(request.ArgumentsJSON))
+			arguments := json.RawMessage(request.ArgumentsJSON)
+			if request.ActionID != "" {
+				var action store.ActionRequest
+				action, decodeErr = c.database.ActionRequest(c.ctx, request.ActionID, 1)
+				if decodeErr == nil {
+					payload, success, decodeErr = c.mcp.CallReviewed(c.ctx, binding, arguments, noemamcp.ReviewedAuthorization{
+						ActionID: action.ID, Revision: action.Revision, ArgumentsSHA256: action.ArgumentsSHA256,
+					})
+				}
+			} else {
+				payload, success, decodeErr = c.mcp.Call(c.ctx, binding, arguments)
+			}
 		}
 		state, failure := "completed", ""
 		if decodeErr != nil {
