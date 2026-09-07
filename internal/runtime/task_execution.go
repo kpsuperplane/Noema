@@ -61,6 +61,9 @@ type TaskExecution struct {
 	cancel                           context.CancelFunc
 	done                             chan struct{}
 	closeOnce                        sync.Once
+	activeMu                         sync.Mutex
+	activeTasks                      map[string]struct{}
+	activeChanged                    chan struct{}
 }
 
 // NewTaskExecution starts the event-driven built-in Task worker.
@@ -108,7 +111,7 @@ func NewTaskExecution(
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, local: localModels,
 		mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools, errors: errorLog,
-		ctx: ctx, cancel: cancel, done: make(chan struct{}),
+		ctx: ctx, cancel: cancel, done: make(chan struct{}), activeTasks: make(map[string]struct{}), activeChanged: make(chan struct{}),
 	}
 	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
 	if err == nil {
@@ -180,6 +183,15 @@ func (r *TaskExecution) run() {
 func (r *TaskExecution) runWorker() {
 	wake := r.database.SubscribeWork(r.ctx)
 	for r.ctx.Err() == nil {
+		if r.activeTaskHasQueuedSuccessor(r.ctx) {
+			select {
+			case <-r.ctx.Done():
+				return
+			case <-wake:
+			case <-r.activeTaskChangeSignal():
+			}
+			continue
+		}
 		task, run, found, err := r.database.ClaimTaskExecution(r.ctx, time.Now())
 		if err != nil {
 			select {
@@ -197,10 +209,12 @@ func (r *TaskExecution) runWorker() {
 			}
 			continue
 		}
+		r.markActiveTask(task.ID)
 		runContext, cancel := context.WithCancel(r.ctx)
 		finished := make(chan struct{})
 		go func() {
 			defer close(finished)
+			defer r.markInactiveTask(task.ID)
 			r.execute(runContext, task, run)
 		}()
 		for {
@@ -221,6 +235,60 @@ func (r *TaskExecution) runWorker() {
 		}
 	next:
 	}
+}
+
+func (r *TaskExecution) markActiveTask(taskID string) {
+	r.activeMu.Lock()
+	defer r.activeMu.Unlock()
+	if r.activeTasks == nil {
+		r.activeTasks = make(map[string]struct{})
+	}
+	r.activeTasks[taskID] = struct{}{}
+}
+
+func (r *TaskExecution) markInactiveTask(taskID string) {
+	r.activeMu.Lock()
+	delete(r.activeTasks, taskID)
+	previous := r.activeChanged
+	r.activeChanged = make(chan struct{})
+	r.activeMu.Unlock()
+	if previous != nil {
+		close(previous)
+	}
+}
+
+func (r *TaskExecution) activeTaskChangeSignal() <-chan struct{} {
+	r.activeMu.Lock()
+	defer r.activeMu.Unlock()
+	if r.activeChanged == nil {
+		r.activeChanged = make(chan struct{})
+	}
+	return r.activeChanged
+}
+
+func (r *TaskExecution) activeTaskHasQueuedSuccessor(ctx context.Context) bool {
+	r.activeMu.Lock()
+	taskIDs := make([]string, 0, len(r.activeTasks))
+	for taskID := range r.activeTasks {
+		taskIDs = append(taskIDs, taskID)
+	}
+	r.activeMu.Unlock()
+	for _, taskID := range taskIDs {
+		task, err := r.database.Task(ctx, taskID)
+		if err != nil || task.CurrentRunID == "" {
+			continue
+		}
+		runs, err := r.database.TaskRuns(ctx, taskID, 10)
+		if err != nil {
+			continue
+		}
+		for _, run := range runs {
+			if run.ID == task.CurrentRunID && run.Status == "queued" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *TaskExecution) execute(parent context.Context, task store.Task, run store.TaskRun) {

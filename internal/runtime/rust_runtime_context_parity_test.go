@@ -42,12 +42,19 @@ func TestRustRuntime_compaction_transcript_keeps_ordered_text_and_tool_history(t
 func TestRustRuntime_compaction_transcript_excludes_persisted_browser_screenshots(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/context_compaction.rs::compaction_transcript_excludes_persisted_browser_screenshots.
 	payload := json.RawMessage(`{"snapshot":{"url":"https://example.test/reservations","title":"Reservations","snapshot_revision":7},"screenshot":{"media_type":"image/png","data":"` + strings.Repeat("x", 600_000) + `","width":1280,"height":720}}`)
-	bounded := boundedModelToolPayload(payload, modelToolPayloadLimit)
-	if len(bounded) > modelToolPayloadLimit || strings.Contains(string(bounded), strings.Repeat("x", 1_000)) {
-		t.Fatalf("bounded browser result retained screenshot bytes: len=%d", len(bounded))
+	continuation := NewContinuationContext([]provider.GenerationMessage{{Role: "user", Content: "Review the page"}})
+	continuation.AppendResponse(provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "call:browser", Name: "web.browse.snapshot", Payload: json.RawMessage(`{"url":"https://example.test/reservations"}`)}}})
+	continuation.AppendResults([]ContinuationToolResult{{ProviderCallID: "call:browser", Name: "web.browse.snapshot", Payload: payload, Success: true}})
+	items := continuation.providerInput(true)
+	if len(items) != 3 || items[len(items)-1].message.ToolResult == nil {
+		t.Fatalf("continuation browser items = %#v", items)
+	}
+	bounded := items[len(items)-1].message.ToolResult.Payload
+	if len(bounded) > modelToolResultLimit || strings.Contains(string(bounded), strings.Repeat("x", 1_000)) {
+		t.Fatalf("production continuation retained screenshot bytes: len=%d", len(bounded))
 	}
 	if !strings.Contains(string(bounded), "reservations") {
-		t.Fatalf("bounded browser result lost ordinary snapshot context")
+		t.Fatalf("production continuation lost ordinary snapshot context")
 	}
 }
 
@@ -101,38 +108,33 @@ func TestRustRuntime_continuation_context_preserves_reasoning_calls_and_results_
 			Payload: json.RawMessage(`{"url":"https://example.test/bears"}`),
 		}},
 	}
-	items := joinContextMessages(
-		[]provider.GenerationMessage{{Role: "user", Content: "Research bears"}},
-		taskResultMessages(result),
-	)
-	if len(items) != 3 || items[1].Role != "hosted_web_search" || items[1].HostedSearch == nil ||
-		items[2].Role != "assistant" || len(items[2].ReasoningDetails) != 1 {
-		t.Fatalf("provider continuation prefix = %#v", items)
+	continuation := NewContinuationContext([]provider.GenerationMessage{{Role: "user", Content: "Research bears"}})
+	continuation.AppendResponse(result)
+	continuation.AppendResults([]ContinuationToolResult{{ProviderCallID: "call_1", Name: "web.fetch", ProviderName: "web", Arguments: result.ToolCalls[0].Payload, Success: true, Payload: json.RawMessage(`{"content":"450,000 black bears"}`)}})
+	items := continuation.providerInput(true)
+	if len(items) != 6 || items[0].kind != "message" || items[1].kind != "reasoning" || items[2].kind != "hosted_web_search" || items[3].kind != "assistant_text" || items[4].kind != "tool_call" || items[5].kind != "tool_result" {
+		t.Fatalf("continuation ordered items = %#v", items)
 	}
-	items[2].ToolCalls = []provider.ReplayToolCall{{
-		ProviderItemID: "item_1", ProviderCallID: "call_1", ProviderName: "web", Name: "web.fetch",
-		Arguments: result.ToolCalls[0].Payload,
-	}}
-	items = append(items, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{
-		Name: "web.fetch", ProviderName: "web", ProviderCallID: "call_1",
-		Arguments: result.ToolCalls[0].Payload, Success: true,
-		Payload: json.RawMessage(`{"content":"450,000 black bears"}`),
-	}})
-	if len(items) != 4 || items[0].Role != "user" || items[1].HostedSearch == nil ||
-		items[1].HostedSearch.Status != "completed" || items[1].HostedSearch.Arguments == nil ||
-		!strings.Contains(string(items[1].HostedSearch.Arguments), "black bears") ||
-		items[2].Content != result.Text || len(items[2].ToolCalls) != 1 ||
-		items[2].ToolCalls[0].ProviderCallID != "call_1" || items[3].ToolResult == nil ||
-		!strings.Contains(string(items[3].ToolResult.Payload), "450,000 black bears") {
+	if items[2].message.HostedSearch == nil || items[2].message.HostedSearch.Status != "completed" || items[2].message.HostedSearch.Arguments == nil ||
+		!strings.Contains(string(items[2].message.HostedSearch.Arguments), "black bears") ||
+		items[3].message.Content != result.Text || len(items[4].message.ToolCalls) != 1 ||
+		items[4].message.ToolCalls[0].ProviderCallID != "call_1" || items[5].message.ToolResult == nil ||
+		!strings.Contains(string(items[5].message.ToolResult.Payload), "450,000 black bears") {
 		t.Fatalf("continuation order = %#v", items)
 	}
 }
 
 func TestRustRuntime_model_facing_tool_results_are_bounded_before_admission(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/continuation_context.rs::model_facing_tool_results_are_bounded_before_admission.
-	payload := boundedModelToolPayload(json.RawMessage(`{"content":"`+strings.Repeat("x", modelToolPayloadLimit+1000)+`"}`), modelToolPayloadLimit)
-	if len(payload) > modelToolPayloadLimit || !strings.Contains(string(payload), "truncated") {
-		t.Fatalf("model tool result bound = %d, %s", len(payload), payload[:min(len(payload), 200)])
+	continuation := NewContinuationContext([]provider.GenerationMessage{{Role: "user", Content: "Inspect a large result"}})
+	continuation.AppendResults([]ContinuationToolResult{{CallID: "call_large", Name: "web.fetch", Payload: json.RawMessage(`{"content":"` + strings.Repeat("x", modelToolResultLimit+1000) + `"}`), Success: true}})
+	items := continuation.providerInput(true)
+	if len(items) != 2 || items[1].message.ToolResult == nil {
+		t.Fatalf("model continuation items = %#v", items)
+	}
+	payload := items[1].message.ToolResult.Payload
+	if len(payload) > modelToolResultLimit || !strings.Contains(string(payload), "truncated") {
+		t.Fatalf("production model tool result bound = %d, %s", len(payload), payload[:min(len(payload), 200)])
 	}
 }
 
@@ -171,8 +173,22 @@ func TestRustRuntime_iterative_compaction_remeasures_and_rebases_the_response_ch
 
 func TestRustRuntime_oversized_active_result_is_rejected_without_provider_dispatch(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/continuation_context.rs::oversized_active_result_is_rejected_without_provider_dispatch.
-	if len(boundedModelToolPayload(json.RawMessage(`{"content":"`+strings.Repeat("x", modelToolResultLimit+1)+`"}`), modelToolResultLimit)) != modelToolResultLimit {
-		t.Fatal("oversized active result was not bounded")
+	database := contextTestStore(t, 1_200)
+	called := false
+	generator := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		called = true
+		return provider.GenerationResult{Text: "must not dispatch"}, nil
+	})
+	continuation := NewContinuationContext([]provider.GenerationMessage{{Role: "user", Content: "Inspect one message"}})
+	continuation.AppendResponse(provider.GenerationResult{Text: "Fetching."})
+	continuation.AppendResults([]ContinuationToolResult{{CallID: "call_1", Name: "web.fetch", Payload: json.RawMessage(`{"content":"` + strings.Repeat("x", 5_000) + `"}`), Success: true}})
+	active, err := continuation.AdmissionMessages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, compacted, err := prepareModelContext(t.Context(), modelContextRequest{database: database, generator: generator, accountID: "provider_account:openrouter:context-test", providerKind: "openrouter", model: "test", active: active, outputReserve: 128})
+	if err == nil || compacted || called || !strings.Contains(err.Error(), "no completed history") {
+		t.Fatalf("production continuation overflow = compacted %t, called %t, error %v", compacted, called, err)
 	}
 }
 

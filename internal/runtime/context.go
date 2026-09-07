@@ -28,7 +28,11 @@ type modelContextRequest struct {
 }
 
 func prepareModelContext(ctx context.Context, request modelContextRequest) ([]provider.GenerationMessage, bool, error) {
-	messages := joinContextMessages(request.base, request.completed, request.active)
+	continuation := NewContinuationContext(joinContextMessages(request.base, request.completed, request.active))
+	messages, err := continuation.AdmissionMessages()
+	if err != nil {
+		return nil, false, err
+	}
 	window, err := contextWindow(ctx, request.database, request.accountID, request.providerKind, request.model)
 	if err != nil || window == 0 {
 		return messages, false, err
