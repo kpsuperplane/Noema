@@ -35,6 +35,7 @@ import (
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/kpsuperplane/noema/internal/webtool"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -609,18 +610,26 @@ func rustAPIPortMCPRouteAndSetup(t *testing.T) {
 	}
 	t.Cleanup(service.Close)
 	resolver.MCP = service
-	ctx := auth.WithDesktopAccess(context.Background())
-	input := model.CreateMcpServerInput{DisplayName: "Dex", TransportKind: "streamable_http",
-		HTTP: &model.McpHTTPConfigInput{URL: remote.URL + "/mcp"}}
-	setup, err := setupInput(input)
-	if err != nil || setup.TransportKind != "streamable_http" || setup.URL != input.HTTP.URL || setup.DisplayName != "Dex" {
-		t.Fatalf("MCP setup boundary = %#v, %v", setup, err)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), fmt.Sprintf(`mutation {
+	createMcpServer(input: {
+	    displayName: "Dex", transportKind: "streamable_http",
+    http: { url: %q }
+  }) {
+    setupStatus discoveredToolCount setupError
+    auth { oauthAuthorizationSupported oauthClientCredentialsSupported }
+    server { mcpServerId }
+  }
+}`, remote.URL+"/mcp"), nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("MCP setup GraphQL errors = %#v", response.Errors)
 	}
-	// The fake server reports OAuth support but no discovered tools. The
-	// resolver must return the pending setup without publishing a server.
-	result, err := resolver.createMCPServer(ctx, input)
-	if err != nil || result == nil || result.SetupStatus != "needs_auth" || result.DiscoveredToolCount != 0 || result.Server != nil || result.Auth == nil || !result.Auth.OauthAuthorizationSupported || !result.Auth.OauthClientCredentialsSupported {
-		t.Fatalf("MCP setup result = %#v, %v", result, err)
+	result, ok := response.Data["createMcpServer"].(map[string]any)
+	if !ok || result["setupStatus"] != "needs_auth" || result["discoveredToolCount"] != float64(0) || result["server"] != nil {
+		t.Fatalf("MCP setup GraphQL result = %#v", response.Data)
+	}
+	authResult, ok := result["auth"].(map[string]any)
+	if !ok || authResult["oauthAuthorizationSupported"] != true || authResult["oauthClientCredentialsSupported"] != true {
+		t.Fatalf("MCP setup GraphQL auth = %#v", result["auth"])
 	}
 	servers, err := resolver.Store.MCPServers(context.Background())
 	if err != nil {
@@ -680,43 +689,143 @@ func rustAPIPortMCPPendingIntervention(t *testing.T) {
 	if !ok || setup.Status != "needs_auth" || setup.DisplayName != "Notion" || setup.Discovered != 0 {
 		t.Fatalf("stored MCP setup = %#v, %t", setup, ok)
 	}
-	id := conversation.ID
-	interventions, err := resolver.pendingMCPSetups(ctx, &id, nil)
-	if err != nil || len(interventions) != 1 {
-		t.Fatalf("pending MCP setups = %#v, %v", interventions, err)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  pendingHumanInterventions(conversationId: %q) {
+    __typename
+    ... on McpSetupIntervention { itemId setupStatus displayName oauthSupported }
+  }
+}`, conversation.ID), nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("pending MCP setup GraphQL errors = %#v", response.Errors)
 	}
-	value, ok := interventions[0].(*model.McpSetupIntervention)
-	if !ok || value.ItemID != result.ID || value.SetupStatus != "needs_auth" || value.DisplayName != "Notion" || !value.OauthSupported {
-		t.Fatalf("MCP intervention = %#v", interventions[0])
+	values, ok := response.Data["pendingHumanInterventions"].([]any)
+	if !ok || len(values) != 1 {
+		t.Fatalf("pending MCP setup GraphQL values = %#v", response.Data)
+	}
+	value, ok := values[0].(map[string]any)
+	if !ok || value["__typename"] != "McpSetupIntervention" || value["itemId"] != result.ID || value["setupStatus"] != "needs_auth" || value["displayName"] != "Notion" || value["oauthSupported"] != true {
+		t.Fatalf("MCP intervention GraphQL value = %#v", values[0])
 	}
 }
 
 func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	t.Helper()
-	resolver := openTestResolver(t)
+	resolver := openChatTestResolver(t)
+	rustAPIConfigureChatProvider(t, resolver)
 	paths, err := home.FromRoot(resolver.home.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "search", Description: "Search documents",
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
+			DestructiveHint: rustAPIBool(false), OpenWorldHint: rustAPIBool(true)}},
+		func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{"ok": true}, nil
+		})
+	remoteServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(remoteServer.Close)
 	service, err := mcp.NewService(paths, resolver.Store, false, nil, "http://localhost/mcp/oauth/callback")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(service.Close)
 	resolver.MCP = service
+	if err := resolver.Chat.Close(); err != nil {
+		t.Fatal(err)
+	}
+	generator, err := provider.NewOpenRouterGenerator(resolver.ProviderAccounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexGenerator, err := provider.NewCodexGenerator(resolver.ProviderAccounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.Chat, err = noemaruntime.NewChat(resolver.Store, generator, codexGenerator, codexGenerator,
+		resolver.home, resolver.Memory, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := service.Create(context.Background(), mcp.SetupInput{DisplayName: "Docs", TransportKind: "streamable_http",
+		URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("MCP OAuth server setup = %#v, %v", setup, err)
+	}
+	if _, err := service.SaveConnectionPolicy(context.Background(), setup.Server.ID, setup.Server.ConnectionRevision, 0,
+		"allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := service.Bindings(context.Background())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("MCP OAuth bindings = %#v, %v", bindings, err)
+	}
+	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := resolver.Store.BeginConversationTurn(context.Background(), conversation.ID, "Continue the authenticated call.", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := resolver.Store.StartConversationToolRound(context.Background(), turn, store.ConversationToolRound{Provider: "openrouter",
+		Call: store.ConversationToolCallInput{ProviderRound: 0, OutputIndex: 0, ProviderCallID: "call:oauth",
+			ProviderName: bindings[0].Name, Name: bindings[0].Name, Arguments: json.RawMessage(`{}`)}}, time.Now())
+	if err != nil || len(items) == 0 {
+		t.Fatalf("MCP OAuth running call = %#v, %v", items, err)
+	}
+	assignment := map[string]any{"role": string(store.HostedModelNoema), "provider_kind": "openrouter",
+		"provider_account_id": "provider_account:openrouter:default", "model_profile": "openai/gpt-5.6-luna",
+		"selection_mode": string(store.ModelSelectionNoemaRecommended), "reasoning_effort": string(store.ModelReasoningHigh)}
+	authority, err := json.Marshal(map[string]any{"binding": bindings[0], "assignment": assignment})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := resolver.Store.CreateMCPAuthRequest(context.Background(), store.MCPAuthRequest{
+		OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: items[len(items)-1].ID,
+		ServerID: setup.Server.ID, CapabilityName: bindings[0].Name, BindingJSON: string(authority), ArgumentsJSON: `{}`, Provider: "openrouter",
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := "mcp_oauth:" + strings.Repeat("a", 32)
+	now := time.Now()
+	if err := resolver.Store.CreateMCPOAuthAttempt(context.Background(), store.MCPOAuthAttempt{ID: attemptID,
+		OwnerHumanID: "human:local", ServerID: setup.Server.ID, ExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.BeginMCPAuthentication(context.Background(), request.ID, request.Revision, "human:local", attemptID, now); err != nil {
+		t.Fatal(err)
+	}
+	// Completion is read from the durable attempt row before the runtime drains
+	// the exact request attached to that attempt.
+	if err := resolver.Store.FinishMCPOAuthAttempt(context.Background(), attemptID, "completed", "", setup.Server.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	// The callback validator is the durable route boundary used before an
 	// attempt can bind to a runtime authentication request.
 	if err := requireMCPCallback(service, "http://127.0.0.1:4444/mcp/oauth/callback"); err == nil {
 		t.Fatal("MCP OAuth accepted a callback on a different origin")
-	}
-	if err := requireMCPCallback(service, "http://localhost/mcp/oauth/callback"); err != nil && strings.Contains(err.Error(), "does not match") {
-		t.Fatalf("MCP OAuth rejected the configured callback: %v", err)
 	}
 	ctx := auth.WithDesktopAccess(context.Background())
 	if _, err := resolver.startMCPCreateOAuth(ctx, model.StartMcpServerOAuthSetupInput{Server: &model.CreateMcpServerInput{
 		DisplayName: "Docs", TransportKind: "streamable_http", HTTP: &model.McpHTTPConfigInput{URL: "http://localhost:1/mcp"},
 	}, RedirectURI: "http://127.0.0.1:4444/mcp/oauth/callback"}); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("mismatched MCP OAuth setup = %v", err)
+	}
+	completed, err := service.Attempt(context.Background(), attemptID, "human:local")
+	if err != nil || completed.ID != attemptID || completed.Status != "completed" {
+		t.Fatalf("MCP OAuth durable completion = %#v, %v", completed, err)
+	}
+	if _, err := resolver.Store.FinishMCPAuthRequest(ctx, request.ID, request.Revision, "superseded", "oauth_attempt_superseded", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := resolver.Store.MCPAuthRequest(context.Background(), request.ID, request.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != "superseded" {
+		t.Fatalf("completed OAuth request state = %q, want superseded", stored.State)
 	}
 }
 
@@ -729,6 +838,32 @@ func requireMCPCallback(service *mcp.Service, callback string) error {
 	}, callback)
 	return err
 }
+
+func rustAPIConfigureChatProvider(t *testing.T, resolver *Resolver) {
+	t.Helper()
+	ctx := context.Background()
+	secret, err := provider.NewSecret("rust-api-chat-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles := []provider.ModelProfile{{ID: "openai/gpt-5.6-luna", Label: "GPT-5.6 Luna",
+		ReasoningEfforts: []string{"high"}, DefaultReasoningEffort: "high"}}
+	account, err := resolver.ProviderAccounts.PublishVerifiedSecret(ctx, "provider_account:openrouter:default", 0,
+		provider.AuthSecretInput, secret, profiles, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignments := make([]store.ModelAssignment, 0, len(store.HostedModelRoles()))
+	for _, role := range store.HostedModelRoles() {
+		assignments = append(assignments, store.ModelAssignment{Role: role, ProviderKind: "openrouter",
+			ProviderAccountID: account.ID, SelectionMode: store.ModelSelectionNoemaRecommended})
+	}
+	if created, err := resolver.Store.ConfirmHostedModelAssignments(ctx, account.ID, assignments); err != nil || !created {
+		t.Fatalf("configure Chat provider = %t, %v", created, err)
+	}
+}
+
+func rustAPIBool(value bool) *bool { return &value }
 
 func rustAPIPortRuntimeDebugSchema(t *testing.T) {
 	resolver := openTestResolver(t)

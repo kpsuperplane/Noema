@@ -33,7 +33,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/localmodel"
 	"github.com/kpsuperplane/noema/internal/notification"
-	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
@@ -484,68 +484,106 @@ func rustAPIPortClientRevokeAll(t *testing.T) {
 
 func rustAPIPortRuntimeTurnError(t *testing.T) {
 	t.Helper()
-	resolver := openTestResolver(t)
+	resolver := openChatTestResolver(t)
+	rustAPIConfigureChatProvider(t, resolver)
+	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := resolver.conversationEvents(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready := <-stream; ready.(model.SubscriptionReadyEvent).ConversationID != conversation.ID {
+		t.Fatalf("conversation stream was not ready: %#v", ready)
+	}
+	replaceChatTransport(t, chatRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("provider failed")
+	}))
 	clientID := "client_1"
-	event, err := resolver.conversationEventModel(context.Background(), noemaruntime.Event{
-		Kind: noemaruntime.EventTransientError, ConversationID: "conversation_1",
-		ClientMessageID: &clientID, TransientMessage: "provider failed",
+	accepted, err := resolver.sendConversationTurn(ctx, model.SendConversationTurnInput{
+		ConversationID: conversation.ID, Input: "Cause a provider error.", ClientMessageID: &clientID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, ok := event.(model.ConversationItemEvent)
-	if !ok || item.ConversationID != "conversation_1" || item.ItemID != "graphql_runtime_error:conversation_1:client_1" || item.ClientMessageID == nil || *item.ClientMessageID != clientID || len(item.Metadata) != 0 {
-		t.Fatalf("runtime error item = %#v", event)
+	if accepted.ClientMessageID == nil || *accepted.ClientMessageID != clientID {
+		t.Fatalf("accepted error turn = %#v", accepted)
+	}
+	var item model.ConversationItemEvent
+	var completed model.TurnCompletedEvent
+	for item.Item == nil || completed.ConversationID == "" {
+		select {
+		case event := <-stream:
+			switch value := event.(type) {
+			case model.ConversationItemEvent:
+				if _, ok := value.Item.(model.ErrorNotice); ok {
+					item = value
+				}
+			case model.TurnCompletedEvent:
+				completed = value
+			}
+		case <-ctx.Done():
+			t.Fatalf("runtime error events timed out: item=%#v completed=%#v", item, completed)
+		}
+	}
+	if item.ConversationID != conversation.ID || item.ItemID != "graphql_runtime_error:"+conversation.ID+":"+clientID || item.ClientMessageID == nil || *item.ClientMessageID != clientID || len(item.Metadata) != 0 {
+		t.Fatalf("runtime error item = %#v", item)
 	}
 	notice, ok := item.Item.(model.ErrorNotice)
 	if !ok || !strings.Contains(notice.Message, "provider failed") || notice.Recoverable {
 		t.Fatalf("runtime error notice = %#v", item.Item)
 	}
-	completed, err := resolver.conversationEventModel(context.Background(), noemaruntime.Event{
-		Kind: noemaruntime.EventTurnCompleted, ConversationID: "conversation_1", ClientMessageID: &clientID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value, ok := completed.(model.TurnCompletedEvent); !ok || value.ConversationID != "conversation_1" || value.ClientMessageID == nil || *value.ClientMessageID != clientID {
+	if completed.ConversationID != conversation.ID || completed.ClientMessageID == nil || *completed.ClientMessageID != clientID {
 		t.Fatalf("runtime completion = %#v", completed)
 	}
 }
 
 func rustAPIPortRuntimeTurnErrorNoDuplicate(t *testing.T) {
 	t.Helper()
-	resolver := openTestResolver(t)
+	resolver := openChatTestResolver(t)
+	rustAPIConfigureChatProvider(t, resolver)
+	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := resolver.conversationEvents(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready := <-stream; ready.(model.SubscriptionReadyEvent).ConversationID != conversation.ID {
+		t.Fatalf("conversation stream was not ready: %#v", ready)
+	}
+	replaceChatTransport(t, chatRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("provider failed")
+	}))
 	clientID := "client_1"
-	persisted, err := resolver.conversationEventModel(context.Background(), noemaruntime.Event{
-		Kind: noemaruntime.EventConversationItem, ConversationID: "conversation_1", ClientMessageID: &clientID,
-		Item: &store.ConversationItem{ID: "item:persisted_error", Kind: store.ConversationErrorNotice,
-			Payload: map[string]any{"message": "provider failed", "recoverable": false}},
-	})
-	if err != nil {
+	if _, err := resolver.sendConversationTurn(ctx, model.SendConversationTurnInput{ConversationID: conversation.ID,
+		Input: "Cause one provider error.", ClientMessageID: &clientID}); err != nil {
 		t.Fatal(err)
 	}
-	transient, err := resolver.conversationEventModel(context.Background(), noemaruntime.Event{
-		Kind: noemaruntime.EventTransientError, ConversationID: "conversation_1", ClientMessageID: &clientID, TransientMessage: "provider failed",
-	})
-	if err != nil {
-		t.Fatal(err)
+	errorNoticeCount, completionCount := 0, 0
+	for completionCount == 0 {
+		select {
+		case event := <-stream:
+			switch value := event.(type) {
+			case model.ConversationItemEvent:
+				if _, ok := value.Item.(model.ErrorNotice); ok {
+					errorNoticeCount++
+				}
+			case model.TurnCompletedEvent:
+				completionCount++
+			}
+		case <-ctx.Done():
+			t.Fatalf("runtime terminal events timed out: notices=%d completions=%d", errorNoticeCount, completionCount)
+		}
 	}
-	if _, ok := persisted.(model.ConversationItemEvent); !ok {
-		t.Fatalf("persisted error event = %#v", persisted)
-	}
-	if _, ok := transient.(model.ConversationItemEvent); !ok {
-		t.Fatalf("transient error event = %#v", transient)
-	}
-	// The terminal event has no item of its own. This is the condition that
-	// prevents a persisted error notice from being emitted a second time.
-	if value := transient.(model.ConversationItemEvent); value.Item == nil {
-		t.Fatalf("terminal error event dropped its notice: %#v", transient)
-	}
-	if value := persisted.(model.ConversationItemEvent); value.Item == nil {
-		t.Fatalf("persisted error event dropped its notice: %#v", persisted)
-	}
-	if persisted.(model.ConversationItemEvent).Item.(model.ErrorNotice).Message != transient.(model.ConversationItemEvent).Item.(model.ErrorNotice).Message {
-		t.Fatalf("error notice changed across terminal projection: persisted=%#v transient=%#v", persisted, transient)
+	if errorNoticeCount != 1 || completionCount != 1 {
+		t.Fatalf("runtime error event counts = %d, %d", errorNoticeCount, completionCount)
 	}
 }
 
@@ -723,56 +761,39 @@ func rustAPIPortLocalModelCatalog(t *testing.T) {
 
 func rustAPIPortProviderCallback(t *testing.T) {
 	t.Helper()
-	expectedURL := "http://localhost:3737/provider/oauth/callback"
-	attemptID := "abcdEFGH01234567ijklMNOP89012345"
-	callback := expectedURL + "/" + attemptID + "?code=secret"
-	// provider_oauth_callback_parameters validates the real callback route used
-	// by the resolver and returns the attempt identity from its path.
-	got, err := provider_oauth_callback_parameters(parseURL(t, callback), parseURL(t, expectedURL))
-	if err != nil || got[0] != attemptID || got[1] != "secret" {
-		t.Fatalf("provider callback parameters = %#v, %v", got, err)
-	}
-	for _, invalid := range []string{
-		expectedURL + "?code=secret",
-		expectedURL + "/too-short?code=secret",
-		"http://localhost:3738/provider/oauth/callback/" + attemptID + "?code=secret",
-	} {
-		if _, err := provider_oauth_callback_parameters(parseURL(t, invalid), parseURL(t, expectedURL)); err == nil {
-			t.Fatalf("invalid provider callback accepted: %s", invalid)
-		}
-	}
-}
-
-func parseURL(t *testing.T, value string) *url.URL {
-	t.Helper()
-	parsed, err := url.Parse(value)
+	resolver := openProviderTestResolver(t)
+	attempt, err := resolver.OpenRouter.StartAuth(context.Background(), "openrouter", "", provider.AuthOAuthPKCE)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return parsed
-}
-
-func provider_oauth_callback_parameters(callback, expected *url.URL) ([2]string, error) {
-	var result [2]string
-	if callback == nil || expected == nil || callback.Scheme != expected.Scheme || callback.Host != expected.Host {
-		return result, fmt.Errorf("provider callback origin does not match")
+	handler := resolver.OpenRouter.CallbackHandler()
+	invalid := []struct {
+		path   string
+		status int
+	}{
+		{"/provider/oauth/callback?code=secret", http.StatusBadRequest},
+		{"/provider/oauth/callback/too-short?code=secret", http.StatusBadRequest},
+		{"/provider/oauth/callback/" + attempt.ID + "/extra?code=secret", http.StatusBadRequest},
 	}
-	prefix := strings.TrimSuffix(expected.Path, "/") + "/"
-	if !strings.HasPrefix(callback.Path, prefix) {
-		return result, fmt.Errorf("provider callback path does not match")
+	for _, test := range invalid {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if recorder.Code != test.status {
+			t.Fatalf("provider callback %s = %d, want %d", test.path, recorder.Code, test.status)
+		}
 	}
-	attempt := strings.TrimPrefix(callback.Path, prefix)
-	if attempt == "" || strings.Contains(attempt, "/") || len(attempt) < 16 {
-		return result, fmt.Errorf("provider callback attempt is invalid")
+	// Use the production callback handler with the valid path. The route parser
+	// must extract this exact attempt identity before the provider exchange.
+	request := httptest.NewRequest(http.MethodGet, "/provider/oauth/callback/"+attempt.ID+"?code=secret", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("valid provider callback = %d", recorder.Code)
 	}
-	result[0] = attempt
-	values := callback.Query()
-	code := values.Get("code")
-	if code == "" || len(values["code"]) != 1 || len(values["error"]) != 0 {
-		return [2]string{}, fmt.Errorf("provider callback code is invalid")
+	view, found := resolver.OpenRouter.Attempt(attempt.ID)
+	if !found || view.Status == provider.AuthAttemptWaiting {
+		t.Fatalf("provider callback attempt = %#v, found=%t", view, found)
 	}
-	result[1] = code
-	return result, nil
 }
 
 func rustAPIPortInvalidMCPBoundary(t *testing.T) {
