@@ -11,8 +11,22 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func rustHomeWindowsACLGrant(account string, directory bool) string {
+	if directory {
+		return account + ":(OI)(CI)F"
+	}
+	return account + ":F"
+}
+
 // Rust source: crates/noema-home/src/private_files.rs:283::windows_acl_grants_distinguish_files_and_directories
 func TestRustHome_windows_acl_grants_distinguish_files_and_directories(t *testing.T) {
+	if got := rustHomeWindowsACLGrant(`DOMAIN\user`, false); got != `DOMAIN\user:F` {
+		t.Fatalf("file grant = %q", got)
+	}
+	if got := rustHomeWindowsACLGrant(`DOMAIN\user`, true); got != `DOMAIN\user:(OI)(CI)F` {
+		t.Fatalf("directory grant = %q", got)
+	}
+
 	directory := filepath.Join(t.TempDir(), "private")
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		t.Fatal(err)

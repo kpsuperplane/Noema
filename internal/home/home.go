@@ -48,6 +48,106 @@ func (p Paths) Database() string {
 	return filepath.Join(p.root, "noema.sqlite3")
 }
 
+// LocalModelImportPartialPath returns the path for one model import transfer.
+func (p Paths) LocalModelImportPartialPath(installationID string) string {
+	return filepath.Join(p.root, "models", "downloads", "import-"+sanitizePathSegment(installationID)+".part")
+}
+
+// CapabilityAuthArgumentsDir returns the protected capability-auth argument directory.
+func (p Paths) CapabilityAuthArgumentsDir() string {
+	return filepath.Join(p.root, "run", "capability-auth")
+}
+
+// AdapterDefinitionDir returns one content-addressed adapter definition directory.
+func (p Paths) AdapterDefinitionDir(digest string) (string, error) {
+	if !isLowerHex(digest, 64) {
+		return "", errors.New("adapter digest must be 64 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "adapters", "definitions", digest), nil
+}
+
+// AdapterSourcePath returns one imported adapter source path.
+func (p Paths) AdapterSourcePath(digest, extension string) (string, error) {
+	if !isLowerHex(digest, 64) {
+		return "", errors.New("adapter digest must be 64 lowercase hexadecimal characters")
+	}
+	if extension != "json" && extension != "yaml" && extension != "yml" {
+		return "", errors.New("unsupported adapter source extension")
+	}
+	return filepath.Join(p.root, "adapters", "sources", digest+"."+extension), nil
+}
+
+// AdapterConnectionDir returns one stable adapter connection directory.
+func (p Paths) AdapterConnectionDir(connectionID string) (string, error) {
+	if !isLowerHex(connectionID, 32) {
+		return "", errors.New("adapter connection id must be 32 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "adapters", "connections", connectionID), nil
+}
+
+// AdapterOAuthProfileDir returns one reviewed OAuth profile directory.
+func (p Paths) AdapterOAuthProfileDir(digest string) (string, error) {
+	if !isLowerHex(digest, 64) {
+		return "", errors.New("adapter digest must be 64 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "adapters", "oauth-profiles", digest), nil
+}
+
+// AdapterOAuthApplicationDir returns one OAuth application directory.
+func (p Paths) AdapterOAuthApplicationDir(id string) (string, error) {
+	if !isLowerHex(id, 32) {
+		return "", errors.New("adapter object id must be 32 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "adapters", "oauth-applications", id), nil
+}
+
+// AdapterExternalAccountDir returns one external account directory.
+func (p Paths) AdapterExternalAccountDir(id string) (string, error) {
+	if !isLowerHex(id, 32) {
+		return "", errors.New("adapter object id must be 32 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "adapters", "external-accounts", id), nil
+}
+
+// AdapterOAuthGrantDir returns one OAuth grant directory.
+func (p Paths) AdapterOAuthGrantDir(id string) (string, error) {
+	if !isLowerHex(id, 32) {
+		return "", errors.New("adapter object id must be 32 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "adapters", "oauth-grants", id), nil
+}
+
+// LocalModelBlobPath returns one verified content-addressed model blob path.
+func (p Paths) LocalModelBlobPath(digest string) (string, error) {
+	if !isLowerHex(digest, 64) {
+		return "", errors.New("model SHA-256 digest must be 64 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "models", "blobs", digest+".gguf"), nil
+}
+
+// LocalModelPartialPath returns one resumable model download path.
+func (p Paths) LocalModelPartialPath(digest string) (string, error) {
+	if !isLowerHex(digest, 64) {
+		return "", errors.New("model SHA-256 digest must be 64 lowercase hexadecimal characters")
+	}
+	return filepath.Join(p.root, "models", "downloads", digest+".part"), nil
+}
+
+// ProviderAccountHome returns one sanitized provider account directory.
+func (p Paths) ProviderAccountHome(providerKind, accountKey string) string {
+	return filepath.Join(p.root, "providers", sanitizePathSegment(providerKind), sanitizePathSegment(accountKey))
+}
+
+// MCPDir returns the MCP server configuration root.
+func (p Paths) MCPDir() string {
+	return filepath.Join(p.root, "mcp")
+}
+
+// MCPServerHome returns one sanitized MCP server configuration directory.
+func (p Paths) MCPServerHome(serverID string) string {
+	return filepath.Join(p.MCPDir(), sanitizePathSegment(serverID))
+}
+
 // Config returns the protected startup configuration path.
 func (p Paths) Config() string {
 	return filepath.Join(p.root, "config.yaml")
@@ -123,4 +223,33 @@ func resolve(
 		return Paths{}, errors.New("user home cannot be empty")
 	}
 	return FromRoot(filepath.Join(root, defaultName))
+}
+
+func isLowerHex(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	for _, character := range value {
+		if character >= '0' && character <= '9' || character >= 'a' && character <= 'f' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func sanitizePathSegment(value string) string {
+	var sanitized []rune
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || character == '-' || character == '_' {
+			sanitized = append(sanitized, character)
+		} else {
+			sanitized = append(sanitized, '_')
+		}
+	}
+	if len(sanitized) == 0 {
+		return "_"
+	}
+	return string(sanitized)
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,12 +12,7 @@ import (
 	"testing"
 )
 
-type rustHomeDiagnosticRecord struct {
-	Event  string            `json:"event"`
-	Fields map[string]string `json:"fields"`
-}
-
-func rustHomeReadDiagnosticRecords(t *testing.T, path string) []rustHomeDiagnosticRecord {
+func rustHomeReadDiagnosticRecords(t *testing.T, path string) []map[string]any {
 	t.Helper()
 	file, err := os.Open(path)
 	if err != nil {
@@ -24,10 +20,10 @@ func rustHomeReadDiagnosticRecords(t *testing.T, path string) []rustHomeDiagnost
 	}
 	defer file.Close()
 
-	var records []rustHomeDiagnosticRecord
+	var records []map[string]any
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		var record rustHomeDiagnosticRecord
+		record := make(map[string]any)
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			t.Fatalf("diagnostic record %q: %v", scanner.Bytes(), err)
 		}
@@ -39,10 +35,6 @@ func rustHomeReadDiagnosticRecords(t *testing.T, path string) []rustHomeDiagnost
 	return records
 }
 
-func rustHomeDiagnosticField(name, value string) Field {
-	return Text(name, value)
-}
-
 // Rust source: crates/noema-home/src/diagnostics.rs:234::appends_jsonl_events_without_overwriting
 func TestRustHome_appends_jsonl_events_without_overwriting(t *testing.T) {
 	directory := t.TempDir()
@@ -52,15 +44,15 @@ func TestRustHome_appends_jsonl_events_without_overwriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := writer.Write("first_failure",
-		rustHomeDiagnosticField("severity", "error"),
-		rustHomeDiagnosticField("provider_kind", "test"),
-		rustHomeDiagnosticField("provider_text", "line one\nline two"),
+		Text("message", "first failure"),
+		Text("context", `{"provider_kind":"test"}`),
+		Text("raw", `{"provider_text":"line one\nline two"}`),
 	); err != nil {
 		t.Fatalf("first append: %v", err)
 	}
 	if err := writer.Write("second_failure",
-		rustHomeDiagnosticField("severity", "error"),
-		rustHomeDiagnosticField("error_chain", "outer\ninner"),
+		Text("message", "second failure"),
+		Text("error_chain", `["outer","inner"]`),
 	); err != nil {
 		t.Fatalf("second append: %v", err)
 	}
@@ -72,14 +64,23 @@ func TestRustHome_appends_jsonl_events_without_overwriting(t *testing.T) {
 	if len(records) != 2 {
 		t.Fatalf("diagnostic records = %d, want 2", len(records))
 	}
-	if records[0].Event != "first_failure" || records[0].Fields["severity"] != "error" ||
-		records[0].Fields["provider_kind"] != "test" ||
-		records[0].Fields["provider_text"] != "line one\nline two" {
-		t.Fatalf("first diagnostic record = %#v", records[0])
+	if records[0]["category"] != "first_failure" || records[0]["severity"] != "error" {
+		t.Fatalf("first diagnostic identity = %#v", records[0])
 	}
-	if records[1].Event != "second_failure" || records[1].Fields["severity"] != "error" ||
-		records[1].Fields["error_chain"] != "outer\ninner" {
-		t.Fatalf("second diagnostic record = %#v", records[1])
+	context, ok := records[0]["context"].(map[string]any)
+	if !ok || context["provider_kind"] != "test" {
+		t.Fatalf("first diagnostic context = %#v", records[0]["context"])
+	}
+	raw, ok := records[0]["raw"].(map[string]any)
+	if !ok || raw["provider_text"] != "line one\nline two" {
+		t.Fatalf("first diagnostic raw = %#v", records[0]["raw"])
+	}
+	if records[1]["category"] != "second_failure" {
+		t.Fatalf("second diagnostic category = %#v", records[1]["category"])
+	}
+	errorChain, ok := records[1]["error_chain"].([]any)
+	if !ok || len(errorChain) != 2 || errorChain[0] != "outer" || errorChain[1] != "inner" {
+		t.Fatalf("second diagnostic error chain = %#v", records[1]["error_chain"])
 	}
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(path)
@@ -101,38 +102,34 @@ func TestRustHome_appends_jsonl_events_without_overwriting(t *testing.T) {
 // Rust source: crates/noema-home/src/diagnostics.rs:277::rotates_one_bounded_backup
 func TestRustHome_rotates_one_bounded_backup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "errors.log")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Truncate(MaxFileBytes); err != nil {
-		_ = file.Close()
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-
 	writer, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = writer.Write("bounded_failure", rustHomeDiagnosticField("sequence", "0"))
-	if err == nil {
-		t.Fatal("write beyond the Go file bound was accepted")
+	for sequence := 0; sequence < 20; sequence++ {
+		if err := writer.Write("bounded_failure",
+			Field{name: "message", value: strings.Repeat("x", 80)},
+			Field{name: "context", value: fmt.Sprintf(`{"sequence":%d}`, sequence)},
+		); err != nil {
+			t.Fatalf("bounded append %d: %v", sequence, err)
+		}
 	}
-	if closeErr := writer.Close(); closeErr != nil {
-		t.Fatal(closeErr)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() > MaxFileBytes {
-		t.Fatalf("current log size = %d, want <= %d", info.Size(), MaxFileBytes)
+	if info.Size() > 512 {
+		t.Fatalf("current log size = %d, want <= 512", info.Size())
 	}
-	if _, err := os.Stat(path + ".1"); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("unexpected Go rotation backup: %v", err)
+	backup, err := os.Stat(path + ".1")
+	if err != nil {
+		t.Fatalf("rotated log: %v", err)
+	}
+	if backup.Size() > 512 {
+		t.Fatalf("backup log size = %d, want <= 512", backup.Size())
 	}
 }
 
@@ -143,29 +140,32 @@ func TestRustHome_replaces_oversized_raw_data_and_preserves_small_raw_data(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Write("small_failure", rustHomeDiagnosticField("ordinary_value", "preserved")); err != nil {
+	if err := writer.Write("small_failure", Text("raw", `{"ordinary_value":"preserved"}`)); err != nil {
 		t.Fatal(err)
 	}
-	large := strings.Repeat("x", maxValueBytes*2)
-	if err := writer.Write("large_failure",
-		rustHomeDiagnosticField("ordinary_value", "preserved"),
-		rustHomeDiagnosticField("content", large),
-	); err != nil {
+	large := strings.Repeat("x", 64*1024)
+	if err := writer.Write("large_failure", Text("raw", `{"content":"`+large+`"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Go's approved flat-field layout bounds each value directly. It does not
-	// add the Rust raw.truncated/original_bytes metadata object.
 	records := rustHomeReadDiagnosticRecords(t, path)
-	if len(records) != 2 || records[0].Fields["ordinary_value"] != "preserved" ||
-		records[1].Fields["ordinary_value"] != "preserved" {
-		t.Fatalf("ordinary diagnostic values = %#v", records)
+	if len(records) != 2 {
+		t.Fatalf("diagnostic records = %d, want 2", len(records))
 	}
-	if len(records[1].Fields["content"]) != maxValueBytes || records[1].Fields["content"] == large {
-		t.Fatalf("bounded diagnostic content length = %d", len(records[1].Fields["content"]))
+	smallRaw, ok := records[0]["raw"].(map[string]any)
+	if !ok || smallRaw["ordinary_value"] != "preserved" {
+		t.Fatalf("small raw diagnostic = %#v", records[0]["raw"])
+	}
+	largeRaw, ok := records[1]["raw"].(map[string]any)
+	if !ok || largeRaw["truncated"] != true {
+		t.Fatalf("large raw diagnostic = %#v", records[1]["raw"])
+	}
+	originalBytes, ok := largeRaw["original_bytes"].(float64)
+	if !ok || originalBytes <= 64*1024 {
+		t.Fatalf("large raw original bytes = %#v", largeRaw["original_bytes"])
 	}
 }
 
@@ -177,20 +177,16 @@ func TestRustHome_rejects_an_event_larger_than_the_file_limit(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = writer.Write("large_failure", Field{
-		name:  "detail",
-		value: strings.Repeat("x", MaxRecordBytes),
+		name:  "message",
+		value: strings.Repeat("x", 512),
 	})
-	if err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversized diagnostic write = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "maximum is 256") {
+		t.Errorf("oversized diagnostic error = %v, want EventTooLarge maximum 256", err)
 	}
 	if closeErr := writer.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(contents) != 0 {
-		t.Fatalf("oversized diagnostic persisted %d bytes", len(contents))
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("oversized diagnostic path = %v, want absent", err)
 	}
 }
