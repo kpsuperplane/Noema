@@ -88,8 +88,57 @@ var fetchCredentialQueries = map[string]bool{
 	"x-amz-security-token": true, "x-amz-signature": true, "x-goog-signature": true,
 }
 
+var persistedCredentialFields = map[string]bool{
+	"access_token": true, "api-key": true, "api_key": true, "apikey": true,
+	"authorization": true, "client_assertion": true, "client_secret": true,
+	"code_verifier": true, "cookie": true, "device_code": true, "id_token": true,
+	"password": true, "proxy-authorization": true, "proxy_authorization": true,
+	"refresh_token": true, "set-cookie": true, "set_cookie": true,
+	"user_code": true, "x-api-key": true, "x-auth-token": true,
+	"x_api_key": true, "x_auth_token": true,
+}
+
 func sanitizePayloadForStorage(value any) any {
-	return sanitizeFetchValue(value)
+	return sanitizeStandardCredentials(sanitizeFetchValue(value))
+}
+
+// PersistedArguments applies the production persistence policy for a web or
+// browser tool before provider arguments enter a durable task transcript.
+// URL fields receive the URL policy; all other fields receive the standard
+// credential policy.
+func PersistedArguments(raw json.RawMessage, sanitizeURLs bool) json.RawMessage {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return json.RawMessage(`{"redacted":true,"reason":"capability_persistence_policy"}`)
+	}
+	if sanitizeURLs {
+		value = sanitizePayloadForStorage(value)
+	} else {
+		value = sanitizeStandardCredentials(value)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return json.RawMessage(`{"redacted":true,"reason":"capability_persistence_policy"}`)
+	}
+	return encoded
+}
+
+func sanitizeStandardCredentials(value any) any {
+	switch current := value.(type) {
+	case map[string]any:
+		for key, child := range current {
+			if persistedCredentialFields[strings.ToLower(key)] {
+				current[key] = "[REDACTED]"
+				continue
+			}
+			current[key] = sanitizeStandardCredentials(child)
+		}
+	case []any:
+		for index, child := range current {
+			current[index] = sanitizeStandardCredentials(child)
+		}
+	}
+	return value
 }
 
 func sanitizeFetchValue(value any) any {
@@ -131,15 +180,40 @@ func sanitizeFetchURL(raw string) (string, bool) {
 	}
 	removed := parsed.User != nil
 	parsed.User = nil
-	query := parsed.Query()
-	for name := range query {
-		if fetchCredentialQueries[strings.ToLower(name)] {
-			query.Del(name)
-			removed = true
+	parsed.RawQuery, removed = removeCredentialURLPairs(parsed.RawQuery, fetchCredentialQueries, removed)
+	fragment, fragmentRemoved := removeCredentialURLPairs(parsed.EscapedFragment(), fetchCredentialQueries, false)
+	if fragmentRemoved {
+		if fragment == "" {
+			parsed.Fragment, parsed.RawFragment = "", ""
+		} else if decoded, err := url.PathUnescape(fragment); err == nil {
+			parsed.Fragment, parsed.RawFragment = decoded, fragment
+		} else {
+			parsed.Fragment, parsed.RawFragment = fragment, ""
 		}
+		removed = true
 	}
-	parsed.RawQuery = query.Encode()
 	return parsed.String(), removed
+}
+
+func removeCredentialURLPairs(raw string, names map[string]bool, removed bool) (string, bool) {
+	if raw == "" || !strings.Contains(raw, "=") {
+		return raw, removed
+	}
+	parts := strings.Split(raw, "&")
+	retained := parts[:0]
+	for _, part := range parts {
+		name := part
+		if index := strings.IndexByte(part, '='); index >= 0 {
+			name = part[:index]
+		}
+		decoded, err := url.QueryUnescape(name)
+		if err == nil && names[strings.ToLower(decoded)] {
+			removed = true
+			continue
+		}
+		retained = append(retained, part)
+	}
+	return strings.Join(retained, "&"), removed
 }
 
 func sanitizedDisplayURL(raw string) string {

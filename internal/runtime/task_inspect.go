@@ -137,6 +137,39 @@ func persistedCapabilityArguments(bindings map[string]noemamcp.Binding, name str
 	return encoded
 }
 
+// persistedTaskArguments applies the source-owned durable view before any
+// Task tool call enters the transcript. Provider capabilities use their exact
+// binding policy. Built-in web tools use the URL policy, while other live
+// runtime tools use the standard credential policy.
+func persistedTaskArguments(bindings map[string]noemamcp.Binding, adapterBindings map[string]adapter.Binding, name string, payload json.RawMessage) json.RawMessage {
+	if _, ok := bindings[name]; ok {
+		return persistedCapabilityArguments(bindings, name, payload)
+	}
+	if _, ok := adapterBindings[name]; ok {
+		return webtool.PersistedArguments(payload, false)
+	}
+	if !isTaskTranscriptBuiltin(name) {
+		return json.RawMessage(`{"redacted":true,"reason":"capability_persistence_policy"}`)
+	}
+	return webtool.PersistedArguments(payload, name == webtool.FetchName || webtool.IsBrowserTool(name) || name == fileDownloadName)
+}
+
+func isTaskTranscriptBuiltin(name string) bool {
+	switch name {
+	case luaRunName, taskFilesList, taskFilesRead, taskFilesWrite, taskFilesDelete,
+		fileParseName, fileDownloadName, taskListName, taskCaptureName, taskInspectName,
+		taskFinishPlanning, taskFinishExecution, taskContinueExecution, taskFinishReview,
+		taskReportBlocked, taskListArtifactsName, artifactCreateLocalName, taskReadArtifactName,
+		taskParseArtifactName, adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool,
+		webtool.SearchName, webtool.FetchName, webtool.BrowseOpenName, webtool.BrowseSnapshotName,
+		webtool.BrowseInteractName, webtool.BrowseWaitName, webtool.BrowseHistoryName,
+		webtool.BrowseSwitchName, webtool.BrowseCloseName:
+		return true
+	default:
+		return false
+	}
+}
+
 func boundedModelToolPayload(payload json.RawMessage, limit int) json.RawMessage {
 	if len(payload) <= limit {
 		return append(json.RawMessage(nil), payload...)

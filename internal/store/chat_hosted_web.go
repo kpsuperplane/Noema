@@ -21,6 +21,15 @@ var hostedWebCredentialQueryNames = map[string]struct{}{
 	"x-amz-security-token": {}, "x-amz-signature": {}, "x-goog-signature": {},
 }
 
+var hostedWebCredentialFields = map[string]struct{}{
+	"access_token": {}, "api-key": {}, "api_key": {}, "apikey": {},
+	"authorization": {}, "client_assertion": {}, "client_secret": {},
+	"code_verifier": {}, "cookie": {}, "device_code": {}, "id_token": {},
+	"password": {}, "proxy-authorization": {}, "proxy_authorization": {},
+	"refresh_token": {}, "set-cookie": {}, "set_cookie": {}, "user_code": {},
+	"x-api-key": {}, "x-auth-token": {}, "x_api_key": {}, "x_auth_token": {},
+}
+
 // ConversationWebSource is one exact public source used by hosted search.
 type ConversationWebSource struct {
 	Title string
@@ -169,16 +178,19 @@ func normalizeHostedSearch(search ConversationHostedSearch) (hostedSearchValues,
 	if err != nil {
 		return hostedSearchValues{}, errors.New("hosted web search arguments are invalid")
 	}
+	arguments = sanitizeHostedWebObject(arguments)
 	result, err := conversationJSONObject(search.Result)
 	if err != nil {
 		return hostedSearchValues{}, errors.New("hosted web search result is invalid")
 	}
+	result = sanitizeHostedWebObject(result)
 	var action any
 	if len(search.ProviderAction) != 0 {
 		action, err = conversationJSON(search.ProviderAction)
 		if err != nil || jsonObjectValue(action) == nil {
 			return hostedSearchValues{}, errors.New("hosted web provider action is invalid")
 		}
+		action = sanitizeHostedWebValue(action)
 	}
 	sources := make([]map[string]any, 0, len(search.Sources))
 	for _, source := range search.Sources {
@@ -248,19 +260,94 @@ func hostedDisplayURL(raw string) string {
 	if trimmed == redactedSensitiveWebURL {
 		return trimmed
 	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	sanitized, _ := sanitizeHostedWebURL(trimmed)
+	if sanitized == "" {
 		return redactedSensitiveWebURL
 	}
-	parsed.User = nil
-	query := parsed.Query()
-	for name := range query {
-		if _, sensitive := hostedWebCredentialQueryNames[strings.ToLower(name)]; sensitive {
-			query.Del(name)
+	return sanitized
+}
+
+func sanitizeHostedWebObject(value map[string]any) map[string]any {
+	return sanitizeHostedWebValue(value).(map[string]any)
+}
+
+func sanitizeHostedWebValue(value any) any {
+	switch current := value.(type) {
+	case map[string]any:
+		rejected := false
+		for key, child := range current {
+			lower := strings.ToLower(key)
+			if _, sensitive := hostedWebCredentialFields[lower]; sensitive {
+				current[key] = "[REDACTED]"
+				continue
+			}
+			if lower == "url" || lower == "final_url" {
+				if childURL, ok := child.(string); ok {
+					sanitized, removed := sanitizeHostedWebURL(childURL)
+					current[key], rejected = sanitized, rejected || removed
+					continue
+				}
+			}
+			current[key] = sanitizeHostedWebValue(child)
+		}
+		if rejected {
+			current["__noema_rejected_sensitive_url"] = true
+		}
+	case []any:
+		for index, child := range current {
+			current[index] = sanitizeHostedWebValue(child)
 		}
 	}
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
+	return value
+}
+
+func sanitizeHostedWebURL(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == redactedSensitiveWebURL {
+		return trimmed, false
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return redactedSensitiveWebURL, true
+	}
+	removed := parsed.User != nil
+	parsed.User = nil
+	parsed.RawQuery, removed = removeHostedWebCredentialPairs(parsed.RawQuery, false, removed)
+	fragment, fragmentRemoved := removeHostedWebCredentialPairs(parsed.EscapedFragment(), true, false)
+	if fragmentRemoved {
+		if fragment == "" {
+			parsed.Fragment, parsed.RawFragment = "", ""
+		} else if decoded, decodeErr := url.PathUnescape(fragment); decodeErr == nil {
+			parsed.Fragment, parsed.RawFragment = decoded, fragment
+		} else {
+			parsed.Fragment, parsed.RawFragment = fragment, ""
+		}
+		removed = true
+	}
+	return parsed.String(), removed
+}
+
+func removeHostedWebCredentialPairs(raw string, requireEquals, removed bool) (string, bool) {
+	if raw == "" || requireEquals && !strings.Contains(raw, "=") {
+		return raw, removed
+	}
+	parts := strings.Split(raw, "&")
+	retained := parts[:0]
+	for _, part := range parts {
+		name := part
+		if index := strings.IndexByte(part, '='); index >= 0 {
+			name = part[:index]
+		}
+		decoded, err := url.QueryUnescape(name)
+		if err == nil {
+			if _, sensitive := hostedWebCredentialQueryNames[strings.ToLower(decoded)]; sensitive {
+				removed = true
+				continue
+			}
+		}
+		retained = append(retained, part)
+	}
+	return strings.Join(retained, "&"), removed
 }
 
 func hostedResultDisplay(

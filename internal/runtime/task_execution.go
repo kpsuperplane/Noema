@@ -580,8 +580,9 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		} else if binding, ok := adapterBindings[call.Name]; ok {
 			sideEffect = !binding.Behavior.ReadOnly
 		}
+		persistedArguments := persistedTaskArguments(bindings, adapterBindings, call.Name, call.Payload)
 		callInput := store.TaskRunItemInput{Kind: "tool_call", Status: "running", Round: int64(round), CorrelationID: call.ProviderCallID,
-			Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "side_effect": sideEffect, "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "side_effect": sideEffect, "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{callInput}, store.TaskRunUsage{ToolCalls: 1}, time.Now()); err != nil {
 			return
 		}
@@ -624,7 +625,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				status = "failed"
 			}
 			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
-				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+				Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
@@ -650,7 +651,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				status = "failed"
 			}
 			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
-				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+				Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 			if paused {
 				if err := r.database.CompleteTaskUncertainResult(ctx, run.ID, run.Generation, resultInput, time.Now()); err != nil && !errors.Is(err, store.ErrStaleRun) {
 					r.failRun(ctx, run, "task_transition_failed", false)
@@ -682,7 +683,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				status = "failed"
 			}
 			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
-				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+				Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
@@ -708,7 +709,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				status = "failed"
 			}
 			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
-				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+				Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 			if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 				return
 			}
@@ -734,7 +735,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				status = "failed"
 			}
 			resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
-				Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(result.Stored), "success": result.Success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+				Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "result": json.RawMessage(result.Stored), "success": result.Success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 			if result.OutcomeUncertain {
 				if err := r.database.CompleteTaskUncertainResult(ctx, run.ID, run.Generation, resultInput, time.Now()); err != nil && !errors.Is(err, store.ErrStaleRun) {
 					r.failRun(ctx, run, "task_transition_failed", false)
@@ -756,7 +757,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			status = "failed"
 		}
 		resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: int64(round), ParentID: callItem.ID,
-			Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+			Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()); err != nil {
 			return
 		}
@@ -833,8 +834,10 @@ func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, gene
 		return
 	}
 	call := result.ToolCalls[0]
+	_, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
+	persistedArguments := persistedTaskArguments(bindings, adapterBindings, call.Name, call.Payload)
 	callInput := store.TaskRunItemInput{Kind: "tool_call", Status: "running", Round: round, CorrelationID: call.ProviderCallID,
-		Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+		Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
 	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{callInput}, store.TaskRunUsage{ToolCalls: 1}, time.Now()) != nil {
 		return
 	}
@@ -849,7 +852,7 @@ func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, gene
 		status = "completed"
 	}
 	resultInput := store.TaskRunItemInput{Kind: "tool_result", Status: status, Round: round, ParentID: items[len(items)-1].ID,
-		Payload: map[string]any{"name": call.Name, "arguments": json.RawMessage(call.Payload), "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect}}
+		Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "result": json.RawMessage(payload), "success": success, "side_effect": sideEffect}}
 	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{resultInput}, store.TaskRunUsage{}, time.Now()) != nil {
 		return
 	}
@@ -941,9 +944,11 @@ func (r *TaskExecution) executeACP(ctx context.Context, task store.Task, run sto
 		return
 	}
 	payload, success, terminalCall, taskWrite := r.executeTaskTool(ctx, task, run, terminal.Name, terminal.Arguments, true)
+	_, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
+	persistedArguments := persistedTaskArguments(bindings, adapterBindings, terminal.Name, terminal.Arguments)
 	sideEffect := taskWrite || taskToolHasSideEffect(terminal.Name)
 	call := store.TaskRunItemInput{Kind: "tool_call", Status: "running", CorrelationID: "acp:terminal",
-		Payload: map[string]any{"name": terminal.Name, "arguments": terminal.Arguments, "provider_name": "acp"}}
+		Payload: map[string]any{"name": terminal.Name, "arguments": persistedArguments, "provider_name": "acp"}}
 	if appendErr := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{call}, store.TaskRunUsage{ToolCalls: 1}, time.Now()); appendErr != nil {
 		return
 	}
@@ -956,7 +961,7 @@ func (r *TaskExecution) executeACP(ctx context.Context, task store.Task, run sto
 		status = "failed"
 	}
 	result := store.TaskRunItemInput{Kind: "tool_result", Status: status, ParentID: items[len(items)-1].ID,
-		Payload: map[string]any{"name": terminal.Name, "arguments": terminal.Arguments, "result": payload, "success": success, "side_effect": sideEffect, "provider_name": "acp"}}
+		Payload: map[string]any{"name": terminal.Name, "arguments": persistedArguments, "result": payload, "success": success, "side_effect": sideEffect, "provider_name": "acp"}}
 	if appendErr := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{result}, store.TaskRunUsage{}, time.Now()); appendErr != nil {
 		return
 	}
