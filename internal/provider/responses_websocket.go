@@ -152,6 +152,9 @@ func (s *responsesWebSocketSession) send(
 
 func (s *responsesWebSocketSession) connect(ctx context.Context, headers http.Header, token string) error {
 	headers = headers.Clone()
+	if headers == nil {
+		headers = make(http.Header)
+	}
 	headers.Set("Authorization", "Bearer "+token)
 	connection, response, err := websocket.Dial(ctx, s.url, &websocket.DialOptions{
 		HTTPClient: s.client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled,

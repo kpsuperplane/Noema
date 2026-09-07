@@ -30,6 +30,10 @@ type AccountPersistence interface {
 	DeleteProviderAccount(context.Context, string) (bool, error)
 }
 
+type authFailurePersistence interface {
+	MarkProviderAuthenticationFailed(context.Context, string, uint64, time.Time) error
+}
+
 // Secret is credential material that does not support string formatting.
 type Secret struct {
 	value string
@@ -211,6 +215,41 @@ func (s *AccountService) ImportOpenAISecret(
 // ClearSecret atomically removes one account credential and changes its safe metadata.
 func (s *AccountService) ClearSecret(ctx context.Context, id string, now time.Time) (Account, error) {
 	return s.mutateSecret(ctx, id, 0, "", false, nil, now, home.RemovePrivateFile)
+}
+
+// RecordAuthFailure marks one credential revision unauthenticated after a
+// provider rejects it. A replacement credential cannot be clobbered.
+func (s *AccountService) RecordAuthFailure(
+	ctx context.Context,
+	id string,
+	expectedRevision uint64,
+	now time.Time,
+) (Account, error) {
+	gate := s.gate(id)
+	gate.Lock()
+	defer gate.Unlock()
+	account, err := s.persistence.ProviderAccount(ctx, id)
+	if err != nil {
+		return Account{}, err
+	}
+	if account.Metadata.CredentialRevision() != expectedRevision {
+		return Account{}, ErrAccountConflict
+	}
+	marker, ok := s.persistence.(authFailurePersistence)
+	if !ok {
+		return Account{}, errors.New("provider authentication failure persistence is unavailable")
+	}
+	if err := marker.MarkProviderAuthenticationFailed(ctx, id, expectedRevision, now.UTC()); err != nil {
+		return Account{}, err
+	}
+	updated, err := s.persistence.ProviderAccount(ctx, id)
+	if err != nil {
+		return Account{}, err
+	}
+	if updated.Metadata.CredentialRevision() != expectedRevision {
+		return Account{}, ErrAccountConflict
+	}
+	return updated, nil
 }
 
 // PublishVerifiedSecret saves a remotely verified credential against its starting revision.
@@ -621,6 +660,9 @@ func (s *AccountService) mutateSecret(
 	}
 	if method == "" {
 		method = account.AuthMethod
+	}
+	if metadata == nil {
+		metadata = cloneMetadata(account.Metadata)
 	}
 	if expectedRevision == 0 {
 		expectedRevision = account.Metadata.CredentialRevision()
