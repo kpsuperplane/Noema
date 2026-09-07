@@ -61,8 +61,10 @@ type TaskExecution struct {
 	cancel                           context.CancelFunc
 	done                             chan struct{}
 	closeOnce                        sync.Once
+	claimMu                          sync.Mutex
 	activeMu                         sync.Mutex
 	activeTasks                      map[string]struct{}
+	blockedTasks                     map[string]struct{}
 	activeChanged                    chan struct{}
 }
 
@@ -111,7 +113,7 @@ func NewTaskExecution(
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, local: localModels,
 		mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools, errors: errorLog,
-		ctx: ctx, cancel: cancel, done: make(chan struct{}), activeTasks: make(map[string]struct{}), activeChanged: make(chan struct{}),
+		ctx: ctx, cancel: cancel, done: make(chan struct{}), activeTasks: make(map[string]struct{}), blockedTasks: make(map[string]struct{}), activeChanged: make(chan struct{}),
 	}
 	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
 	if err == nil {
@@ -183,7 +185,8 @@ func (r *TaskExecution) run() {
 func (r *TaskExecution) runWorker() {
 	wake := r.database.SubscribeWork(r.ctx)
 	for r.ctx.Err() == nil {
-		if r.activeTaskHasQueuedSuccessor(r.ctx) {
+		task, run, found, err := r.claimTaskExecution(r.ctx)
+		if err != nil {
 			select {
 			case <-r.ctx.Done():
 				return
@@ -192,24 +195,15 @@ func (r *TaskExecution) runWorker() {
 			}
 			continue
 		}
-		task, run, found, err := r.database.ClaimTaskExecution(r.ctx, time.Now())
-		if err != nil {
-			select {
-			case <-r.ctx.Done():
-				return
-			case <-wake:
-			}
-			continue
-		}
 		if !found {
 			select {
 			case <-r.ctx.Done():
 				return
 			case <-wake:
+			case <-r.activeTaskChangeSignal():
 			}
 			continue
 		}
-		r.markActiveTask(task.ID)
 		runContext, cancel := context.WithCancel(r.ctx)
 		finished := make(chan struct{})
 		go func() {
@@ -229,12 +223,26 @@ func (r *TaskExecution) runWorker() {
 			case <-wake:
 				current, checkErr := r.database.TaskExecutionIsCurrent(r.ctx, run.ID, run.Generation)
 				if checkErr == nil && !current {
+					r.markBlockedTask(task.ID)
 					cancel()
 				}
 			}
 		}
 	next:
 	}
+}
+
+func (r *TaskExecution) claimTaskExecution(ctx context.Context) (store.Task, store.TaskRun, bool, error) {
+	r.claimMu.Lock()
+	defer r.claimMu.Unlock()
+	if r.taskAdmissionBlocked() || r.activeTaskHasQueuedSuccessor(ctx) {
+		return store.Task{}, store.TaskRun{}, false, nil
+	}
+	task, run, found, err := r.database.ClaimTaskExecution(ctx, time.Now())
+	if err == nil && found {
+		r.markActiveTask(task.ID)
+	}
+	return task, run, found, err
 }
 
 func (r *TaskExecution) markActiveTask(taskID string) {
@@ -249,12 +257,28 @@ func (r *TaskExecution) markActiveTask(taskID string) {
 func (r *TaskExecution) markInactiveTask(taskID string) {
 	r.activeMu.Lock()
 	delete(r.activeTasks, taskID)
+	delete(r.blockedTasks, taskID)
 	previous := r.activeChanged
 	r.activeChanged = make(chan struct{})
 	r.activeMu.Unlock()
 	if previous != nil {
 		close(previous)
 	}
+}
+
+func (r *TaskExecution) markBlockedTask(taskID string) {
+	r.activeMu.Lock()
+	if r.blockedTasks == nil {
+		r.blockedTasks = make(map[string]struct{})
+	}
+	r.blockedTasks[taskID] = struct{}{}
+	r.activeMu.Unlock()
+}
+
+func (r *TaskExecution) taskAdmissionBlocked() bool {
+	r.activeMu.Lock()
+	defer r.activeMu.Unlock()
+	return len(r.blockedTasks) != 0
 }
 
 func (r *TaskExecution) activeTaskChangeSignal() <-chan struct{} {
@@ -351,6 +375,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		r.failRun(ctx, run, "task_replay_unavailable", false)
 		return
 	}
+	continuation := NewContinuationContext(messages)
 	generator, err := r.generator(run.ProviderKind)
 	if err != nil {
 		r.failRun(ctx, run, "configuration_unavailable", false)
@@ -369,8 +394,8 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 	for round := int(run.ProviderCallCount); round < int(run.ExecutionPolicy.MaxProviderContinuations) && ctx.Err() == nil; round++ {
 		if stallReason != "" {
 			_ = r.appendTaskProgress(ctx, run, int64(round), "task:stall", "Task run paused after "+stallReason+".", nil)
-			instruction := provider.GenerationMessage{Role: "developer", Content: taskContinuationPrompt}
-			messages, incremental = append(messages, instruction), append(incremental, instruction)
+			continuation.AppendDeveloperMessage(taskContinuationPrompt)
+			messages, incremental = continuation.ProviderMessages(true), continuation.IncrementalInput()
 			progress.resetWindow()
 			stallReason = ""
 		}
@@ -383,14 +408,14 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				}
 				progress.apply(outcome)
 				if outcome.Decision == "pause" {
-					instruction := provider.GenerationMessage{Role: "developer", Content: taskContinuationPrompt}
-					messages, incremental = append(messages, instruction), append(incremental, instruction)
+					continuation.AppendDeveloperMessage(taskContinuationPrompt)
+					messages, incremental = continuation.ProviderMessages(true), continuation.IncrementalInput()
 				}
 				if outcome.Decision == "finalize" && run.Kind == "executor" {
 					result, readErr := home.ReadTaskFile(r.root, task.ID, "RESULT.md")
 					if !wroteTask || readErr != nil || strings.TrimSpace(result) == "" {
-						instruction := provider.GenerationMessage{Role: "developer", Content: "The progress check found the work ready to finish. Save current progress in TASK.md and the honest result in RESULT.md, then call task.finish_execution."}
-						messages, incremental = append(messages, instruction), append(incremental, instruction)
+						continuation.AppendDeveloperMessage("The progress check found the work ready to finish. Save current progress in TASK.md and the honest result in RESULT.md, then call task.finish_execution.")
+						messages, incremental = continuation.ProviderMessages(true), continuation.IncrementalInput()
 						outcome.Decision = "continue"
 					}
 				}
@@ -438,6 +463,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 					history := requestMessages[len(roleMessages):]
 					roleMessages = fresh
 					messages = joinContextMessages(roleMessages, history)
+					continuation = NewContinuationContext(messages)
 					_, _, err = prepareModelContext(ctx, modelContextRequest{database: r.database,
 						generator: contextGenerator, accountID: run.ProviderAccountID, providerKind: run.ProviderKind,
 						model: model, base: roleMessages, active: history, tools: tools,
@@ -519,17 +545,29 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if sessionActive {
 			previousResponseID = result.ID
 		}
-		messages = append(messages, taskResultMessages(result)...)
+		continuation.AppendResponse(result)
+		messages = continuation.ProviderMessages(true)
 		if len(result.ToolCalls) != 1 {
 			if len(result.ToolCalls) == 0 {
-				incremental = []provider.GenerationMessage{{Role: "user", Content: "Use one available terminal tool when this run is complete or blocked."}}
-				messages = append(messages, incremental...)
+				continuation.AppendDeveloperMessage("Use one available terminal tool when this run is complete or blocked.")
+				incremental = continuation.IncrementalInput()
+				continuation.FinishRound()
+				messages = continuation.ProviderMessages(true)
 				continue
 			}
 			r.failRun(ctx, run, "unsupported_tool_sequence", false)
 			return
 		}
 		call := result.ToolCalls[0]
+		appendContinuationResult := func(payload json.RawMessage, success bool) {
+			continuation.AppendResults([]ContinuationToolResult{{
+				ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName,
+				Arguments: call.Payload, Success: success, Payload: payload,
+			}})
+			incremental = continuation.IncrementalInput()
+			continuation.FinishRound()
+			messages = continuation.ProviderMessages(true)
+		}
 		if toolCount >= int(run.ExecutionPolicy.MaxToolCalls) {
 			_ = r.appendSkippedTaskTool(ctx, run, int64(round), call, "task tool-call safety ceiling reached")
 			r.finalizeTaskRun(task, run, generator, messages, wroteTask, "task tool-call safety ceiling reached")
@@ -591,9 +629,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			stallReason = progress.observe(call, payload, success, sideEffect)
-			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
-			messages = append(messages, incremental...)
+			appendContinuationResult(payload, success)
 			continue
 		}
 		if binding, ok := adapterBindings[call.Name]; ok {
@@ -625,9 +661,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			stallReason = progress.observe(call, payload, success, sideEffect)
-			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
-			messages = append(messages, incremental...)
+			appendContinuationResult(payload, success)
 			continue
 		}
 		if call.Name == fileDownloadName {
@@ -653,9 +687,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			stallReason = progress.observe(call, payload, success, sideEffect)
-			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
-			messages = append(messages, incremental...)
+			appendContinuationResult(payload, success)
 			continue
 		}
 		if call.Name == webtool.FetchName {
@@ -681,9 +713,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			stallReason = progress.observe(call, payload, success, sideEffect)
-			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
-			messages = append(messages, incremental...)
+			appendContinuationResult(payload, success)
 			continue
 		}
 		if webtool.IsBrowserTool(call.Name) {
@@ -715,9 +745,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 				return
 			}
 			stallReason = progress.observe(call, result.Model, result.Success, sideEffect)
-			messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-			incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: result.Success, Payload: result.Model}}}
-			messages = append(messages, incremental...)
+			appendContinuationResult(result.Model, result.Success)
 			continue
 		}
 		payload, success, terminal, taskWrite := r.executeTaskTool(ctx, task, run, call.Name, call.Payload, wroteTask)
@@ -733,6 +761,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			return
 		}
 		stallReason = progress.observe(call, payload, success, sideEffect)
+		appendContinuationResult(payload, success)
 		if terminal && success {
 			if err := r.finishTaskTerminal(ctx, run, call.Name, call.Payload); err != nil {
 				if !errors.Is(err, store.ErrStaleRun) {
@@ -741,9 +770,6 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			}
 			return
 		}
-		messages[len(messages)-1].ToolCalls = []provider.ReplayToolCall{{ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload}}
-		incremental = []provider.GenerationMessage{{Role: "tool", ToolResult: &provider.ReplayToolResult{ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName, Arguments: call.Payload, Success: success, Payload: payload}}}
-		messages = append(messages, incremental...)
 		if terminal {
 			return
 		}
