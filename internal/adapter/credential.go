@@ -39,7 +39,7 @@ func normalizeCredential(setup CredentialSetup, input CredentialInputValue) (map
 		if len(input.FieldValues) != 0 || len(input.Document) == 0 || len(input.Document) > credentialDocumentLimit || !utf8.Valid(input.Document) || !json.Valid(input.Document) {
 			return nil, errors.New("adapter credential document is invalid")
 		}
-		result, err := script.RunFunction(setup.Input.Normalize.Source, map[string]any{"document": string(input.Document)})
+		result, err := script.RunFunctionWithProfile(setup.Input.Normalize.Source, map[string]any{"document": string(input.Document)}, script.ProfileCredential)
 		object, ok := result.(map[string]any)
 		if err != nil || !ok || len(object) != len(wanted) {
 			return nil, errors.New("adapter credential normalization failed")
@@ -114,7 +114,7 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 		"operation_id": operation.OperationID, "method": request.method, "path": parsed.Path,
 		"header_names": headerNames, "query_names": queryNames,
 	}}
-	result, err := script.RunFunction(auth.RequestAuth.Source, input)
+	result, err := script.RunFunctionWithProfile(auth.RequestAuth.Source, input, script.ProfileRequestAuth)
 	object, ok := result.(map[string]any)
 	if err != nil || !ok || len(object) > 2 {
 		return nil, nil, errors.New("adapter request authentication failed")
@@ -127,6 +127,9 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 			seenValues[value] = true
 			secretValues = append(secretValues, value)
 		}
+	}
+	for _, value := range fields {
+		rememberValue(value)
 	}
 	for key := range object {
 		if key != "headers" && key != "query" {

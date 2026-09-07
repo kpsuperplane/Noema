@@ -62,6 +62,9 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 	if err := authority.recoverConnectionReplacements(); err != nil {
 		return nil, err
 	}
+	if err := authority.cleanupSupersededPendingDefinitions(); err != nil {
+		return nil, err
+	}
 	connections, err := authority.connections()
 	if err != nil {
 		return nil, err
@@ -74,6 +77,36 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 		}
 	}
 	return authority, nil
+}
+
+// cleanupSupersededPendingDefinitions removes drafts that can no longer be
+// reviewed. A process restart is the durable recovery boundary for these
+// abandoned review objects.
+func (f *fileAuthority) cleanupSupersededPendingDefinitions() error {
+	scan, err := f.scanDefinitions()
+	if err != nil {
+		return err
+	}
+	for _, definition := range scan.Definitions {
+		if definition.Manifest.Reviewed || !definition.Superseded || !definitionReplacedByRevision(scan.Definitions, definition.SemanticDigest) {
+			continue
+		}
+		if err := f.quarantine("definitions", definition.SemanticDigest); err != nil {
+			return errors.New("adapter definition recovery failed")
+		}
+	}
+	return nil
+}
+
+func definitionReplacedByRevision(definitions []Definition, digest string) bool {
+	for _, definition := range definitions {
+		for _, replaced := range definition.Replaces {
+			if replaced == digest {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (f *fileAuthority) recoverConnectionReplacements() error {

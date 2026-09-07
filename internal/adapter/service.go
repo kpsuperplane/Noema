@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -106,6 +107,9 @@ func (s *Service) ExecuteSetup(name string, raw json.RawMessage) (json.RawMessag
 		err = errors.New("adapter setup tool is unavailable")
 	}
 	if err != nil {
+		if payload, ok := proposalFailure(err); ok {
+			return payload, false
+		}
 		return failure("invalid_input", err.Error()), false
 	}
 	payload, err := script.MarshalJSON(value)
@@ -269,18 +273,22 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 			return nil, errors.New("adapter operation is unavailable")
 		}
 	}
-	return map[string]any{"revision_base": map[string]any{"semantic_digest": definition.SemanticDigest, "source_reference": definition.SourceReference, "definition_id": definition.Manifest.DefinitionID, "adapter_id": definition.Manifest.AdapterID, "display_name": definition.Manifest.DisplayName, "definition_revision": definition.Manifest.DefinitionRevision, "origin": definition.Manifest.Origin, "authentication": definition.Manifest.Authentication, "operations": selected}}, nil
+	return map[string]any{"revision_base": map[string]any{"semantic_digest": definition.SemanticDigest, "source_reference": definition.SourceReference, "definition_id": definition.Manifest.DefinitionID, "adapter_id": definition.Manifest.AdapterID, "display_name": definition.Manifest.DisplayName, "definition_revision": definition.Manifest.DefinitionRevision, "origin": definition.Manifest.Origin, "authentication": definition.Manifest.Authentication, "operations": selected}, "selected_operations": selected}, nil
 }
 
 func (s *Service) propose(raw json.RawMessage) (any, error) {
 	if len(raw) > manifestLimit {
-		return nil, errors.New("adapter proposal is too large")
+		return nil, proposalIssue("proposal_input_invalid")
+	}
+	if err := validateProposalShape(raw); err != nil {
+		return nil, err
 	}
 	var input proposalInput
 	if decodeExactJSON(raw, &input) != nil {
-		return nil, errors.New("adapter proposal is invalid")
+		return nil, proposalIssue("proposal_input_invalid")
 	}
 	var base *Manifest
+	var baseDefinition *Definition
 	if input.BaseSemanticDigest != "" {
 		definitions, err := s.files.definitions()
 		if err != nil {
@@ -293,24 +301,33 @@ func (s *Service) propose(raw json.RawMessage) (any, error) {
 				break
 			}
 		}
-		if definition.SemanticDigest == "" || definition.Superseded {
-			return nil, errors.New("adapter revision base changed")
+		if definition.SemanticDigest == "" {
+			return nil, proposalIssue("replacement_target_invalid")
+		}
+		if definition.Superseded {
+			return nil, proposalIssue("replacement_target_stale")
 		}
 		copy := definition.Manifest
 		base = &copy
+		baseDefinition = &definition
 	}
 	manifest, err := buildManifest(input, base)
 	if err != nil {
 		return nil, err
 	}
-	definition, err := Compile(manifest)
+	if err := validateProposalMetadata(manifest); err != nil {
+		return nil, err
+	}
+	replaces, err := s.proposalReplacements(manifest.DefinitionID, input.BaseSemanticDigest, baseDefinition)
 	if err != nil {
 		return nil, err
 	}
-	replaces := []string(nil)
+	definition, err := Compile(manifest)
+	if err != nil {
+		return nil, proposalCompileFailure(manifest, err)
+	}
 	affected := []string(nil)
-	if input.BaseSemanticDigest != "" {
-		replaces = []string{input.BaseSemanticDigest}
+	if len(replaces) != 0 {
 		affected, err = s.affectedConnectionIDs(replaces)
 		if err != nil {
 			return nil, err
@@ -323,7 +340,56 @@ func (s *Service) propose(raw json.RawMessage) (any, error) {
 	if err = s.reconcile(context.Background()); err != nil {
 		return nil, err
 	}
-	return map[string]any{"status": "review_required", "semantic_digest": definition.SemanticDigest, "definition_id": manifest.DefinitionID, "manifest": manifest}, nil
+	nextStep := "A human must review this proposal before it becomes a callable adapter."
+	if base != nil {
+		if !sameAuthentication(base.Authentication, manifest.Authentication) {
+			nextStep += " After approval, continue in Settings to reauthorize the changed connection."
+		} else {
+			nextStep += " Do not infer reauthorization from this proposal. After approval, continue from the current connection status."
+		}
+	}
+	return map[string]any{"status": "review_required", "semantic_digest": definition.SemanticDigest, "definition_id": manifest.DefinitionID, "manifest": manifest, "next_step": nextStep}, nil
+}
+
+func (s *Service) proposalReplacements(definitionID, baseDigest string, base *Definition) ([]string, error) {
+	definitions, err := s.files.definitions()
+	if err != nil {
+		return nil, err
+	}
+	family := make([]Definition, 0)
+	for _, definition := range definitions {
+		if definition.Manifest.DefinitionID == definitionID {
+			family = append(family, definition)
+		}
+	}
+	if baseDigest == "" {
+		if len(family) != 0 {
+			return nil, proposalIssue("existing_definition_requires_replacement_target")
+		}
+		return nil, nil
+	}
+	if base == nil {
+		return nil, proposalIssue("replacement_target_invalid")
+	}
+	if len(family) == 0 {
+		return nil, proposalIssue("replacement_target_invalid")
+	}
+	seen := map[string]bool{}
+	replaces := make([]string, 0, len(family)+1)
+	add := func(digest string) {
+		if digest != "" && !seen[digest] {
+			seen[digest] = true
+			replaces = append(replaces, digest)
+		}
+	}
+	for _, definition := range family {
+		if !definition.Manifest.Reviewed && !definition.Superseded {
+			add(definition.SemanticDigest)
+		}
+	}
+	add(base.SemanticDigest)
+	sort.Strings(replaces)
+	return replaces, nil
 }
 
 // Approve publishes one exact pending revision and creates its credential-free connection.
@@ -371,13 +437,18 @@ func (s *Service) Approve(ctx context.Context, digest string) (Definition, error
 				return candidate, s.reconcile(ctx)
 			}
 		}
-		return Definition{}, errors.New("adapter definition review is stale")
+		return Definition{}, errors.New("adapter definition review conflict: stale")
 	}
 	currentAffected, err := s.affectedConnectionIDs(pending.Replaces)
 	if err != nil || strings.Join(currentAffected, "\x00") != strings.Join(pending.AffectedConnections, "\x00") {
 		return Definition{}, errors.New("adapter definition transition changed")
 	}
-	reviewed, err := s.files.installDefinition(reviewedManifest, pending.SourceReference, pending.Replaces, pending.AffectedConnections)
+	reviewReplaces := append([]string(nil), pending.Replaces...)
+	if !slices.Contains(reviewReplaces, pending.SemanticDigest) {
+		reviewReplaces = append(reviewReplaces, pending.SemanticDigest)
+	}
+	sort.Strings(reviewReplaces)
+	reviewed, err := s.files.installDefinition(reviewedManifest, pending.SourceReference, reviewReplaces, pending.AffectedConnections)
 	if err != nil {
 		return Definition{}, err
 	}

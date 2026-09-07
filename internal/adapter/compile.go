@@ -302,7 +302,7 @@ func validateAuthentication(value Authentication) error {
 		}
 		return nil
 	}
-	if value.Kind != "credential" || value.Setup == nil || value.RequestAuth == nil || !validTransform(value.RequestAuth) {
+	if value.Kind != "credential" || value.Setup == nil || value.RequestAuth == nil || !validTransformWithProfile(value.RequestAuth, script.ProfileRequestAuth) {
 		return errors.New("adapter authentication is invalid")
 	}
 	setup := value.Setup
@@ -332,15 +332,15 @@ func validateAuthentication(value Authentication) error {
 		}
 		return nil
 	}
-	if input.Kind != "document" || input.MediaType != "application/json" || !validTransform(input.Normalize) {
+	if input.Kind != "document" || input.MediaType != "application/json" || !validTransformWithProfile(input.Normalize, script.ProfileCredential) {
 		return errors.New("adapter credential input is invalid")
 	}
 	return nil
 }
 
-func validTransform(value *Transform) bool {
+func validTransformWithProfile(value *Transform, profile script.SandboxProfile) bool {
 	return value != nil && (value.Language == "lua" || value.Language == "luau") && len(value.Source) > 0 && len(value.Source) <= 32<<10 &&
-		strings.IndexFunc(value.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) < 0 && script.ValidateFunction(value.Source) == nil
+		strings.IndexFunc(value.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) < 0 && script.ValidateFunctionWithProfile(value.Source, profile) == nil
 }
 
 func validateOperation(operation *Operation) error {
@@ -610,7 +610,7 @@ func validateResponse(response *Response, paginated bool) error {
 			return errors.New("response transform is required")
 		}
 	}
-	if response.Transform != nil && !validTransform(response.Transform) {
+	if response.Transform != nil && !validTransformWithProfile(response.Transform, script.ProfileResponse) {
 		return errors.New("response transform is invalid")
 	}
 	if !validateOutputSchema(response.OutputSchema, 0, new(int)) {

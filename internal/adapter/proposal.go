@@ -6,8 +6,113 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/kpsuperplane/noema/internal/script"
 )
+
+// proposalError is the structured setup boundary used for direct proposal
+// input. Its fields are safe to return to the caller and never contain the
+// rejected value.
+type proposalError struct {
+	Reason       string
+	ManifestPath string
+	OperationID  string
+	Details      map[string]any
+	Message      string
+}
+
+func (e *proposalError) Error() string {
+	if e == nil || e.Message == "" {
+		return "adapter proposal is invalid"
+	}
+	return e.Message
+}
+
+func proposalIssue(reason string) error { return &proposalError{Reason: reason} }
+
+func proposalIssueAt(reason, path string) error {
+	return &proposalError{Reason: reason, ManifestPath: path}
+}
+
+func proposalFailure(err error) (json.RawMessage, bool) {
+	var issue *proposalError
+	if !errors.As(err, &issue) {
+		return nil, false
+	}
+	payload := map[string]any{
+		"status":    "invalid_proposal",
+		"reason":    issue.Reason,
+		"next_step": "Correct the reported value and retry the proposal.",
+	}
+	if issue.ManifestPath != "" {
+		payload["manifest_path"] = issue.ManifestPath
+	}
+	if issue.OperationID != "" {
+		payload["operation_id"] = issue.OperationID
+	}
+	if len(issue.Details) != 0 {
+		payload["details"] = issue.Details
+	}
+	if issue.Message != "" {
+		payload["message"] = issue.Message
+	}
+	raw, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+// validateProposalShape reports schema paths before typed decoding. Dynamic
+// map keys use a wildcard so rejected input cannot enter the error payload.
+func validateProposalShape(raw []byte) error {
+	value, err := script.DecodeJSON(raw)
+	if err != nil {
+		return proposalIssue("proposal_input_invalid")
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return proposalIssue("proposal_input_invalid")
+	}
+	operations, present := object["upsert_operations"]
+	if !present {
+		return nil
+	}
+	list, ok := operations.([]any)
+	if !ok {
+		return proposalIssueAt("proposal_input_invalid", "upsert_operations")
+	}
+	for index, rawOperation := range list {
+		operation, ok := rawOperation.(map[string]any)
+		if !ok {
+			return proposalIssueAt("proposal_input_invalid", "upsert_operations["+strconv.Itoa(index)+"]")
+		}
+		if rawPagination, exists := operation["pagination"]; exists {
+			pagination, ok := rawPagination.(map[string]any)
+			if !ok {
+				return proposalIssueAt("proposal_input_invalid", "upsert_operations["+strconv.Itoa(index)+"].pagination")
+			}
+			kind, ok := pagination["kind"].(string)
+			if !ok || kind != "none" && kind != "response_token" {
+				return proposalIssueAt("proposal_input_invalid", "upsert_operations["+strconv.Itoa(index)+"].pagination.kind")
+			}
+		}
+		if rawHeaders, exists := operation["fixed_headers"]; exists {
+			headers, ok := rawHeaders.(map[string]any)
+			if !ok {
+				return proposalIssueAt("proposal_input_invalid", "upsert_operations["+strconv.Itoa(index)+"].fixed_headers")
+			}
+			for _, value := range headers {
+				if _, ok := value.(string); !ok {
+					return proposalIssueAt("proposal_input_invalid", "upsert_operations["+strconv.Itoa(index)+"].fixed_headers.*")
+				}
+			}
+		}
+	}
+	return nil
+}
 
 type proposalInput struct {
 	SourceReference    string              `json:"source_reference"`
@@ -89,7 +194,7 @@ func (value *operationProposal) UnmarshalJSON(raw []byte) error {
 
 func buildManifest(input proposalInput, base *Manifest) (Manifest, error) {
 	if err := validateSourceReference(input.SourceReference); err != nil {
-		return Manifest{}, err
+		return Manifest{}, proposalIssue("source_reference_invalid")
 	}
 	var manifest Manifest
 	switch {
@@ -112,15 +217,15 @@ func buildManifest(input proposalInput, base *Manifest) (Manifest, error) {
 		}
 		manifest.Reviewed = false
 	default:
-		return Manifest{}, errors.New("adapter proposal mode is invalid")
+		return Manifest{}, proposalIssue("proposal_input_invalid")
 	}
 	if len(input.UpsertOperations)+len(input.RemoveOperationIDs) == 0 || len(input.UpsertOperations) > 128 || len(input.RemoveOperationIDs) > 128 {
-		return Manifest{}, errors.New("adapter proposal changes are invalid")
+		return Manifest{}, proposalIssue("proposal_changes")
 	}
 	changed := make(map[string]bool)
 	for _, id := range input.RemoveOperationIDs {
 		if !validID(id) || changed[id] {
-			return Manifest{}, errors.New("adapter proposal changes are invalid")
+			return Manifest{}, proposalIssue("proposal_changes")
 		}
 		changed[id] = true
 		found := false
@@ -132,17 +237,17 @@ func buildManifest(input proposalInput, base *Manifest) (Manifest, error) {
 			}
 		}
 		if !found {
-			return Manifest{}, errors.New("adapter proposal changes are stale")
+			return Manifest{}, proposalIssue("proposal_changes")
 		}
 	}
 	for _, proposed := range input.UpsertOperations {
 		if !validID(proposed.OperationID) || changed[proposed.OperationID] {
-			return Manifest{}, errors.New("adapter proposal changes are invalid")
+			return Manifest{}, proposalIssue("proposal_changes")
 		}
 		changed[proposed.OperationID] = true
 		operation, err := proposed.operation()
 		if err != nil {
-			return Manifest{}, err
+			return Manifest{}, proposalIssue("proposal_input_invalid")
 		}
 		found := false
 		for index := range manifest.Operations {
@@ -158,6 +263,105 @@ func buildManifest(input proposalInput, base *Manifest) (Manifest, error) {
 	}
 	manifest.Reviewed = false
 	return manifest, nil
+}
+
+func validateProposalMetadata(manifest Manifest) error {
+	for index := range manifest.Operations {
+		operation := &manifest.Operations[index]
+		operationPath := "operations[" + strconv.Itoa(index) + "]"
+		if strings.TrimSpace(operation.Description) == "" {
+			return &proposalError{Reason: "description", ManifestPath: operationPath + ".description", OperationID: operation.OperationID}
+		}
+		for argumentIndex, argument := range operation.Arguments {
+			if strings.TrimSpace(argument.Description) == "" {
+				return &proposalError{Reason: "description", ManifestPath: operationPath + ".arguments[" + strconv.Itoa(argumentIndex) + "].description", OperationID: operation.OperationID}
+			}
+		}
+		readOnly := operation.Behavior.ReadOnly.Value != nil && *operation.Behavior.ReadOnly.Value
+		if !readOnly && operation.Response.Transform == nil {
+			return &proposalError{Reason: "mutation_response_transform", ManifestPath: operationPath + ".response.transform", OperationID: operation.OperationID}
+		}
+	}
+	return nil
+}
+
+func proposalOperationIndex(manifest Manifest, compileErr *CompileError) int {
+	if compileErr == nil {
+		return -1
+	}
+	message := compileErr.Error()
+	marker := strings.Index(message, "operations[")
+	if marker >= 0 {
+		start := marker + len("operations[")
+		end := strings.IndexByte(message[start:], ']')
+		if end >= 0 {
+			if index, err := strconv.Atoi(message[start : start+end]); err == nil && index >= 0 && index < len(manifest.Operations) {
+				return index
+			}
+		}
+	}
+	for index := range manifest.Operations {
+		if err := validateOperation(&manifest.Operations[index]); err != nil {
+			return index
+		}
+	}
+	if len(manifest.Operations) == 1 {
+		return 0
+	}
+	return -1
+}
+
+func proposalCompileFailure(manifest Manifest, err error) error {
+	var compileErr *CompileError
+	if !errors.As(err, &compileErr) {
+		return proposalIssue("proposal_input_invalid")
+	}
+	reason := compileErr.Field
+	if reason == "" {
+		if compileErr.Kind == "unsupported" {
+			reason = "unsupported"
+		} else {
+			reason = "manifest_invalid"
+		}
+	}
+	index := proposalOperationIndex(manifest, compileErr)
+	path := ""
+	operationID := ""
+	if index >= 0 {
+		operationID = manifest.Operations[index].OperationID
+		field := map[string]string{
+			"operation_id":                  "operation_id",
+			"description":                   "description",
+			"source_description":            "source_description",
+			"operation_path":                "path",
+			"path_arguments":                "path",
+			"fixed_query":                   "fixed_query",
+			"authority_header":              "fixed_headers",
+			"unsafe_retry":                  "retry",
+			"pagination":                    "pagination",
+			"paginated_response":            "response",
+			"response_size":                 "response.output_schema",
+			"response_schema":               "response.output_schema",
+			"reserved_response_field":       "response.output_schema",
+			"response_content_type":         "response.accepted_content_types",
+			"response_transform":            "response.transform",
+			"authorization":                 "authorization",
+			"authentication":                "authorization",
+			"ambiguous_operation_scope_set": "authorization.accepted_scope_sets",
+		}
+		if value, ok := field[reason]; ok {
+			path = "operations[" + strconv.Itoa(index) + "]." + value
+		}
+	}
+	issue := &proposalError{Reason: reason, ManifestPath: path, OperationID: operationID, Message: compileErr.Error()}
+	if reason == "response_size" && index >= 0 {
+		maximum, finite := maximumOutputBytes(manifest.Operations[index].Response.OutputSchema)
+		if finite {
+			issue.Details = map[string]any{"maximum_serialized_bytes": maximum, "limit_bytes": modelResultLimit}
+			issue.Message = fmt.Sprintf("response output permits %d serialized bytes; limit is %d bytes; this is a computed constraint, not a manifest field", maximum, modelResultLimit)
+		}
+	}
+	return issue
 }
 
 func (proposal operationProposal) operation() (Operation, error) {

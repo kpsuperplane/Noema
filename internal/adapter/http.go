@@ -424,7 +424,7 @@ func decodeResponse(response httpResponse, contract Response) (any, error) {
 	var result any
 	var err error
 	if contract.Transform != nil {
-		result, err = script.RunFunction(contract.Transform.Source, map[string]any{"status": json.Number(strconv.Itoa(response.status)), "body": string(response.body), "content_type": response.contentType})
+		result, err = script.RunFunctionWithProfile(contract.Transform.Source, map[string]any{"status": json.Number(strconv.Itoa(response.status)), "body": string(response.body), "content_type": response.contentType}, script.ProfileResponse)
 	} else {
 		result, err = script.DecodeJSON(response.body)
 	}

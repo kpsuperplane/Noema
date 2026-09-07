@@ -3,6 +3,7 @@ package script
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -27,6 +28,7 @@ const (
 	MaximumSourceBytes   = 64 << 10
 	luaMemoryLimit       = 16 << 20
 	OutputLimit          = 1 << 20
+	luaTextLimit         = 32 << 10
 	luaCPULimit          = 1_000_000
 	luaTimeLimitMillis   = 250
 	luaJSONMaximumDepth  = 64
@@ -54,25 +56,47 @@ type luaSandbox struct {
 	null    *struct{}
 }
 
+// SandboxProfile selects the reviewed helper surface exposed to one script.
+type SandboxProfile uint8
+
+const (
+	ProfileAgent SandboxProfile = iota
+	ProfileResponse
+	ProfileCredential
+	ProfileRequestAuth
+)
+
 // Run executes one bounded Lua chunk over a read-only JSON input.
 func Run(source string, input any) (any, error) {
-	return run(source, input, false)
+	return run(source, input, false, ProfileAgent)
 }
 
 // RunFunction executes source which returns one function, then calls it with input.
 func RunFunction(source string, input any) (any, error) {
-	return run(source, input, true)
+	return run(source, input, true, ProfileAgent)
+}
+
+// RunFunctionWithProfile executes one transform with the helper authority
+// allowed by its production boundary.
+func RunFunctionWithProfile(source string, input any, profile SandboxProfile) (any, error) {
+	return run(source, input, true, profile)
 }
 
 // ValidateFunction checks one bounded Lua function chunk without executing it.
 func ValidateFunction(source string) error {
+	return ValidateFunctionWithProfile(source, ProfileAgent)
+}
+
+// ValidateFunctionWithProfile checks one transform against its reviewed
+// helper authority without executing it.
+func ValidateFunctionWithProfile(source string, profile SandboxProfile) error {
 	if strings.TrimSpace(source) == "" || len(source) > MaximumSourceBytes || utf8.RuneCountInString(source) > MaximumSourceChars ||
 		!strings.HasPrefix(strings.TrimLeftFunc(source, unicode.IsSpace), "return function(") {
 		return errors.New("Lua function source is invalid")
 	}
 	_, err := lua.DoInContext(func(runtime *lua.Runtime) error {
 		sandbox := luaSandbox{runtime: runtime, tables: make(map[*lua.Table]luaTableDescription), null: &struct{}{}}
-		if err := sandbox.load(); err != nil {
+		if err := sandbox.load(profile); err != nil {
 			return err
 		}
 		_, err := runtime.CompileAndLoadLuaChunk("validated_function", []byte(source), lua.TableValue(runtime.GlobalEnv()))
@@ -83,14 +107,14 @@ func ValidateFunction(source string) error {
 	return err
 }
 
-func run(source string, input any, callReturned bool) (any, error) {
+func run(source string, input any, callReturned bool, profile SandboxProfile) (any, error) {
 	if strings.TrimSpace(source) == "" || len(source) > MaximumSourceBytes || utf8.RuneCountInString(source) > MaximumSourceChars || !validLuaJSON(input, 0, new(int)) {
 		return nil, errors.New("Lua source or input exceeds its limits")
 	}
 	var output any
 	_, err := lua.DoInContext(func(runtime *lua.Runtime) error {
 		sandbox := luaSandbox{runtime: runtime, tables: make(map[*lua.Table]luaTableDescription), null: &struct{}{}}
-		if err := sandbox.load(); err != nil {
+		if err := sandbox.load(profile); err != nil {
 			return err
 		}
 		inputValue, err := sandbox.jsonToLua(input, true)
@@ -137,7 +161,7 @@ func run(source string, input any, callReturned bool) (any, error) {
 	return output, err
 }
 
-func (s *luaSandbox) load() error {
+func (s *luaSandbox) load(profile SandboxProfile) error {
 	base.LibLoader.Run(s.runtime)
 	packagelib.LibLoader.Run(s.runtime)
 	stringlib.LibLoader.Run(s.runtime)
@@ -251,7 +275,7 @@ func (s *luaSandbox) load() error {
 		}
 		value, valueErr := call.StringArg(0)
 		limit, limitErr := call.IntArg(1)
-		if valueErr != nil || limitErr != nil || limit < 0 || limit > OutputLimit {
+		if valueErr != nil || limitErr != nil || limit < 0 || limit > luaTextLimit {
 			return nil, errors.New("invalid UTF-8 truncation")
 		}
 		if int64(len(value)) > limit {
@@ -263,9 +287,52 @@ func (s *luaSandbox) load() error {
 		return call.PushingNext1(thread.Runtime, lua.StringValue(value)), nil
 	}, 2, false)
 	truncate.SolemnlyDeclareCompliance(lua.ComplyMemSafe | lua.ComplyCpuSafe | lua.ComplyTimeSafe | lua.ComplyIoSafe)
-	textProxy := s.readOnlyProxy(textTable)
-	s.tables[textProxy] = luaTableDescription{kind: luaObject, values: textTable}
-	s.runtime.SetEnv(environment, "text", lua.TableValue(textProxy))
+	if profile == ProfileResponse {
+		decodeText := s.runtime.SetEnvGoFunc(textTable, "decode_base64url_utf8", func(thread *lua.Thread, call *lua.GoCont) (lua.Cont, error) {
+			if err := call.CheckNArgs(2); err != nil {
+				return nil, err
+			}
+			encoded, encodedErr := call.StringArg(0)
+			limit, limitErr := call.IntArg(1)
+			if encodedErr != nil || limitErr != nil || limit < 0 || limit > luaTextLimit {
+				return nil, errors.New("invalid base64url text limit")
+			}
+			decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+			if err != nil || !utf8.Valid(decoded) {
+				return nil, errors.New("invalid base64url UTF-8 text")
+			}
+			value := string(decoded)
+			end := len(value)
+			if int64(end) > limit {
+				end = int(limit)
+				for !utf8.ValidString(value[:end]) {
+					end--
+				}
+			}
+			return call.PushingNext1(thread.Runtime, lua.StringValue(value[:end])), nil
+		}, 2, false)
+		decodeText.SolemnlyDeclareCompliance(lua.ComplyMemSafe | lua.ComplyCpuSafe | lua.ComplyTimeSafe | lua.ComplyIoSafe)
+		textProxy := s.readOnlyProxy(textTable)
+		s.tables[textProxy] = luaTableDescription{kind: luaObject, values: textTable}
+		s.runtime.SetEnv(environment, "text", lua.TableValue(textProxy))
+	}
+	if profile == ProfileRequestAuth {
+		encodingTable := s.newTable()
+		encodeBase64 := s.runtime.SetEnvGoFunc(encodingTable, "base64", func(thread *lua.Thread, call *lua.GoCont) (lua.Cont, error) {
+			if err := call.Check1Arg(); err != nil {
+				return nil, err
+			}
+			value, err := call.StringArg(0)
+			if err != nil {
+				return nil, err
+			}
+			return call.PushingNext1(thread.Runtime, lua.StringValue(base64.StdEncoding.EncodeToString([]byte(value)))), nil
+		}, 1, false)
+		encodeBase64.SolemnlyDeclareCompliance(lua.ComplyMemSafe | lua.ComplyCpuSafe | lua.ComplyTimeSafe | lua.ComplyIoSafe)
+		encodingProxy := s.readOnlyProxy(encodingTable)
+		s.tables[encodingProxy] = luaTableDescription{kind: luaObject, values: encodingTable}
+		s.runtime.SetEnv(environment, "encoding", lua.TableValue(encodingProxy))
+	}
 	return nil
 }
 
