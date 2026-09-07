@@ -79,6 +79,7 @@ type codexAttempt struct {
 	expectedRevision uint64
 	cancel           context.CancelFunc
 	subscribers      map[chan AuthAttempt]struct{}
+	claimed          bool
 }
 
 // CodexService owns Codex device authorization and its short-lived state.
@@ -186,7 +187,7 @@ func (s *CodexService) StartAuth(
 		cancel()
 		return AuthAttempt{}, ErrProviderUnavailable
 	}
-	if prior := s.attempts[s.latestAttempt]; prior != nil && !terminalAttempt(prior.view.Status) {
+	if prior := s.attempts[s.latestAttempt]; prior != nil && !terminalAttempt(prior.view.Status) && !prior.claimed {
 		prior.cancel()
 		prior.view.Status = AuthAttemptCancelled
 		s.publishLocked(prior)
@@ -208,7 +209,7 @@ func (s *CodexService) Close() {
 	}
 	s.closed = true
 	for _, attempt := range s.attempts {
-		if terminalAttempt(attempt.view.Status) {
+		if terminalAttempt(attempt.view.Status) || attempt.claimed {
 			continue
 		}
 		attempt.view.Status = AuthAttemptCancelled
@@ -235,11 +236,39 @@ func (s *CodexService) Cancel(attemptID string) (AuthAttempt, bool) {
 	if attempt == nil {
 		return AuthAttempt{}, false
 	}
-	if !terminalAttempt(attempt.view.Status) {
+	if !terminalAttempt(attempt.view.Status) && !attempt.claimed {
 		attempt.cancel()
 		attempt.view.Status = AuthAttemptCancelled
 		s.publishLocked(attempt)
 	}
+	return attempt.view, true
+}
+
+// claimAttemptCompletion reserves the terminal transition for the completion
+// worker. Cancellation and shutdown leave a claimed attempt in its current
+// state until the worker publishes its result.
+func (s *CodexService) claimAttemptCompletion(attemptID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	attempt := s.attempts[attemptID]
+	if attempt == nil || terminalAttempt(attempt.view.Status) || attempt.claimed {
+		return false
+	}
+	attempt.claimed = true
+	return true
+}
+
+func (s *CodexService) finishClaimedAttempt(attemptID string, status AuthAttemptStatus, code, message string) (AuthAttempt, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	attempt := s.attempts[attemptID]
+	if attempt == nil || !attempt.claimed || terminalAttempt(attempt.view.Status) {
+		return AuthAttempt{}, false
+	}
+	attempt.view.Status = status
+	attempt.view.ErrorCode = code
+	attempt.view.ErrorMessage = message
+	s.publishLocked(attempt)
 	return attempt.view, true
 }
 
@@ -571,6 +600,22 @@ func (s *CodexService) exchangeAuthorizationCode(
 		return CodexTokens{}, codexRemoteError{kind: codexMalformed}
 	}
 	return tokens, nil
+}
+
+// completeDeviceAuthorization returns protected tokens before account
+// publication. The account service owns persistence for the normal flow.
+func (s *CodexService) completeDeviceAuthorization(ctx context.Context, device codexDeviceCode) (CodexTokens, error) {
+	authorization, pending, err := s.pollDeviceAuthorization(ctx, device)
+	if err != nil {
+		return CodexTokens{}, err
+	}
+	if pending {
+		return CodexTokens{}, errCodexPending
+	}
+	if strings.TrimSpace(authorization.AuthorizationCode) == "" || strings.TrimSpace(authorization.CodeVerifier) == "" {
+		return CodexTokens{}, codexRemoteError{kind: codexMalformed}
+	}
+	return s.exchangeAuthorizationCode(ctx, authorization)
 }
 
 var errCodexPending = errors.New("Codex authorization is pending")
