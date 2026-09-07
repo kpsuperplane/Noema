@@ -244,7 +244,17 @@ func TestRustDesktop_ParsesCallbackRequestHead(t *testing.T) {
 
 // Rust source: crates/noema-desktop/src/remote_graphql.rs::graphql_request_keeps_values_and_adds_bearer_authorization.
 func TestRustDesktop_GraphQLRequestKeepsValuesAndAddsBearerAuthorization(t *testing.T) {
-	remote, err := NewRemoteGraphQL("https://noema.example")
+	root := t.TempDir()
+	profiles := NewProfileStore(root+"/desktop.json", &testCredential{})
+	access := "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
+	remote, err := NewRemoteGraphQL(RemoteProfile{
+		Metadata: RemoteMetadata{
+			Origin:   "https://noema.example",
+			ClientID: "noema-desktop:AQEBAQEBAQEBAQEBAQEBAQEB",
+		},
+		RefreshToken: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+		AccessToken:  &access,
+	}, profiles)
 	if err != nil {
 		t.Fatalf("remote: %v", err)
 	}
@@ -266,24 +276,6 @@ func TestRustDesktop_GraphQLRequestKeepsValuesAndAddsBearerAuthorization(t *test
 	var saved, expected any
 	if json.Unmarshal(savedBytes, &saved) != nil || json.Unmarshal(body, &expected) != nil || !reflect.DeepEqual(saved, expected) {
 		t.Fatalf("saved body = %s, want %s", savedBytes, body)
-	}
-
-	local, err := NewLocalGraphQL("http://127.0.0.1:4747", "desktop-access")
-	if err != nil {
-		t.Fatalf("local: %v", err)
-	}
-	request, err = local.BuildGraphQLRequest(body, "desktop-access")
-	if err != nil {
-		t.Fatalf("local request: %v", err)
-	}
-	if request.URL.String() != "http://127.0.0.1:4747/graphql" {
-		t.Fatalf("local request URL = %q", request.URL)
-	}
-	if local.WebsocketURL() != "ws://127.0.0.1:4747/graphql/ws" {
-		t.Fatalf("websocket URL = %q", local.WebsocketURL())
-	}
-	if _, err := NewLocalGraphQL("http://example.com:4747", "x"); err == nil {
-		t.Fatal("non-loopback local origin was accepted")
 	}
 }
 

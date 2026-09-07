@@ -270,16 +270,18 @@ func IsExternalWebURL(raw string) bool {
 
 // RemoteGraphQL builds authenticated requests for one trusted origin.
 type RemoteGraphQL struct {
-	origin string
+	origin   string
+	profile  RemoteProfile
+	profiles *ProfileStore
 }
 
-// NewRemoteGraphQL validates one remote HTTPS origin.
-func NewRemoteGraphQL(raw string) (*RemoteGraphQL, error) {
-	origin, err := TrustedOrigin(raw)
+// NewRemoteGraphQL prepares one profile-backed remote HTTPS connection.
+func NewRemoteGraphQL(profile RemoteProfile, profiles *ProfileStore) (*RemoteGraphQL, error) {
+	origin, err := TrustedOrigin(profile.Metadata.Origin)
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteGraphQL{origin: origin}, nil
+	return &RemoteGraphQL{origin: origin, profile: profile, profiles: profiles}, nil
 }
 
 // NewLocalGraphQL validates one loopback HTTP origin.
