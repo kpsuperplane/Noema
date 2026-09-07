@@ -13,21 +13,15 @@ func protectPath(path string, directory bool) error {
 	if err != nil {
 		return err
 	}
-
-	var inheritance uint32
-	if directory {
-		inheritance = windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT
+	system, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		return err
 	}
-	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
-		AccessPermissions: windows.GENERIC_ALL,
-		AccessMode:        windows.SET_ACCESS,
-		Inheritance:       inheritance,
-		Trustee: windows.TRUSTEE{
-			TrusteeForm:  windows.TRUSTEE_IS_SID,
-			TrusteeType:  windows.TRUSTEE_IS_USER,
-			TrusteeValue: windows.TrusteeValueFromSID(user.User.Sid),
-		},
-	}}, nil)
+
+	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{
+		windowsACLGrant(user.User.Sid, windows.TRUSTEE_IS_USER, directory),
+		windowsACLGrant(system, windows.TRUSTEE_IS_WELL_KNOWN_GROUP, directory),
+	}, nil)
 	if err != nil {
 		return err
 	}
@@ -40,4 +34,21 @@ func protectPath(path string, directory bool) error {
 		acl,
 		nil,
 	)
+}
+
+func windowsACLGrant(sid *windows.SID, trusteeType windows.TRUSTEE_TYPE, directory bool) windows.EXPLICIT_ACCESS {
+	var inheritance uint32
+	if directory {
+		inheritance = windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT
+	}
+	return windows.EXPLICIT_ACCESS{
+		AccessPermissions: windows.GENERIC_ALL,
+		AccessMode:        windows.SET_ACCESS,
+		Inheritance:       inheritance,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm:  windows.TRUSTEE_IS_SID,
+			TrusteeType:  trusteeType,
+			TrusteeValue: windows.TrusteeValueFromSID(sid),
+		},
+	}
 }

@@ -11,20 +11,26 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func rustHomeWindowsACLGrant(account string, directory bool) string {
-	if directory {
-		return account + ":(OI)(CI)F"
-	}
-	return account + ":F"
-}
-
 // Rust source: crates/noema-home/src/private_files.rs:283::windows_acl_grants_distinguish_files_and_directories
 func TestRustHome_windows_acl_grants_distinguish_files_and_directories(t *testing.T) {
-	if got := rustHomeWindowsACLGrant(`DOMAIN\user`, false); got != `DOMAIN\user:F` {
-		t.Fatalf("file grant = %q", got)
+	account, err := windows.StringToSid("S-1-5-21-1-2-3-4")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := rustHomeWindowsACLGrant(`DOMAIN\user`, true); got != `DOMAIN\user:(OI)(CI)F` {
-		t.Fatalf("directory grant = %q", got)
+	fileGrant := windowsACLGrant(account, windows.TRUSTEE_IS_USER, false)
+	directoryGrant := windowsACLGrant(account, windows.TRUSTEE_IS_USER, true)
+	if fileGrant.AccessPermissions != windows.GENERIC_ALL || fileGrant.Inheritance != windows.NO_INHERITANCE {
+		t.Fatalf("file grant = %#v", fileGrant)
+	}
+	if directoryGrant.AccessPermissions != windows.GENERIC_ALL || directoryGrant.Inheritance != windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT {
+		t.Fatalf("directory grant = %#v", directoryGrant)
+	}
+	system, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if system.String() != "S-1-5-18" {
+		t.Fatalf("system SID = %q", system.String())
 	}
 
 	directory := filepath.Join(t.TempDir(), "private")
@@ -68,5 +74,8 @@ func TestRustHome_windows_acl_grants_distinguish_files_and_directories(t *testin
 	}
 	if strings.Contains(fileACL, "OICI") {
 		t.Fatalf("file ACL unexpectedly inherits to children: %q", fileACL)
+	}
+	if !strings.Contains(directoryACL, ";;;SY)") || !strings.Contains(fileACL, ";;;SY)") {
+		t.Fatalf("SYSTEM ACL grant missing: directory=%q file=%q", directoryACL, fileACL)
 	}
 }
