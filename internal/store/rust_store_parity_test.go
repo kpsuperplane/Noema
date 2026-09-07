@@ -1470,23 +1470,113 @@ func TestRustStore_task_artifact_connection_is_owner_scoped_paginated_and_curren
 
 // Rust source: crates/noema-store/src/tests/conversation_interactions.rs::interaction_publication_resolution_and_recovery_are_atomic_one_use_cases.
 func TestRustStore_interaction_publication_resolution_and_recovery_are_atomic_one_use_cases(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
-	}
-	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	for _, test := range []struct {
+		name, terminal        string
+		crashAfterPersistence bool
+	}{
+		{name: "success"},
+		{name: "crash_after_persistence", crashAfterPersistence: true},
+		{name: "failure", terminal: "provider_timeout"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database := openTestStore(t)
+			ctx := t.Context()
+			now := time.Unix(1700000000, 0).UTC()
+			conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Choose one", nil, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			projection := map[string]any{
+				"protocol_version": "v0.9.1",
+				"catalog":          map[string]any{"catalog_id": "com.noema.a2ui/catalog/v0.9.1"},
+				"messages":         []any{}, "deleted_surface_ids": []any{},
+				"surfaces": map[string]any{
+					"main": map[string]any{
+						"surface_id": "main", "namespaced_surface_id": "main", "version": "v0.9.1",
+						"catalog_id": "com.noema.a2ui/catalog/v0.9.1", "send_data_model": true,
+						"revision": 1, "components": map[string]any{}, "data_model": map[string]any{},
+						"actions": []any{map[string]any{"source_component_id": "main", "name": "choose"}},
+					},
+				},
+			}
+			items, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+				Provider: "openrouter",
+				Call: ConversationToolCallInput{
+					ProviderRound: 0, OutputIndex: 0, ProviderCallID: "call:" + test.name,
+					ProviderName: "present_a2ui", Name: "noema.present_a2ui", Arguments: json.RawMessage(`{"jsonl":"choice"}`),
+				},
+				A2UI: &ConversationA2UIInput{
+					Projection: projection, HasActions: true,
+					ProviderSelection: map[string]any{"role": "noema", "provider_kind": "openrouter", "provider_account_id": "provider_account:codex:default", "model_profile": "gpt-test"},
+					ToolCatalogDigest: strings.Repeat("a", 64),
+				},
+			}, now)
+			if err != nil || len(items) != 2 || items[0].Kind != ConversationToolCall || items[1].Kind != ConversationA2UICard {
+				t.Fatalf("published interaction = %#v, %v", items, err)
+			}
+			surface := items[1]
+			storedProjection, ok := surface.Payload["payload"].(map[string]any)
+			if !ok || textJSON(surface.Payload["interaction_state"]) != "pending" {
+				t.Fatalf("pending interaction projection = %#v", surface.Payload)
+			}
+			interactionID := textJSON(storedProjection["interaction_id"])
+			if interactionID == "" || intJSON(storedProjection["interaction_revision"]) != 1 {
+				t.Fatalf("interaction authority = %#v", storedProjection)
+			}
+			page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+			if err != nil || len(page.Items) != 3 {
+				t.Fatalf("published transcript = %#v, %v", page.Items, err)
+			}
+			settled := cloneJSONMap(storedProjection)
+			settled["interaction_revision"], settled["lifecycle"] = 2, "answered"
+			clientID := "client:" + test.name
+			continuation, err := database.ResolveConversationA2UI(ctx, conversation.ID, surface.ID, interactionID, 1,
+				settled, map[string]any{"status": "resolved", "selected": "yes"}, &clientID, now.Add(time.Second))
+			if err != nil || continuation.Action.ParentItemID != surface.ID || continuation.Result.ParentItemID != items[0].ID || continuation.Call.Status != "completed" {
+				t.Fatalf("resolved interaction = %#v, %v", continuation, err)
+			}
+			page, err = database.ConversationItemPage(ctx, conversation.ID, "", 20)
+			if err != nil || len(page.Items) != 5 {
+				t.Fatalf("resolved transcript = %#v, %v", page.Items, err)
+			}
+			if _, err := database.ResolveConversationA2UI(ctx, conversation.ID, surface.ID, interactionID, 1,
+				settled, map[string]any{}, nil, now); err == nil {
+				t.Fatal("second interaction resolution succeeded")
+			}
+			claimed, err := database.ClaimConversationA2UI(ctx, surface.ID, now.Add(2*time.Second))
+			if err != nil || claimed.Turn.Status != "running" || textJSON(claimed.Surface.Payload["interaction_state"]) != "resuming" {
+				t.Fatalf("claimed interaction = %#v, %v", claimed, err)
+			}
+			if test.crashAfterPersistence {
+				if _, err := database.CompleteConversationTurn(ctx, claimed.Turn, "The choice was persisted.", "The choice was persisted.", nil, now.Add(3*time.Second)); err != nil {
+					t.Fatal(err)
+				}
+				recovered, err := database.RecoverConversationA2UI(ctx, now.Add(4*time.Second))
+				if err != nil || len(recovered) != 0 {
+					t.Fatalf("recovery after persisted completion = %#v, %v", recovered, err)
+				}
+				return
+			}
+			recovered, err := database.RecoverConversationA2UI(ctx, now.Add(3*time.Second))
+			if err != nil || len(recovered) != 1 || recovered[0].Surface.ID != surface.ID || textJSON(recovered[0].Surface.Payload["interaction_state"]) != "answered" {
+				t.Fatalf("recovered interaction = %#v, %v", recovered, err)
+			}
+			reclaimed, err := database.ClaimConversationA2UI(ctx, surface.ID, now.Add(4*time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.terminal != "" {
+				if _, err := database.FailConversationTurn(ctx, reclaimed.Turn, test.terminal, now.Add(5*time.Second)); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := database.CompleteConversationTurn(ctx, reclaimed.Turn, "The choice was completed.", "The choice was completed.", nil, now.Add(5*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -1494,21 +1584,45 @@ func TestRustStore_interaction_publication_resolution_and_recovery_are_atomic_on
 func TestRustStore_interaction_publication_rolls_back_items_and_turn_when_turn_fence_fails(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Show a form", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	if _, err := database.db.ExecContext(ctx, "UPDATE conversation_turns SET status = 'completed' WHERE turn_id = ?", turn.ID); err != nil {
+		t.Fatal(err)
 	}
-	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	_, err = database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Provider: "openrouter",
+		Call: ConversationToolCallInput{
+			ProviderRound: 0, OutputIndex: 0, ProviderCallID: "call:rollback",
+			ProviderName: "present_a2ui", Name: "noema.present_a2ui", Arguments: json.RawMessage(`{"jsonl":"rollback"}`),
+		},
+		A2UI: &ConversationA2UIInput{
+			Projection: map[string]any{"protocol_version": "v0.9.1", "surface_id": "surface:rollback"}, HasActions: true,
+			ProviderSelection: map[string]any{"role": "noema", "provider_kind": "openrouter", "provider_account_id": "provider_account:codex:default", "model_profile": "gpt-test"},
+			ToolCatalogDigest: strings.Repeat("b", 64),
+		},
+	}, now)
+	if err == nil {
+		t.Fatal("interaction publication ignored the completed-turn fence")
+	}
+	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range page.Items {
+		if item.Kind == ConversationToolCall || item.Kind == ConversationA2UICard {
+			t.Fatalf("failed publication left output item = %#v", item)
+		}
+	}
+	var status string
+	if err := database.db.QueryRowContext(ctx, "SELECT status FROM conversation_turns WHERE turn_id = ?", turn.ID).Scan(&status); err != nil || status != "completed" {
+		t.Fatalf("fenced turn status = %q, %v", status, err)
 	}
 }
 
@@ -1516,21 +1630,40 @@ func TestRustStore_interaction_publication_rolls_back_items_and_turn_when_turn_f
 func TestRustStore_provider_assistant_text_shares_one_row_and_omits_equal_source_text(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	equalTurn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "same", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	equal, err := database.CompleteConversationTurn(ctx, equalTurn, "Same text", "Same text", nil, now.Add(time.Second))
+	if err != nil || equal.Kind != ConversationAssistantText || equal.ContentText != "Same text" || equal.ProviderContentText != "" {
+		t.Fatalf("equal provider text = %#v, %v", equal, err)
+	}
+	projectedTurn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "projected", nil, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerText := "Projected text \ue200cite\ue202turn0search0\ue201"
+	projected, err := database.CompleteConversationTurn(ctx, projectedTurn, "Projected text", providerText, nil, now.Add(3*time.Second))
+	if err != nil || projected.Kind != ConversationAssistantText || projected.ContentText != "Projected text" || projected.ProviderContentText != providerText {
+		t.Fatalf("projected provider text = %#v, %v", projected, err)
 	}
 	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
+	if err != nil {
 		t.Fatalf("provider items = %#v, %v", items, err)
+	}
+	assistantCount := 0
+	for _, item := range items {
+		if item.Kind == ConversationAssistantText {
+			assistantCount++
+		}
+	}
+	if assistantCount != 2 {
+		t.Fatalf("assistant provider rows = %d, items=%#v", assistantCount, items)
 	}
 }
 
@@ -1538,21 +1671,59 @@ func TestRustStore_provider_assistant_text_shares_one_row_and_omits_equal_source
 func TestRustStore_primary_notification_writes_resume_after_a_partial_save(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	firstTaskID, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	firstTask, err := database.CreateTask(ctx, firstTaskID, "Notification source", "correlation:notification:one", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEvent, err := database.LatestTaskWorkEvent(ctx, firstTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := PrimaryNotificationWrite{Event: firstEvent, Conversation: conversation, Source: "task_notification", Text: "Progress"}
+	firstItems, err := database.CommitPrimaryNotification(ctx, write, now)
+	if err != nil || len(firstItems) != 1 || firstItems[0].Kind != ConversationAssistantText || firstItems[0].ContentText != "Progress" {
+		t.Fatalf("first notification = %#v, %v", firstItems, err)
+	}
+	repeated, err := database.CommitPrimaryNotification(ctx, write, now)
+	if err != nil || len(repeated) != 0 {
+		t.Fatalf("repeated first notification = %#v, %v", repeated, err)
+	}
+	secondTaskID, err := NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTask, err := database.CreateTask(ctx, secondTaskID, "Notification completion", "correlation:notification:two", now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEvent, err := database.LatestTaskWorkEvent(ctx, secondTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondItems, err := database.CommitPrimaryNotification(ctx, PrimaryNotificationWrite{
+		Event: secondEvent, Conversation: conversation, Source: "task_notification", Text: "Done",
+	}, now.Add(2*time.Second))
+	if err != nil || len(secondItems) != 1 || secondItems[0].Kind != ConversationAssistantText || secondItems[0].ContentText != "Done" {
+		t.Fatalf("second notification = %#v, %v", secondItems, err)
 	}
 	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	if err != nil || len(items) != 2 || items[0].ContentText != "Progress" || items[1].ContentText != "Done" {
+		t.Fatalf("notification provider items = %#v, %v", items, err)
+	}
+	if items[0].Metadata["notification_id"] != "work-event:"+fmt.Sprint(firstEvent.ID) || items[1].Metadata["notification_id"] != "work-event:"+fmt.Sprint(secondEvent.ID) {
+		t.Fatalf("notification identities = %#v", items)
+	}
+	if cursor, err := database.PrimaryTaskNotificationCursor(ctx); err != nil || cursor != secondEvent.ID {
+		t.Fatalf("notification cursor = %d, %v", cursor, err)
 	}
 }
 
@@ -1560,21 +1731,20 @@ func TestRustStore_primary_notification_writes_resume_after_a_partial_save(t *te
 func TestRustStore_conversation_working_directory_is_allocated_and_persisted(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
+	if conversation.CWD == "" || !filepath.IsAbs(conversation.CWD) {
+		t.Fatalf("default conversation working directory = %q, want an absolute path", conversation.CWD)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	info, err := os.Stat(conversation.CWD)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("default conversation working directory stat = %v, %v", info, err)
 	}
-	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	reloaded, err := database.Conversation(ctx, conversation.ID)
+	if err != nil || reloaded.CWD != conversation.CWD {
+		t.Fatalf("persisted conversation working directory = %#v, %v", reloaded, err)
 	}
 }
 
