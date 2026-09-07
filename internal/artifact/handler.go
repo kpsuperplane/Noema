@@ -8,28 +8,29 @@ import (
 	"strings"
 
 	"github.com/kpsuperplane/noema/internal/diagnostics"
+	"github.com/kpsuperplane/noema/internal/web"
 )
 
 // Handler serves authorized local Artifact downloads and previews.
 func (s *Service) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.NotFound(w, r)
+			web.WriteNotFound(w, r)
 			return
 		}
 		tail, ok := strings.CutPrefix(r.URL.Path, "/artifacts/versions/")
 		if !ok {
-			http.NotFound(w, r)
+			web.WriteNotFound(w, r)
 			return
 		}
 		parts := strings.Split(tail, "/")
 		if len(parts) != 2 || parts[1] != "download" && parts[1] != "preview" {
-			http.NotFound(w, r)
+			web.WriteNotFound(w, r)
 			return
 		}
 		versionID, ok := VersionIDFromSlug(parts[0])
 		if !ok {
-			http.NotFound(w, r)
+			web.WriteNotFound(w, r)
 			return
 		}
 		file, found, err := s.AuthorizedFile(r.Context(), versionID)
@@ -40,7 +41,7 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		if !found {
-			http.NotFound(w, r)
+			web.WriteNotFound(w, r)
 			return
 		}
 		if parts[1] == "preview" {

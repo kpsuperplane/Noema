@@ -139,6 +139,21 @@ ORDER BY created_at_ms, credential_id`)
 
 // CreateAnonymousSession creates one short-lived ceremony binding.
 func (s *Store) CreateAnonymousSession(ctx context.Context, digest [32]byte, now time.Time) error {
+	return s.createAnonymousSession(ctx, digest, now, shortSessionLifetime)
+}
+
+// CreateIdleAnonymousSession creates one anonymous browser record with the
+// full idle lifetime used by the bounded session authority.
+func (s *Store) CreateIdleAnonymousSession(ctx context.Context, digest [32]byte, now time.Time) error {
+	return s.createAnonymousSession(ctx, digest, now, browserIdleLifetime)
+}
+
+func (s *Store) createAnonymousSession(
+	ctx context.Context,
+	digest [32]byte,
+	now time.Time,
+	lifetime time.Duration,
+) error {
 	now = now.UTC()
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -153,7 +168,7 @@ func (s *Store) CreateAnonymousSession(ctx context.Context, digest [32]byte, now
 	}
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO browser_sessions (session_hash, state, created_at_ms, expires_at_ms)
-VALUES (?, 'anonymous', ?, ?)`, digest[:], millis(now), millis(now.Add(shortSessionLifetime))); err != nil {
+VALUES (?, 'anonymous', ?, ?)`, digest[:], millis(now), millis(now.Add(lifetime))); err != nil {
 		return fmt.Errorf("insert browser session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -54,7 +54,7 @@ func assetFileSystem() fs.FS {
 
 func (h assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.NotFound(w, r)
+		WriteNotFound(w, r)
 		return
 	}
 	// Public pages use the current app stylesheet, including its fonts and Astryx controls.
@@ -95,17 +95,17 @@ func (h assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		http.NotFound(w, r)
+		WriteNotFound(w, r)
 		return
 	}
 	name, contentType, ok := assetRequest(r.URL.Path)
 	if !ok {
-		http.NotFound(w, r)
+		WriteNotFound(w, r)
 		return
 	}
 	body, err := fs.ReadFile(h.assets, name)
 	if err != nil {
-		http.NotFound(w, r)
+		WriteNotFound(w, r)
 		return
 	}
 	// The desktop loopback callback uses the server's public fonts.

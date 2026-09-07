@@ -83,7 +83,7 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 			(r.URL.Path == "/graphql/ws" && r.Method != http.MethodGet && r.Method != http.MethodPost) ||
 			(r.URL.Path == "/graphql/schema.graphql" && r.Method != http.MethodGet) ||
 			(strings.HasPrefix(r.URL.Path, "/artifacts/versions/") && r.Method != http.MethodGet) {
-			http.NotFound(w, r)
+			web.WriteNotFound(w, r)
 			return
 		}
 		if !s.config.DevNoAuth {
@@ -124,11 +124,11 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 		}
 		if r.URL.Path == "/graphql" || r.URL.Path == "/graphql/ws" {
 			if hasUpgrade(r) && !isWebSocket(r) {
-				http.NotFound(w, r)
+				web.WriteNotFound(w, r)
 				return
 			}
 			if r.URL.Path == "/graphql/ws" && r.Method == http.MethodHead {
-				http.NotFound(w, r)
+				web.WriteNotFound(w, r)
 				return
 			}
 			if r.URL.Path == "/graphql/ws" && !isWebSocket(r) {
@@ -167,24 +167,6 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 	})
 }
 
-// authorityOnly applies the same host and browser-origin decision used by the
-// public handler, then hands the request to a supplied endpoint. Tests use it
-// for the authority middleware contract whose downstream endpoint is a fixed
-// 204 response.
-func (s *Server) authorityOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != s.config.Authority {
-			writeAuthError(w, http.StatusBadRequest, "invalid_authority")
-			return
-		}
-		if s.requiresOrigin(r) && !s.acceptsOrigin(r) {
-			writeAuthError(w, http.StatusForbidden, "invalid_origin")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func (s *Server) serveAuth(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/auth/status":
@@ -208,7 +190,7 @@ func (s *Server) serveAuth(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/auth/logout/all":
 		s.logoutAll(w, r)
 	default:
-		http.NotFound(w, r)
+		web.WriteNotFound(w, r)
 	}
 }
 
@@ -385,7 +367,7 @@ func (s *Server) finishAuthentication(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) authorizeRecovery(w http.ResponseWriter, r *http.Request) {
 	if s.config.DevNoAuth {
-		http.NotFound(w, r)
+		web.WriteNotFound(w, r)
 		return
 	}
 	var input struct {

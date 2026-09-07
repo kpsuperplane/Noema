@@ -10,6 +10,7 @@ import (
 
 	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/web"
 )
 
 // TestHandler adds /__test/authenticate for black-box server parity tests.
@@ -24,7 +25,7 @@ func (s *Server) TestHandler(application http.Handler) http.Handler {
 		}
 		setResponsePolicy(w.Header())
 		if r.Method != http.MethodPost || r.Host != s.config.Authority {
-			http.NotFound(w, r)
+			web.WriteNotFound(w, r)
 			return
 		}
 		passkeys, err := s.sessions.store.Passkeys(r.Context())

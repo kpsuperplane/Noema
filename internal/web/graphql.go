@@ -14,7 +14,7 @@ func NewGraphQLHandler(graphql http.Handler, schema []byte, graphiQL bool) http.
 		switch {
 		case r.URL.Path == "/graphql/schema.graphql":
 			if r.Method != http.MethodGet {
-				http.NotFound(w, r)
+				WriteNotFound(w, r)
 				return
 			}
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -22,7 +22,7 @@ func NewGraphQLHandler(graphql http.Handler, schema []byte, graphiQL bool) http.
 			_, _ = w.Write(schema)
 		case r.URL.Path == "/graphql" && r.Method == http.MethodGet:
 			if !graphiQL {
-				http.NotFound(w, r)
+				WriteNotFound(w, r)
 				return
 			}
 			body, err := fs.ReadFile(assets, "graphiql.html")
@@ -38,7 +38,7 @@ func NewGraphQLHandler(graphql http.Handler, schema []byte, graphiQL bool) http.
 			r.URL.Path == "/graphql/ws" && r.Method == http.MethodGet:
 			graphql.ServeHTTP(w, r)
 		default:
-			http.NotFound(w, r)
+			WriteNotFound(w, r)
 		}
 	})
 }

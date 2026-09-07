@@ -106,11 +106,10 @@ type Service struct {
 	// These hooks are nil in production. Tests use them to reproduce the
 	// deterministic operation allocation and publication interruption points
 	// covered by the Rust filesystem contract.
-	testOperationIDs   []string
-	testPublishHook    func() error
-	testArtifactIDs    []string
-	testVersionIDs     []string
-	testAuthorizedFile func(context.Context, string) (File, bool, error)
+	testOperationIDs []string
+	testPublishHook  func() error
+	testArtifactIDs  []string
+	testVersionIDs   []string
 }
 
 // metadataStore is the metadata boundary used by the Artifact service. The
@@ -292,9 +291,6 @@ func (s *Service) Read(artifact store.Artifact, version store.ArtifactVersion) (
 
 // AuthorizedFile returns verified bytes only for one local-human-owned version.
 func (s *Service) AuthorizedFile(ctx context.Context, versionID string) (File, bool, error) {
-	if s.testAuthorizedFile != nil {
-		return s.testAuthorizedFile(ctx, versionID)
-	}
 	artifact, version, found, err := s.store.AuthorizedLocalArtifactVersion(ctx, versionID)
 	if err != nil || !found {
 		return File{}, false, err

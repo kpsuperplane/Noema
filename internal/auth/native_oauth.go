@@ -16,6 +16,7 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/web"
 )
 
 const (
@@ -99,7 +100,7 @@ func (n *nativeOAuth) serve(w http.ResponseWriter, r *http.Request, sessions *se
 	case r.Method == http.MethodPost && r.URL.Path == "/oauth/revoke":
 		n.revoke(w, r)
 	default:
-		http.NotFound(w, r)
+		web.WriteNotFound(w, r)
 	}
 }
 

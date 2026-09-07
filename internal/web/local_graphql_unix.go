@@ -74,7 +74,7 @@ func NewLocalGraphQLServer(path string, graphql http.Handler, schema []byte) (*L
 				_, _ = w.Write([]byte(`{"state":"authenticated"}`))
 			case "/graphql/ws":
 				if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-					http.NotFound(w, r)
+					WriteNotFound(w, r)
 					return
 				}
 				graphql.ServeHTTP(w, r)
@@ -84,7 +84,7 @@ func NewLocalGraphQLServer(path string, graphql http.Handler, schema []byte) (*L
 			return
 		}
 		if r.Method != http.MethodPost || r.URL.Path != "/graphql" {
-			http.NotFound(w, r)
+			WriteNotFound(w, r)
 			return
 		}
 		if r.ContentLength > localGraphQLBodyLimit {

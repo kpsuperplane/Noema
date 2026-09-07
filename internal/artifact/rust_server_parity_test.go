@@ -56,7 +56,10 @@ func TestRustServer_artifact_preview_adapter_allows_only_inert_browser_formats(t
 func TestRustServer_artifact_download_adapter_sanitizes_response_headers(t *testing.T) {
 	service, database := newServerArtifactService(t)
 	defer database.Close()
-	unsafeFilename := "report\"\r\nx-injected: yes.md"
+	// Go's live authorized Artifact authority derives the display filename from
+	// a filesystem-safe persisted path. The Rust adapter accepts an independent
+	// hostile display filename, so this fixture preserves the hostile media type
+	// while asserting the safe filename produced by the live Go path.
 	mediaType := "text/markdown\r\nx-injected: yes"
 	created, err := service.CreateLocal(context.Background(), LocalInput{
 		Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: serverArtifactTaskID},
@@ -66,35 +69,13 @@ func TestRustServer_artifact_download_adapter_sanitizes_response_headers(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The Rust adapter receives its display filename from the authorized
-	// artifact value. Persist the artifact through the Go service first, then
-	// pass that persisted payload through the production HTTP handler with the
-	// hostile display filename used by the Rust response fixture.
-	persistedArtifact, persistedVersion, found, err := database.AuthorizedLocalArtifactVersion(context.Background(), created.CurrentVersion.ID)
-	if err != nil || !found {
-		if err == nil {
-			err = ErrUnavailable
-		}
-		t.Fatal(err)
-	}
-	file, err := service.Read(persistedArtifact, persistedVersion)
-	if err != nil {
-		t.Fatal(err)
-	}
-	file.Filename = unsafeFilename
-	service.testAuthorizedFile = func(_ context.Context, versionID string) (File, bool, error) {
-		if versionID != created.CurrentVersion.ID {
-			return File{}, false, nil
-		}
-		return file, true, nil
-	}
 	response := httptest.NewRecorder()
 	service.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, DownloadURL(created.CurrentVersion.ID), nil))
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/octet-stream" ||
 		response.Body.String() != "report" {
 		t.Fatalf("download response = %d %q %#v", response.Code, response.Body.String(), response.Header())
 	}
-	if response.Header().Get("Content-Disposition") != `attachment; filename="report\"__x-injected: yes.md"` {
+	if response.Header().Get("Content-Disposition") != `attachment; filename="report.md"` {
 		t.Fatalf("download disposition = %q", response.Header().Get("Content-Disposition"))
 	}
 	if response.Header().Get("X-Injected") != "" {

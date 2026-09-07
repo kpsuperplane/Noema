@@ -118,26 +118,41 @@ func TestRustServer_public_origin_is_exact_https_domain_or_localhost(t *testing.
 
 // Rust source: crates/noema-server/src/web/authority.rs::only_oauth_approval_allows_an_opaque_origin.
 func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
-	server, _, _ := newAuthTest(t, true)
-	server.config.Authority = "noema.example"
-	server.config.Origin = "https://noema.example"
-	handler := server.authorityOnly(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
 	for _, test := range []struct {
 		path   string
 		origin string
 		status int
 	}{
-		{path: "/oauth/authorize", status: http.StatusNoContent},
-		{path: "/oauth/authorize", origin: server.config.Origin, status: http.StatusNoContent},
-		{path: "/oauth/authorize", origin: "null", status: http.StatusNoContent},
+		{path: "/oauth/authorize", status: http.StatusFound},
+		{path: "/oauth/authorize", origin: "http://localhost:3737", status: http.StatusFound},
+		{path: "/oauth/authorize", origin: "null", status: http.StatusFound},
 		{path: "/oauth/authorize", origin: "https://attacker.example", status: http.StatusForbidden},
 		{path: "/auth/logout", status: http.StatusForbidden},
 		{path: "/auth/logout", origin: "null", status: http.StatusForbidden},
 	} {
-		request := httptest.NewRequest(http.MethodPost, "https://noema.example"+test.path, nil)
-		request.Host = server.config.Authority
+		server, taskStore, _ := newAuthTest(t, true)
+		query := nativeAuthorizationQuery(testDesktopClient, testDesktopRedirect, "o")
+		handler := server.Handler(http.NotFoundHandler())
+		start := authRequest(http.MethodGet, "/oauth/authorize?"+query, nil)
+		start.Header.Del("Origin")
+		startResponse := serve(handler, start)
+		if startResponse.Code != http.StatusOK {
+			t.Fatalf("consent start = %d %q", startResponse.Code, startResponse.Body.String())
+		}
+		cookie := lastSessionCookie(t, startResponse, server.sessions.cookieName)
+		pending := authRequest(http.MethodGet, "/oauth/authorize", nil)
+		pending.AddCookie(cookie)
+		browser, exists, err := server.sessions.current(pending, false)
+		if err != nil || !exists {
+			t.Fatalf("OAuth browser session = %#v, %v, %v", browser, exists, err)
+		}
+		_, csrf, found, err := taskStore.NativeOAuthBrowserRequest(context.Background(), browser.digest)
+		if err != nil || !found || csrf == nil {
+			t.Fatalf("OAuth approval state = %v, %v, %v", found, csrf, err)
+		}
+		request := oauthFormRequest(test.path, url.Values{"csrf": {*csrf}, "decision": {"approve"}})
+		request.AddCookie(cookie)
+		request.Header.Del("Origin")
 		if test.origin != "" {
 			request.Header.Set("Origin", test.origin)
 		}
@@ -145,77 +160,37 @@ func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
 		if response.Code != test.status {
 			t.Fatalf("%s origin %q response = %d, want %d", test.path, test.origin, response.Code, test.status)
 		}
+		if test.status == http.StatusFound {
+			location, err := url.Parse(response.Header().Get("Location"))
+			if err != nil || location.Query().Get("code") == "" {
+				t.Fatalf("approved OAuth redirect = %q, %v", response.Header().Get("Location"), err)
+			}
+		}
 	}
 }
 
 // Rust source: crates/noema-server/src/web/mod.rs::websocket_capacity_rejects_excess_work.
 func TestRustServer_websocket_capacity_rejects_excess_work(t *testing.T) {
-	server, _, _ := newAuthTest(t, false)
-	applicationReturned := make(chan struct{}, websocketConnLimit+1)
-	application := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		connection, err := websocket.Accept(w, request, &websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws"}})
-		if err != nil {
-			t.Errorf("WebSocket handshake: %v", err)
-			return
+	server, _, _ := newAuthTest(t, true)
+	permits := make([]func(), 0, websocketConnLimit)
+	for range websocketConnLimit {
+		release, ok := server.websocketSlot()
+		if !ok {
+			t.Fatal("WebSocket slot was unavailable before capacity")
 		}
-		defer connection.CloseNow()
-		_, _, _ = connection.Read(context.Background())
-		applicationReturned <- struct{}{}
-	})
-	handler := server.TestHandler(application)
-	cookie := authenticateViaTestRoute(t, handler, server)
-	network := httptest.NewServer(server.Handler(application))
-	t.Cleanup(network.Close)
-	server.config.Authority = strings.TrimPrefix(network.URL, "http://")
-	server.config.Origin = network.URL
-	wsURL := "ws" + strings.TrimPrefix(network.URL, "http") + "/graphql/ws"
-	dial := func() (*websocket.Conn, *http.Response, error) {
-		requestHeaders := http.Header{
-			"Cookie": []string{cookie.Name + "=" + cookie.Value},
-			"Origin": []string{server.config.Origin},
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		return websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-			Subprotocols: []string{"graphql-transport-ws"},
-			HTTPHeader:   requestHeaders,
-		})
+		permits = append(permits, release)
 	}
-	connections := make([]*websocket.Conn, 0, websocketConnLimit)
-	for index := 0; index < websocketConnLimit; index++ {
-		connection, response, err := dial()
-		if err != nil {
-			if response != nil {
-				t.Fatalf("WebSocket %d handshake: %v (%s)", index, err, response.Status)
-			}
-			t.Fatalf("WebSocket %d handshake: %v", index, err)
-		}
-		connections = append(connections, connection)
+	if release, ok := server.websocketSlot(); ok {
+		release()
+		t.Fatal("WebSocket slot was accepted at capacity")
 	}
-	connection, response, err := dial()
-	if err == nil || response == nil || response.StatusCode != http.StatusServiceUnavailable {
-		if connection != nil {
-			_ = connection.CloseNow()
-		}
-		t.Fatalf("full WebSocket capacity = %v (%v)", response, err)
+	for _, release := range permits {
+		release()
 	}
-	_ = response.Body.Close()
-	_ = connections[0].CloseNow()
-	select {
-	case <-applicationReturned:
-	case <-time.After(time.Second):
-		t.Fatal("released WebSocket did not finish")
-	}
-	reusable, response, err := dial()
-	if err != nil {
-		if response != nil {
-			t.Fatalf("released WebSocket capacity = %v (%s)", err, response.Status)
-		}
-		t.Fatalf("released WebSocket capacity = %v", err)
-	}
-	connections = append(connections, reusable)
-	for _, connection := range connections {
-		_ = connection.CloseNow()
+	if release, ok := server.websocketSlot(); !ok {
+		t.Fatal("released WebSocket slot was not reusable")
+	} else {
+		release()
 	}
 }
 
@@ -448,7 +423,7 @@ func TestRustServer_capacity_rejects_new_sessions_without_evicting_active_sessio
 	}
 	now := time.Now().UTC()
 	first := testAuthDigest("first-session")
-	if err := taskStore.CreateAnonymousSession(context.Background(), first, now); err != nil {
+	if err := taskStore.CreateIdleAnonymousSession(context.Background(), first, now); err != nil {
 		t.Fatal(err)
 	}
 	if err := taskStore.CreateAnonymousSession(context.Background(), testAuthDigest("overflow-session"), now); err == nil {
@@ -469,7 +444,7 @@ func TestRustServer_expiry_cleanup_removes_sessions_and_announces_revocation(t *
 	revocations := taskStore.SubscribeBrowserSessionRevocations(ctx)
 	now := time.Now().UTC()
 	digest := testAuthDigest("expired-session")
-	if err := taskStore.CreateAnonymousSession(context.Background(), digest, now); err != nil {
+	if err := taskStore.CreateIdleAnonymousSession(context.Background(), digest, now); err != nil {
 		t.Fatal(err)
 	}
 	digests, err := taskStore.DeleteExpiredBrowserSessions(context.Background(), now.Add(rustIdleExpiry+time.Second))
@@ -501,7 +476,7 @@ func TestRustServer_deletion_is_targeted_and_announces_revocation(t *testing.T) 
 	now := time.Now().UTC()
 	first, second := testAuthDigest("first-session"), testAuthDigest("second-session")
 	for _, digest := range [][32]byte{first, second} {
-		if err := taskStore.CreateAnonymousSession(context.Background(), digest, now); err != nil {
+		if err := taskStore.CreateIdleAnonymousSession(context.Background(), digest, now); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -587,7 +562,7 @@ func TestRustServer_favicon_route_requires_authentication_and_serves_cached_imag
 	faviconHandler.Seed("example.com", favicon)
 	applicationMux := http.NewServeMux()
 	applicationMux.Handle("GET /favicons/{hostname}", faviconHandler)
-	applicationMux.Handle("/", http.NotFoundHandler())
+	applicationMux.Handle("/", webserver.NotFoundHandler())
 	handler := server.TestHandler(applicationMux)
 	cookie := authenticateViaTestRoute(t, handler, server)
 	if response := serve(handler, authRequest(http.MethodGet, "/favicons/example.com", nil)); response.Code != http.StatusUnauthorized {
@@ -669,7 +644,7 @@ func TestRustServer_authority_session_and_removed_bootstrap_boundary(t *testing.
 		}
 	}
 	server, _, _ := newAuthTest(t, false)
-	handler := server.TestHandler(http.NotFoundHandler())
+	handler := server.TestHandler(webserver.NotFoundHandler())
 	cookie := authenticateViaTestRoute(t, handler, server)
 	if got := cookie.Name + "=" + cookie.Value; !strings.HasPrefix(got, "noema.sid=") {
 		t.Fatalf("normal authentication cookie = %q", got)
@@ -682,7 +657,7 @@ func TestRustServer_authority_session_and_removed_bootstrap_boundary(t *testing.
 	for _, path := range []string{"/__noema/bootstrap/test-capability", "/__noema/bootstrap/wrong"} {
 		request := authRequest(http.MethodGet, path, nil)
 		request.AddCookie(cookie)
-		if response := serve(handler, request); response.Code != http.StatusNotFound || response.Body.String() != "404 page not found\n" {
+		if response := serve(handler, request); response.Code != http.StatusNotFound || response.Body.String() != "not found" {
 			t.Fatalf("removed bootstrap %s = %d %q", path, response.Code, response.Body.String())
 		}
 	}
@@ -894,7 +869,7 @@ func TestRustServer_private_and_network_endpoints_remain_excluded_from_http_cach
 	}
 	application := http.NewServeMux()
 	application.Handle("/artifacts/versions/", artifacts.Handler())
-	application.Handle("/", http.NotFoundHandler())
+	application.Handle("/", webserver.NotFoundHandler())
 	handler := server.Handler(application)
 	for _, path := range []string{"/auth/status", "/auth/recovery", "/artifacts/versions/missing/download", "/artifacts/versions/missing/preview"} {
 		response := serve(handler, authRequest(http.MethodGet, path, nil))
@@ -930,7 +905,7 @@ func TestRustServer_router_preserves_oauth_and_plain_text_not_found_responses(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	graphql := http.NotFoundHandler()
+	graphql := webserver.NotFoundHandler()
 	applicationMux := http.NewServeMux()
 	applicationMux.Handle("/graphql", graphql)
 	applicationMux.Handle("/graphql/ws", graphql)
@@ -938,7 +913,7 @@ func TestRustServer_router_preserves_oauth_and_plain_text_not_found_responses(t 
 	applicationMux.Handle("GET /mcp/oauth/callback", mcpService.CallbackHandler())
 	applicationMux.Handle("GET /adapter/oauth/callback", adapterService.OAuthCallbackHandler())
 	applicationMux.Handle("/artifacts/versions/", artifacts.Handler())
-	applicationMux.Handle("/", http.NotFoundHandler())
+	applicationMux.Handle("/", webserver.NotFoundHandler())
 	application := applicationMux
 	handler := server.TestHandler(application)
 	_ = authenticateViaTestRoute(t, handler, server)
@@ -978,7 +953,7 @@ func TestRustServer_router_preserves_oauth_and_plain_text_not_found_responses(t 
 		if response.Code != http.StatusNotFound || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
 			t.Fatalf("%s %s = %d %#v", test.method, test.path, response.Code, response.Header())
 		}
-		if test.method != http.MethodHead && response.Body.String() != "404 page not found\n" {
+		if test.method != http.MethodHead && response.Body.String() != "not found" {
 			t.Fatalf("%s %s body = %q", test.method, test.path, response.Body.String())
 		}
 	}

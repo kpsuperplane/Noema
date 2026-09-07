@@ -858,13 +858,51 @@ func exchangeNativeTokens(
 	suffix string,
 ) nativeTokenResponse {
 	t.Helper()
-	code := "code-" + suffix
-	now := time.Now().Unix()
-	if err := taskStore.InsertNativeOAuthCode(
-		context.Background(), sha256.Sum256([]byte(code)), testDesktopClient,
-		"Noema Desktop", testDesktopRedirect, testVerifierChallenge, now, now+600,
-	); err != nil {
-		t.Fatal(err)
+	_ = suffix
+	setupHandler := server.TestHandler(http.NotFoundHandler())
+	var cookie *http.Cookie
+	if !server.config.DevNoAuth {
+		cookie = authenticateViaTestRoute(t, setupHandler, server)
+	}
+	query := nativeAuthorizationQuery(testDesktopClient, testDesktopRedirect, "e")
+	handler := server.Handler(http.NotFoundHandler())
+	start := authRequest(http.MethodGet, "/oauth/authorize?"+query, nil)
+	if cookie != nil {
+		start.AddCookie(cookie)
+	}
+	consent := serve(handler, start)
+	if consent.Code != http.StatusOK {
+		t.Fatalf("native consent start = %d %s", consent.Code, consent.Body.String())
+	}
+	if responseCookies := consent.Result().Cookies(); len(responseCookies) != 0 {
+		cookie = lastSessionCookie(t, consent, server.sessions.cookieName)
+	}
+	if cookie == nil {
+		t.Fatal("native consent did not establish a browser session")
+	}
+	pending := authRequest(http.MethodGet, "/oauth/authorize", nil)
+	pending.AddCookie(cookie)
+	browser, exists, err := server.sessions.current(pending, false)
+	if err != nil || !exists {
+		t.Fatalf("native consent browser session = %#v, %v, %v", browser, exists, err)
+	}
+	_, csrf, found, err := taskStore.NativeOAuthBrowserRequest(context.Background(), browser.digest)
+	if err != nil || !found || csrf == nil {
+		t.Fatalf("native consent state = %v, %v, %v", found, csrf, err)
+	}
+	approval := oauthFormRequest("/oauth/authorize", url.Values{"csrf": {*csrf}, "decision": {"approve"}})
+	approval.AddCookie(cookie)
+	redirect := serve(handler, approval)
+	if redirect.Code != http.StatusFound {
+		t.Fatalf("native consent approval = %d %s", redirect.Code, redirect.Body.String())
+	}
+	location, err := url.Parse(redirect.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("native consent redirect = %q: %v", redirect.Header().Get("Location"), err)
+	}
+	code := location.Query().Get("code")
+	if code == "" || location.Query().Get("state") != strings.Repeat("e", 32) {
+		t.Fatalf("native consent redirect = %q", redirect.Header().Get("Location"))
 	}
 	request := oauthFormRequest("/oauth/token", url.Values{
 		"grant_type":    {"authorization_code"},
