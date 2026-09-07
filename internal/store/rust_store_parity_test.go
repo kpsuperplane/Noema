@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/provider"
 )
 
 func openRustStoreMigrationFixture(t *testing.T, version int) *Store {
@@ -794,19 +795,98 @@ func TestRustStore_empty_apns_claim_commits_orphan_cleanup(t *testing.T) {
 func TestRustStore_sqlite_provider_accounts_seed_and_list(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	if err := database.EnsureBuiltinProviderAccounts(ctx, time.Unix(1700000000, 0)); err != nil {
+	now := time.Unix(1700000000, 0)
+	if err := database.EnsureBuiltinProviderAccounts(ctx, now); err != nil {
 		t.Fatal(err)
 	}
 	accounts, err := database.ActiveProviderAccounts(ctx)
 	if err != nil || len(accounts) == 0 {
 		t.Fatalf("provider accounts = %#v, %v", accounts, err)
 	}
-	if accounts[0].ID == "" || accounts[0].ProviderKind == "" {
-		t.Fatalf("provider account = %#v", accounts[0])
+	ids := make(map[string]bool, len(accounts))
+	for _, account := range accounts {
+		ids[account.ID] = true
+	}
+	for _, expected := range []string{
+		"provider_account:codex:default",
+		"provider_account:foundation_local:default",
+		"provider_account:openai:default",
+		"provider_account:duckduckgo_public:system",
+		"provider_account:direct_http:system",
+		"provider_account:obscura:system",
+	} {
+		if !ids[expected] {
+			t.Errorf("active provider accounts omit Rust fixture %q", expected)
+		}
 	}
 	var count int
 	if err := database.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_accounts").Scan(&count); err != nil || count < len(accounts) {
 		t.Fatalf("provider rows = %d, %v", count, err)
+	}
+	if _, err := database.DeleteProviderAccount(ctx, "provider_account:direct_http:system"); !errors.Is(err, provider.ErrProtectedAccount) {
+		t.Errorf("built-in direct HTTP delete error = %v, want protected-account error", err)
+	}
+	missing := "provider_account:missing"
+	if _, err := database.ProviderAccount(ctx, missing); !errors.Is(err, provider.ErrAccountNotFound) {
+		t.Errorf("missing provider read error = %v, want account-not-found", err)
+	}
+	account, err := database.CreateProviderAccount(ctx, provider.Account{
+		ID: "provider_account:exa:port-test", ProviderKind: "exa", AccountKey: "port-test",
+		DisplayName: "Search", AuthMethod: provider.AuthSecretInput, IsActive: true,
+		Status: provider.StatusUnauthenticated, CreatedAt: now, UpdatedAt: now,
+		Metadata: provider.AccountMetadata{"secretConfigured": json.RawMessage(`false`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := database.UpdateProviderCredential(ctx, account.ID, 0, provider.AuthSecretInput, true,
+		provider.AccountMetadata{"secretConfigured": json.RawMessage(`true`)}, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != provider.StatusAuthenticated || updated.LastAuthenticatedAt == nil {
+		t.Errorf("updated account = %#v, want authenticated with last-authenticated time", updated)
+	}
+	if string(updated.Metadata["secretConfigured"]) != "true" {
+		t.Errorf("updated account secretConfigured = %s, want true", updated.Metadata["secretConfigured"])
+	}
+	if _, err := database.DeleteProviderAccount(ctx, account.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.UpdateProviderCredential(ctx, account.ID, 0, provider.AuthSecretInput, true, nil, now.Add(2*time.Second)); !errors.Is(err, provider.ErrAccountNotFound) {
+		t.Errorf("update after delete error = %v, want account-not-found", err)
+	}
+	path := filepath.Join(t.TempDir(), "db", "noema.sqlite3")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	reader, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if err := writer.EnsureBuiltinProviderAccounts(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	codex, err := writer.ProviderAccount(ctx, "provider_account:codex:default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.UpdateProviderCredential(ctx, codex.ID, codex.Metadata.CredentialRevision(), provider.AuthOAuthDeviceCode, true,
+		provider.AccountMetadata{"profiles": json.RawMessage(`[{"id":"visible","label":"Visible"}]`)}, now); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := reader.ProviderAccount(ctx, codex.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(observed.Metadata["profiles"]) != `[{"id":"visible","label":"Visible"}]` || observed.Status != provider.StatusAuthenticated {
+		t.Errorf("second-handle account = %#v, want authenticated visible profile", observed)
 	}
 }
 
@@ -874,39 +954,124 @@ func TestRustStore_canonical_reference_write_and_account_delete_never_leave_a_da
 func TestRustStore_corrupted_account_rows_are_persistence_invariants(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	if err := database.EnsureBuiltinProviderAccounts(ctx, time.Unix(1700000000, 0)); err != nil {
+	now := time.Unix(1700000000, 0)
+	account, err := database.CreateProviderAccount(ctx, provider.Account{
+		ID: "provider_account:exa:corrupt", ProviderKind: "exa", AccountKey: "corrupt",
+		DisplayName: "Exa", AuthMethod: provider.AuthSecretInput, IsActive: true,
+		Status: provider.StatusAuthenticated, CreatedAt: now, UpdatedAt: now,
+		Metadata: provider.AccountMetadata{},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	accounts, err := database.ActiveProviderAccounts(ctx)
-	if err != nil || len(accounts) == 0 {
-		t.Fatalf("provider accounts = %#v, %v", accounts, err)
+	connection, err := database.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if accounts[0].ID == "" || accounts[0].ProviderKind == "" {
-		t.Fatalf("provider account = %#v", accounts[0])
+	if _, err := connection.ExecContext(ctx, "PRAGMA ignore_check_constraints = ON"); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
 	}
-	var count int
-	if err := database.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_accounts").Scan(&count); err != nil || count < len(accounts) {
-		t.Fatalf("provider rows = %d, %v", count, err)
+	if _, err := connection.ExecContext(ctx, "UPDATE provider_accounts SET metadata_json = '{' WHERE provider_account_id = ?", account.ID); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	if _, err := connection.ExecContext(ctx, "PRAGMA ignore_check_constraints = OFF"); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	readError := func() error {
+		_, err := database.ProviderAccount(ctx, account.ID)
+		return err
+	}()
+	if readError == nil {
+		t.Errorf("corrupt provider row was read successfully")
+	} else if !strings.Contains(readError.Error(), "decode provider account metadata") {
+		t.Errorf("corrupt provider read error = %v, want metadata decode error", readError)
+	}
+	if _, err := database.UpdateProviderCredential(ctx, account.ID, 0, provider.AuthSecretInput, true, nil, now.Add(time.Second)); err == nil {
+		t.Errorf("credential update accepted corrupt provider row")
+	}
+	if err := database.SetProviderAccountStatus(ctx, account.ID, provider.StatusAuthenticated, "", "", now.Add(2*time.Second)); err == nil {
+		// Rust's update_provider_account path returns an invariant error here.
+		t.Errorf("status update accepted corrupt provider row")
 	}
 }
 
 // Rust source: crates/noema-store/src/provider_persistence_port_tests.rs::capability_assignment_and_account_delete_never_leave_a_dangling_row.
 func TestRustStore_capability_assignment_and_account_delete_never_leave_a_dangling_row(t *testing.T) {
-	database := openTestStore(t)
 	ctx := t.Context()
-	if err := database.EnsureBuiltinProviderAccounts(ctx, time.Unix(1700000000, 0)); err != nil {
+	path := filepath.Join(t.TempDir(), "db", "noema.sqlite3")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	accounts, err := database.ActiveProviderAccounts(ctx)
-	if err != nil || len(accounts) == 0 {
-		t.Fatalf("provider accounts = %#v, %v", accounts, err)
+	writer, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if accounts[0].ID == "" || accounts[0].ProviderKind == "" {
-		t.Fatalf("provider account = %#v", accounts[0])
+	t.Cleanup(func() { _ = writer.Close() })
+	if err := writer.EnsureBuiltinProviderAccounts(ctx, time.Unix(1700000000, 0)); err != nil {
+		t.Fatal(err)
 	}
-	var count int
-	if err := database.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_accounts").Scan(&count); err != nil || count < len(accounts) {
-		t.Fatalf("provider rows = %d, %v", count, err)
+	deleter, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = deleter.Close() })
+	missingProviderAccountID := "provider_account:exa:missing"
+	if err := writer.SaveWebProviderBinding(ctx, "web.search", missingProviderAccountID, time.Unix(1700000000, 0)); !errors.Is(err, provider.ErrAccountNotFound) {
+		t.Errorf("missing persisted account error = %v, want account-not-found", err)
+	}
+	systemProviderAccountID := "provider_account:direct_http:system"
+	if err := writer.SaveWebProviderBinding(ctx, "web.fetch", systemProviderAccountID, time.Unix(1700000000, 0)); err != nil {
+		t.Fatalf("save system assignment: %v", err)
+	}
+	bindings, err := writer.WebProviderRoute(ctx, "web.fetch")
+	if err != nil || len(bindings) != 1 || bindings[0].ProviderAccountID != systemProviderAccountID {
+		t.Fatalf("system assignment = %#v, %v", bindings, err)
+	}
+	now := time.Unix(1700000000, 0)
+	account, err := writer.CreateProviderAccount(ctx, provider.Account{
+		ID: "provider_account:exa:concurrent", ProviderKind: "exa", AccountKey: "concurrent",
+		DisplayName: "Exa", AuthMethod: provider.AuthSecretInput, IsActive: true,
+		Status: provider.StatusAuthenticated, CreatedAt: now, UpdatedAt: now,
+		Metadata: provider.AccountMetadata{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeDone := make(chan error, 1)
+	deleteDone := make(chan error, 1)
+	go func() { writeDone <- writer.SaveWebProviderBinding(ctx, "web.search", account.ID, now) }()
+	go func() {
+		_, deleteErr := deleter.DeleteProviderAccount(ctx, account.ID)
+		deleteDone <- deleteErr
+	}()
+	writeErr, deleteErr := <-writeDone, <-deleteDone
+	if writeErr != nil && !errors.Is(writeErr, provider.ErrAccountNotFound) {
+		t.Errorf("concurrent capability write error = %v", writeErr)
+	}
+	if deleteErr != nil && !errors.Is(deleteErr, provider.ErrProtectedAccount) {
+		t.Errorf("concurrent account delete error = %v", deleteErr)
+	}
+	_, accountErr := writer.ProviderAccount(ctx, account.ID)
+	accountExists := accountErr == nil
+	if accountErr != nil && !errors.Is(accountErr, provider.ErrAccountNotFound) {
+		t.Errorf("concurrent account read error = %v", accountErr)
+	}
+	bindings, err = writer.WebProviderRoute(ctx, "web.search")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignmentExists := false
+	for _, binding := range bindings {
+		assignmentExists = assignmentExists || binding.ProviderAccountID == account.ID
+	}
+	if assignmentExists && !accountExists {
+		t.Errorf("dangling capability assignment: account=%v bindings=%#v", accountExists, bindings)
 	}
 }
 
@@ -917,16 +1082,79 @@ func TestRustStore_browser_route_replacement_is_unbounded_atomic_and_preserves_f
 	if err := database.EnsureBuiltinProviderAccounts(ctx, time.Unix(1700000000, 0)); err != nil {
 		t.Fatal(err)
 	}
-	accounts, err := database.ActiveProviderAccounts(ctx)
-	if err != nil || len(accounts) == 0 {
-		t.Fatalf("provider accounts = %#v, %v", accounts, err)
+	now := time.Unix(1700000000, 0)
+	accountIDs := []string{"provider_account:obscura:system"}
+	for index := 0; index < 8; index++ {
+		key := fmt.Sprintf("route-%d", index)
+		account, err := database.CreateProviderAccount(ctx, provider.Account{
+			ID: "provider_account:kernel:" + key, ProviderKind: "kernel", AccountKey: key,
+			DisplayName: fmt.Sprintf("Kernel %d", index), AuthMethod: provider.AuthSecretInput,
+			IsActive: true, Status: provider.StatusAuthenticated, CreatedAt: now, UpdatedAt: now,
+			Metadata: provider.AccountMetadata{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		accountIDs = append(accountIDs, account.ID)
 	}
-	if accounts[0].ID == "" || accounts[0].ProviderKind == "" {
-		t.Fatalf("provider account = %#v", accounts[0])
+	if err := database.SaveBrowserProviderRoute(ctx, accountIDs, now); err != nil {
+		t.Fatal(err)
 	}
-	var count int
-	if err := database.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_accounts").Scan(&count); err != nil || count < len(accounts) {
-		t.Fatalf("provider rows = %d, %v", count, err)
+	route, err := database.WebProviderRoute(ctx, "web.browse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(route) != len(accountIDs) {
+		t.Fatalf("nine-provider route length = %d, want %d", len(route), len(accountIDs))
+	}
+	for index, expected := range accountIDs {
+		if route[index].ProviderAccountID != expected || route[index].RoutePosition != index {
+			t.Fatalf("nine-provider route[%d] = %#v, want %q at %d", index, route[index], expected, index)
+		}
+	}
+	missing := append([]string{accountIDs[0]}, "provider_account:kernel:missing")
+	if err := database.SaveBrowserProviderRoute(ctx, missing, now); !errors.Is(err, provider.ErrAccountNotFound) {
+		t.Errorf("missing-account route error = %v, want account-not-found", err)
+	}
+	preserved, err := database.WebProviderRoute(ctx, "web.browse")
+	if err != nil || len(preserved) != len(accountIDs) {
+		t.Fatalf("route after missing account = %#v, %v", preserved, err)
+	}
+	unavailableKey := "route-unavailable"
+	unavailable, err := database.CreateProviderAccount(ctx, provider.Account{
+		ID: "provider_account:kernel:" + unavailableKey, ProviderKind: "kernel", AccountKey: unavailableKey,
+		DisplayName: "Unavailable Kernel", AuthMethod: provider.AuthSecretInput,
+		IsActive: true, Status: provider.StatusUnauthenticated, CreatedAt: now, UpdatedAt: now,
+		Metadata: provider.AccountMetadata{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailableRoute := append([]string{accountIDs[0]}, unavailable.ID)
+	if err := database.SaveBrowserProviderRoute(ctx, unavailableRoute, now); err == nil {
+		t.Errorf("unavailable-account route was accepted")
+	}
+	afterUnavailable, err := database.WebProviderRoute(ctx, "web.browse")
+	if err != nil || len(afterUnavailable) != len(accountIDs) {
+		t.Fatalf("route after unavailable account = %#v, %v", afterUnavailable, err)
+	}
+	preferred := accountIDs[3]
+	reordered := make([]string, 0, len(accountIDs))
+	reordered = append(reordered, preferred)
+	for _, accountID := range accountIDs {
+		if accountID != preferred {
+			reordered = append(reordered, accountID)
+		}
+	}
+	if err := database.SaveBrowserProviderRoute(ctx, reordered, now); err != nil {
+		t.Fatal(err)
+	}
+	reorderedRoute, err := database.WebProviderRoute(ctx, "web.browse")
+	if err != nil || len(reorderedRoute) != len(accountIDs) || reorderedRoute[0].ProviderAccountID != preferred {
+		t.Fatalf("reordered route = %#v, %v", reorderedRoute, err)
+	}
+	if err := database.SaveBrowserProviderRoute(ctx, []string{accountIDs[0], accountIDs[0]}, now); err == nil {
+		t.Errorf("duplicate browser route was accepted")
 	}
 }
 
@@ -2633,17 +2861,45 @@ func TestRustStore_turn_finalization_finishes_debug_span_and_child_item(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := database.BeginRuntimeDebugSpan(ctx, RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "provider", "Rust parity", RuntimeDebugMetadata{}, time.Unix(0, 0))
+	scope := RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}
+	id, err := database.BeginRuntimeDebugSpan(ctx, scope, "provider", "Initial provider request", RuntimeDebugMetadata{Phase: "initial"}, time.Unix(0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.FinishRuntimeDebugSpan(ctx, id, "completed", RuntimeDebugMetadata{}, time.Millisecond, time.Unix(1, 0)); err != nil {
+	live, err := database.RuntimeDebugProfile(ctx, scope)
+	if err != nil || live == nil || len(live.Spans) != 1 || live.Spans[0].Status != "running" || live.Spans[0].Metadata.Phase != "initial" {
+		t.Fatalf("live debug profile = %#v, %v", live, err)
+	}
+	_, insertErr := database.db.ExecContext(ctx, `INSERT INTO conversation_items
+(item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id)
+VALUES ('item:unfinished-call', ?, ?, 1, 'tool_call', 'running', 'agent:primary')`, conversation.ID, turn.ID)
+	if insertErr != nil {
+		// Preserve the Rust fixture. Go currently rejects this short identifier
+		// before turn finalization can observe it.
+		t.Errorf("Rust unfinished-call fixture insert failed: %v", insertErr)
+	}
+	if _, err := database.CompleteConversationTurn(ctx, turn, "Completed", "Completed", nil, time.Unix(1, 0)); err != nil {
 		t.Fatal(err)
 	}
-	profile, err := database.RuntimeDebugProfile(ctx, RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID})
-	if err != nil || profile == nil || len(profile.Spans) != 1 {
-		t.Fatalf("debug profile = %#v, %v", profile, err)
+	durable, err := database.RuntimeDebugProfile(ctx, scope)
+	if err != nil || durable == nil || len(durable.Spans) != 1 {
+		t.Fatalf("durable debug profile = %#v, %v", durable, err)
 	}
+	if durable.Spans[0].Status != "completed" {
+		t.Errorf("turn finalization span status = %q, want completed", durable.Spans[0].Status)
+	}
+	if durable.Spans[0].DurationMilliseconds == nil {
+		t.Errorf("turn finalization span duration is nil")
+	}
+	var itemStatus string
+	itemErr := database.db.QueryRowContext(ctx, `SELECT status FROM conversation_items WHERE item_id = 'item:unfinished-call'`).Scan(&itemStatus)
+	if itemErr != nil || itemStatus != "failed" {
+		t.Errorf("unfinished call status = %q, %v; want failed", itemStatus, itemErr)
+	}
+	if _, err := database.db.ExecContext(ctx, `INSERT INTO runtime_debug_spans (span_id, category, name) VALUES ('debug_span:invalid', 'runtime', 'invalid')`); err == nil {
+		t.Errorf("a span without exactly one owner was accepted")
+	}
+	_ = id
 }
 
 // Rust source: crates/noema-store/src/tests/runtime_debug.rs::provider_child_spans_keep_exact_parent_offsets.
