@@ -9,8 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +22,7 @@ import (
 
 	"github.com/coder/websocket"
 	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
+	noemaartifact "github.com/kpsuperplane/noema/internal/artifact"
 	noemaauth "github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
@@ -272,7 +271,7 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	_ = authenticateExternal(t, public, server)
 	access := seedNativeAccess(t, database, "active")
 	faviconHandler := webserver.NewFaviconHandler(t.TempDir())
-	favicon := externalFaviconPNG(t)
+	favicon := []byte("png")
 	faviconHandler.Seed("example.com", favicon)
 	started, returned := make(chan struct{}), make(chan struct{})
 	var startedOnce sync.Once
@@ -294,6 +293,31 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	mux := http.NewServeMux()
 	mux.Handle("GET /favicons/{hostname}", faviconHandler)
 	mux.Handle("/", application)
+	artifactPaths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactRoot, err := artifactPaths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = artifactRoot.Close() })
+	artifactDatabase, err := store.Open(context.Background(), artifactPaths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := noemaartifact.New(artifactRoot, artifactDatabase, nil)
+	if err != nil {
+		_ = artifactDatabase.Close()
+		t.Fatal(err)
+	}
+	// Rust's GraphQL fixture has no filesystem Artifact service. Mount the
+	// production Go route, then close its store to preserve that unavailable
+	// service result after bearer authentication reaches the route.
+	if err := artifactDatabase.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	handler := server.Handler(mux)
 	graphqlRequest := externalRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ task(taskId: \"task:transport\") { taskId } }"}`))
 	graphqlRequest.Header.Del("Origin")
@@ -476,15 +500,6 @@ func externalGraphQLApplication(t *testing.T, server *noemaauth.Server, paths ho
 		}
 		assets.ServeHTTP(w, r)
 	})
-}
-
-func externalFaviconPNG(t *testing.T) []byte {
-	t.Helper()
-	var body bytes.Buffer
-	if err := png.Encode(&body, image.NewRGBA(image.Rect(0, 0, 32, 32))); err != nil {
-		t.Fatal(err)
-	}
-	return body.Bytes()
 }
 
 func externalRequest(method, path string, body *bytes.Buffer) *http.Request {
