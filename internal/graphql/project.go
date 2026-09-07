@@ -130,7 +130,7 @@ func projectGraphQLError(err error) error {
 	case errors.Is(err, store.ErrCommandConflict):
 		code, message = "idempotency_conflict", "the command key conflicts with an earlier request"
 	case errors.Is(err, home.ErrProjectDocumentChanged):
-		code, message = "stale_document", "the authoritative Project document changed"
+		code, message = "stale_document", "the authoritative Task document changed"
 	case errors.Is(err, home.ErrProjectFolderConflict), errors.Is(err, home.ErrInvalidProjectFolder),
 		errors.Is(err, home.ErrInvalidProjectDocument), errors.Is(err, project.ErrInvalidInput):
 		code, message = "invalid_input", "the Project input is not valid"

@@ -13,7 +13,7 @@ import (
 func (r *Resolver) apnsProviderStatus(ctx context.Context) (*model.ApnsProviderStatus, error) {
 	_, browser := auth.BrowserSessionHash(ctx)
 	if (!browser && !auth.DesktopAccess(ctx)) || r.Notifications == nil {
-		return nil, errors.New("browser session is unavailable")
+		return nil, errors.New("browser session authentication required")
 	}
 	value, err := r.Notifications.APNSProviderStatus()
 	if err != nil {
@@ -25,7 +25,7 @@ func (r *Resolver) apnsProviderStatus(ctx context.Context) (*model.ApnsProviderS
 func (r *Resolver) configureAPNS(ctx context.Context, input model.ConfigureApnsProviderInput) (*model.ApnsProviderStatus, error) {
 	_, browser := auth.BrowserSessionHash(ctx)
 	if (!browser && !auth.DesktopAccess(ctx)) || r.Notifications == nil {
-		return nil, errors.New("browser session is unavailable")
+		return nil, errors.New("browser session authentication required")
 	}
 	value, err := r.Notifications.ConfigureAPNS(input.TeamID, input.KeyID, input.PrivateKeyPem, input.ExpectedRevision)
 	if err != nil {
@@ -37,7 +37,7 @@ func (r *Resolver) configureAPNS(ctx context.Context, input model.ConfigureApnsP
 func (r *Resolver) removeAPNS(ctx context.Context, expected int) (*model.ApnsProviderStatus, error) {
 	_, browser := auth.BrowserSessionHash(ctx)
 	if (!browser && !auth.DesktopAccess(ctx)) || r.Notifications == nil {
-		return nil, errors.New("browser session is unavailable")
+		return nil, errors.New("browser session authentication required")
 	}
 	value, err := r.Notifications.RemoveAPNS(ctx, expected)
 	if err != nil {

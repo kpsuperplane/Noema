@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -665,7 +666,11 @@ func (c *Chat) failTurn(input SendTurnInput, turn store.ConversationTurn, cause 
 	}
 	_ = c.errors.Write("runtime.chat_failed", diagnostics.Text("conversation_id", turn.ConversationID),
 		diagnostics.Text("turn_id", turn.ID))
-	item, err := c.database.FailConversationTurn(c.ctx, turn, "The provider request failed.", time.Now())
+	message := "The provider request failed."
+	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
+		message = cause.Error()
+	}
+	item, err := c.database.FailConversationTurn(c.ctx, turn, message, time.Now())
 	if err != nil {
 		c.publishTransientFailure(input, cause)
 		return

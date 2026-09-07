@@ -74,7 +74,7 @@ available enabled registered environment } }`)
 	nativeProviderWrite := nativeGraphQLRequest(t, access, `mutation { removeApnsProvider(expectedRevision: 0) { revision } }`)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, nativeProviderWrite)
-	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("browser session is unavailable")) {
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("browser session authentication required")) {
 		t.Fatalf("native provider write = %d %s", response.Code, response.Body.String())
 	}
 }
