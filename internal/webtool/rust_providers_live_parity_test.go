@@ -7,6 +7,7 @@ package webtool
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -200,13 +201,28 @@ func TestRustProviders_BrowserWorkersEnableObscuraStealth(t *testing.T) {
 
 // Rust source: crates/noema-providers/src/adapters/web/browse/obscura.rs::embedded_obscura_snapshots_and_emits_trusted_interactions (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_EmbeddedObscuraSnapshotsAndEmitsTrustedInteractions(t *testing.T) {
+	fixtureHTML := `<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>File<input type='file' aria-label='File'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><form action='https://example.com/confirmed' method='post'><input name='amount' value='125.00'><input type='hidden' name='csrf' value='hidden-secret'><input type='password' name='pin' value='password-secret'><button name='confirm' value='yes'>Submit form</button></form><script>
+setTimeout(()=>document.querySelector('button').disabled=false,1);
+const nameInput=document.querySelector('input');
+nameInput.addEventListener('input',event=>event.target.setAttribute('data-input-trusted',String(event.isTrusted)));
+nameInput.addEventListener('change',event=>event.target.setAttribute('data-change-trusted',String(event.isTrusted)));
+nameInput.addEventListener('keydown',event=>event.target.setAttribute('data-keydown-trusted',String(event.isTrusted)));
+nameInput.addEventListener('keyup',event=>event.target.setAttribute('data-keyup-trusted',String(event.isTrusted)));
+const role=document.querySelector('select');
+role.addEventListener('input',event=>event.target.setAttribute('data-input-trusted',String(event.isTrusted)));
+role.addEventListener('change',event=>event.target.setAttribute('data-change-trusted',String(event.isTrusted)));
+const save=document.querySelector('button');
+save.addEventListener('click',event=>event.target.setAttribute('data-click-trusted',String(event.isTrusted)));
+const activate=document.querySelector('[role=button]');
+activate.addEventListener('keydown',event=>{activate.setAttribute('data-key',event.key);if(event.key==='Enter')activate.setAttribute('data-enter','true')});
+</script></body>`
 	fixture := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/confirmed" {
 			writer.WriteHeader(http.StatusBadGateway)
 			_, _ = io.WriteString(writer, "<!doctype html><title>Confirmed</title>")
 			return
 		}
-		_, _ = io.WriteString(writer, "<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>File<input type='file' aria-label='File'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><form action='/confirmed' method='post'><input name='amount' value='125.00'><input type='hidden' name='csrf' value='hidden-secret'><input type='password' name='pin' value='password-secret'><button name='confirm' value='yes'>Submit form</button></form></body>")
+		_, _ = io.WriteString(writer, fixtureHTML)
 	}))
 	defer fixture.Close()
 	executable, err := os.Executable()
@@ -231,6 +247,10 @@ func TestRustProviders_EmbeddedObscuraSnapshotsAndEmitsTrustedInteractions(t *te
 	}
 	if response.Screenshot.Data == "" {
 		t.Fatal("rendered screenshot is empty")
+	}
+	png, err := base64.StdEncoding.DecodeString(response.Screenshot.Data)
+	if err != nil || !bytes.HasPrefix(png, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		t.Fatalf("rendered screenshot PNG = %d bytes, %v", len(png), err)
 	}
 	snapshot := response.Snapshot
 	if snapshot == nil || strings.Contains(snapshot.Text, "JavaScript is disabled") {
@@ -262,11 +282,58 @@ func TestRustProviders_EmbeddedObscuraSnapshotsAndEmitsTrustedInteractions(t *te
 	if err != nil || strings.Contains(string(encodedSubmission), "secret") {
 		t.Fatalf("submission exposed secret fields = %s, %v", encodedSubmission, err)
 	}
+	session.url = snapshot.URL
 	session.elements = snapshot.Elements
+	// BrowserAuthority is the production revision gate used by the service
+	// before it dispatches an interaction. The worker-level fixture is local,
+	// so the service cannot accept its loopback URL as a public result; attach
+	// this real worker session only to exercise the same revision gate.
+	authorityService := rustWebService(t)
+	route, routeKey, err := authorityService.browserRoute(t.Context())
+	if err != nil || len(route) == 0 {
+		t.Fatalf("browser route = %#v, %v", route, err)
+	}
+	authorityOwner := "rust-obscura-revision"
+	session.providerKind = route[0].ProviderKind
+	session.providerAccountID = route[0].ID
+	session.routeKey = routeKey
+	session.publicRevision = snapshot.Revision
+	authorityService.browserMu.Lock()
+	authorityService.browsers[authorityOwner] = session
+	authorityService.browserMu.Unlock()
+	t.Cleanup(func() {
+		authorityService.browserMu.Lock()
+		delete(authorityService.browsers, authorityOwner)
+		authorityService.browserMu.Unlock()
+	})
+	authorityRequest, err := json.Marshal(map[string]any{
+		"snapshot_revision": snapshot.Revision,
+		"ref":               input.Reference,
+		"action":            "fill",
+		"value":             "Ada",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authorityService.BrowserAuthority(t.Context(), authorityOwner, BrowseInteractName, authorityRequest); err != nil {
+		t.Fatalf("current browser revision = %v", err)
+	}
+	evaluate := func(expression string, target any) error {
+		session.mu.Lock()
+		defer session.mu.Unlock()
+		return session.process.evaluate(t.Context(), expression, target)
+	}
 	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
 		"ref": input.Reference, "action": "fill", "value": "Ada",
 	}); failure != nil {
 		t.Fatalf("fill input = %#v", failure)
+	}
+	var inputState map[string]any
+	if err := evaluate(`(()=>{const input=document.querySelector('input');return {value:input.value,inputTrusted:input.getAttribute('data-input-trusted'),changeTrusted:input.getAttribute('data-change-trusted')}})()`, &inputState); err != nil {
+		t.Fatal(err)
+	}
+	if inputState["value"] != "Ada" || inputState["inputTrusted"] != "true" || inputState["changeTrusted"] != "true" {
+		t.Fatalf("filled input state = %#v", inputState)
 	}
 	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
 		"ref": file.Reference, "action": "upload_file",
@@ -283,31 +350,94 @@ func TestRustProviders_EmbeddedObscuraSnapshotsAndEmitsTrustedInteractions(t *te
 	}); failure != nil {
 		t.Fatalf("press input key = %#v", failure)
 	}
+	var keyState map[string]any
+	if err := evaluate(`(()=>{const input=document.querySelector('input');return {value:input.value,keydownTrusted:input.getAttribute('data-keydown-trusted'),keyupTrusted:input.getAttribute('data-keyup-trusted')}})()`, &keyState); err != nil {
+		t.Fatal(err)
+	}
+	if keyState["value"] != "Ada" || keyState["keydownTrusted"] != "true" || keyState["keyupTrusted"] != "true" {
+		t.Fatalf("pressed input state = %#v", keyState)
+	}
 	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
 		"ref": roleSelect.Reference, "action": "select_option", "value": "manager",
 	}); failure != nil {
 		t.Fatalf("select option = %#v", failure)
+	}
+	var selectState map[string]any
+	if err := evaluate(`(()=>{const select=document.querySelector('select');return {value:select.value,inputTrusted:select.getAttribute('data-input-trusted'),changeTrusted:select.getAttribute('data-change-trusted')}})()`, &selectState); err != nil {
+		t.Fatal(err)
+	}
+	if selectState["value"] != "manager" || selectState["inputTrusted"] != "true" || selectState["changeTrusted"] != "true" {
+		t.Fatalf("selected option state = %#v", selectState)
 	}
 	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
 		"ref": button.Reference, "action": "click",
 	}); failure != nil {
 		t.Fatalf("click button = %#v", failure)
 	}
+	var clickTrusted string
+	if err := evaluate("document.querySelector('button').getAttribute('data-click-trusted')", &clickTrusted); err != nil {
+		t.Fatal(err)
+	}
+	if clickTrusted != "true" {
+		t.Fatalf("click trusted = %q", clickTrusted)
+	}
 	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
 		"ref": activate.Reference, "action": "press_key", "value": "ARROWRIGHT",
 	}); failure != nil {
 		t.Fatalf("press named key = %#v", failure)
 	}
-	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+	var namedKey string
+	if err := evaluate("document.querySelector('[role=button]').getAttribute('data-key')", &namedKey); err != nil {
+		t.Fatal(err)
+	}
+	if namedKey != "ArrowRight" {
+		t.Fatalf("named key = %q", namedKey)
+	}
+	if err := evaluate(`document.querySelector('[role=button]').addEventListener('keydown',event=>{if(event.key==='Enter')location.assign('/confirmed')})`, nil); err != nil {
+		t.Fatal(err)
+	}
+	confirmed, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
 		"ref": activate.Reference, "action": "press_key", "value": "ENTER",
-	}); failure != nil {
+	})
+	if failure != nil || confirmed == nil {
 		t.Fatalf("activate navigation = %#v", failure)
+	}
+	if confirmed.State != "outcome_uncertain" || confirmed.Snapshot == nil || confirmed.Snapshot.Title != "Confirmed" {
+		t.Fatalf("confirmed navigation = %#v", confirmed)
+	}
+	if process.mainDocumentStatus != http.StatusBadGateway {
+		t.Fatalf("navigation status = %d", process.mainDocumentStatus)
+	}
+	if process.mainDocumentStatus < 500 {
+		t.Fatalf("navigation did not produce a failed status = %d", process.mainDocumentStatus)
+	}
+	if confirmed.Snapshot == nil {
+		t.Fatal("confirmed navigation omitted its snapshot")
+	}
+	session.url = confirmed.Snapshot.URL
+	session.elements = confirmed.Snapshot.Elements
+	session.publicRevision = snapshot.Revision + 1
+	if _, err := authorityService.BrowserAuthority(t.Context(), authorityOwner, BrowseInteractName, authorityRequest); err == nil || err.Error() != "browser snapshot is stale" {
+		t.Fatalf("stale browser revision = %v", err)
+	}
+	if _, stale := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": input.Reference, "action": "fill", "value": "stale",
+	}); stale == nil || stale.code != "stale_snapshot" {
+		t.Fatalf("old snapshot interaction = %#v", stale)
 	}
 	if _, err := netpolicy.CheckURLTarget("https://user@example.com"); err == nil {
 		t.Fatal("credentialed public URL accepted")
 	}
 	if _, err := netpolicy.CheckURLTarget("http://127.0.0.1"); err == nil {
 		t.Fatal("private URL accepted")
+	}
+	if _, err := normalizePublicURL(t.Context(), "http://127.0.0.1"); err == nil {
+		t.Fatal("blocked resulting URL accepted")
+	}
+	blocked := *confirmed.Snapshot
+	blocked.URL = "http://127.0.0.1"
+	if err := validateBrowserSnapshot(t.Context(), &blocked); err == nil || err.Error() != "navigation_failed" {
+		t.Fatalf("blocked resulting snapshot = %v", err)
 	}
 }
 
