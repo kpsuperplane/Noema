@@ -284,6 +284,9 @@ func lowerOpenRouterStrictSchema(value any, path string) error {
 		delete(object, "additionalProperties")
 		delete(object, "required")
 	} else if jsonString(object["type"]) == "object" {
+		if _, exists := object["properties"]; !exists {
+			object["properties"] = map[string]any{}
+		}
 		if _, exists := object["required"]; !exists {
 			object["required"] = []any{}
 		}

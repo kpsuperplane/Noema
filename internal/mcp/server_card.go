@@ -36,12 +36,22 @@ type serverCard struct {
 
 // ConnectService discovers the official server card and starts its public setup.
 func (s *Service) ConnectService(ctx context.Context, raw string) ServiceCardResult {
+	rawURL, _ := url.Parse(strings.TrimSpace(raw))
 	service, err := normalizeServiceURL(ctx, raw)
 	if err != nil {
 		return ServiceCardResult{Status: "invalid_card", ServiceURL: raw}
 	}
 	result := ServiceCardResult{Status: "not_found", ServiceURL: service.String()}
-	for _, candidate := range serverCardCandidates(service) {
+	candidates := serverCardCandidates(service)
+	// Some hosted services are mounted below a reverse-proxy path. Keep the
+	// standard origin check first, then try that explicit path's card location.
+	// The normalized service URL remains origin-scoped for storage and display.
+	if rawURL != nil && rawURL.Path != "" && rawURL.Path != "/" {
+		pathCard := *service
+		pathCard.Path = strings.TrimRight(rawURL.Path, "/") + "/.well-known/mcp.json"
+		candidates = append(candidates, &pathCard)
+	}
+	for _, candidate := range candidates {
 		card, state := fetchServerCard(ctx, candidate)
 		if state == "not_found" {
 			continue

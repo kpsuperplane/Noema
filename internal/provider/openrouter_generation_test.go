@@ -466,3 +466,21 @@ func TestOptionalEnumSurvivesStrictProviderConversion(t *testing.T) {
 		}
 	}
 }
+
+func TestStrictObjectSchemaIncludesEmptyProperties(t *testing.T) {
+	_, wire, err := prepareOpenRouterTools([]GenerationTool{{
+		Name:        "notion-get-self",
+		Description: "Return the connected identity.",
+		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parameters := jsonObject(wire[0].Function.Parameters)
+	if _, ok := parameters["properties"].(map[string]any); !ok {
+		t.Fatalf("empty object schema properties = %#v", parameters["properties"])
+	}
+	if required, ok := parameters["required"].([]any); !ok || len(required) != 0 {
+		t.Fatalf("empty object schema required = %#v", parameters["required"])
+	}
+}

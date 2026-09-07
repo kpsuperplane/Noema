@@ -80,6 +80,41 @@ func TestHTTPDiscoveryCallAndExactSourceFence(t *testing.T) {
 	}
 }
 
+func TestConnectServiceUsesExplicitPathCardFallback(t *testing.T) {
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "notes", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "search"},
+		func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{"ok": true}, nil
+		})
+	var origin string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/product/.well-known/mcp.json", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"title": "Notes", "transport": map[string]any{"type": "streamable-http", "endpoint": origin + "/product/mcp"}})
+	})
+	mux.Handle("/product/mcp", mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	httpServer := httptest.NewServer(mux)
+	defer httpServer.Close()
+	origin = httpServer.URL
+	paths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.Open(t.Context(), paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	service, err := NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	connected := service.ConnectService(t.Context(), origin+"/product?private=removed")
+	if connected.Status != "ready_for_policy" || connected.CardURL != origin+"/product/.well-known/mcp.json" || connected.EndpointURL != origin+"/product/mcp" || connected.Setup.Server == nil {
+		t.Fatalf("path-card setup = %#v", connected)
+	}
+}
+
 func boolTestPointer(value bool) *bool { return &value }
 
 func TestHTTPResponseWireLimit(t *testing.T) {
