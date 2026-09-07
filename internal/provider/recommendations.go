@@ -15,18 +15,6 @@ const (
 	ModelUseMemoryConsolidation ModelUseCase = "memory_consolidation"
 )
 
-var modelUseCases = []ModelUseCase{
-	ModelUsePrimary,
-	ModelUseTaskSimple,
-	ModelUseTaskMedium,
-	ModelUseTaskDifficult,
-	ModelUseTaskReviewer,
-	ModelUseWebFetchSummarizer,
-	ModelUseToolProgressAudit,
-	ModelUseActionReviewer,
-	ModelUseMemoryConsolidation,
-}
-
 // ModelRecommendation is one shipped provider choice for a workload.
 type ModelRecommendation struct {
 	UseCase         ModelUseCase
@@ -36,43 +24,44 @@ type ModelRecommendation struct {
 
 // ModelRecommendations returns shipped choices in stable workload order.
 func ModelRecommendations(providerKind string) []ModelRecommendation {
-	var primaryProfile, routineProfile, difficultProfile string
-	var primaryEffort string
 	switch providerKind {
-	case "codex", "openai":
-		primaryProfile = "gpt-5.6-terra"
-		routineProfile = "gpt-5.6-luna"
-		difficultProfile = "gpt-5.6-sol"
-		primaryEffort = "medium"
+	case "codex":
+		return []ModelRecommendation{
+			{UseCase: ModelUseCase("primary"), ModelProfile: "gpt-5.6-terra", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("task_simple"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("task_medium"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "xhigh"},
+			{UseCase: ModelUseCase("task_difficult"), ModelProfile: "gpt-5.6-sol", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("task_reviewer"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("web_fetch_summarizer"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("tool_progress_audit"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("action_reviewer"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("memory_consolidation"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "medium"},
+		}
+	case "openai":
+		return []ModelRecommendation{
+			{UseCase: ModelUseCase("primary"), ModelProfile: "gpt-5.6-terra", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("task_simple"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("task_medium"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "xhigh"},
+			{UseCase: ModelUseCase("task_difficult"), ModelProfile: "gpt-5.6-sol", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("task_reviewer"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("web_fetch_summarizer"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("tool_progress_audit"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("action_reviewer"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("memory_consolidation"), ModelProfile: "gpt-5.6-luna", ReasoningEffort: "medium"},
+		}
 	case "openrouter":
-		primaryProfile = "openai/gpt-5.6-luna"
-		routineProfile = primaryProfile
-		difficultProfile = "openai/gpt-5.6-sol"
-		primaryEffort = "high"
+		return []ModelRecommendation{
+			{UseCase: ModelUseCase("primary"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "high"},
+			{UseCase: ModelUseCase("task_simple"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("task_medium"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("task_difficult"), ModelProfile: "openai/gpt-5.6-sol", ReasoningEffort: "medium"},
+			{UseCase: ModelUseCase("task_reviewer"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("web_fetch_summarizer"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("tool_progress_audit"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("action_reviewer"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "low"},
+			{UseCase: ModelUseCase("memory_consolidation"), ModelProfile: "openai/gpt-5.6-luna", ReasoningEffort: "low"},
+		}
 	default:
 		return nil
 	}
-
-	recommendations := make([]ModelRecommendation, 0, len(modelUseCases))
-	for _, useCase := range modelUseCases {
-		profile, effort := routineProfile, "low"
-		switch useCase {
-		case ModelUsePrimary:
-			profile, effort = primaryProfile, primaryEffort
-		case ModelUseTaskDifficult:
-			profile, effort = difficultProfile, "medium"
-		case ModelUseTaskSimple, ModelUseTaskReviewer, ModelUseMemoryConsolidation:
-			if providerKind != "openrouter" {
-				effort = "medium"
-			}
-		case ModelUseTaskMedium:
-			if providerKind != "openrouter" {
-				effort = "xhigh"
-			}
-		}
-		recommendations = append(recommendations, ModelRecommendation{
-			UseCase: useCase, ModelProfile: profile, ReasoningEffort: effort,
-		})
-	}
-	return recommendations
 }

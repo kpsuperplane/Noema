@@ -3,6 +3,7 @@ package modeleval
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -466,11 +467,15 @@ func TestRustModelEvals_RenderedCellLineMatchesTheTableAuthority(t *testing.T) {
 		t.Fatal("action reviewer recommendation is unavailable")
 	}
 	block := recommendationCellLine(string(action.UseCase), action.ModelProfile, action.ReasoningEffort)
-	if block != "{UseCase: ModelUseCase(\"action_reviewer\"), ModelProfile: \"openai/gpt-5.6-luna\", ReasoningEffort: \"low\"},\n" {
+	if block != "\t\t\t{UseCase: ModelUseCase(\"action_reviewer\"), ModelProfile: \"openai/gpt-5.6-luna\", ReasoningEffort: \"low\"},\n" {
 		t.Fatalf("rendered recommendation cell = %q", block)
 	}
-	if source := renderRecommendationSource("openrouter", recommendations); !strings.Contains(source, block) {
-		t.Fatalf("rendered recommendation source lacks the authoritative cell: %s", source)
+	source, err := os.ReadFile(filepath.Join("..", "provider", "recommendations.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), block) {
+		t.Fatalf("recommendation source lacks the authoritative cell: %s", source)
 	}
 	if action.ModelProfile != "openai/gpt-5.6-luna" || action.ReasoningEffort != "low" {
 		t.Fatalf("table authority action reviewer = %#v", action)
@@ -513,10 +518,14 @@ func TestRustModelEvals_ProviderSelectionRetainsIncumbentBelowMargin(t *testing.
 
 // Rust source: crates/noema-model-evals/src/recommendation_proposal.rs::patch_changes_only_the_exact_provider_role_cell
 func TestRustModelEvals_PatchChangesOnlyTheExactProviderRoleCell(t *testing.T) {
-	source := renderRecommendationSource("codex", provider.ModelRecommendations("codex")) + renderRecommendationSource("openai", provider.ModelRecommendations("openai"))
-	old := recommendationFor(provider.ModelRecommendations("openai"), provider.ModelUsePrimary)
+	path := filepath.Join("..", "provider", "recommendations.go")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := provider.ModelRecommendation{UseCase: provider.ModelUsePrimary, ModelProfile: "gpt-5.6-terra", ReasoningEffort: "medium"}
 	replacement := provider.ModelRecommendation{UseCase: provider.ModelUsePrimary, ModelProfile: "gpt-5.6-luna", ReasoningEffort: "high"}
-	patch, err := renderRecommendationPatch(source, "openai", string(provider.ModelUsePrimary), old, replacement)
+	patch, err := renderRecommendationPatch(path, source, []recommendationChange{{Provider: "openai", Role: string(provider.ModelUsePrimary), Old: old, New: replacement}})
 	if err != nil {
 		t.Fatal(err)
 	}

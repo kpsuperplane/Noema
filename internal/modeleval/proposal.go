@@ -3,10 +3,6 @@ package modeleval
 import (
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/format"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,13 +28,11 @@ func proposal(root, dir string, verify bool) error {
 		return errors.New("proposal requires complete evidence from the exact decision plan")
 	}
 	rankings := rank(r)
-	var body strings.Builder
-	body.WriteString("func ModelRecommendations(providerKind string) []ModelRecommendation {\nswitch providerKind {\n")
+	var changes []recommendationChange
 	var summary strings.Builder
 	fmt.Fprintf(&summary, "# Model recommendation proposal\n\nDecision: %s.\n\nApply the patch after evidence review.\n\n", r.RunID)
 	for _, kind := range []string{"codex", "openai", "openrouter"} {
 		current := provider.ModelRecommendations(kind)
-		selected := make([]provider.ModelRecommendation, 0, len(rankings))
 		for _, ranking := range rankings {
 			currentIndex := slices.IndexFunc(current, func(value provider.ModelRecommendation) bool { return string(value.UseCase) == ranking.Role })
 			if currentIndex < 0 {
@@ -53,12 +47,13 @@ func proposal(root, dir string, verify bool) error {
 			}) {
 				return fmt.Errorf("shipped recommendation differs for %s/%s", kind, ranking.Role)
 			}
-			selected = append(selected, provider.ModelRecommendation{UseCase: provider.ModelUseCase(ranking.Role), ModelProfile: target.ModelProfile, ReasoningEffort: target.ReasoningEffort})
+			replacement := provider.ModelRecommendation{UseCase: provider.ModelUseCase(ranking.Role), ModelProfile: target.ModelProfile, ReasoningEffort: target.ReasoningEffort}
+			if current[currentIndex] != replacement {
+				changes = append(changes, recommendationChange{Provider: kind, Role: ranking.Role, Old: current[currentIndex], New: replacement})
+			}
 			fmt.Fprintf(&summary, "- %s / %s: %s (%s). %s\n", kind, ranking.Role, winner, target.ReasoningEffort, reason)
 		}
-		body.WriteString(renderRecommendationSource(kind, selected))
 	}
-	body.WriteString("}\nreturn nil\n}\n")
 	if verify {
 		fmt.Println("Shipped recommendations match complete qualified evidence.")
 		return nil
@@ -68,37 +63,54 @@ func proposal(root, dir string, verify bool) error {
 	if e != nil {
 		return e
 	}
-	fs := token.NewFileSet()
-	file, e := parser.ParseFile(fs, path, source, 0)
+	diff, e := renderRecommendationPatch(path, source, changes)
 	if e != nil {
 		return e
 	}
-	found := false
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name.Name == "ModelRecommendations" {
-			start, end := fs.Position(fn.Pos()).Offset, fs.Position(fn.End()).Offset
-			source = append(append(append([]byte{}, source[:start]...), body.String()...), source[end:]...)
-			found = true
-			break
+	if e = os.WriteFile(filepath.Join(dir, "recommendations.patch"), []byte(diff), 0600); e != nil {
+		return e
+	}
+	return os.WriteFile(filepath.Join(dir, "proposal.md"), []byte(summary.String()), 0600)
+}
+
+type recommendationChange struct {
+	Provider string
+	Role     string
+	Old      provider.ModelRecommendation
+	New      provider.ModelRecommendation
+}
+
+func recommendationCellLine(role, model, effort string) string {
+	return fmt.Sprintf("\t\t\t{UseCase: ModelUseCase(%q), ModelProfile: %q, ReasoningEffort: %q},\n", role, model, effort)
+}
+
+func renderRecommendationPatch(path string, source []byte, changes []recommendationChange) (string, error) {
+	updated := string(source)
+	for _, change := range changes {
+		var err error
+		updated, err = replaceRecommendationCell(updated, change)
+		if err != nil {
+			return "", err
 		}
 	}
-	if !found {
-		return errors.New("recommendation function is unavailable")
+	replacement, err := os.CreateTemp(filepath.Dir(path), ".recommendations-*.go")
+	if err != nil {
+		return "", err
 	}
-	source, e = format.Source(source)
-	if e != nil {
-		return e
+	replacementPath := replacement.Name()
+	defer os.Remove(replacementPath)
+	if _, err := replacement.WriteString(updated); err != nil {
+		_ = replacement.Close()
+		return "", err
 	}
-	replacement := filepath.Join(dir, "recommendations.go")
-	if e = os.WriteFile(replacement, source, 0600); e != nil {
-		return e
+	if err := replacement.Close(); err != nil {
+		return "", err
 	}
-	command := exec.Command("git", "diff", "--no-index", "--", path, replacement)
-	diff, e := command.Output()
+	command := exec.Command("git", "diff", "--no-index", "--", path, replacementPath)
+	diff, err := command.Output()
 	var exit *exec.ExitError
-	if e != nil && (!errors.As(e, &exit) || exit.ExitCode() != 1) {
-		return e
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
+		return "", err
 	}
 	lines := strings.Split(string(diff), "\n")
 	for i, line := range lines {
@@ -108,47 +120,36 @@ func proposal(root, dir string, verify bool) error {
 			lines[i] = "--- a/internal/provider/recommendations.go"
 		} else if strings.HasPrefix(line, "+++ ") {
 			lines[i] = "+++ b/internal/provider/recommendations.go"
+		} else if strings.HasPrefix(line, "@@ ") {
+			if end := strings.LastIndex(line, " @@"); end >= 0 {
+				lines[i] = line[:end+3]
+			}
 		}
 	}
-	if e = os.WriteFile(filepath.Join(dir, "recommendations.patch"), []byte(strings.Join(lines, "\n")), 0600); e != nil {
-		return e
-	}
-	return os.WriteFile(filepath.Join(dir, "proposal.md"), []byte(summary.String()), 0600)
+	return strings.Join(lines, "\n"), nil
 }
 
-func recommendationCellLine(role, model, effort string) string {
-	return fmt.Sprintf("{UseCase: ModelUseCase(%q), ModelProfile: %q, ReasoningEffort: %q},\n", role, model, effort)
-}
-
-func renderRecommendationSource(providerKind string, recommendations []provider.ModelRecommendation) string {
-	var source strings.Builder
-	fmt.Fprintf(&source, "case %q: return []ModelRecommendation{\n", providerKind)
-	for _, recommendation := range recommendations {
-		source.WriteString(recommendationCellLine(string(recommendation.UseCase), recommendation.ModelProfile, recommendation.ReasoningEffort))
-	}
-	source.WriteString("}\n")
-	return source.String()
-}
-
-func renderRecommendationPatch(source, providerKind, role string, old, replacement provider.ModelRecommendation) (string, error) {
-	marker := fmt.Sprintf("case %q: return []ModelRecommendation{\n", providerKind)
+func replaceRecommendationCell(source string, change recommendationChange) (string, error) {
+	marker := fmt.Sprintf("case %q:", change.Provider)
 	start := strings.Index(source, marker)
 	if start < 0 {
-		return "", fmt.Errorf("recommendation source has no provider %q", providerKind)
+		return "", fmt.Errorf("recommendation source has no provider %q", change.Provider)
 	}
 	segmentStart := start + len(marker)
 	segment := source[segmentStart:]
-	if next := strings.Index(segment, "\ncase "); next >= 0 {
+	if next := strings.Index(segment, "\n\tcase "); next >= 0 {
+		segment = segment[:next]
+	} else if next := strings.Index(segment, "\ncase "); next >= 0 {
 		segment = segment[:next]
 	}
-	oldLine := recommendationCellLine(role, old.ModelProfile, old.ReasoningEffort)
-	newLine := recommendationCellLine(role, replacement.ModelProfile, replacement.ReasoningEffort)
+	oldLine := recommendationCellLine(change.Role, change.Old.ModelProfile, change.Old.ReasoningEffort)
+	newLine := recommendationCellLine(change.Role, change.New.ModelProfile, change.New.ReasoningEffort)
 	offset := strings.Index(segment, oldLine)
 	if offset < 0 {
-		return "", fmt.Errorf("recommendation source has no %s/%s cell", providerKind, role)
+		return "", fmt.Errorf("recommendation source has no %s/%s cell", change.Provider, change.Role)
 	}
-	line := strings.Count(source[:segmentStart+offset], "\n") + 1
-	return fmt.Sprintf("--- a/internal/provider/recommendations.go\n+++ b/internal/provider/recommendations.go\n@@ -%d,1 +%d,1 @@\n-%s+%s", line, line, oldLine, newLine), nil
+	absolute := segmentStart + offset
+	return source[:absolute] + newLine + source[absolute+len(oldLine):], nil
 }
 
 func selectForProvider(report matrixReport, ranking roleRanking, providerKind string, current provider.ModelRecommendation) (string, *recommendationTarget, string) {
