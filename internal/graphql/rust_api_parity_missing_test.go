@@ -931,24 +931,36 @@ func rustAPIPortAgentPreference(t *testing.T) {
 	t.Helper()
 	resolver := openProviderTestResolver(t)
 	ctx := context.Background()
-	secret, err := provider.NewSecret("agent-profile-key")
+	profiles := []provider.ModelProfile{
+		{ID: "gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
+		{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
+	}
+	paths, err := home.FromRoot(resolver.home.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
-	account, err := resolver.ProviderAccounts.PublishVerifiedSecret(ctx, "provider_account:openrouter:default", 0,
-		provider.AuthSecretInput, secret, []provider.ModelProfile{
-			{ID: "gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
-			{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
-		}, time.Now())
+	metadata, err := sql.Open("sqlite3", paths.Database())
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = metadata.Close() })
+	encoded, err := json.Marshal(map[string]any{"credentialRevision": 1, "secretConfigured": true, "profiles": profiles})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadata.Exec(`UPDATE provider_accounts SET status='authenticated', auth_method='oauth_device_code', metadata_json=? WHERE provider_account_id='provider_account:codex:default'`, string(encoded)); err != nil {
+		t.Fatal(err)
+	}
+	accountID := "provider_account:codex:default"
 	assignments := make([]store.ModelAssignment, 0, len(store.HostedModelRoles()))
 	for _, role := range store.HostedModelRoles() {
 		assignments = append(assignments, store.ModelAssignment{Role: role, ProviderKind: "openrouter",
-			ProviderAccountID: account.ID, SelectionMode: store.ModelSelectionNoemaRecommended})
+			ProviderAccountID: accountID, SelectionMode: store.ModelSelectionNoemaRecommended})
 	}
-	if created, err := resolver.Store.ConfirmHostedModelAssignments(ctx, account.ID, assignments); err != nil || !created {
+	for i := range assignments {
+		assignments[i].ProviderKind = "codex"
+	}
+	if created, err := resolver.Store.ConfirmHostedModelAssignments(ctx, accountID, assignments); err != nil || !created {
 		t.Fatalf("agent provider assignments = %t, %v", created, err)
 	}
 	profile := "gpt-5.5"
@@ -971,7 +983,7 @@ func rustAPIPortAgentPreference(t *testing.T) {
 		t.Fatalf("Agent reasoning profile = %#v", selected)
 	}
 	missingEffort := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, fastMode: false }) {
+	  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:codex:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, fastMode: false }) {
     modelProfile reasoningEffort
   }
 }`, store.PrimaryAgentID, profile), nil)
@@ -979,7 +991,7 @@ func rustAPIPortAgentPreference(t *testing.T) {
 		t.Fatalf("missing reasoning effort = %#v", missingEffort)
 	}
 	saved := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, reasoningEffort: HIGH, fastMode: false }) {
+	  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:codex:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, reasoningEffort: HIGH, fastMode: false }) {
     providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode
   }
 }`, store.PrimaryAgentID, profile), nil)
@@ -991,7 +1003,7 @@ func rustAPIPortAgentPreference(t *testing.T) {
 		t.Fatalf("valid Agent preference = %#v", value)
 	}
 	recommended := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: NOEMA_RECOMMENDED, fastMode: false }) {
+	  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:codex:default", selectionMode: NOEMA_RECOMMENDED, fastMode: false }) {
     modelProfile reasoningEffort selectionMode
   }
 }`, store.PrimaryAgentID), nil)
@@ -1003,13 +1015,13 @@ func rustAPIPortAgentPreference(t *testing.T) {
 		t.Fatalf("recommended Agent preference = %#v", recommendedValue)
 	}
 	invalidRecommended := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: NOEMA_RECOMMENDED, modelProfile: %q, fastMode: false }) { selectionMode }
+	  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:codex:default", selectionMode: NOEMA_RECOMMENDED, modelProfile: %q, fastMode: false }) { selectionMode }
 }`, store.PrimaryAgentID, profile), nil)
 	if len(invalidRecommended.Errors) != 1 || !strings.Contains(invalidRecommended.Errors[0].Message, "does not accept") {
 		t.Fatalf("invalid recommended Agent preference = %#v", invalidRecommended)
 	}
 	taskPreference := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, reasoningEffort: HIGH, fastMode: false }) { providerKind }
+	  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:codex:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, reasoningEffort: HIGH, fastMode: false }) { providerKind }
 }`, store.TaskExecutorAgentID, profile), nil)
 	if len(taskPreference.Errors) != 1 || !strings.Contains(taskPreference.Errors[0].Message, "complexity tier") {
 		t.Fatalf("Task Executor preference = %#v", taskPreference)
@@ -2085,17 +2097,15 @@ func rustAPIPortAuthoritativeU64(t *testing.T) {
 }
 
 func rustAPIPortStalePoolRoute(t *testing.T) {
-	resolver := readyAgentTestResolver(t)
+	resolver := openProviderTestResolver(t)
+	rustAPIAuthenticateCodexForWebSettings(t, resolver)
 	ctx := context.Background()
-	accountID := "provider_account:openrouter:default"
-	if _, err := resolver.ProviderAccounts.ClearSecret(ctx, accountID, time.Now()); err != nil {
-		t.Fatal(err)
-	}
+	accountID := "provider_account:codex:default"
 	label := "Routine"
 	updated, err := resolver.updateTaskModelPoolEntry(
 		ctx, "task_pool:setting:simple", model.TaskModelPoolEntryInput{
 			Complexity:   model.TaskComplexitySimple,
-			ProviderKind: "openrouter", ProviderAccountID: accountID,
+			ProviderKind: "codex", ProviderAccountID: accountID,
 			SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended,
 			Label:         &label, Enabled: true,
 		},
@@ -2112,13 +2122,16 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 	// silently omitted from the port.
 	response := rustAPIRawGraphQL(t, resolver, `mutation {
   updateTaskModelPoolEntry(poolEntryId: "task_pool:setting:simple", input: {
-    complexity: SIMPLE, label: "Routine", providerKind: "openrouter",
-    providerAccountId: "provider_account:openrouter:default",
+    complexity: SIMPLE, label: "Routine", providerKind: "codex",
+    providerAccountId: "provider_account:codex:default",
     selectionMode: NOEMA_RECOMMENDED, fastMode: false, sortOrder: 0, enabled: false
   }) { enabled }
 }`, nil)
 	if len(response.Errors) != 0 {
 		t.Fatalf("disabling stale route failed: %#v", response.Errors)
+	}
+	if response.Data["updateTaskModelPoolEntry"].(map[string]any)["enabled"] != false {
+		t.Fatalf("disabled stale route response = %#v", response.Data)
 	}
 	readback := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query {
   taskModelPools(complexity: SIMPLE) { poolEntryId enabled }
