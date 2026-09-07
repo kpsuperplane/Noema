@@ -583,18 +583,36 @@ func TestRustMCP_ReviewedEnablementRestoresOneDisabledMCPTool(t *testing.T) {
 		t.Errorf("disabled tool status = %q", disabled.Status)
 	}
 	catalog, err := service.Catalog(t.Context())
-	if err != nil || len(catalog.Bindings) != 0 {
+	if err != nil {
 		t.Fatalf("disabled catalog = %#v, %v", catalog, err)
 	}
-	restored, err := service.SetToolEnabled(t.Context(), created.Server.ID, created.Server.ConnectionRevision, tools[0].ID, tools[0].SourceRevision, disabled.PolicyRevision, true)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := service.Binding(t.Context(), "mcp."+created.Server.ID+".read"); err == nil {
+		t.Fatal("disabled MCP tool remained callable")
 	}
+	enablement, err := service.Binding(t.Context(), "enable.mcp."+created.Server.ID+".read")
+	if err != nil || enablement.ReviewRoute != store.ActionHumanReview || enablement.Behavior.RepeatSafe != true {
+		t.Fatalf("disabled enablement binding = %#v, %v", enablement, err)
+	}
+	arguments := json.RawMessage(`{}`)
+	result, success, err := service.CallReviewed(t.Context(), enablement, arguments, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: sha256JSON(arguments)})
+	if err != nil || !success {
+		t.Fatalf("enablement call = %s, %t, %v", result, success, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(result, &payload); err != nil || payload["enabled_capability"] != "mcp."+created.Server.ID+".read" {
+		t.Fatalf("enablement payload = %s, %v", result, err)
+	}
+	// The reviewed capability invocation already restored the disabled tool.
+	restoredTools, err := service.Tools(t.Context(), created.Server.ID)
+	if err != nil || len(restoredTools) != 1 {
+		t.Fatalf("restored tools = %#v, %v", restoredTools, err)
+	}
+	restored := restoredTools[0]
 	if restored.Status != "ready" || restored.PolicyRevision != disabled.PolicyRevision+1 {
 		t.Errorf("restored tool = %#v", restored)
 	}
 	catalog, err = service.Catalog(t.Context())
-	if err != nil || len(catalog.Bindings) != 1 {
+	if err != nil || len(catalog.Bindings) != 2 {
 		t.Fatalf("restored catalog = %#v, %v", catalog, err)
 	}
 	binding, err := service.Binding(t.Context(), "mcp."+created.Server.ID+".read")
@@ -631,9 +649,46 @@ func TestRustMCP_ChatServiceDiscoveryDispatchesVerifiedCardIntoExistingSetup(t *
 	t.Cleanup(httpServer.Close)
 	origin = httpServer.URL
 	_, _, service := newMCPParityService(t, false)
-	result := service.ConnectService(t.Context(), origin+"/")
-	if result.Status != "ready_for_policy" || result.DisplayName != "Docs" || result.EndpointURL != origin+"/mcp" || result.Setup.Server == nil || result.Setup.Server.ToolCount != 1 {
+	catalog, err := service.Catalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var binding Binding
+	for _, candidate := range catalog.Bindings {
+		if candidate.Name == ConnectServiceToolName {
+			binding = candidate
+			break
+		}
+	}
+	if binding.Name == "" {
+		t.Fatalf("connect service binding = %#v", catalog.Bindings)
+	}
+	encoded, success, err := service.Call(t.Context(), binding, json.RawMessage(`{"service_url":"`+origin+`/"}`))
+	if err != nil || !success {
+		t.Fatalf("discovery setup call = %s, %t, %v", encoded, success, err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["status"] != "ready_for_policy" || result["display_name"] != "Docs" || result["endpoint_url"] != origin+"/mcp" {
 		t.Fatalf("discovery setup = %#v", result)
+	}
+	setup, ok := result["setup_result"].(map[string]any)
+	if !ok {
+		t.Fatalf("discovery setup result = %#v", result["setup_result"])
+	}
+	server, ok := setup["server"].(map[string]any)
+	if !ok || !strings.HasPrefix(fmt.Sprint(server["mcp_server_id"]), "mcp_server:") || server["tool_count"] != float64(1) {
+		t.Fatalf("discovery setup server = %#v", setup["server"])
+	}
+	setupInput, ok := result["setup_input"].(map[string]any)
+	if !ok {
+		t.Fatalf("discovery setup input = %#v", result["setup_input"])
+	}
+	httpInput, ok := setupInput["http"].(map[string]any)
+	if !ok || !reflect.DeepEqual(httpInput["secretHeaders"], map[string]any{}) {
+		t.Fatalf("discovery setup HTTP input = %#v", setupInput["http"])
 	}
 }
 

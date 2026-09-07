@@ -534,6 +534,9 @@ func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
 		return BindingCatalogResult{}, err
 	}
 	builder := NewBindingCatalogBuilder()
+	if err := builder.Add(connectServiceBinding()); err != nil {
+		return BindingCatalogResult{}, ErrInvalidBindingSource
+	}
 	result := BindingCatalogResult{}
 	for _, server := range servers {
 		if !server.Enabled || server.HealthStatus != "healthy" || (server.AuthStatus != "none" && server.AuthStatus != "authenticated") {
@@ -550,7 +553,35 @@ func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
 			return BindingCatalogResult{}, err
 		}
 		for _, tool := range tools {
-			if tool.Status == "disabled" || tool.ReadOnly.Value == nil || tool.Idempotent.Value == nil || tool.Destructive.Value == nil || tool.OpenWorld.Value == nil {
+			if tool.Status == "disabled" {
+				if tool.ReadOnly.Value == nil || tool.Idempotent.Value == nil || tool.Destructive.Value == nil || tool.OpenWorld.Value == nil {
+					continue
+				}
+				destination, destinationErr := store.NewCapabilityDestination("mcp", server.ID, nil, server.ConnectionRevision)
+				if destinationErr != nil {
+					return BindingCatalogResult{}, ErrInvalidBindingSource
+				}
+				disabledName := "mcp." + server.ID + "." + tool.Name
+				enablement := Binding{
+					Name:        "enable." + disabledName,
+					Description: fmt.Sprintf("Ask the human to enable the disabled %s tool (%s). Use this only when that tool is required for the current request.", disabledName, strings.TrimSpace(tool.Description)),
+					ServerID:    server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
+					ConnectionRevision: server.ConnectionRevision, ServerPolicyRevision: server.PolicyRevision,
+					ToolPolicyRevision: tool.PolicyRevision, InvokerKey: "mcp", OperationToken: tool.Name,
+					InputSchema: json.RawMessage(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`),
+					Behavior:    store.ActionBehavior{RepeatSafe: true}, ReviewRoute: store.ActionHumanReview,
+					Destination: &destination, PersistencePolicy: BindingPersistenceRedacted,
+				}
+				enablement.InputCheck = func(value any) bool {
+					object, ok := value.(map[string]any)
+					return ok && len(object) == 0
+				}
+				if err := builder.Add(enablement); err != nil {
+					return BindingCatalogResult{}, ErrInvalidBindingSource
+				}
+				continue
+			}
+			if tool.ReadOnly.Value == nil || tool.Idempotent.Value == nil || tool.Destructive.Value == nil || tool.OpenWorld.Value == nil {
 				continue
 			}
 			behavior := store.ActionBehavior{ReadOnly: *tool.ReadOnly.Value, RepeatSafe: *tool.Idempotent.Value,
@@ -566,12 +597,16 @@ func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
 			if destinationErr != nil {
 				return BindingCatalogResult{}, ErrInvalidBindingSource
 			}
+			inputCheck, inputCheckErr := compileMCPInputCheck(tool.InputSchema)
+			if inputCheckErr != nil {
+				return BindingCatalogResult{}, ErrInvalidBindingSource
+			}
 			binding := Binding{Name: "mcp." + server.ID + "." + tool.Name, Description: description,
 				ServerID: server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
 				ConnectionRevision: server.ConnectionRevision, ServerPolicyRevision: server.PolicyRevision,
 				ToolPolicyRevision: tool.PolicyRevision, InputSchema: append(json.RawMessage(nil), tool.InputSchema...),
 				Behavior: behavior, ReviewRoute: route, InvokerKey: "mcp", OperationToken: tool.Name,
-				Destination:       &destination,
+				Destination: &destination, InputCheck: inputCheck,
 				PersistencePolicy: BindingPersistenceRedacted}
 			if err := builder.Add(binding); err != nil {
 				return BindingCatalogResult{}, ErrInvalidBindingSource
@@ -599,6 +634,13 @@ func (s *Service) Binding(ctx context.Context, name string) (Binding, error) {
 
 // ValidateArguments checks strict JSON and the exact source schema.
 func ValidateArguments(schemaBytes, arguments json.RawMessage) error {
+	var raw any
+	if json.Unmarshal(schemaBytes, &raw) != nil {
+		return errors.New("MCP input schema is invalid")
+	}
+	if err := validateMCPInputSchema(raw); err != nil {
+		return err
+	}
 	var schema jsonschema.Schema
 	if json.Unmarshal(schemaBytes, &schema) != nil {
 		return errors.New("MCP input schema is invalid")
@@ -613,6 +655,121 @@ func ValidateArguments(schemaBytes, arguments json.RawMessage) error {
 	}
 	if err := resolved.Validate(value); err != nil {
 		return ErrInvalidArguments
+	}
+	return nil
+}
+
+func compileMCPInputCheck(schemaBytes json.RawMessage) (ToolInputCheck, error) {
+	var raw any
+	if json.Unmarshal(schemaBytes, &raw) != nil {
+		return nil, errors.New("MCP input schema is invalid")
+	}
+	if err := validateMCPInputSchema(raw); err != nil {
+		return nil, err
+	}
+	var schema jsonschema.Schema
+	if json.Unmarshal(schemaBytes, &schema) != nil {
+		return nil, errors.New("MCP input schema is invalid")
+	}
+	if _, err := schema.Resolve(nil); err != nil {
+		return nil, errors.New("MCP input schema is unsupported")
+	}
+	return func(value any) bool {
+		encoded, err := json.Marshal(value)
+		return err == nil && ValidateArguments(schemaBytes, encoded) == nil
+	}, nil
+}
+
+var mcpSchemaKeywords = func() map[string]struct{} {
+	values := strings.Fields(`$comment $defs $id $ref $schema $anchor $dynamicAnchor $dynamicRef $recursiveAnchor $recursiveRef $vocabulary additionalItems additionalProperties allOf anyOf default definitions dependencies dependentRequired dependentSchemas deprecated description else enum const examples exclusiveMaximum exclusiveMinimum format if items prefixItems contains maxContains minContains maxItems maxLength maxProperties maximum minItems minLength minProperties minimum multipleOf not oneOf pattern patternProperties properties propertyNames readOnly required then title type uniqueItems unevaluatedItems unevaluatedProperties writeOnly`)
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		result[value] = struct{}{}
+	}
+	return result
+}()
+
+func validateMCPInputSchema(value any) error {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return errors.New("MCP input schema is invalid")
+	}
+	if declared, exists := object["$schema"]; exists {
+		name, ok := declared.(string)
+		supported := map[string]struct{}{
+			"http://json-schema.org/draft-04/schema": {}, "https://json-schema.org/draft-04/schema": {},
+			"http://json-schema.org/draft-06/schema": {}, "https://json-schema.org/draft-06/schema": {},
+			"http://json-schema.org/draft-07/schema": {}, "https://json-schema.org/draft-07/schema": {},
+			"https://json-schema.org/draft/2019-09/schema": {}, "https://json-schema.org/draft/2020-12/schema": {},
+		}
+		if !ok {
+			return errors.New("MCP input schema is unsupported")
+		}
+		if _, ok := supported[strings.TrimSuffix(name, "#")]; !ok {
+			return errors.New("MCP input schema is unsupported")
+		}
+	}
+	if err := validateMCPInputSchemaObject(object); err != nil {
+		return errors.New("MCP input schema is unsupported")
+	}
+	return nil
+}
+
+func validateMCPInputSchemaObject(object map[string]any) error {
+	for keyword, value := range object {
+		if _, ok := mcpSchemaKeywords[keyword]; !ok && !strings.HasPrefix(keyword, "x-") {
+			return errors.New("unsupported schema keyword")
+		}
+		switch keyword {
+		case "properties", "patternProperties", "$defs", "definitions", "dependentSchemas":
+			children, ok := value.(map[string]any)
+			if !ok {
+				return errors.New("schema child map is invalid")
+			}
+			for _, child := range children {
+				if childObject, ok := child.(map[string]any); !ok || validateMCPInputSchemaObject(childObject) != nil {
+					return errors.New("schema child is invalid")
+				}
+			}
+		case "additionalProperties", "additionalItems", "contains", "items", "not", "if", "then", "else", "propertyNames", "unevaluatedItems", "unevaluatedProperties":
+			switch children := value.(type) {
+			case map[string]any:
+				if validateMCPInputSchemaObject(children) != nil {
+					return errors.New("schema child is invalid")
+				}
+			case []any:
+				for _, child := range children {
+					childObject, ok := child.(map[string]any)
+					if !ok || validateMCPInputSchemaObject(childObject) != nil {
+						return errors.New("schema child is invalid")
+					}
+				}
+			case nil, bool:
+			default:
+				return errors.New("schema child is invalid")
+			}
+		case "allOf", "anyOf", "oneOf", "prefixItems":
+			children, ok := value.([]any)
+			if !ok {
+				return errors.New("schema child list is invalid")
+			}
+			for _, child := range children {
+				childObject, ok := child.(map[string]any)
+				if !ok || validateMCPInputSchemaObject(childObject) != nil {
+					return errors.New("schema child is invalid")
+				}
+			}
+		case "dependencies":
+			children, ok := value.(map[string]any)
+			if !ok {
+				return errors.New("schema dependency map is invalid")
+			}
+			for _, child := range children {
+				if childObject, ok := child.(map[string]any); ok && validateMCPInputSchemaObject(childObject) != nil {
+					return errors.New("schema child is invalid")
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -741,6 +898,25 @@ func (invoker serviceCapabilityInvoker) Invoke(ctx context.Context, invocation C
 	arguments, err := json.Marshal(invocation.Arguments)
 	if err != nil {
 		return CapabilityOutput{}, ErrCapabilityInvalidArguments
+	}
+	if current.Name == ConnectServiceToolName && current.OperationToken == connectServiceOperationToken {
+		var input struct {
+			ServiceURL string `json:"service_url"`
+		}
+		if err := json.Unmarshal(arguments, &input); err != nil || input.ServiceURL == "" {
+			return CapabilityOutput{}, ErrCapabilityInvalidArguments
+		}
+		return CapabilityOutput{Success: true, Payload: invoker.service.ConnectService(ctx, input.ServiceURL).capabilityPayload()}, nil
+	}
+	if strings.HasPrefix(current.Name, "enable.mcp.") {
+		var input map[string]any
+		if err := json.Unmarshal(arguments, &input); err != nil || len(input) != 0 {
+			return CapabilityOutput{}, ErrCapabilityInvalidArguments
+		}
+		if _, err := invoker.service.SetToolEnabled(ctx, current.ServerID, current.ConnectionRevision, current.ToolID, current.SourceRevision, current.ToolPolicyRevision, true); err != nil {
+			return CapabilityOutput{}, ErrCapabilityUnknownOperation
+		}
+		return CapabilityOutput{Success: true, Payload: map[string]any{"enabled_capability": strings.TrimPrefix(current.Name, "enable.")}}, nil
 	}
 	result, success, err := invoker.service.executeBinding(ctx, current, arguments)
 	if err != nil {

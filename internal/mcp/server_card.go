@@ -10,16 +10,90 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/store"
 	"golang.org/x/net/publicsuffix"
 )
 
 // ConnectServiceToolName is the primary Chat hosted setup tool.
 const ConnectServiceToolName = "mcp.connect_service"
 
+const connectServiceOperationToken = "mcp-setup-v1:connect-service"
+
+func connectServiceBinding() Binding {
+	schema := json.RawMessage(`{"type":"object","properties":{"service_url":{"type":"string","maxLength":4096,"description":"Official public website URL for the service, such as https://notion.com/."}},"required":["service_url"],"additionalProperties":false}`)
+	return Binding{
+		Name:        ConnectServiceToolName,
+		Description: "Discover and start chat-first setup for an official hosted MCP service. When the human asks to connect a service, first use web search to identify the service's official HTTPS website, then pass that website URL here. Noema fetches the site's /.well-known/mcp.json server card, verifies the advertised Streamable HTTP endpoint, and starts connection discovery. Do not guess an MCP endpoint or pass a third-party directory, documentation mirror, API endpoint, token, cookie, or other credential.",
+		InputSchema: schema,
+		InvokerKey:  "mcp", OperationToken: connectServiceOperationToken,
+		Behavior:          store.ActionBehavior{OpenWorld: true},
+		PersistencePolicy: BindingPersistenceRedacted,
+		InputCheck: func(value any) bool {
+			encoded, err := json.Marshal(value)
+			return err == nil && ValidateArguments(schema, encoded) == nil
+		},
+	}
+}
+
 // ServiceCardResult is the safe result of one official-site setup request.
 type ServiceCardResult struct {
 	Status, ServiceURL, CardURL, DisplayName, Description, EndpointURL string
 	Setup                                                              SetupResult
+}
+
+func (result ServiceCardResult) capabilityPayload() map[string]any {
+	payload := map[string]any{
+		"status":          result.Status,
+		"service_url":     result.ServiceURL,
+		"server_card_url": result.CardURL,
+		"display_name":    result.DisplayName,
+		"description":     result.Description,
+		"endpoint_url":    result.EndpointURL,
+		"next_step":       serviceCardNextStep(result.Status),
+		"setup_input": map[string]any{
+			"displayName":   result.DisplayName,
+			"transportKind": "streamable_http",
+			"stdio":         nil,
+			"http": map[string]any{
+				"url": result.EndpointURL, "headers": map[string]any{},
+				"secretHeaders": map[string]any{}, "oauthClientCredentials": nil,
+			},
+		},
+	}
+	setup := map[string]any{
+		"setup_status":          result.Setup.Status,
+		"discovered_tool_count": result.Setup.Discovered,
+		"setup_error":           nil,
+		"auth":                  nil,
+		"server":                nil,
+	}
+	if result.Setup.Error != "" {
+		setup["setup_error"] = result.Setup.Error
+	}
+	if result.Setup.Server != nil {
+		setup["server"] = map[string]any{
+			"mcp_server_id":       result.Setup.Server.ID,
+			"display_name":        result.Setup.Server.DisplayName,
+			"connection_revision": result.Setup.Server.ConnectionRevision,
+			"policy_revision":     result.Setup.Server.PolicyRevision,
+			"tool_count":          result.Setup.Server.ToolCount,
+		}
+	}
+	payload["setup_result"] = setup
+	return payload
+}
+
+func serviceCardNextStep(status string) string {
+	switch status {
+	case "needs_auth", "authentication_available", "ready_for_policy":
+		return "Do not narrate setup status or send the human to Settings. The human-intervention surface now owns authentication and policy setup."
+	case "unavailable":
+		return "Tell the human that Noema found the official MCP endpoint but could not connect to it, and that they can retry."
+	case "invalid_card", "not_found":
+		return "Tell the human that the official website did not publish a supported MCP server card. Do not guess an endpoint. If appropriate, investigate the service's public HTTP API instead."
+	default:
+		return ""
+	}
 }
 
 type serverCard struct {
