@@ -543,8 +543,8 @@ func TestRustModelEvals_PatchChangesOnlyTheExactProviderRoleCell(t *testing.T) {
 
 // Rust source: crates/noema-model-evals/src/role_policy.rs::bundled_role_policies_cover_every_role
 func TestRustModelEvals_BundledRolePoliciesCoverEveryRole(t *testing.T) {
-	var policies rolePolicies
-	if err := readTOML(filepath.Join("..", "..", "evals/model-matrix/role-policies.toml"), &policies); err != nil {
+	_, policies, _, err := loadMatrix(filepath.Join("..", ".."), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(policies.Policies) != len(roles()) {
