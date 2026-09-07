@@ -5181,126 +5181,115 @@ func TestRustStore_acp_permission_decisions_match_exactly_and_approvals_are_cons
 	database, task, run, now := rustStoreExecutorFixture(t, "ACP permission task")
 	ctx := t.Context()
 	exact := map[string]any{
-		"agent_id":             "agent:acp:test",
+		"agent_id":             run.AgentID,
 		"task_generation":      task.Generation,
 		"tool_call":            map[string]any{"toolCallId": "tool:exact", "rawInput": map[string]any{"path": "/tmp/exact"}},
 		"options":              []any{map[string]any{"optionId": "allow", "kind": "allow_once"}},
 		"allow_once_option_id": "allow",
 	}
-	if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{
-		Kind: "tool_call", Status: "running", CorrelationID: "call:acp-permission", Content: "acp.permission",
-		Payload: map[string]any{"name": "acp.permission", "arguments": exact},
-	}}, TaskRunUsage{}, now); err != nil {
-		t.Fatal(err)
+	fingerprintFor := func(permission map[string]any) string {
+		toolCall := permission["tool_call"]
+		options := []map[string]any{{"optionId": "allow", "name": "", "kind": "allow_once"}}
+		value, err := json.Marshal(map[string]any{
+			"agent_id": run.AgentID, "generation": task.Generation,
+			"tool_call": toolCall, "options": options,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(value)
+		return hex.EncodeToString(digest[:])
 	}
-	items, err := database.TaskRunReplayItems(ctx, run.ID)
-	if err != nil || len(items) != 1 {
-		t.Fatalf("ACP permission call = %#v, %v", items, err)
-	}
-	call := items[0]
-	arguments, err := json.Marshal(exact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{
-		TaskID: task.ID, RunID: run.ID, RunItemID: call.ID, TaskGeneration: task.Generation,
-		OwnerHumanID: "human:local", RequestingAgentID: "agent:acp:test", CapabilityName: "acp.permission",
-		OperationToken: "acp.permission", ReviewRoute: ActionHumanReview,
-		Behavior: ActionBehavior{OpenWorld: true}, Arguments: arguments,
-		InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"origin": "acp"},
-		SafeSummary: "exact ACP request",
-	}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if action.State != ActionAwaitingApproval {
-		t.Errorf("ACP permission initial state = %q, want %q", action.State, ActionAwaitingApproval)
-	}
-	action, err = database.DecideActionRequest(ctx, action.ID, action.Revision, "human:local", "approve", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if action.State != ActionExecutable {
-		t.Errorf("approved ACP permission state = %q, want %q", action.State, ActionExecutable)
-	}
-	if action, err = database.ClaimActionRequest(ctx, action.ID, action.Revision, now); err != nil {
-		t.Fatal(err)
-	}
-	finished, err := database.FinishActionRequest(ctx, action.ID, action.Revision, ActionSucceeded,
-		json.RawMessage(`{"option_id":"allow"}`), "", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if finished.State != ActionSucceeded || !reflect.DeepEqual(finished.Output, map[string]any{"option_id": "allow"}) {
-		t.Errorf("ACP permission result = %#v, want succeeded option_id allow", finished)
-	}
-	digest := sha256.Sum256(arguments)
-	fingerprint := hex.EncodeToString(digest[:])
-	if err := database.RecordAcpPermissionUse(ctx, run.ID, run.Generation, fingerprint, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.RecordAcpPermissionUse(ctx, run.ID, run.Generation, fingerprint, now.Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	replay, err := database.TaskRunReplayItems(ctx, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	used := 0
-	for _, item := range replay {
-		if item.CorrelationID != nil && *item.CorrelationID == "acp:permission-used:"+fingerprint {
-			used++
+	appendPermission := func(current TaskRun, permission map[string]any, fingerprint string, at time.Time) {
+		t.Helper()
+		if err := database.AppendTaskRunItems(ctx, current.ID, current.Generation, []TaskRunItemInput{{
+			Kind: "progress_notice", Status: "completed", CorrelationID: "acp:permission:" + fingerprint,
+			Content: "exact ACP request", Payload: map[string]any{
+				"acp_permission": permission, "allow_once_option_id": "allow",
+			},
+		}}, TaskRunUsage{}, at); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if used != 1 {
-		t.Errorf("exact ACP approval consumption count = %d, want 1", used)
+	resolvePermission := func(current TaskRun, decision string, key string, at time.Time) TaskRun {
+		t.Helper()
+		if err := database.BlockTaskExecution(ctx, current.ID, current.Generation, "approval", "Allow this ACP operation once?", "exact ACP request", nil, at); err != nil {
+			t.Fatal(err)
+		}
+		waiting, err := database.Task(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gate, err := database.TaskGate(ctx, waiting.ActiveGateID)
+		if err != nil || gate.Kind != "approval" {
+			t.Fatalf("ACP permission gate = %#v, %v", gate, err)
+		}
+		approval := decision
+		resolved, err := database.ResolveTaskGate(ctx, task.ID, gate.ID, waiting.Revision, waiting.Generation,
+			"ACP permission decision", "answer", &approval, testTaskLifecycleCommand("answer_task", key), at.Add(time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved.Task.CurrentRunID == "" {
+			t.Fatalf("ACP permission continuation was not queued: %#v", resolved.Task)
+		}
+		_, continuation, found, err := database.ClaimTaskExecution(ctx, at.Add(2*time.Second))
+		if err != nil || !found {
+			t.Fatalf("claim ACP permission continuation = %#v, %t, %v", continuation, found, err)
+		}
+		if err := database.StartTaskExecution(ctx, continuation.ID, continuation.Generation, at.Add(3*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		return continuation
+	}
+	fingerprint := fingerprintFor(exact)
+	appendPermission(run, exact, fingerprint, now)
+	continuation := resolvePermission(run, "approved", "acp-permission", now)
+	resolved, err := database.ResolvedAcpPermission(ctx, continuation.ID, fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Found || !resolved.Approved || resolved.OptionID != "allow" {
+		t.Errorf("exact ACP approval = %#v, want found approved allow", resolved)
+	}
+	if err := database.RecordAcpPermissionUse(ctx, continuation.ID, continuation.Generation, fingerprint, now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = database.ResolvedAcpPermission(ctx, continuation.ID, fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Found || resolved.Approved {
+		t.Errorf("repeated exact ACP approval = %#v, want found but not approved", resolved)
 	}
 	changed := map[string]any{
-		"agent_id":             "agent:acp:test",
+		"agent_id":             run.AgentID,
 		"task_generation":      task.Generation,
 		"tool_call":            map[string]any{"toolCallId": "tool:exact", "rawInput": map[string]any{"path": "/tmp/changed"}},
 		"options":              []any{map[string]any{"optionId": "allow", "kind": "allow_once"}},
 		"allow_once_option_id": "allow",
 	}
-	changedArguments, err := json.Marshal(changed)
+	changedFingerprint := fingerprintFor(changed)
+	if resolved, err := database.ResolvedAcpPermission(ctx, continuation.ID, changedFingerprint); err != nil {
+		t.Fatal(err)
+	} else if resolved.Found {
+		t.Errorf("changed ACP permission unexpectedly resolved = %#v", resolved)
+	}
+	appendPermission(continuation, changed, changedFingerprint, now.Add(5*time.Second))
+	deniedContinuation := resolvePermission(continuation, "declined", "acp-denial", now.Add(5*time.Second))
+	resolved, err = database.ResolvedAcpPermission(ctx, deniedContinuation.ID, changedFingerprint)
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedDigest := sha256.Sum256(changedArguments)
-	changedFingerprint := hex.EncodeToString(changedDigest[:])
-	for _, item := range replay {
-		if item.CorrelationID != nil && *item.CorrelationID == "acp:permission-used:"+changedFingerprint {
-			t.Errorf("changed ACP permission was consumed")
-		}
+	if !resolved.Found || resolved.Approved {
+		t.Errorf("changed ACP denial = %#v, want found but not approved", resolved)
 	}
-	if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{
-		Kind: "tool_call", Status: "running", CorrelationID: "call:acp-denied", Content: "acp.permission",
-		Payload: map[string]any{"name": "acp.permission", "arguments": changed},
-	}}, TaskRunUsage{}, now.Add(2*time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	replay, err = database.TaskRunReplayItems(ctx, run.ID)
+	resolved, err = database.ResolvedAcpPermission(ctx, deniedContinuation.ID, fingerprint)
 	if err != nil {
 		t.Fatal(err)
 	}
-	deniedCall := replay[len(replay)-1]
-	denied, err := database.CreateActionRequest(ctx, NewActionRequest{
-		TaskID: task.ID, RunID: run.ID, RunItemID: deniedCall.ID, TaskGeneration: task.Generation,
-		OwnerHumanID: "human:local", RequestingAgentID: "agent:acp:test", CapabilityName: "acp.permission",
-		OperationToken: "acp.permission", ReviewRoute: ActionHumanReview,
-		Behavior: ActionBehavior{OpenWorld: true}, Arguments: changedArguments,
-		InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"origin": "acp"},
-		SafeSummary: "exact ACP request",
-	}, now.Add(2*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	denied, err = database.DecideActionRequest(ctx, denied.ID, denied.Revision, "human:local", "decline", now.Add(2*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if denied.State != ActionDeclined {
-		t.Errorf("changed ACP permission state = %q, want %q", denied.State, ActionDeclined)
+	if resolved.Found {
+		t.Errorf("exact ACP permission was inherited by changed denial = %#v", resolved)
 	}
 }
 
