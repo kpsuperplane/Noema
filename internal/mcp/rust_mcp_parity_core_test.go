@@ -103,22 +103,25 @@ func TestRustMCP_CatalogAlwaysAdvertisesChatFirstServiceDiscovery(t *testing.T) 
 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::catalog_preserves_the_exact_bounded_schema_covered_by_human_review (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_CatalogPreservesTheExactBoundedSchemaCoveredByHumanReview(t *testing.T) {
-	_, database, service := newMCPParityService(t, false)
-	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat("1", 32), Revision: "mcp_definition_revision:" + strings.Repeat("2", 32), DisplayName: "Docs", TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"https://example.com/mcp","headers":{}}`)}
-	serverID := "mcp_server:" + strings.Repeat("3", 32)
 	schema := json.RawMessage(`{"type":"object","$defs":{"documentId":{"type":"string","description":"The durable document identifier"}},"properties":{"document_id":{"$ref":"#/$defs/documentId"}},"required":["document_id"]}`)
-	tool := parityMCPTool("mcp_tool:"+strings.Repeat("4", 32), serverID, "read", schema)
-	tool.Annotations = json.RawMessage(`{"readOnlyHint":true}`)
-	tool.ReadOnly = store.MCPHint{Value: boolPtr(true), Source: "annotation"}
-	tool.Idempotent = store.MCPHint{Value: boolPtr(true), Source: "annotation"}
-	tool.Destructive = store.MCPHint{Value: boolPtr(false), Source: "annotation"}
-	tool.OpenWorld = store.MCPHint{Value: boolPtr(false), Source: "annotation"}
-	tool.Status = "ready"
-	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID, ConnectionRevision: "mcp_connection_revision:" + strings.Repeat("5", 32), ConnectionLabel: "Personal docs", AuthStatus: "none", Tools: []store.MCPTool{tool}}, time.Now())
-	if err != nil {
+	var inputSchema map[string]any
+	if err := json.Unmarshal(schema, &inputSchema); err != nil {
 		t.Fatal(err)
 	}
-	server, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "read", Description: "Read a document", InputSchema: inputSchema, Annotations: &mcpsdk.ToolAnnotations{
+		ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false),
+	}}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"ok": true}, nil
+	})
+	remoteServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(remoteServer.Close)
+	_, _, service := newMCPParityService(t, false)
+	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", ConnectionLabel: "Personal docs", TransportKind: "streamable_http", URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || created.Server == nil || created.Discovered != 1 {
+		t.Fatalf("live setup = %#v, %v", created, err)
+	}
+	server, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +139,14 @@ func TestRustMCP_CatalogPreservesTheExactBoundedSchemaCoveredByHumanReview(t *te
 	if binding == nil {
 		t.Fatalf("catalog omitted live MCP binding: %#v", catalog.Bindings)
 	}
-	if string(binding.InputSchema) != string(schema) {
+	var gotSchema, wantSchema any
+	if err := json.Unmarshal(binding.InputSchema, &gotSchema); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(schema, &wantSchema); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotSchema, wantSchema) {
 		t.Fatalf("catalog schema = %s, want %s", binding.InputSchema, schema)
 	}
 	if binding.InputCheck == nil || !binding.InputCheck(map[string]any{"document_id": "doc_1"}) || binding.InputCheck(map[string]any{"document_id": 7}) {
@@ -155,24 +165,45 @@ func TestRustMCP_CatalogPreservesTheExactBoundedSchemaCoveredByHumanReview(t *te
 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::mcp_schema_version_and_unknown_rule_fail_closed (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_MCPSchemaVersionAndUnknownRuleFailClosed(t *testing.T) {
-	_, database, service := newMCPParityService(t, false)
+	_, _, service := newMCPParityService(t, false)
 	publish := func(index int, schema json.RawMessage) error {
-		suffix := fmt.Sprintf("%032x", index)
-		definition := store.MCPDefinition{
-			ID: "mcp_definition:" + suffix, Revision: "mcp_definition_revision:" + suffix,
-			DisplayName: fmt.Sprintf("Schema %d", index), TransportKind: "streamable_http",
-			SafeConfig: json.RawMessage(`{"url":"https://example.com/mcp","headers":{}}`),
+		remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			var message struct {
+				ID     any    `json:"id"`
+				Method string `json:"method"`
+				Params struct {
+					ProtocolVersion string `json:"protocolVersion"`
+				} `json:"params"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&message); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			if message.Method == "notifications/initialized" {
+				w.WriteHeader(http.StatusAccepted)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			result := map[string]any{"capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": fmt.Sprintf("schema-%d", index), "version": "1"}}
+			if message.Method == "initialize" {
+				result["protocolVersion"] = message.Params.ProtocolVersion
+			} else if message.Method == "tools/list" {
+				result = map[string]any{"tools": []any{map[string]any{
+					"name": "query", "description": "Query documents", "inputSchema": json.RawMessage(schema),
+					"annotations": map[string]any{"readOnlyHint": true, "idempotentHint": true, "destructiveHint": false, "openWorldHint": false},
+				}}}
+			} else {
+				http.Error(w, "unknown method", http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": message.ID, "result": result})
+		}))
+		t.Cleanup(remoteServer.Close)
+		created, err := service.Create(t.Context(), SetupInput{DisplayName: fmt.Sprintf("Schema %d", index), TransportKind: "streamable_http", URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
+		if err != nil || created.Server == nil || created.Discovered != 1 {
+			return fmt.Errorf("live setup = %#v, %w", created, err)
 		}
-		serverID := "mcp_server:" + suffix
-		tool := parityMCPTool("mcp_tool:"+suffix, serverID, "query", schema)
-		server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{
-			Definition: definition, ServerID: serverID, ConnectionRevision: "mcp_connection_revision:" + suffix,
-			AuthStatus: "none", Tools: []store.MCPTool{tool},
-		}, time.Now())
-		if err != nil {
-			return err
-		}
-		_, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+		_, err = service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask")
 		return err
 	}
 	valid := []json.RawMessage{
