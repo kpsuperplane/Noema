@@ -152,6 +152,11 @@ func (s *Store) CreateTaskWithOptions(
 	} else if found {
 		return replay, nil
 	}
+	if replay, found, err := lookupSourceTaskReceiptTx(ctx, tx, command, title, options); err != nil {
+		return TaskCommandResult{}, err
+	} else if found {
+		return replay, nil
+	}
 	if err := validateTaskProjectTx(ctx, tx, options.ProjectID); err != nil {
 		return TaskCommandResult{}, err
 	}
@@ -225,6 +230,69 @@ revision=2, updated_at_ms=? WHERE task_id=? AND revision=1`, run.ID, millis(now)
 		return TaskCommandResult{}, fmt.Errorf("commit Task creation: %w", err)
 	}
 	return result, nil
+}
+
+// lookupSourceTaskReceiptTx reuses one committed Chat Delegate result when a
+// retry uses a different transport idempotency key for the same source call.
+// The lookup runs before project, executor, or run admission so the original
+// committed result remains the source of truth for that source call.
+func lookupSourceTaskReceiptTx(ctx context.Context, tx bun.Tx, command TaskCommand, title string, options TaskCreateOptions) (TaskCommandResult, bool, error) {
+	if command.Name != "task.delegate" && command.Name != "delegate_task_tool" || options.Source.ConversationID == "" || options.SourceToolCallID == "" {
+		return TaskCommandResult{}, false, nil
+	}
+	var taskID string
+	err := tx.QueryRowContext(ctx, `SELECT task_id FROM tasks
+WHERE source_conversation_id = ? AND source_tool_call_id = ?
+ORDER BY created_at_ms, task_id LIMIT 1`, options.Source.ConversationID, options.SourceToolCallID).Scan(&taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskCommandResult{}, false, nil
+	}
+	if err != nil {
+		return TaskCommandResult{}, false, err
+	}
+	var response string
+	err = tx.QueryRowContext(ctx, `SELECT response_json FROM command_receipts
+WHERE command_name = ? AND result_task_id = ?
+ORDER BY created_at_ms, actor_id, client_mutation_id LIMIT 1`, command.Name, taskID).Scan(&response)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskCommandResult{}, true, ErrCommandConflict
+	}
+	if err != nil {
+		return TaskCommandResult{}, true, err
+	}
+	var result TaskCommandResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		return TaskCommandResult{}, true, err
+	}
+	if result.Task.ID != taskID || !sourceTaskOptionsMatch(ctx, tx, result.Task, title, options) {
+		return TaskCommandResult{}, true, ErrCommandConflict
+	}
+	result.Replayed = true
+	return result, true, nil
+}
+
+func sourceTaskOptionsMatch(ctx context.Context, tx bun.Tx, task Task, title string, options TaskCreateOptions) bool {
+	if task.Title != title || task.ProjectID != options.ProjectID || task.ExecutorAgentID != options.ExecutorAgentID ||
+		task.CwdOverride == nil && options.CwdOverride != nil || task.CwdOverride != nil && options.CwdOverride == nil ||
+		task.CwdOverride != nil && options.CwdOverride != nil && *task.CwdOverride != *options.CwdOverride ||
+		task.ExecutionComplexity != options.ExecutionComplexity || task.Source != options.Source ||
+		task.SourceToolCallID != options.SourceToolCallID || task.SourceClientTimeZone != options.SourceClientTimeZone {
+		return false
+	}
+	if options.Schedule != nil || task.ScheduledFor != nil || task.ScheduleTimeZone != "" || task.MissedRunPolicy != "" || task.RecurrenceID != "" {
+		return false
+	}
+	if options.InitialRunKind == "" {
+		return task.CurrentRunID == ""
+	}
+	if task.CurrentRunID == "" {
+		return false
+	}
+	var runKind string
+	if err := tx.QueryRowContext(ctx, "SELECT run_kind FROM task_runs WHERE run_id = ?", task.CurrentRunID).Scan(&runKind); err != nil {
+		return false
+	}
+	return runKind == options.InitialRunKind
 }
 
 // SetTaskSchedule creates or replaces future timing at one Task fence.

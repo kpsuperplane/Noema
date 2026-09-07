@@ -5516,9 +5516,9 @@ func TestRustStore_delegate_source_replay_is_exact_across_idempotency_namespaces
 	source := ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID, ItemID: item.ID}
 	options := TaskCreateOptions{Source: source, SourceToolCallID: "tool_call:same-source", InitialRunKind: "planner"}
 	command := func(key, title string) TaskCommand {
-		digest := sha256.Sum256([]byte("task.delegate\x00" + key + "\x00" + title))
+		digest := sha256.Sum256([]byte("delegate_task_tool\x00" + key + "\x00" + title))
 		return TaskCommand{
-			Name: "task.delegate", ClientMutationID: key, RequestDigest: hex.EncodeToString(digest[:]),
+			Name: "delegate_task_tool", ClientMutationID: key, RequestDigest: hex.EncodeToString(digest[:]),
 			CorrelationID: "correlation:delegate:same-source",
 		}
 	}
