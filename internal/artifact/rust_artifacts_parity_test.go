@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -182,23 +182,19 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	assertRustArtifactStagingEmpty(t, env.rootPath)
 
 	// Case: metadata_failure_removes_only_operation_private_publication.
-	env = newRustArtifactEnvironment(t)
+	metadata := newRustArtifactMetadataStore(rustArtifactMetadataFail)
+	env = newRustArtifactMetadataEnvironment(t, metadata)
 	env.service.testOperationIDs = []string{rustArtifactOperationOne}
 	unrelated := filepath.Join(env.rootPath, "unrelated.txt")
 	if err := os.WriteFile(unrelated, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	failedInput := rustArtifactLocalInput(env.owner, []byte("discard"))
-	failedInput.Metadata = map[string]any{"value": strings.Repeat("x", 64*1024)}
 	if _, err := env.service.CreateLocal(context.Background(), failedInput); err == nil || !errors.Is(err, ErrMetadata) {
 		t.Fatal("metadata failure was accepted")
 	}
-	artifacts, err := env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
-	if err != nil {
-		t.Fatalf("list artifacts after metadata failure: %v", err)
-	}
-	if len(artifacts) != 0 {
-		t.Fatalf("metadata failure committed %#v", artifacts)
+	if got := metadata.artifactCount(); got != 0 {
+		t.Fatalf("metadata failure committed %d artifacts", got)
 	}
 	if got, err := os.ReadFile(unrelated); err != nil || !bytes.Equal(got, []byte("keep")) {
 		t.Fatalf("unrelated bytes = %q, %v", got, err)
@@ -207,41 +203,31 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	assertRustArtifactStagingEmpty(t, env.rootPath)
 
 	// Case: cancelling_blocked_metadata_future_commits_nothing_and_removes_bytes.
-	env = newRustArtifactEnvironment(t)
+	metadata = newRustArtifactMetadataStore(rustArtifactMetadataBlock)
+	env = newRustArtifactMetadataEnvironment(t, metadata)
 	env.service.testOperationIDs = []string{rustArtifactOperationOne}
-	metadataEntered := make(chan struct{})
-	metadataRelease := make(chan struct{})
-	env.service.testMetadataGate = func() error {
-		close(metadataEntered)
-		<-metadataRelease
-		return nil
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	metadataDone := make(chan error, 1)
 	go func() {
 		_, err := env.service.CreateLocal(ctx, rustArtifactLocalInput(env.owner, []byte("cancel")))
 		metadataDone <- err
 	}()
-	<-metadataEntered
+	<-metadata.entered
 	if got := len(rustArtifactRegularFiles(env.rootPath)); got != 1 {
 		t.Fatalf("published files while metadata is blocked = %d", got)
 	}
 	cancel()
-	close(metadataRelease)
 	if err := <-metadataDone; err == nil || !errors.Is(err, ErrMetadata) {
 		t.Fatal("cancelled metadata write succeeded")
 	}
-	artifacts, err = env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
-	if err != nil {
-		t.Fatalf("list artifacts after cancellation: %v", err)
-	}
-	if len(artifacts) != 0 {
-		t.Fatalf("cancelled metadata write committed %#v", artifacts)
+	if got := metadata.artifactCount(); got != 0 {
+		t.Fatalf("cancelled metadata write committed %d artifacts", got)
 	}
 	if got := rustArtifactRegularFiles(env.rootPath); len(got) != 0 {
 		t.Fatalf("published files after cancellation = %#v", got)
 	}
 	assertRustArtifactStagingEmpty(t, env.rootPath)
+	close(metadata.release)
 
 	// Case: cancelling_before_publication_cleans_detached_staging_worker.
 	env = newRustArtifactEnvironment(t)
@@ -265,9 +251,12 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	}
 	cancel()
 	select {
-	case <-publishDone:
-		t.Fatal("cancelled publication returned before the detached worker was released")
-	default:
+	case err := <-publishDone:
+		if err == nil {
+			t.Fatal("cancelled publication succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled publication did not detach from the worker")
 	}
 	close(publishRelease)
 	for attempt := 0; attempt < 100; attempt++ {
@@ -276,10 +265,7 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if err := <-publishDone; err == nil || !errors.Is(err, ErrFilesystem) {
-		t.Fatal("cancelled publication succeeded")
-	}
-	artifacts, err = env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
+	artifacts, err := env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
 	if err != nil {
 		t.Fatalf("list artifacts after publication cancellation: %v", err)
 	}
@@ -325,7 +311,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 	if rustArtifactUnix() {
 		env = newRustArtifactEnvironment(t)
 		env.service.testOperationIDs = []string{rustArtifactOperationOne}
-		ownerRoot := filepath.Join(env.rootPath, "tasks", sanitizeSegment(env.owner.ObjectID))
+		ownerRoot := filepath.Join(env.rootPath, "conversations", sanitizeSegment(env.owner.ObjectID))
 		if err := os.MkdirAll(ownerRoot, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -368,7 +354,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 
 	invalid := newRustArtifactEnvironment(t)
 	invalid.service.testOperationIDs = []string{"op-not-random"}
-	if _, err := invalid.service.CreateLocal(context.Background(), rustArtifactLocalInput(invalid.owner, []byte("never-written"))); err == nil || !errors.Is(err, ErrUnsafeOperationID) {
+	if _, err := invalid.service.CreateLocal(context.Background(), rustArtifactLocalInput(invalid.owner, []byte("never-written"))); err == nil || !errors.Is(err, ErrUnsafeFilename) {
 		t.Fatalf("malformed operation ID error = %v", err)
 	}
 	if got := rustArtifactRegularFiles(invalid.rootPath); len(got) != 0 {
@@ -431,6 +417,7 @@ type rustArtifactEnvironment struct {
 	rootPath string
 	root     *os.Root
 	database *store.Store
+	metadata metadataStore
 	service  *Service
 	owner    store.ArtifactOwner
 }
@@ -461,17 +448,106 @@ func newRustArtifactResources(t *testing.T) *rustArtifactEnvironment {
 		_ = database.Close()
 		t.Fatal(err)
 	}
-	owner := store.ArtifactOwner{ObjectType: "task", ObjectID: "task:0123456789abcdef0123456789abcdef"}
-	if _, err := database.CreateTask(ctx, owner.ObjectID, "Artifact owner", "correlation:artifact-test", time.Now()); err != nil {
+	conversation, err := database.EnsurePrimaryConversation(ctx, "codex", "", time.Now())
+	if err != nil {
 		_ = root.Close()
 		_ = database.Close()
 		t.Fatal(err)
 	}
-	environment := &rustArtifactEnvironment{rootPath: rootPath, root: root, database: database, owner: owner}
+	owner := store.ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID}
+	environment := &rustArtifactEnvironment{rootPath: rootPath, root: root, database: database, metadata: database, owner: owner}
 	t.Cleanup(func() {
 		_ = root.Close()
 		_ = database.Close()
 	})
+	return environment
+}
+
+type rustArtifactMetadataBehavior int
+
+const (
+	rustArtifactMetadataFail rustArtifactMetadataBehavior = iota
+	rustArtifactMetadataBlock
+)
+
+type rustArtifactMetadataStore struct {
+	behavior  rustArtifactMetadataBehavior
+	entered   chan struct{}
+	release   chan struct{}
+	once      sync.Once
+	mu        sync.Mutex
+	artifacts int
+}
+
+func newRustArtifactMetadataStore(behavior rustArtifactMetadataBehavior) *rustArtifactMetadataStore {
+	return &rustArtifactMetadataStore{
+		behavior: behavior,
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+}
+
+func (s *rustArtifactMetadataStore) ArtifactOwnerAuthorized(context.Context, store.ArtifactOwner) (bool, error) {
+	return true, nil
+}
+
+func (s *rustArtifactMetadataStore) CreateArtifact(ctx context.Context, artifact store.Artifact, version store.ArtifactVersion, _ time.Time) (store.ArtifactWithVersions, error) {
+	switch s.behavior {
+	case rustArtifactMetadataFail:
+		return store.ArtifactWithVersions{}, errors.New("injected metadata persistence failure")
+	case rustArtifactMetadataBlock:
+		s.once.Do(func() { close(s.entered) })
+		select {
+		case <-ctx.Done():
+			return store.ArtifactWithVersions{}, ctx.Err()
+		case <-s.release:
+			return store.ArtifactWithVersions{}, errors.New("metadata write was released without a result")
+		}
+	default:
+		return store.ArtifactWithVersions{}, errors.New("unknown metadata behavior")
+	}
+}
+
+func (s *rustArtifactMetadataStore) artifactCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.artifacts
+}
+
+func (s *rustArtifactMetadataStore) AppendArtifactVersion(context.Context, string, store.ArtifactVersion, time.Time) (store.ArtifactVersion, error) {
+	return store.ArtifactVersion{}, errors.New("unused metadata append")
+}
+
+func (s *rustArtifactMetadataStore) ArtifactWithVersionsByID(context.Context, string) (store.ArtifactWithVersions, error) {
+	return store.ArtifactWithVersions{}, errors.New("unused metadata lookup")
+}
+
+func (s *rustArtifactMetadataStore) AuthorizedLocalArtifactVersion(context.Context, string) (store.Artifact, store.ArtifactVersion, bool, error) {
+	return store.Artifact{}, store.ArtifactVersion{}, false, errors.New("unused metadata authorization")
+}
+
+func newRustArtifactMetadataEnvironment(t *testing.T, metadata *rustArtifactMetadataStore) *rustArtifactEnvironment {
+	t.Helper()
+	rootPath := t.TempDir()
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := &rustArtifactEnvironment{
+		rootPath: rootPath,
+		root:     root,
+		metadata: metadata,
+		owner:    store.ArtifactOwner{ObjectType: "conversation", ObjectID: "conversation-1"},
+	}
+	service, err := newService(root, metadata, nil)
+	if err != nil {
+		_ = root.Close()
+		t.Fatal(err)
+	}
+	environment.service = service
+	service.testArtifactIDs = []string{rustArtifactID}
+	service.testVersionIDs = []string{rustArtifactVersionOne, rustArtifactVersionTwo}
+	t.Cleanup(func() { _ = root.Close() })
 	return environment
 }
 

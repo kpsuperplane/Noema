@@ -38,7 +38,7 @@ var (
 	ErrFilesystem        = errors.New("Artifact filesystem operation failed")
 	ErrMetadata          = errors.New("Artifact metadata operation failed")
 	ErrMetadataInvariant = errors.New("Artifact metadata invariant violated")
-	ErrUnsafeOperationID = errors.New("unsafe Artifact operation id")
+	ErrUnsafeFilename    = errors.New("unsafe Artifact filename")
 )
 
 type categorizedError struct {
@@ -99,7 +99,7 @@ type File struct {
 // Service binds Artifact metadata to one rooted Noema home.
 type Service struct {
 	root   *os.Root
-	store  *store.Store
+	store  metadataStore
 	errors *diagnostics.Writer
 	mu     sync.Mutex
 	now    func() time.Time
@@ -110,11 +110,25 @@ type Service struct {
 	testPublishHook  func() error
 	testArtifactIDs  []string
 	testVersionIDs   []string
-	testMetadataGate func() error
+}
+
+// metadataStore is the metadata boundary used by the Artifact service. The
+// concrete store owns production persistence; tests can replace it with a
+// deterministic failure and cancellation fixture.
+type metadataStore interface {
+	ArtifactOwnerAuthorized(context.Context, store.ArtifactOwner) (bool, error)
+	CreateArtifact(context.Context, store.Artifact, store.ArtifactVersion, time.Time) (store.ArtifactWithVersions, error)
+	AppendArtifactVersion(context.Context, string, store.ArtifactVersion, time.Time) (store.ArtifactVersion, error)
+	ArtifactWithVersionsByID(context.Context, string) (store.ArtifactWithVersions, error)
+	AuthorizedLocalArtifactVersion(context.Context, string) (store.Artifact, store.ArtifactVersion, bool, error)
 }
 
 // New creates one concrete Artifact service and cleans stale stages.
 func New(root *os.Root, database *store.Store, errorLog *diagnostics.Writer) (*Service, error) {
+	return newService(root, database, errorLog)
+}
+
+func newService(root *os.Root, database metadataStore, errorLog *diagnostics.Writer) (*Service, error) {
 	if root == nil || database == nil {
 		return nil, errors.New("Artifact dependencies are unavailable")
 	}
@@ -164,14 +178,9 @@ func (s *Service) CreateLocal(ctx context.Context, input LocalInput) (store.Arti
 	if err != nil {
 		return store.ArtifactWithVersions{}, err
 	}
-	publication, err := s.publish(input.Owner, artifactID, 1, input.Filename, input.Bytes)
+	publication, err := s.publishContext(ctx, input.Owner, artifactID, 1, input.Filename, input.Bytes)
 	if err != nil {
 		return store.ArtifactWithVersions{}, err
-	}
-	if s.testMetadataGate != nil {
-		if err := s.testMetadataGate(); err != nil {
-			return store.ArtifactWithVersions{}, errors.Join(categorize(ErrMetadata, err), s.discardPublication(publication))
-		}
 	}
 	result, err := s.store.CreateArtifact(ctx, store.Artifact{
 		ID: artifactID, Owner: input.Owner, Title: input.Title, Description: input.Description,
@@ -216,7 +225,7 @@ func (s *Service) AppendLocal(
 	if err != nil {
 		return store.ArtifactVersion{}, err
 	}
-	publication, err := s.publish(artifact.Artifact.Owner, artifactID, next, filename, bytes)
+	publication, err := s.publishContext(ctx, artifact.Artifact.Owner, artifactID, next, filename, bytes)
 	if err != nil {
 		return store.ArtifactVersion{}, err
 	}
@@ -309,7 +318,7 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 		return publication{}, err
 	}
 	if !validOperationID(opID) {
-		return publication{}, ErrUnsafeOperationID
+		return publication{}, ErrUnsafeFilename
 	}
 	stageDir := filepath.Join(stagingRootName, opID)
 	stage, err := createExclusiveDirectory(s.root, stagingRootName, opID)
@@ -373,6 +382,37 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 		relativePath: filepath.ToSlash(finalPath), directory: finalDir, filename: filename,
 		byteSize: int64(len(bytes)), digest: hex.EncodeToString(digest[:]),
 	}, nil
+}
+
+type publicationResult struct {
+	value publication
+	err   error
+}
+
+// publishContext preserves the Rust worker boundary. Filesystem publication
+// continues after a caller cancels, and a successful detached publication is
+// removed because no metadata owner can claim it.
+func (s *Service) publishContext(ctx context.Context, owner store.ArtifactOwner, artifactID string, index int64, filename string, bytes []byte) (publication, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result := make(chan publicationResult, 1)
+	go func() {
+		value, err := s.publish(owner, artifactID, index, filename, bytes)
+		result <- publicationResult{value: value, err: err}
+	}()
+	select {
+	case outcome := <-result:
+		return outcome.value, outcome.err
+	case <-ctx.Done():
+		go func() {
+			outcome := <-result
+			if outcome.err == nil {
+				_ = s.discardPublication(outcome.value)
+			}
+		}()
+		return publication{}, ctx.Err()
+	}
 }
 
 func (s *Service) nextOperationID() (string, error) {
