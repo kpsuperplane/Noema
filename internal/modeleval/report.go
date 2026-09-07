@@ -134,6 +134,11 @@ func rank(r matrixReport) []roleRanking {
 			ranking.SelectionReason = "No candidate meets the role policy."
 			if ranking.RecommendedCandidateID != "" {
 				ranking.SelectionReason = "Qualified evidence and the incumbent replacement margin select this candidate."
+				best := slices.IndexFunc(ranking.Candidates, func(c candidateScore) bool { return c.Qualified })
+				incumbent := slices.IndexFunc(ranking.Candidates, func(c candidateScore) bool { return c.CandidateID == p.IncumbentCandidateID && c.Qualified })
+				if best >= 0 && incumbent >= 0 && ranking.Candidates[best].CandidateID != p.IncumbentCandidateID && value(ranking.Candidates[best].QualityScore, 0)-value(ranking.Candidates[incumbent].QualityScore, 0) < p.ReplacementQualityMargin {
+					ranking.SelectionReason = fmt.Sprintf("retained incumbent; challenger improvement %.3f was below margin %.3f", value(ranking.Candidates[best].QualityScore, 0)-value(ranking.Candidates[incumbent].QualityScore, 0), p.ReplacementQualityMargin)
+				}
 			}
 		}
 		rankings = append(rankings, ranking)
@@ -162,24 +167,5 @@ func saveReport(dir string, r matrixReport) error {
 	if e := writeJSON(filepath.Join(dir, "report.json"), r, false); e != nil {
 		return e
 	}
-	var out strings.Builder
-	fmt.Fprintf(&out, "# Model evaluation %s\n\nMode: %s. Status: %s.\n\n", r.RunID, r.Mode, r.Status)
-	if r.Failure != "" {
-		fmt.Fprintf(&out, "Failure: %s\n\n", r.Failure)
-	}
-	for _, ranking := range r.Rankings {
-		fmt.Fprintf(&out, "## %s\n\n%s\n\nRecommended candidate: %s\n\n| Candidate | Qualified | Cases passed | Quality | P95 ms | Cost USD |\n| --- | --- | --- | --- | --- | --- |\n", ranking.Role, ranking.SelectionReason, ranking.RecommendedCandidateID)
-		for _, s := range ranking.Candidates {
-			fmt.Fprintf(&out, "| %s | %t | %d/%d | %.3f | %d | %.6f |\n", s.CandidateID, s.Qualified, s.PassedCases, s.TotalCases, value(s.QualityScore, -1), value(s.P95LatencyMS, -1), value(s.EstimatedCostUSD, -1))
-		}
-		out.WriteString("\n")
-	}
-	out.WriteString("## Case evidence\n\n| Candidate | Repetition | Case | Passed | Failure |\n| --- | --- | --- | --- | --- |\n")
-	for _, entry := range r.Entries {
-		for _, c := range entry.Cases {
-			failure := strings.NewReplacer("|", "\\|", "\n", " ", "\r", " ").Replace(c.Failure)
-			fmt.Fprintf(&out, "| %s | %d | %s | %t | %s |\n", entry.CandidateID, entry.Repetition, c.CaseID, c.Passed, failure)
-		}
-	}
-	return os.WriteFile(filepath.Join(dir, "report.md"), []byte(out.String()), 0600)
+	return os.WriteFile(filepath.Join(dir, "report.md"), []byte(r.markdown()), 0600)
 }

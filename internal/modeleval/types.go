@@ -33,6 +33,7 @@ type candidate struct {
 	Model                  string                 `json:"model" toml:"model"`
 	Roles                  []string               `json:"roles" toml:"roles"`
 	ReasoningEffort        string                 `json:"reasoning_effort" toml:"reasoning_effort"`
+	BaseURL                string                 `json:"-" toml:"base_url"`
 	AcceptedResponseModels []string               `json:"accepted_response_models" toml:"accepted_response_models"`
 	Targets                []recommendationTarget `json:"targets" toml:"targets"`
 	Pricing                *modelPricing          `json:"pricing" toml:"pricing"`

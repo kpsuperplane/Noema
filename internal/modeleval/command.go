@@ -58,12 +58,8 @@ func Run(ctx context.Context, root string, args []string) error {
 			fmt.Printf("%s: at most $%.4f across %d candidates and %d repetitions\n", p.DecisionID, p.EstimatedMaxCostUSD, len(p.Candidates), p.Suite.repetitions(true))
 			return nil
 		}
-		commit, dirty, e := gitState(root)
-		if e != nil {
+		if e = p.validateExecutionGitState(root); e != nil {
 			return e
-		}
-		if dirty || p.GitDirty || commit != p.GitCommit {
-			return errors.New("defaults run requires the exact clean Git commit recorded by a clean plan")
 		}
 		dir := filepath.Join(root, "target/noema-model-evals/decisions", p.DecisionID)
 		copyPath := filepath.Join(dir, "plan.json")

@@ -2,6 +2,7 @@ package modeleval
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -28,7 +29,7 @@ func parseJudge(text string) (judgeDecision, error) {
 }
 func judgePair(ctx context.Context, g provider.Generator, account string, r matrixReport, s suiteConfig, p rolePolicy, challenger string) roleComparison {
 	a, b := challenger, p.IncumbentCandidateID
-	if fingerprint([]string{r.RunID, p.Role, challenger})[0]%2 == 0 {
+	if challengerIsA(r.RunID, p.Role, challenger) {
 		a, b = b, a
 	}
 	cmp := roleComparison{Role: p.Role, ChallengerCandidateID: challenger, IncumbentCandidateID: p.IncumbentCandidateID, JudgeModel: r.Policies.Judge.Model, CandidateAID: a, CandidateBID: b}
@@ -92,4 +93,9 @@ func judgePair(ctx context.Context, g provider.Generator, account string, r matr
 		cmp.WinnerCandidateID = b
 	}
 	return cmp
+}
+
+func challengerIsA(runID, role, challenger string) bool {
+	digest := sha256.Sum256([]byte(runID + ":" + role + ":" + challenger))
+	return digest[0]&1 == 0
 }

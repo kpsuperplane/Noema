@@ -153,16 +153,9 @@ func loadMatrix(root string, ids []string) (suiteConfig, rolePolicies, []candida
 	if e := validateMatrix(s, p, m.Candidates, false); e != nil {
 		return s, p, nil, e
 	}
-	selected := []candidate{}
-	for _, c := range m.Candidates {
-		if len(ids) == 0 && (c.Enabled == nil || *c.Enabled) || slices.Contains(ids, c.ID) {
-			selected = append(selected, c)
-		}
-	}
-	for _, id := range ids {
-		if slices.IndexFunc(selected, func(c candidate) bool { return c.ID == id }) < 0 {
-			return s, p, nil, fmt.Errorf("unknown candidate %s", id)
-		}
+	selected, e := selectEvaluationCandidates(m.Candidates, ids)
+	if e != nil {
+		return s, p, nil, e
 	}
 	return s, p, selected, nil
 }
@@ -183,16 +176,30 @@ func validateMatrix(s suiteConfig, p rolePolicies, cs []candidate, decision bool
 		rs := map[string]bool{}
 		for _, r := range c.Roles {
 			if !slices.Contains(allRoles, r) || rs[r] {
+				if rs[r] {
+					return fmt.Errorf("candidate %s repeats an evaluation role", c.ID)
+				}
 				return fmt.Errorf("invalid role for %s", c.ID)
 			}
 			rs[r] = true
 		}
 		ts := map[string]bool{}
 		for _, t := range c.Targets {
-			if !slices.Contains([]string{"openrouter", "codex", "openai"}, t.Provider) || ts[t.Provider] || t.ModelProfile == "" {
+			if !slices.Contains([]string{"openrouter", "codex", "openai", "foundation_local", "local_models"}, t.Provider) || ts[t.Provider] || t.ModelProfile == "" {
 				return fmt.Errorf("invalid target for %s", c.ID)
 			}
 			ts[t.Provider] = true
+			if slices.Contains([]string{"foundation_local", "local_models"}, t.Provider) {
+				return fmt.Errorf("candidate %s cannot map local recommendation target %s", c.ID, t.Provider)
+			}
+		}
+		target := slices.IndexFunc(c.Targets, func(t recommendationTarget) bool { return t.Provider == "openrouter" })
+		if target >= 0 {
+			if c.Targets[target].ModelProfile != c.Model || c.Targets[target].ReasoningEffort != c.ReasoningEffort {
+				return fmt.Errorf("candidate %s must map its exact OpenRouter model and effort", c.ID)
+			}
+		} else {
+			return fmt.Errorf("candidate %s must map its exact OpenRouter model and effort", c.ID)
 		}
 		if c.Pricing != nil {
 			q := c.Pricing
@@ -230,8 +237,56 @@ func validateMatrix(s suiteConfig, p rolePolicies, cs []candidate, decision bool
 	if len(seen) != len(allRoles) {
 		return errors.New("policies must cover every production role")
 	}
+	if decision {
+		if e := validateDecisionCandidates(cs, p); e != nil {
+			return e
+		}
+	}
 	return nil
 }
+
+func validateDecisionCandidates(cs []candidate, p rolePolicies) error {
+	if index := slices.IndexFunc(cs, func(c candidate) bool { return c.BaseURL != "" }); index >= 0 {
+		return fmt.Errorf("default decision candidate %s cannot override the OpenRouter base URL", cs[index].ID)
+	}
+	for _, role := range roles() {
+		if !slices.ContainsFunc(cs, func(c candidate) bool { return slices.Contains(c.Roles, role) }) {
+			return fmt.Errorf("default decision has no candidate for role %s", role)
+		}
+		policyIndex := slices.IndexFunc(p.Policies, func(v rolePolicy) bool { return v.Role == role })
+		if policyIndex < 0 || !slices.ContainsFunc(cs, func(c candidate) bool {
+			return c.ID == p.Policies[policyIndex].IncumbentCandidateID && slices.Contains(c.Roles, role)
+		}) {
+			incumbent := ""
+			if policyIndex >= 0 {
+				incumbent = p.Policies[policyIndex].IncumbentCandidateID
+			}
+			return fmt.Errorf("default decision is missing incumbent %s for role %s", incumbent, role)
+		}
+	}
+	return nil
+}
+
+func selectEvaluationCandidates(candidates []candidate, ids []string) ([]candidate, error) {
+	selected := make([]candidate, 0, len(candidates))
+	if len(ids) == 0 {
+		for _, candidate := range candidates {
+			if candidate.Enabled == nil || *candidate.Enabled {
+				selected = append(selected, candidate)
+			}
+		}
+		return selected, nil
+	}
+	for _, id := range ids {
+		index := slices.IndexFunc(candidates, func(candidate candidate) bool { return candidate.ID == id })
+		if index < 0 || slices.ContainsFunc(selected, func(candidate candidate) bool { return candidate.ID == id }) {
+			return nil, fmt.Errorf("unknown or duplicate candidate %s", id)
+		}
+		selected = append(selected, candidates[index])
+	}
+	return selected, nil
+}
+
 func estimate(s suiteConfig, p rolePolicies, cs []candidate) (float64, error) {
 	if e := validateMatrix(s, p, cs, true); e != nil {
 		return 0, e
@@ -280,6 +335,17 @@ func (p decisionPlan) validate() error {
 	}
 	if math.Abs(cost-p.EstimatedMaxCostUSD) > 1e-6 || !finiteNonnegative(p.SpendCeilingUSD) || p.SpendCeilingUSD < cost || p.ContentFingerprint != p.hash() {
 		return errors.New("decision content, estimate, or budget changed")
+	}
+	return nil
+}
+
+func (p decisionPlan) validateExecutionGitState(root string) error {
+	commit, dirty, e := gitState(root)
+	if e != nil {
+		return e
+	}
+	if p.GitDirty || dirty || commit != p.GitCommit {
+		return errors.New("defaults run requires the exact clean Git commit recorded by a clean plan")
 	}
 	return nil
 }

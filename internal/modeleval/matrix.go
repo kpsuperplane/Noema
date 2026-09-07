@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"slices"
 	"time"
 
@@ -16,9 +15,18 @@ import (
 )
 
 func hosted(ctx context.Context, cs []candidate, judge string) (provider.Generator, string, func(), error) {
-	key := os.Getenv("OPENROUTER_API_KEY")
-	if key == "" {
-		return nil, "", nil, errors.New("OPENROUTER_API_KEY is required")
+	rawKey, present := os.LookupEnv("OPENROUTER_API_KEY")
+	var keyValue *string
+	if present {
+		keyValue = &rawKey
+	}
+	key, e := openrouterAPIKey(keyValue)
+	if e != nil {
+		return nil, "", nil, e
+	}
+	key, e = (openRouterEnvCredentials{apiKey: key}).apiKeyFor("openrouter", openRouterDefaultAccountID)
+	if e != nil {
+		return nil, "", nil, e
 	}
 	root, e := os.MkdirTemp("", "noema-evaluation-*")
 	if e != nil {
@@ -82,7 +90,7 @@ func runMatrix(ctx context.Context, root, dir, id, mode string, s suiteConfig, p
 	if e := validateMatrix(s, p, cs, mode == "default_decision"); e != nil {
 		return e
 	}
-	expected := matrixReport{SchemaVersion: 3, RunID: id, Mode: mode, Status: "running", RuntimeSuiteVersion: runtime.EvaluationSuiteVersion, DecisionFingerprint: reportFingerprint(s, p, cs), Repetitions: s.repetitions(mode == "default_decision"), Policies: p, Candidates: cs, Environment: evaluationEnvironment{EvaluatorVersion: "go", TargetOS: goruntime.GOOS, TargetArch: goruntime.GOARCH}}
+	expected := newMatrixReport(id, s, cs, p, mode)
 	r := expected
 	path := filepath.Join(dir, "report.json")
 	if _, e := os.Stat(path); e == nil {

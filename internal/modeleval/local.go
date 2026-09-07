@@ -36,12 +36,29 @@ type localEntry struct {
 	WorkerError string       `json:"worker_error,omitempty"`
 }
 
-func localCommand(ctx context.Context, root string, args []string) error {
+func loadLocalCandidates(path string) ([]localCandidate, error) {
 	var manifest struct {
 		Candidates []localCandidate `toml:"candidates"`
 	}
+	if e := readTOML(path, &manifest); e != nil {
+		return nil, e
+	}
+	seen := map[string]bool{}
+	for _, c := range manifest.Candidates {
+		digest, e := hex.DecodeString(c.SHA256)
+		revision, re := hex.DecodeString(c.Revision)
+		if !validID(c.ID) || seen[c.ID] || e != nil || len(digest) != 32 || re != nil || len(revision) != 20 || c.Bytes <= 0 || c.ContextTokens <= 0 || !strings.HasPrefix(c.Source, "https://") || c.ArtifactSource != "" && !strings.HasPrefix(c.ArtifactSource, "https://") {
+			return nil, fmt.Errorf("invalid local candidate %s", c.ID)
+		}
+		seen[c.ID] = true
+	}
+	return manifest.Candidates, nil
+}
+
+func localCommand(ctx context.Context, root string, args []string) error {
 	var suite suiteConfig
-	if e := readTOML(filepath.Join(root, "evals/local-models/candidates.toml"), &manifest); e != nil {
+	candidates, e := loadLocalCandidates(filepath.Join(root, "evals/local-models/candidates.toml"))
+	if e != nil {
 		return e
 	}
 	if e := readTOML(filepath.Join(root, "evals/local-models/suite.toml"), &suite); e != nil {
@@ -50,18 +67,9 @@ func localCommand(ctx context.Context, root string, args []string) error {
 	if e := suite.validate(); e != nil {
 		return e
 	}
-	seen := map[string]bool{}
-	for _, c := range manifest.Candidates {
-		digest, e := hex.DecodeString(c.SHA256)
-		revision, re := hex.DecodeString(c.Revision)
-		if !validID(c.ID) || seen[c.ID] || e != nil || len(digest) != 32 || re != nil || len(revision) != 20 || c.Bytes <= 0 || c.ContextTokens <= 0 || !strings.HasPrefix(c.Source, "https://") || c.ArtifactSource != "" && !strings.HasPrefix(c.ArtifactSource, "https://") {
-			return fmt.Errorf("invalid local candidate %s", c.ID)
-		}
-		seen[c.ID] = true
-	}
 	command := args[0]
 	if command == "list" {
-		for _, c := range manifest.Candidates {
+		for _, c := range candidates {
 			fmt.Printf("%s\t%s\t%.2f GB\t%s\n", c.ID, c.Name, float64(c.Bytes)/1e9, c.Notes)
 		}
 		return nil
@@ -74,14 +82,14 @@ func localCommand(ctx context.Context, root string, args []string) error {
 	}
 	var selected []localCandidate
 	for _, id := range args[1:] {
-		i := slices.IndexFunc(manifest.Candidates, func(c localCandidate) bool { return c.ID == id })
+		i := slices.IndexFunc(candidates, func(c localCandidate) bool { return c.ID == id })
 		if i < 0 || slices.ContainsFunc(selected, func(c localCandidate) bool { return c.ID == id }) {
 			return fmt.Errorf("unknown or duplicate candidate %s", id)
 		}
-		selected = append(selected, manifest.Candidates[i])
+		selected = append(selected, candidates[i])
 	}
 	if len(args) == 1 {
-		selected = manifest.Candidates
+		selected = candidates
 	}
 	home := filepath.Join(root, "target/noema-model-evals/cache/noema")
 	runtimeRoot := filepath.Join(root, "crates/noema-desktop/binaries/runtime")
