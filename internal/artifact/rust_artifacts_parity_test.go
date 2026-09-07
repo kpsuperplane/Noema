@@ -471,12 +471,12 @@ const (
 )
 
 type rustArtifactMetadataStore struct {
-	behavior  rustArtifactMetadataBehavior
-	entered   chan struct{}
-	release   chan struct{}
-	once      sync.Once
-	mu        sync.Mutex
-	artifacts int
+	behavior rustArtifactMetadataBehavior
+	entered  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+	mu       sync.Mutex
+	artifact *store.ArtifactWithVersions
 }
 
 func newRustArtifactMetadataStore(behavior rustArtifactMetadataBehavior) *rustArtifactMetadataStore {
@@ -491,7 +491,7 @@ func (s *rustArtifactMetadataStore) ArtifactOwnerAuthorized(context.Context, sto
 	return true, nil
 }
 
-func (s *rustArtifactMetadataStore) CreateArtifact(ctx context.Context, artifact store.Artifact, version store.ArtifactVersion, _ time.Time) (store.ArtifactWithVersions, error) {
+func (s *rustArtifactMetadataStore) CreateArtifact(ctx context.Context, artifact store.Artifact, version store.ArtifactVersion, now time.Time) (store.ArtifactWithVersions, error) {
 	switch s.behavior {
 	case rustArtifactMetadataFail:
 		return store.ArtifactWithVersions{}, errors.New("injected metadata persistence failure")
@@ -501,8 +501,25 @@ func (s *rustArtifactMetadataStore) CreateArtifact(ctx context.Context, artifact
 		case <-ctx.Done():
 			return store.ArtifactWithVersions{}, ctx.Err()
 		case <-s.release:
-			return store.ArtifactWithVersions{}, errors.New("metadata write was released without a result")
+			if err := ctx.Err(); err != nil {
+				return store.ArtifactWithVersions{}, err
+			}
 		}
+		version.ArtifactID = artifact.ID
+		version.Index = 1
+		version.CreatedAt = now
+		artifact.CurrentVersionID = version.ID
+		artifact.CreatedAt = now
+		artifact.UpdatedAt = now
+		result := store.ArtifactWithVersions{
+			Artifact:       artifact,
+			CurrentVersion: version,
+			Versions:       []store.ArtifactVersion{version},
+		}
+		s.mu.Lock()
+		s.artifact = &result
+		s.mu.Unlock()
+		return result, nil
 	default:
 		return store.ArtifactWithVersions{}, errors.New("unknown metadata behavior")
 	}
@@ -511,7 +528,10 @@ func (s *rustArtifactMetadataStore) CreateArtifact(ctx context.Context, artifact
 func (s *rustArtifactMetadataStore) artifactCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.artifacts
+	if s.artifact == nil {
+		return 0
+	}
+	return 1
 }
 
 func (s *rustArtifactMetadataStore) AppendArtifactVersion(context.Context, string, store.ArtifactVersion, time.Time) (store.ArtifactVersion, error) {

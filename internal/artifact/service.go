@@ -125,6 +125,9 @@ type metadataStore interface {
 
 // New creates one concrete Artifact service and cleans stale stages.
 func New(root *os.Root, database *store.Store, errorLog *diagnostics.Writer) (*Service, error) {
+	if database == nil {
+		return nil, errors.New("Artifact dependencies are unavailable")
+	}
 	return newService(root, database, errorLog)
 }
 
