@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -24,7 +25,7 @@ import (
 )
 
 const (
-	fixtureVersion = "2026-09-06-gmail-v1-notion-mcp-v3"
+	fixtureVersion = "2026-09-07-gmail-v1-notion-mcp-v4"
 	accountAToken  = "fixture-account-a"
 	accountBToken  = "fixture-account-b"
 )
@@ -377,20 +378,47 @@ func gmailError(code int, message string) map[string]any {
 }
 
 type notionPage struct {
-	ID        string
-	URL       string
-	Title     string
-	Content   string
-	UpdatedAt string
-	Parent    string
+	ID         string
+	URL        string
+	Title      string
+	Content    string
+	UpdatedAt  string
+	Parent     string
+	Object     string
+	Blocks     []notionBlock
+	Rows       []map[string]any
+	Accessible bool
+}
+
+type notionBlock struct {
+	ID       string
+	Type     string
+	Markdown string
+	Children []notionBlock
 }
 
 func notionPages() []notionPage {
 	return []notionPage{
-		{ID: "notion-page-launch", URL: "https://www.notion.so/notion-page-launch", Title: "Launch project", Content: "Launch target: 2026-09-18.\nOwner: Alex.\nOpen decision: choose the support window.\nThe analytics milestone is at risk because the event schema is not final.", UpdatedAt: "2026-09-05T15:00:00.000Z", Parent: "workspace-root"},
-		{ID: "notion-page-launch-notes", URL: "https://www.notion.so/notion-page-launch-notes", Title: "Launch project meeting notes", Content: "Decision needed: support coverage and rollback owner.\nContradictory note: the draft says 2026-09-20, but the approved target is 2026-09-18.", UpdatedAt: "2026-09-04T11:00:00.000Z", Parent: "notion-page-launch"},
-		{ID: "notion-page-private", URL: "https://www.notion.so/notion-page-private", Title: "Private account page", Content: "This page belongs to the second synthetic account.", UpdatedAt: "2026-09-05T10:00:00.000Z", Parent: "workspace-private"},
+		{ID: "notion-page-launch", URL: "https://www.notion.so/notion-page-launch", Title: "Launch project", Content: "Launch target: 2026-09-18.\nOwner: Alex.\nOpen decision: choose the support window.\nThe analytics milestone is at risk because the event schema is not final.", UpdatedAt: "2026-09-05T15:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true,
+			Blocks: []notionBlock{{ID: "notion-block-launch-details", Type: "callout", Markdown: "Support window: choose coverage before launch.\nRollback owner: still unassigned.", Children: []notionBlock{{ID: "notion-block-launch-analytics", Type: "bulleted_list_item", Markdown: "Analytics event schema is the remaining milestone dependency."}}}}},
+		{ID: "notion-page-launch-notes", URL: "https://www.notion.so/notion-page-launch-notes", Title: "Launch project meeting notes", Content: "Decision needed: support coverage and rollback owner.\nContradictory note: the draft says 2026-09-20, but the approved target is 2026-09-18.", UpdatedAt: "2026-09-04T11:00:00.000Z", Parent: "notion-page-launch", Object: "page", Accessible: true,
+			Blocks: []notionBlock{{ID: "notion-block-launch-notes", Type: "paragraph", Markdown: "The approved target remains 2026-09-18; the 2026-09-20 draft is stale."}}},
+		{ID: "notion-page-launch-records", URL: "https://www.notion.so/notion-page-launch-records", Title: "Launch decision records", Content: "Related launch decision records.", UpdatedAt: "2026-09-03T09:00:00.000Z", Parent: "workspace-root", Object: "data_source", Accessible: true,
+			Rows: []map[string]any{{"id": "launch-record-001", "decision": "support window", "status": "open"}, {"id": "launch-record-002", "decision": "rollback owner", "status": "open"}}},
+		{ID: "notion-page-launch-archive", URL: "https://www.notion.so/notion-page-launch-archive", Title: "Launch project archive", Content: "Archived launch notes are retained for reference.", UpdatedAt: "2026-08-30T09:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true},
+		{ID: "notion-page-private", URL: "https://www.notion.so/notion-page-private", Title: "Private account page", Content: "This page belongs to the second synthetic account.", UpdatedAt: "2026-09-05T10:00:00.000Z", Parent: "workspace-private", Object: "page", Accessible: false},
 	}
+}
+
+func accessibleNotionPages() []notionPage {
+	pages := notionPages()
+	result := make([]notionPage, 0, len(pages))
+	for _, page := range pages {
+		if page.Accessible {
+			result = append(result, page)
+		}
+	}
+	return result
 }
 
 func (f *fixture) notionCard(w http.ResponseWriter, r *http.Request) {
@@ -452,30 +480,79 @@ func notionTool(f *fixture, name string) mcp.ToolHandler {
 		case "notion-search":
 			query, _ := arguments["query"].(string)
 			cursor, _ := arguments["start_cursor"].(string)
+			pageSize := 10
+			if raw, ok := arguments["page_size"].(float64); ok {
+				pageSize = int(raw)
+			}
+			if pageSize < 1 || pageSize > 50 {
+				return toolError("invalid_page_size"), nil
+			}
 			matches := make([]notionPage, 0)
-			for _, page := range pages[:2] {
+			for _, page := range accessibleNotionPages() {
 				if notionMatches(page, query) {
 					matches = append(matches, page)
 				}
 			}
 			start := 0
-			if cursor == "page-2" {
-				start = 1
-			} else if cursor != "" {
-				return toolError("invalid_cursor"), nil
+			if cursor != "" {
+				if _, err := fmt.Sscanf(cursor, "page-%d", &start); err != nil || start < 1 || start >= len(matches) {
+					return toolError("invalid_cursor"), nil
+				}
 			}
+			end := min(start+pageSize, len(matches))
 			results := make([]map[string]any, 0)
-			for _, page := range matches[start:] {
-				results = append(results, map[string]any{"object": "page", "id": page.ID, "url": page.URL, "title": page.Title, "highlight": firstLine(page.Content), "path": []string{"Launch"}})
+			for _, page := range matches[start:end] {
+				object := page.Object
+				if object == "" {
+					object = "page"
+				}
+				results = append(results, map[string]any{"object": object, "id": page.ID, "url": page.URL, "title": page.Title, "highlight": firstLine(page.Content), "path": []string{"Launch"}})
 			}
-			value = map[string]any{"results": results, "has_more": false, "next_cursor": nil}
+			hasMore := end < len(matches)
+			var nextCursor any
+			if hasMore {
+				nextCursor = fmt.Sprintf("page-%d", end)
+			}
+			value = map[string]any{"results": results, "has_more": hasMore, "next_cursor": nextCursor}
 		case "notion-fetch":
 			id, _ := arguments["id"].(string)
 			id = strings.TrimSuffix(id, "/")
 			found := false
-			for _, page := range pages[:2] {
+			for _, page := range pages {
+				if !page.Accessible {
+					continue
+				}
+				for _, block := range page.Blocks {
+					if id == block.ID {
+						value = map[string]any{"object": "block", "id": block.ID, "page_id": page.ID, "type": block.Type, "markdown": block.Markdown, "children": notionBlockChildren(block.Children), "truncated": false, "unknown_block_ids": []string{}, "unknown_block_count": 0}
+						found = true
+						break
+					}
+					for _, child := range block.Children {
+						if id == child.ID {
+							value = map[string]any{"object": "block", "id": child.ID, "page_id": page.ID, "type": child.Type, "markdown": child.Markdown, "children": notionBlockChildren(child.Children), "truncated": false, "unknown_block_ids": []string{}, "unknown_block_count": 0}
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+				if found {
+					break
+				}
+				if page.Object == "data_source" && (id == page.ID || id == "collection://notion-collection-launch") {
+					value = map[string]any{"object": "data_source", "id": "collection://notion-collection-launch", "title": page.Title, "properties": map[string]any{"decision": map[string]any{"type": "title"}, "status": map[string]any{"type": "select"}}, "results": page.Rows, "has_more": false, "next_cursor": nil}
+					found = true
+					break
+				}
 				if id == page.ID || id == page.URL {
-					value = map[string]any{"object": "page", "id": page.ID, "url": page.URL, "title": page.Title, "markdown": page.Content, "page_last_edited_at": page.UpdatedAt, "parent": map[string]any{"type": "page_id", "page_id": page.Parent}, "verification": map[string]any{"state": "verified", "expires_at": "2026-09-12T00:00:00.000Z"}}
+					unknown := make([]string, 0, len(page.Blocks))
+					for _, block := range page.Blocks {
+						unknown = append(unknown, block.ID)
+					}
+					value = map[string]any{"object": "page", "id": page.ID, "url": page.URL, "title": page.Title, "markdown": page.Content, "page_last_edited_at": page.UpdatedAt, "parent": map[string]any{"type": "page_id", "page_id": page.Parent}, "verification": map[string]any{"state": "verified", "expires_at": "2026-09-12T00:00:00.000Z"}, "truncated": len(unknown) != 0, "unknown_block_ids": unknown, "unknown_block_count": len(unknown)}
 					found = true
 					break
 				}
@@ -489,6 +566,14 @@ func notionTool(f *fixture, name string) mcp.ToolHandler {
 		encoded, _ := json.Marshal(value)
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}}, StructuredContent: value}, nil
 	}
+}
+
+func notionBlockChildren(blocks []notionBlock) []map[string]any {
+	children := make([]map[string]any, 0, len(blocks))
+	for _, block := range blocks {
+		children = append(children, map[string]any{"object": "block", "id": block.ID, "type": block.Type, "markdown": block.Markdown, "children": notionBlockChildren(block.Children)})
+	}
+	return children
 }
 
 func notionMatches(page notionPage, query string) bool {
@@ -638,7 +723,11 @@ The selected catalog includes these official Notion tool names:
 
 Search results preserve page IDs, URLs, titles, highlights, and path details.
 Fetch results preserve page IDs, parent IDs, edit timestamps, verification
-fields, and Markdown content. An inaccessible ID returns an MCP tool error with
+fields, and Markdown content. Large pages may set ` + "`truncated: true`" + ` and
+return ` + "`unknown_block_ids`" + `; fetch each returned ID to recover the full
+nested block tree. The fixture also exposes one related data source with rows.
+Search uses opaque ` + "`page-N`" + ` cursors and returns ` + "`has_more`" + ` until all
+matching records are read. An inaccessible ID returns an MCP tool error with
 code ` + "`object_not_found`" + `. An invalid cursor returns ` + "`invalid_cursor`" + `.
 The catalog and schemas are part of the acceptance evidence.
 
