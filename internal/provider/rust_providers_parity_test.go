@@ -1980,7 +1980,8 @@ func TestRustProviders_NativeResponseReplayPreservesTextAndCorrelatedToolCalls(t
 
 // Rust source: crates/noema-providers/src/adapters/foundation/tests/generation.rs::generate_returns_plain_bridge_text (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_GenerateReturnsPlainBridgeText(t *testing.T) {
-	provider := newFoundationProvider(foundationProviderConfig{DefaultProfile: "default"})
+	provider := foundationHealthyProvider(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;`)
 	response, err := provider.generate(t.Context(), "conversation:test", "", []foundationMessage{{Role: "user", Content: "prompt text"}}, nil, nil, nil)
 	if err != nil || response.Text != "bridge answer" || len(response.ToolCalls) != 0 {
 		t.Fatalf("Foundation plain generation = %#v/%v", response, err)
@@ -1989,7 +1990,8 @@ func TestRustProviders_GenerateReturnsPlainBridgeText(t *testing.T) {
 
 // Rust source: crates/noema-providers/src/adapters/foundation/tests/generation.rs::generate_streaming_forwards_plain_assistant_text_deltas (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_GenerateStreamingForwardsPlainAssistantTextDeltas(t *testing.T) {
-	provider := newFoundationProvider(foundationProviderConfig{DefaultProfile: "default"})
+	provider := foundationHealthyProvider(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"bridge "}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;`)
 	var deltas []string
 	response, err := provider.generate(t.Context(), "conversation:test", "", []foundationMessage{{Role: "user", Content: "prompt text"}}, nil, nil, func(delta string) { deltas = append(deltas, delta) })
 	if err != nil || response.Text != "bridge answer" || !reflect.DeepEqual(deltas, []string{"bridge "}) {
@@ -2000,7 +2002,13 @@ func TestRustProviders_GenerateStreamingForwardsPlainAssistantTextDeltas(t *test
 // Rust source: crates/noema-providers/src/adapters/foundation/tests/sessions.rs::generate_reuses_bridge_session_for_plain_text (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_GenerateReusesBridgeSessionForPlainText(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "requests.log")
-	provider := newFoundationProvider(foundationProviderConfig{DefaultProfile: "default"})
+	provider := newFoundationProvider(foundationProviderConfig{
+		DefaultProfile: "default",
+		BridgePath: foundationHealthyBridgeConfig(t, fmt.Sprintf(`*'"id":"create_session"'*) printf '%%s\n' "$line" >> "%s"; printf '%%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"replay_turns"'*) printf '%%s\n' '{"id":"replay_turns","payload":{"type":"replay_complete"}}' ;;
+    *'"id":"generate"'*) printf '%%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;`, logPath)).BridgePath,
+	})
+	t.Cleanup(func() { provider.process.close() })
 	inputs := [][]foundationMessage{{{Role: "user", Content: "first"}}, {{Role: "user", Content: "first"}, {Role: "assistant", Content: "bridge answer"}, {Role: "user", Content: "second"}}}
 	for _, messages := range inputs {
 		if _, err := provider.generate(t.Context(), "conversation:stable", "be concise", messages, nil, nil, nil); err != nil {
@@ -2019,7 +2027,9 @@ func TestRustProviders_GenerateReusesBridgeSessionForPlainText(t *testing.T) {
 
 // Rust source: crates/noema-providers/src/adapters/foundation/tests/sessions.rs::native_tool_continuation_reuses_origin_session_and_catalog (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_NativeToolContinuationReusesOriginSessionAndCatalog(t *testing.T) {
-	provider := newFoundationProvider(foundationProviderConfig{DefaultProfile: "default"})
+	provider := foundationHealthyProvider(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-1","tool_name":"search_memory","arguments":"{\"query\":\"first\"}"}}' ;;
+    *'"type":"tool_result"'*) case "$line" in *'"call_id":"call-1"'*) printf '%s\n' '{"id":"tool_result:call-1","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-2","tool_name":"search_memory","arguments":"{\"query\":\"second\"}"}}' ;; *'"call_id":"call-2"'*) printf '%s\n' '{"id":"tool_result:call-2","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"continued answer"}}' ;; esac ;;`)
 	tools := []foundationToolDefinition{{Name: "search_memory", Description: "Search memory.", Parameters: `{"type":"object"}`}}
 	first, err := provider.generate(t.Context(), "conversation:stable", "initial instructions", []foundationMessage{{Role: "user", Content: "find something"}}, tools, nil, nil)
 	if err != nil || len(first.ToolCalls) != 1 || first.ToolCalls[0].CallID != "call-1" {
@@ -2041,7 +2051,13 @@ func TestRustProviders_NativeToolContinuationReusesOriginSessionAndCatalog(t *te
 // Rust source: crates/noema-providers/src/adapters/foundation/tests/sessions.rs::generate_recreates_bridge_session_when_static_instructions_change (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_GenerateRecreatesBridgeSessionWhenStaticInstructionsChange(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "requests.log")
-	provider := newFoundationProvider(foundationProviderConfig{DefaultProfile: "default"})
+	provider := newFoundationProvider(foundationProviderConfig{
+		DefaultProfile: "default",
+		BridgePath: foundationHealthyBridgeConfig(t, fmt.Sprintf(`*'"id":"create_session"'*) printf '%%s\n' "$line" >> "%s"; printf '%%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"close_session"'*) printf '%%s\n' '{"id":"close_session","payload":{"type":"replay_complete"}}' ;;
+    *'"id":"generate"'*) printf '%%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;`, logPath)).BridgePath,
+	})
+	t.Cleanup(func() { provider.process.close() })
 	for _, instructions := range []string{"be concise", "be expansive"} {
 		if _, err := provider.generate(t.Context(), "conversation:stable", instructions, []foundationMessage{{Role: "user", Content: "hello"}}, nil, nil, nil); err != nil {
 			t.Fatal(err)
@@ -2060,7 +2076,14 @@ func TestRustProviders_GenerateRecreatesBridgeSessionWhenStaticInstructionsChang
 // Rust source: crates/noema-providers/src/adapters/foundation/tests/sessions.rs::generate_reuses_exact_history_and_resets_on_divergence (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_GenerateReusesExactHistoryAndResetsOnDivergence(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "replay.log")
-	provider := newFoundationProvider(foundationProviderConfig{DefaultProfile: "default"})
+	provider := newFoundationProvider(foundationProviderConfig{
+		DefaultProfile: "default",
+		BridgePath: foundationHealthyBridgeConfig(t, fmt.Sprintf(`*'"id":"create_session"'*) printf '%%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"close_session"'*) printf '%%s\n' '{"id":"close_session","payload":{"type":"replay_complete"}}' ;;
+    *'"id":"replay_turns"'*) printf '%%s\n' "$line" >> "%s"; printf '%%s\n' '{"id":"replay_turns","payload":{"type":"replay_complete"}}' ;;
+    *'"id":"generate"'*) printf '%%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;`, logPath)).BridgePath,
+	})
+	t.Cleanup(func() { provider.process.close() })
 	requests := [][]foundationMessage{
 		{{Role: "developer", Content: "environment@1"}, {Role: "user", Content: "first"}},
 		{{Role: "developer", Content: "environment@1"}, {Role: "user", Content: "first"}, {Role: "assistant", Content: "bridge answer"}, {Role: "developer", Content: "environment@2"}, {Role: "user", Content: "second"}},

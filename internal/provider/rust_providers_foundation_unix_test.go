@@ -23,7 +23,8 @@ func TestRustProviders_BridgeStartReportsFoundationUnavailableHealth(t *testing.
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_generate_returns_session_output_and_deltas (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeGenerateReturnsSessionOutputAndDeltas(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"bridge "}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +43,9 @@ func TestRustProviders_BridgeGenerateReturnsSessionOutputAndDeltas(t *testing.T)
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_native_tool_call_round_trip_continues_same_session (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeNativeToolCallRoundTripContinuesSameSession(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-1","tool_name":"search_memory","arguments":"{\"query\":\"trains\"}"}}' ;;
+    *'"type":"tool_result"'*) printf '%s\n' '{"id":"tool_result:call-1","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"continued answer"}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +67,9 @@ func TestRustProviders_BridgeNativeToolCallRoundTripContinuesSameSession(t *test
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_rejects_unknown_missing_and_stale_tool_results_immediately (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeRejectsUnknownMissingAndStaleToolResultsImmediately(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-1","tool_name":"search_memory","arguments":"{\"query\":\"trains\"}"}}' ;;
+    *'"type":"tool_result"'*) printf '%s\n' '{"id":"tool_result:call-1","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"continued answer"}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +100,8 @@ func TestRustProviders_BridgeRejectsUnknownMissingAndStaleToolResultsImmediately
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_generate_waits_longer_than_control_timeout (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeGenerateWaitsLongerThanControlTimeout(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"slow bridge answer"}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +119,7 @@ func TestRustProviders_BridgeGenerateWaitsLongerThanControlTimeout(t *testing.T)
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_count_tokens_waits_longer_than_control_timeout (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeCountTokensWaitsLongerThanControlTimeout(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"count_tokens"'*) printf '%s\n' '{"id":"count_tokens","payload":{"type":"count_tokens_complete","tokens":42}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +132,7 @@ func TestRustProviders_BridgeCountTokensWaitsLongerThanControlTimeout(t *testing
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_ignores_stale_response_ids_before_matching_response (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeIgnoresStaleResponseIdsBeforeMatchingResponse(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"create_session"'*) printf '%s\n' '{"id":"stale","payload":{"type":"ignored"}}'; printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +146,7 @@ func TestRustProviders_BridgeIgnoresStaleResponseIdsBeforeMatchingResponse(t *te
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_replay_turns_sends_replay_request (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeReplayTurnsSendsReplayRequest(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"replay_turns"'*) printf '%s\n' '{"id":"replay_turns","payload":{"type":"replay_complete"}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +159,7 @@ func TestRustProviders_BridgeReplayTurnsSendsReplayRequest(t *testing.T) {
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_cancel_request_accepts_cancel_complete (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeCancelRequestAcceptsCancelComplete(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationHealthyBridgeConfig(t, `*'"id":"cancel"'*) printf '%s\n' '{"id":"cancel","payload":{"type":"cancel_complete"}}' ;;`)
 	process, err := providerStartFoundationBridge(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)

@@ -25,6 +25,11 @@ var errLocalModelChecksum = errors.New("local model checksum does not match")
 
 func (s *Service) download(ctx context.Context, value store.LocalModelInstallation, source, expected string, prepare bool) error {
 	partial := s.partialPath(value.ID)
+	defer func() {
+		if ctx.Err() != nil {
+			_ = os.Remove(partial)
+		}
+	}()
 	if err := os.MkdirAll(filepath.Dir(partial), 0700); err != nil {
 		return err
 	}
@@ -125,6 +130,11 @@ func (s *Service) copyLocal(ctx context.Context, value store.LocalModelInstallat
 	}
 	defer input.Close()
 	partial := s.partialPath(value.ID)
+	defer func() {
+		if ctx.Err() != nil {
+			_ = os.Remove(partial)
+		}
+	}()
 	if err = os.MkdirAll(filepath.Dir(partial), 0700); err != nil {
 		return err
 	}
