@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	fixtureVersion = "2026-09-07-gmail-v1-notion-mcp-v4"
+	fixtureVersion = "2026-09-07-gmail-v1-notion-mcp-v5"
 	accountAToken  = "fixture-account-a"
 	accountBToken  = "fixture-account-b"
 )
@@ -45,6 +45,8 @@ type fixture struct {
 	oauth              fixtureOAuth
 	notionAuthRequired bool
 	calendar           map[string][]calendarEvent
+	gmailData          map[string]gmailAccount
+	obligationsStage   int
 }
 
 func (f *fixture) trace(r *http.Request, status int) {
@@ -186,7 +188,7 @@ type gmailAccount struct {
 }
 
 func gmailAccounts() map[string]gmailAccount {
-	return map[string]gmailAccount{
+	accounts := map[string]gmailAccount{
 		"account-a": {Email: "alex@example.test", History: "history-a-20260906", Messages: []gmailMessage{
 			gmailMessageFor("a-msg-001", "a-thread-trip", []string{"INBOX", "IMPORTANT"}, "Trip itinerary confirmation", "Your upcoming trip itinerary is confirmed. Departure is Thursday.", "2026-09-05T08:15:00Z", "From: travel@example.test\nTo: alex@example.test\nSubject: Trip itinerary confirmation\n\nYour upcoming trip itinerary is confirmed. Departure is Thursday."),
 			gmailMessageFor("a-msg-002", "a-thread-trip", []string{"INBOX"}, "Re: Trip itinerary confirmation", "The airline changed the connection. Please review the updated itinerary.", "2026-09-05T09:20:00Z", "From: travel@example.test\nTo: alex@example.test\nSubject: Re: Trip itinerary confirmation\n\nThe airline changed the connection. Please review the updated itinerary."),
@@ -200,6 +202,58 @@ func gmailAccounts() map[string]gmailAccount {
 			gmailMessageFor("b-msg-001", "b-thread-private", []string{"INBOX"}, "Private account note", "This message belongs to the second synthetic account.", "2026-09-05T08:00:00Z", "From: private@example.test\nTo: blair@example.test\nSubject: Private account note\n\nThis message belongs to the second synthetic account."),
 		}, Threads: map[string][]string{"b-thread-private": {"b-msg-001"}}},
 	}
+	account := accounts["account-a"]
+	account.Messages = append(account.Messages, gmailObligationMessages()...)
+	account.Threads["a-thread-obligations"] = []string{"a-msg-008", "a-msg-009", "a-msg-010", "a-msg-011"}
+	accounts["account-a"] = account
+	return accounts
+}
+
+func gmailObligationMessages() []gmailMessage {
+	return []gmailMessage{
+		gmailMessageFor("a-msg-008", "a-thread-obligations", []string{"INBOX", "IMPORTANT"}, "Reimbursement promise from Sam", "Sam promised to reimburse Kevin $85 for the team dinner by 2026-09-10.", "2026-09-01T08:00:00Z", "From: sam@example.test\nTo: alex@example.test\nSubject: Reimbursement promise from Sam\n\nSam promised to reimburse Kevin $85 for the team dinner by 2026-09-10."),
+		gmailMessageFor("a-msg-009", "a-thread-obligations", []string{"INBOX"}, "Launch report promise", "Kevin promised Priya the launch report by 2026-09-14.", "2026-09-01T09:00:00Z", "From: kevin@example.test\nTo: priya@example.test\nSubject: Launch report promise\n\nKevin promised Priya the launch report by 2026-09-14."),
+		gmailMessageFor("a-msg-010", "a-thread-obligations", []string{"INBOX"}, "Conference ticket repayment", "Kevin promised Jordan $40 for the conference ticket by 2026-09-12.", "2026-09-01T10:00:00Z", "From: kevin@example.test\nTo: jordan@example.test\nSubject: Conference ticket repayment\n\nKevin promised Jordan $40 for the conference ticket by 2026-09-12."),
+		gmailMessageFor("a-msg-011", "a-thread-obligations", []string{"INBOX"}, "Reminder: Sam reimbursement", "Reminder: Sam's $85 reimbursement to Kevin is due 2026-09-10.", "2026-09-02T08:00:00Z", "From: sam@example.test\nTo: alex@example.test\nSubject: Reminder: Sam reimbursement\n\nReminder: Sam's $85 reimbursement to Kevin is due 2026-09-10."),
+	}
+}
+
+func gmailObligationUpdate(id string) gmailMessage {
+	return gmailMessageFor(id, "a-thread-obligations", []string{"INBOX", "IMPORTANT"}, "Updated launch report promise", "Update: Kevin and Priya moved the launch report deadline from 2026-09-14 to 2026-09-16.", "2026-09-03T08:00:00Z", "From: priya@example.test\nTo: kevin@example.test\nSubject: Updated launch report promise\n\nUpdate: Kevin and Priya moved the launch report deadline from 2026-09-14 to 2026-09-16.")
+}
+
+func gmailObligationReceipt() gmailMessage {
+	return gmailMessageFor("a-msg-013", "a-thread-obligations", []string{"INBOX"}, "Receipt: Sam reimbursed Kevin", "Receipt: Sam paid Kevin $85 for the team dinner on 2026-09-08.", "2026-09-04T08:00:00Z", "From: sam@example.test\nTo: kevin@example.test\nSubject: Receipt: Sam reimbursed Kevin\n\nReceipt: Sam paid Kevin $85 for the team dinner on 2026-09-08.")
+}
+
+func (f *fixture) gmailAccount(account string) gmailAccount {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gmailData == nil {
+		f.gmailData = gmailAccounts()
+	}
+	data := f.gmailData[account]
+	data.Messages = append([]gmailMessage(nil), data.Messages...)
+	data.Threads = make(map[string][]string, len(data.Threads))
+	for id, messages := range f.gmailData[account].Threads {
+		data.Threads[id] = append([]string(nil), messages...)
+	}
+	return data
+}
+
+func (f *fixture) appendGmailMessageLocked(message gmailMessage) {
+	if f.gmailData == nil {
+		f.gmailData = gmailAccounts()
+	}
+	for _, existing := range f.gmailData["account-a"].Messages {
+		if existing.ID == message.ID {
+			return
+		}
+	}
+	account := f.gmailData["account-a"]
+	account.Messages = append(account.Messages, message)
+	account.Threads[message.ThreadID] = append(account.Threads[message.ThreadID], message.ID)
+	f.gmailData["account-a"] = account
 }
 
 func gmailMessageFor(id, thread string, labels []string, subject, snippet, timestamp, body string) gmailMessage {
@@ -242,14 +296,13 @@ func (f *fixture) gmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	account := f.requestAccount(r)
-	accounts := gmailAccounts()
 	if account != "account-a" && account != "account-b" {
 		f.trace(r, http.StatusUnauthorized)
 		w.Header().Set("WWW-Authenticate", `Bearer realm="gmail-fixture", scope="https://www.googleapis.com/auth/gmail.readonly"`)
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"code": 401, "message": "Login Required", "errors": []map[string]string{{"domain": "global", "reason": "authError", "message": "Login Required"}}}})
 		return
 	}
-	data := accounts[account]
+	data := f.gmailAccount(account)
 	path := strings.TrimPrefix(r.URL.Path, "/gmail/v1/users/me/")
 	if r.Method != http.MethodGet {
 		f.trace(r, http.StatusMethodNotAllowed)
@@ -293,16 +346,14 @@ func (f *fixture) gmailList(w http.ResponseWriter, r *http.Request, account gmai
 		}
 	}
 	page := 0
-	switch r.URL.Query().Get("pageToken") {
-	case "":
-	case "page-2":
-		page = 1
-	case "page-3":
-		page = 2
-	default:
-		f.trace(r, http.StatusBadRequest)
-		writeJSON(w, http.StatusBadRequest, gmailError(400, "Invalid page token."))
-		return
+	if token := r.URL.Query().Get("pageToken"); token != "" {
+		pageNumber, err := strconv.Atoi(strings.TrimPrefix(token, "page-"))
+		if !strings.HasPrefix(token, "page-") || err != nil || pageNumber < 2 {
+			f.trace(r, http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, gmailError(400, "Invalid page token."))
+			return
+		}
+		page = pageNumber - 1
 	}
 	pageSize := 3
 	if raw := r.URL.Query().Get("maxResults"); raw != "" {
@@ -443,6 +494,7 @@ func notionPages() []notionPage {
 		{ID: "notion-page-launch-records", URL: "https://www.notion.so/notion-page-launch-records", Title: "Launch decision records", Content: "Related launch decision records.", UpdatedAt: "2026-09-03T09:00:00.000Z", Parent: "workspace-root", Object: "data_source", Accessible: true,
 			Rows: []map[string]any{{"id": "launch-record-001", "decision": "support window", "status": "open"}, {"id": "launch-record-002", "decision": "rollback owner", "status": "open"}}},
 		{ID: "notion-page-launch-archive", URL: "https://www.notion.so/notion-page-launch-archive", Title: "Launch project archive", Content: "Archived launch notes are retained for reference.", UpdatedAt: "2026-08-30T09:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true},
+		{ID: "notion-page-obligations", URL: "https://www.notion.so/notion-page-obligations", Title: "Personal obligations", Content: "Confirmed obligations involving Kevin:\n- Sam owes Kevin $85 for the team dinner by 2026-09-10.\n- Kevin owes Priya the launch report by 2026-09-14.\n- Kevin owes Jordan $40 for the conference ticket by 2026-09-12.\nThe repeated Sam reminder is the same reimbursement promise.", UpdatedAt: "2026-09-02T09:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true, Owner: "account-a"},
 		{ID: "notion-page-private", URL: "https://www.notion.so/notion-page-private", Title: "Private account page", Content: "This page belongs to the second synthetic account.", UpdatedAt: "2026-09-05T10:00:00.000Z", Parent: "workspace-private", Object: "page", Accessible: true, Owner: "account-b"},
 	}
 }
@@ -460,6 +512,23 @@ func accessibleNotionPages(account ...string) []notionPage {
 		}
 	}
 	return result
+}
+
+func (f *fixture) notionPagesForAccount(account string) []notionPage {
+	pages := accessibleNotionPages(account)
+	f.mu.Lock()
+	stage := f.obligationsStage
+	f.mu.Unlock()
+	if account != "account-a" {
+		return pages
+	}
+	if stage >= 1 {
+		pages = append(pages, notionPage{ID: "notion-page-obligations-update", URL: "https://www.notion.so/notion-page-obligations-update", Title: "Updated obligation date", Content: "Update: Kevin and Priya moved the launch report deadline from 2026-09-14 to 2026-09-16.", UpdatedAt: "2026-09-03T09:00:00.000Z", Parent: "notion-page-obligations", Object: "page", Accessible: true, Owner: "account-a"})
+	}
+	if stage >= 2 {
+		pages = append(pages, notionPage{ID: "notion-page-obligations-receipt", URL: "https://www.notion.so/notion-page-obligations-receipt", Title: "Reimbursement receipt", Content: "Receipt: Sam paid Kevin $85 for the team dinner on 2026-09-08.", UpdatedAt: "2026-09-04T09:00:00.000Z", Parent: "notion-page-obligations", Object: "page", Accessible: true, Owner: "account-a"})
+	}
+	return pages
 }
 
 func (f *fixture) notionCard(w http.ResponseWriter, r *http.Request) {
@@ -584,7 +653,7 @@ func notionTool(f *fixture, name string) mcp.ToolHandler {
 		if request.Extra != nil && request.Extra.Header != nil {
 			account = f.requestAccount(&http.Request{Header: request.Extra.Header})
 		}
-		pages := accessibleNotionPages(account)
+		pages := f.notionPagesForAccount(account)
 		var value any
 		switch name {
 		case "notion-get-self":
@@ -600,7 +669,7 @@ func notionTool(f *fixture, name string) mcp.ToolHandler {
 				return toolError("invalid_page_size"), nil
 			}
 			matches := make([]notionPage, 0)
-			for _, page := range accessibleNotionPages() {
+			for _, page := range pages {
 				if notionMatches(page, query) {
 					matches = append(matches, page)
 				}
@@ -696,6 +765,7 @@ func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.mu.Lock()
+	stage := f.obligationsStage
 	switch request.Action {
 	case "notion_require_auth":
 		f.notionAuthRequired = true
@@ -708,6 +778,14 @@ func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
 				f.oauth.tokens[token] = value
 			}
 		}
+	case "obligations_extend":
+		f.appendGmailMessageLocked(gmailObligationUpdate("a-msg-012"))
+		if f.obligationsStage < 1 {
+			f.obligationsStage = 1
+		}
+	case "obligations_receipt":
+		f.appendGmailMessageLocked(gmailObligationReceipt())
+		f.obligationsStage = 2
 	default:
 		f.mu.Unlock()
 		f.trace(r, http.StatusBadRequest)
@@ -715,9 +793,10 @@ func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	required := f.notionAuthRequired
+	stage = f.obligationsStage
 	f.mu.Unlock()
 	f.trace(r, http.StatusOK)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notion_auth_required": required})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notion_auth_required": required, "obligations_stage": stage})
 }
 
 func notionBlockChildren(blocks []notionBlock) []map[string]any {

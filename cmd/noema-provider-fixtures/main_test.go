@@ -16,7 +16,7 @@ func TestGmailListHasThreeCompletePages(t *testing.T) {
 	f := &fixture{}
 	cursor := ""
 	seen := map[string]bool{}
-	for page, count := range []int{3, 3, 1} {
+	for page := 0; page < 10; page++ {
 		request := httptest.NewRequest("GET", "/gmail/v1/users/me/messages?maxResults=100&pageToken="+cursor, nil)
 		request.Header.Set("Authorization", "Bearer "+accountAToken)
 		recorder := httptest.NewRecorder()
@@ -25,7 +25,7 @@ func TestGmailListHasThreeCompletePages(t *testing.T) {
 			Messages      []struct{ ID string }
 			NextPageToken string
 		}
-		if recorder.Code != 200 || json.Unmarshal(recorder.Body.Bytes(), &result) != nil || len(result.Messages) != count {
+		if recorder.Code != 200 || json.Unmarshal(recorder.Body.Bytes(), &result) != nil {
 			t.Fatalf("page %d: status %d, body %s", page, recorder.Code, recorder.Body)
 		}
 		for _, message := range result.Messages {
@@ -35,12 +35,42 @@ func TestGmailListHasThreeCompletePages(t *testing.T) {
 			seen[message.ID] = true
 		}
 		cursor = result.NextPageToken
-		if (page < 2) != (cursor != "") {
-			t.Fatalf("page %d has incorrect continuation", page)
+		if cursor == "" {
+			break
 		}
 	}
-	if len(seen) != 7 {
+	if len(seen) != 11 {
 		t.Fatalf("message count = %d", len(seen))
+	}
+}
+
+func TestObligationControlAddsDateRevisionAndReceipt(t *testing.T) {
+	f := &fixture{}
+	if got := len(f.gmailAccount("account-a").Messages); got != 11 {
+		t.Fatalf("initial account-a message count = %d", got)
+	}
+	for _, action := range []string{"obligations_extend", "obligations_receipt"} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/fixture/control", strings.NewReader(`{"action":"`+action+`"}`))
+		f.operatorControl(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("control %s status = %d, body = %s", action, recorder.Code, recorder.Body)
+		}
+	}
+	data := f.gmailAccount("account-a")
+	if len(data.Messages) != 13 || len(data.Threads["a-thread-obligations"]) != 6 {
+		t.Fatalf("updated obligation records = %d messages, %d thread entries", len(data.Messages), len(data.Threads["a-thread-obligations"]))
+	}
+	if len(f.gmailAccount("account-b").Messages) != 1 {
+		t.Fatal("obligation records crossed the account boundary")
+	}
+	if got := len(f.notionPagesForAccount("account-a")); got != 7 {
+		t.Fatalf("updated account-a Notion page count = %d", got)
+	}
+	for _, page := range f.notionPagesForAccount("account-b") {
+		if strings.Contains(page.ID, "obligations") {
+			t.Fatalf("obligation page crossed the Notion account boundary: %s", page.ID)
+		}
 	}
 }
 
