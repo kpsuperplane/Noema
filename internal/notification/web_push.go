@@ -30,6 +30,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/yuin/goldmark"
 	markdownast "github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
 	markdowntext "github.com/yuin/goldmark/text"
 )
 
@@ -580,7 +581,7 @@ func notificationText(value string) string {
 
 func markdownText(value string) string {
 	source := []byte(value)
-	document := goldmark.DefaultParser().Parse(markdowntext.NewReader(source))
+	document := goldmark.New(goldmark.WithExtensions(extension.Strikethrough)).Parser().Parse(markdowntext.NewReader(source))
 	var plain bytes.Buffer
 	_ = markdownast.Walk(document, func(node markdownast.Node, entering bool) (markdownast.WalkStatus, error) {
 		if !entering {
@@ -599,7 +600,7 @@ func markdownText(value string) string {
 			plain.Write(current.Lines().Value(source))
 			return markdownast.WalkSkipChildren, nil
 		case *markdownast.Text:
-			plain.Write(current.Segment.Value(source))
+			plain.WriteString(unescapeMarkdownText(string(current.Segment.Value(source))))
 			if current.SoftLineBreak() || current.HardLineBreak() {
 				plain.WriteByte(' ')
 			}
@@ -609,6 +610,14 @@ func markdownText(value string) string {
 		return markdownast.WalkContinue, nil
 	})
 	return plain.String()
+}
+
+func unescapeMarkdownText(value string) string {
+	return strings.NewReplacer(
+		`\*`, `*`, `\_`, `_`, `\~`, `~`, `\#`, `#`,
+		`\[`, `[`, `\]`, `]`, `\(`, `(`, `\)`, `)`,
+		`\!`, `!`, "\\`", "`", `\\`, `\`,
+	).Replace(value)
 }
 
 func stopTimer(timer *time.Timer) {

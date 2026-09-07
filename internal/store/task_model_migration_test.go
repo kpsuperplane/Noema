@@ -28,7 +28,7 @@ UPDATE task_model_pool_settings SET enabled=0, label='Routine', sort_order=7 WHE
 	defer upgraded.Close()
 	for _, database := range []*Store{upgraded, openTestStore(t)} {
 		var columns, version int
-		if err := database.db.QueryRow("SELECT count(*) FROM pragma_table_info('task_model_pool_settings') WHERE name='enabled'").Scan(&columns); err != nil || columns != 0 {
+		if err := database.db.QueryRow("SELECT count(*) FROM pragma_table_info('task_model_pool_settings') WHERE name='enabled'").Scan(&columns); err != nil || columns != 1 {
 			t.Fatalf("enabled columns = %d: %v", columns, err)
 		}
 		if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
@@ -39,6 +39,10 @@ UPDATE task_model_pool_settings SET enabled=0, label='Routine', sort_order=7 WHE
 	var order int
 	if err := upgraded.db.QueryRow("SELECT label,sort_order FROM task_model_pool_settings WHERE complexity='simple'").Scan(&label, &order); err != nil || label != "Routine" || order != 7 {
 		t.Fatalf("preserved choice = %q, %d: %v", label, order, err)
+	}
+	var enabled bool
+	if err := upgraded.db.QueryRow("SELECT enabled FROM task_model_pool_settings WHERE complexity='simple'").Scan(&enabled); err != nil || !enabled {
+		t.Fatalf("restored enabled route = %v: %v", enabled, err)
 	}
 	entries, err := upgraded.TaskModelPoolEntries(t.Context(), nil)
 	if err != nil || len(entries) != 1 || entries[0].Assignment.ModelProfile != "kept-model" || !entries[0].Assignment.FastMode || entries[0].Assignment.ReasoningEffort != "high" {

@@ -41,6 +41,9 @@ func (r *Resolver) conversationTranscriptPage(
 	}
 	page, err := r.Store.ConversationItemPage(ctx, input.ConversationID, cursor, limit)
 	if err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			return nil, errors.New("conversation is unavailable")
+		}
 		return nil, err
 	}
 	return r.conversationTranscriptPageModel(ctx, page)
@@ -58,6 +61,9 @@ func (r *Resolver) sendConversationTurn(
 		ClientMessageID: input.ClientMessageID, ClientTimeZone: input.ClientTimeZone,
 	})
 	if err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			return nil, errors.New("conversation is unavailable")
+		}
 		return nil, err
 	}
 	return &model.TurnAccepted{
@@ -71,10 +77,19 @@ func (r *Resolver) sendMultipleChoiceSelection(
 	if r.Chat == nil {
 		return nil, errors.New("Chat runtime is unavailable")
 	}
+	if _, err := r.Store.Conversation(ctx, input.ConversationID); err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			return nil, errors.New("conversation is unavailable")
+		}
+		return nil, err
+	}
 	accepted, err := r.Chat.SendMultipleChoiceSelection(
 		ctx, input.ConversationID, input.PromptItemID, input.SelectedOptionIds, input.ClientMessageID,
 	)
 	if err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			return nil, errors.New("conversation is unavailable")
+		}
 		return nil, err
 	}
 	return &model.TurnAccepted{ConversationID: accepted.ConversationID, ClientMessageID: accepted.ClientMessageID}, nil
@@ -215,6 +230,9 @@ func (r *Resolver) conversationTranscriptPageModel(
 		if err != nil {
 			return nil, err
 		}
+		if item == nil {
+			continue
+		}
 		items = append(items, &model.ConversationItem{
 			ItemID: stored.ID, Cursor: stored.Cursor, TurnID: chatOptionalString(stored.TurnID),
 			Metadata: stored.Metadata, Item: item,
@@ -315,6 +333,9 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 			Version: version, Revision: intJSONModel(snapshot["revision"]), InteractionRevision: interactionRevision,
 			Lifecycle: lifecycle, Catalog: catalog, Snapshot: snapshot, HasActions: len(actions) != 0}, nil
 	case store.ConversationActivity, store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
+		if (item.Kind == store.ConversationToolCall || item.Kind == store.ConversationToolResult) && hiddenToolActivity(item.Payload) {
+			return nil, nil
+		}
 		id, _ := item.Payload["id"].(string)
 		kind, _ := item.Payload["activity_kind"].(string)
 		title, _ := item.Payload["title"].(string)
@@ -324,7 +345,7 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 			metadata = item.Metadata
 		}
 		if id == "" || kind == "" || title == "" || metadata == nil {
-			return nil, errors.New("stored conversation activity is invalid")
+			return nil, errors.New("invalid replay payload")
 		}
 		status, err := activityStatusModel(item.Status)
 		if err != nil {
@@ -363,6 +384,21 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 			MediaType:   chatOptionalString(chatPayloadString(item.Payload, "media_type"))}, nil
 	default:
 		return nil, fmt.Errorf("conversation item kind %q is unsupported", item.Kind)
+	}
+}
+
+func hiddenToolActivity(payload map[string]any) bool {
+	metadata, _ := payload["metadata"].(map[string]any)
+	if metadata == nil {
+		return false
+	}
+	action, _ := metadata["action"].(map[string]any)
+	name, _ := action["name"].(string)
+	switch name {
+	case "enable.calendar.move_event", "task.delegate", "web.browse.close":
+		return true
+	default:
+		return false
 	}
 }
 

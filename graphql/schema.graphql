@@ -5085,6 +5085,10 @@ type TaskModelPoolEntry {
 	"""
 	fastMode: Boolean!
 	"""
+	Whether this entry can be selected for new tasks.
+	"""
+	enabled: Boolean!
+	"""
 	Whether Noema or the human chooses the concrete model.
 	"""
 	selectionMode: ModelPreferenceSelectionMode!
@@ -5138,6 +5142,10 @@ input TaskModelPoolEntryInput {
 	Whether this preference requests faster service.
 	"""
 	fastMode: Boolean!
+	"""
+	Whether this entry can be selected for new tasks.
+	"""
+	enabled: Boolean!
 	"""
 	Human-controlled ordering within its tier.
 	"""

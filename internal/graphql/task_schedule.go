@@ -496,6 +496,9 @@ func recurrenceLimit(first *int) (int, error) {
 }
 
 func newTaskCommand(name, clientID string, input any) (store.TaskCommand, error) {
+	if clientID == "" || strings.TrimSpace(clientID) != clientID {
+		return store.TaskCommand{}, errors.New("invalid clientMutationId")
+	}
 	encoded, err := json.Marshal(input)
 	if err != nil {
 		return store.TaskCommand{}, err
@@ -516,7 +519,7 @@ func taskScheduleError(err error) error {
 	case errors.Is(err, store.ErrInvalidTransition):
 		code, message = "invalid_transition", "the requested Task schedule action is not valid now"
 	case errors.Is(err, store.ErrCommandConflict):
-		code, message = "idempotency_conflict", "the command key conflicts with an earlier request"
+		code, message = "idempotency_conflict", "idempotency key conflicts"
 	case errors.Is(err, home.ErrRecurrenceDocumentChanged):
 		code, message = "stale_document", "the authoritative recurrence Task document changed"
 	case errors.Is(err, schedule.ErrInvalid):

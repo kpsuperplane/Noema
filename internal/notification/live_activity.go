@@ -388,8 +388,22 @@ func liveToolUpdateLabel(item store.TaskRunItem) string {
 	arguments, _ := item.Payload["arguments"].(map[string]any)
 	path, _ := arguments["path"].(string)
 	path = strings.TrimSpace(path)
+	query, _ := arguments["query"].(string)
+	query = strings.TrimSpace(query)
 	var label string
 	switch name {
+	case "web.search":
+		label = "Searching the web"
+		if query != "" {
+			label += " for “" + query + "”"
+		}
+	case "search_memory":
+		label = "Searching memory"
+		if query != "" {
+			label += " for “" + query + "”"
+		}
+	case "web.fetch":
+		label = liveLabelTarget("Reading", path)
 	case "task.files.list":
 		label = "Listing Task files"
 		if path != "" && path != "." {

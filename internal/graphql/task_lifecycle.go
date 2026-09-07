@@ -264,7 +264,11 @@ func taskLifecycleError(err error) error {
 	case errors.Is(err, store.ErrInvalidTransition):
 		code, message = "invalid_transition", "the requested Task action is not valid now"
 	case errors.Is(err, store.ErrCommandConflict):
-		code, message = "idempotency_conflict", "the command key conflicts with an earlier request"
+		code, message = "idempotency_conflict", "idempotency key conflicts"
+	case errors.Is(err, store.ErrTaskNotFound):
+		code, message = "task_unavailable", "task is unavailable"
+	case errors.Is(err, store.ErrInvalidCursor):
+		code, message = "invalid_cursor", "invalid task cursor"
 	}
 	result := gqlerror.Errorf("%s", message)
 	result.Extensions = map[string]any{"code": code}
@@ -313,6 +317,15 @@ func (r *Resolver) tasks(ctx context.Context, input model.TaskListInput, first *
 		return nil, err
 	}
 	filter := store.TaskListFilter{Scope: strings.ToLower(string(input.Scope)), AttentionOnly: input.AttentionOnly}
+	if input.Scope == model.TaskScopeActive {
+		for _, behavior := range input.StageBehaviors {
+			if behavior == model.WorkflowStageBehaviorTerminalSuccess || behavior == model.WorkflowStageBehaviorTerminalCancelled {
+				result := gqlerror.Errorf("workflow filter is inconsistent")
+				result.Extensions = map[string]any{"code": "workflow_mismatch"}
+				return nil, result
+			}
+		}
+	}
 	if input.ProjectID != nil {
 		filter.ProjectID = *input.ProjectID
 	}

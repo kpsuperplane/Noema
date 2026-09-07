@@ -284,7 +284,7 @@ func (r *Resolver) taskWorkspaceFile(ctx context.Context, taskID, path string) (
 	}
 	content, err := home.ReadTaskFile(r.home, taskID, path)
 	if err != nil {
-		return nil, taskInputError("the Task workspace file is unavailable")
+		return nil, taskLifecycleError(store.ErrTaskNotFound)
 	}
 	return &model.TaskWorkspaceFileText{Path: path, Content: content}, nil
 }

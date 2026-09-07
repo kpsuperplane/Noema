@@ -96,7 +96,7 @@ func TestUpdateTaskModelPoolEntrySavesOneTier(t *testing.T) {
 			ProviderKind: "openrouter", ProviderAccountID: "provider_account:openrouter:default",
 			SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile,
 			ModelProfile:  &profile, ReasoningEffort: &effort,
-			FastMode: true, SortOrder: 12,
+			FastMode: true, Enabled: true, SortOrder: 12,
 		},
 	)
 	if err != nil {
@@ -129,7 +129,7 @@ func TestTaskModelPoolLabelUpdateKeepsUnavailableRoute(t *testing.T) {
 			Complexity:   model.TaskComplexitySimple,
 			ProviderKind: "openrouter", ProviderAccountID: accountID,
 			SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended,
-			Label:         &label,
+			Label:         &label, Enabled: true,
 		},
 	)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
@@ -351,6 +352,10 @@ func (r *Resolver) actionRequestModel(ctx context.Context, action store.ActionRe
 }
 
 func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, error) {
+	return actionRequestModelWithBrowserSession(action, nil)
+}
+
+func actionRequestModelWithBrowserSession(action store.ActionRequest, available *bool) (*model.GovernedAction, error) {
 	state, err := actionStateModel(action.State)
 	if err != nil {
 		return nil, err
@@ -368,7 +373,7 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 	}
 	destination, _ := action.AuthorizationContext["destination"].(map[string]any)
 	service, _ := action.AuthorizationContext["service"].(map[string]any)
-	serviceName := textField(service, "display_name", "External service")
+	serviceName := textField(service, "display_name", "")
 	arguments := action.Arguments
 	if review, ok := action.AuthorizationContext["browser_review_context"].(map[string]any); ok {
 		displayed := make(map[string]any, len(action.Arguments)+len(review))
@@ -380,15 +385,35 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 		}
 		arguments = displayed
 	}
-	target := &model.ActionRequestTarget{ServiceName: actionString(serviceName)}
+	target := &model.ActionRequestTarget{}
+	if serviceName != "" {
+		target.ServiceName = actionString(serviceName)
+	}
 	if value := textField(destination, "service_id", ""); value != "" {
 		target.ServiceID = actionString(value)
 	}
 	if value := textField(destination, "connection_id", ""); value != "" {
 		target.ConnectionID = actionString(value)
 	}
+	if value := textField(destination, "account_id", ""); value != "" {
+		target.AccountID = actionString(value)
+	}
 	if value := textField(service, "connection_label", ""); value != "" {
 		target.ConnectionLabel = actionString(value)
+	}
+	if target.ServiceName == nil && target.ConnectionLabel == nil && target.ServiceID == nil && target.ConnectionID == nil && target.AccountID == nil {
+		target = nil
+	}
+	targetName := action.CapabilityName
+	if target != nil {
+		switch {
+		case target.ConnectionLabel != nil:
+			targetName = *target.ConnectionLabel
+		case target.ServiceName != nil:
+			targetName = *target.ServiceName
+		case target.ServiceID != nil:
+			targetName = *target.ServiceID
+		}
 	}
 	result := &model.GovernedAction{
 		ActionID: action.ID, Revision: action.Revision, ConversationID: conversationID, TaskID: taskID, RunID: runID,
@@ -398,11 +423,11 @@ func actionRequestModel(action store.ActionRequest) (*model.GovernedAction, erro
 			Destructive: action.Behavior.Destructive, OpenWorld: action.Behavior.OpenWorld,
 		},
 		SafeSummary: action.SafeSummary, Target: target,
-		Disclosure: &model.ActionRequestDisclosure{
-			Recipient: serviceName, ContentSummary: serviceName + " receives the request data shown in Review details.",
-		},
-		Consequence: "This can change data outside Noema in " + serviceName + ".", Destination: destination,
-		Arguments: arguments, State: state,
+		Consequence: actionConsequence(action, targetName), Destination: destination,
+		Arguments: arguments, BrowserSessionAvailable: available, State: state,
+	}
+	if !strings.HasPrefix(action.CapabilityName, "enable.") && (target != nil || action.Behavior.OpenWorld) {
+		result.Disclosure = &model.ActionRequestDisclosure{Recipient: targetName, ContentSummary: "the reviewed request data"}
 	}
 	if action.Assessment != nil {
 		assessment, err := actionAssessmentModel(*action.Assessment)
@@ -426,6 +451,22 @@ func textField(value map[string]any, key, fallback string) string {
 		return fallback
 	}
 	return text
+}
+
+func actionConsequence(action store.ActionRequest, target string) string {
+	if strings.HasPrefix(action.CapabilityName, "enable.") {
+		return "Noema can use this action again later."
+	}
+	if action.Behavior.ReadOnly {
+		return target + " receives the request data shown in Review details."
+	}
+	if action.Behavior.Destructive {
+		return "This can remove or overwrite data in " + target + "."
+	}
+	if action.Behavior.OpenWorld {
+		return "This changes data outside Noema in " + target + "."
+	}
+	return "This changes data in " + target + "."
 }
 
 func actionAssessmentModel(value store.ActionAssessment) (*model.GovernedActionAssessment, error) {

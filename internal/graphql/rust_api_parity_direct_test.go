@@ -563,13 +563,13 @@ func rustAPIPortGovernedAction(t *testing.T) {
 			"destination":            map[string]any{"service_id": "adapter", "connection_id": connectionID, "account_id": accountID, "revision": "revision:1"},
 			"service":                map[string]any{"display_name": serviceName, "connection_label": connectionLabel, "credential": "must-not-project"},
 			"origin":                 "test",
-			"browser_review_context": map[string]any{"kind": "browser_interaction", "origin": "test", "page": map[string]any{"url": "https://example.com/form", "title": "Example form"}, "target": map[string]any{"ref": "e2", "role": "textbox", "name": "Name"}},
+			"browser_review_context": map[string]any{"kind": "browser_interaction", "page": map[string]any{"url": "https://example.com/form", "title": "Example form"}, "target": map[string]any{"ref": "e2", "role": "textbox", "name": "Name"}},
 		},
 		SafeSummary: "fixture write", State: store.ActionAwaitingApproval,
 		Assessment: &store.ActionAssessment{Status: "completed", Authorization: "substantive", Risk: "high", ReasonCodes: []string{"sensitive_data"}, Explanation: "The action may disclose private data."},
 	}
-	resolver := openTestResolver(t)
-	projected, err := resolver.actionRequestModel(context.Background(), action)
+	available := true
+	projected, err := actionRequestModelWithBrowserSession(action, &available)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -879,6 +879,9 @@ func rustAPIPortConversationReplay(t *testing.T) {
 	page, err := resolver.conversationTranscriptPageModel(context.Background(), store.ConversationItemPage{Items: []store.ConversationItem{{ID: "item_1", Cursor: "conversation_item:1", Kind: store.ConversationAssistantText, ContentText: "hello from replay", Metadata: map[string]any{"boundary": "preserved"}}}})
 	if err != nil || page == nil || len(page.Items) != 1 {
 		t.Fatalf("assistant replay = %#v, %v", page, err)
+	}
+	if value, ok := page.Items[0].Item.(model.AssistantText); !ok || value.Text != "hello from replay" {
+		t.Fatalf("assistant replay text = %#v", page.Items[0].Item)
 	}
 	if page.Items[0].Metadata["boundary"] != "preserved" {
 		t.Fatalf("assistant metadata = %#v", page.Items[0].Metadata)

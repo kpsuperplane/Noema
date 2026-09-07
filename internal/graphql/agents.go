@@ -123,10 +123,14 @@ func (r *Resolver) updateTaskModelPoolEntry(
 	if existing == nil {
 		return nil, store.ErrTaskModelPoolEntryNotFound
 	}
-	if inputMatchesAssignment(input, existing.Assignment) {
+	retainsExactRoute := inputMatchesAssignment(input, existing.Assignment)
+	if !input.Enabled && !retainsExactRoute {
+		return nil, errors.New("A disabled task model entry must retain its existing provider route")
+	}
+	if retainsExactRoute && (existing.Enabled || !input.Enabled) {
 		entry, err := r.Store.UpdateTaskModelPoolEntry(
 			ctx, poolEntryID, complexity, input.Label, existing.Assignment,
-			input.SortOrder, time.Now(),
+			input.Enabled, input.SortOrder, time.Now(),
 		)
 		if err != nil {
 			return nil, err
@@ -150,7 +154,7 @@ func (r *Resolver) updateTaskModelPoolEntry(
 	}
 	entry, err := r.Store.UpdateTaskModelPoolEntry(
 		ctx, poolEntryID, complexity, input.Label,
-		assignment, input.SortOrder, time.Now(),
+		assignment, input.Enabled, input.SortOrder, time.Now(),
 	)
 	if err != nil {
 		return nil, err
@@ -468,7 +472,7 @@ func modelAccountDisabledReason(account provider.Account) *string {
 	case provider.StatusUnauthenticated:
 		reason = "Provider account is not authenticated."
 	case provider.StatusUnavailable:
-		reason = "Provider is unavailable on this machine."
+		reason = "Provider is unavailable on this platform."
 	default:
 		reason = "Provider status has not been checked."
 	}
@@ -498,6 +502,7 @@ func taskModelPoolEntry(entry store.TaskModelPoolEntry) *model.TaskModelPoolEntr
 		Label: entry.Label, ProviderKind: preference.ProviderKind,
 		ProviderAccountID: preference.ProviderAccountID, ModelProfile: preference.ModelProfile,
 		ReasoningEffort: preference.ReasoningEffort, FastMode: preference.FastMode,
+		Enabled:       entry.Enabled,
 		SelectionMode: preference.SelectionMode, SortOrder: entry.SortOrder,
 		CreatedAt: entry.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt: entry.UpdatedAt.Format(time.RFC3339Nano),

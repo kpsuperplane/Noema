@@ -171,7 +171,7 @@ func (r *Resolver) clientNotificationPresence(ctx context.Context) (<-chan *mode
 func nativeNotificationClient(ctx context.Context, service *notification.Service) (string, error) {
 	clientID := auth.ClientID(ctx)
 	if clientID == "" || service == nil {
-		return "", errors.New("native client is unavailable")
+		return "", errors.New("paired client authentication required")
 	}
 	return clientID, nil
 }

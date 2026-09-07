@@ -153,7 +153,7 @@ func (r *Resolver) webBindingSettings(ctx context.Context, name string, accounts
 			dataFlow = "trusted_external_search_query"
 		}
 		options = append(options, &model.WebToolProviderOption{ProviderAccountID: native.ID, ProviderKind: native.ProviderKind,
-			AccountKey: native.AccountKey, DisplayName: native.DisplayName, CapabilityID: name,
+			AccountKey: native.AccountKey, DisplayName: webProviderDisplayName(*native), CapabilityID: name,
 			ReliabilityContract: "hosted_provider", DataFlowClass: dataFlow,
 			Citations: name == "web.search", DirectURLFetch: name == "web.fetch"})
 	}
@@ -166,7 +166,7 @@ func (r *Resolver) webBindingSettings(ctx context.Context, name string, accounts
 				continue
 			}
 			options = append(options, &model.WebToolProviderOption{ProviderAccountID: account.ID, ProviderKind: account.ProviderKind,
-				AccountKey: account.AccountKey, DisplayName: account.DisplayName, CapabilityID: capability.ID,
+				AccountKey: account.AccountKey, DisplayName: webProviderDisplayName(account), CapabilityID: capability.ID,
 				ReliabilityContract: capability.ReliabilityContract, DataFlowClass: capability.DataFlowClass,
 				Citations: capability.Features.Citations, DirectURLFetch: capability.Features.DirectURLFetch,
 				JsRendering: capability.Features.JSRendering, AuthenticatedContext: capability.Features.AuthenticatedContext})
@@ -197,6 +197,13 @@ func (r *Resolver) webBindingSettings(ctx context.Context, name string, accounts
 	}
 	return &model.WebToolBindingSettings{ToolName: name, CapabilityID: name, ActiveProviderAccountID: active,
 		ProviderRouteAccountIds: ids, ProviderOptions: options}, nil
+}
+
+func webProviderDisplayName(account provider.Account) string {
+	if account.ProviderKind == "codex" {
+		return "OpenAI"
+	}
+	return account.DisplayName
 }
 
 func nativeWebProvider(kind string) bool {

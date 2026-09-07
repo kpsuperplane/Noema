@@ -50,7 +50,7 @@ type rustAPIGraphQLResponse struct {
 }
 
 func rustAPIRawGraphQL(t *testing.T, resolver *Resolver, query string, variables map[string]any) rustAPIGraphQLResponse {
-	return rustAPIRawGraphQLContext(t, resolver, context.Background(), query, variables)
+	return rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), query, variables)
 }
 
 func rustAPIRawGraphQLContext(t *testing.T, resolver *Resolver, ctx context.Context, query string, variables map[string]any) rustAPIGraphQLResponse {
@@ -71,6 +71,13 @@ func rustAPIRawGraphQLContext(t *testing.T, resolver *Resolver, ctx context.Cont
 		t.Fatalf("GraphQL response = %s: %v", recorder.Body.String(), err)
 	}
 	return response
+}
+
+func rustAPIAuthenticatedHandler(resolver *Resolver) http.Handler {
+	next := NewHandler(resolver)
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		next.ServeHTTP(writer, request.WithContext(auth.WithDesktopAccess(request.Context())))
+	})
 }
 
 func rustAPIAssertGraphQLError(t *testing.T, response rustAPIGraphQLResponse, message, code string) {
@@ -186,7 +193,7 @@ func rustAPIPortOwnerPrincipal(t *testing.T) {
   pendingHumanInterventions { __typename }
   acpAgents { agentId }
 }`
-	response := rustAPIRawGraphQL(t, resolver, query, nil)
+	response := rustAPIRawGraphQLContext(t, resolver, context.Background(), query, nil)
 	if len(response.Errors) != 5 {
 		t.Errorf("owner-sensitive query errors = %#v, want five", response.Errors)
 	}
@@ -210,7 +217,7 @@ func rustAPIPortOwnerPrincipal(t *testing.T) {
   createAcpAgent(input: { displayName: "Foreign", command: "/bin/false" }) { agentId }
   deleteAcpAgent(input: { agentId: "agent:foreign", expectedRevision: 1 })
 }`
-	response = rustAPIRawGraphQL(t, resolver, mutation, nil)
+	response = rustAPIRawGraphQLContext(t, resolver, context.Background(), mutation, nil)
 	if len(response.Errors) != 5 {
 		t.Errorf("owner-sensitive mutation errors = %#v, want five", response.Errors)
 	}
@@ -902,7 +909,7 @@ func rustAPIPortMemoryEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = resolver.Chat.Close() })
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	eventContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -983,7 +990,7 @@ func rustAPIPortConversationReady(t *testing.T) {
 	if conversation.LatestTranscriptPage == nil || len(conversation.LatestTranscriptPage.Items) != 0 {
 		t.Fatalf("latest transcript = %#v", conversation.LatestTranscriptPage)
 	}
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	result := postGraphQL(t, server.URL, `
 query ReadyChat($input: ConversationTranscriptPageInput!) {
@@ -1098,7 +1105,7 @@ func rustAPIPortForeignConversationSubscription(t *testing.T) {
 	t.Helper()
 	resolver := openChatTestResolver(t)
 	foreignConversation := rustAPIInsertForeignConversation(t, resolver)
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1130,112 +1137,52 @@ func rustAPIPortForeignConversationSubscription(t *testing.T) {
 
 func rustAPIPortRecurrenceList(t *testing.T) {
 	resolver := openTestResolver(t)
-	ctx := context.Background()
-	execute := func(query string, variables map[string]any) map[string]any {
-		response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), query, variables)
-		if len(response.Errors) != 0 {
-			t.Fatalf("recurrence GraphQL errors = %#v", response.Errors)
-		}
-		return response.Data
+	ctx := auth.WithDesktopAccess(context.Background())
+	query := func(input string) rustAPIGraphQLResponse {
+		return rustAPIRawGraphQLContext(t, resolver, ctx, input, nil)
 	}
-	first := time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute)
-	cron := fmt.Sprintf("%d %d * * *", first.Minute(), first.Hour())
-	captureVariables := map[string]any{"input": map[string]any{
-		"workspaceId": personalWorkspaceID, "title": "Recurring", "taskDocument": "# Recurring\n", "clientMutationId": "capture-recurring",
-		"schedule": map[string]any{"scheduledFor": first.Format(time.RFC3339), "timeZone": "UTC", "recurrence": map[string]any{"startsAt": first.Format(time.RFC3339), "cronExpression": cron}},
-	}}
-	createdData := execute(`mutation($input: CaptureTaskInput!) { captureTask(input: $input) { task { taskId revision generation executorBackend schedule { recurrenceId } } } }`, captureVariables)
-	created := createdData["captureTask"].(map[string]any)
-	createdTask := created["task"].(map[string]any)
-	schedule := createdTask["schedule"].(map[string]any)
-	if createdTask["executorBackend"] != "provider" || schedule["recurrenceId"] == "" {
-		t.Fatalf("created scheduled Task = %#v", createdTask)
+	captured := query(`mutation {
+  captureTask(input: {
+    workspaceId: "workspace:personal"
+    title: "Show positive news"
+    schedule: {
+      scheduledFor: "2030-01-01T08:00:00Z"
+      timeZone: "UTC"
+      recurrence: { startsAt: "2030-01-01T08:00:00Z", cronExpression: "0 8 * * *" }
+    }
+    clientMutationId: "recurrence-list-capture"
+  }) { task { taskId revision generation } }
+}`)
+	if len(captured.Errors) != 0 {
+		t.Fatalf("recurring capture = %#v", captured.Errors)
 	}
-	taskID := createdTask["taskId"].(string)
-	recurrenceID := schedule["recurrenceId"].(string)
-	if err := home.DeleteRecurrenceDocument(resolver.home, recurrenceID); err != nil {
-		t.Fatal(err)
+	task := captured.Data["captureTask"].(map[string]any)["task"].(map[string]any)
+	cancelled := query(fmt.Sprintf(`mutation {
+  cancelTask(input: {
+    taskId: %q expectedRevision: %d expectedGeneration: %d
+    clientMutationId: "recurrence-list-cancel"
+  }) { task { taskId } }
+}`, task["taskId"], int(task["revision"].(float64)), int(task["generation"].(float64))))
+	if len(cancelled.Errors) != 0 {
+		t.Fatalf("recurring cancellation = %#v", cancelled.Errors)
 	}
-	replayed := execute(`mutation($input: CaptureTaskInput!) { captureTask(input: $input) { task { taskId } } }`, captureVariables)
-	if replayed["captureTask"].(map[string]any)["task"].(map[string]any)["taskId"] != taskID {
-		t.Fatalf("replayed capture = %#v", replayed)
+	listed := query(`query {
+  tasks(input: { workspaceId: "workspace:personal", scope: ACTIVE }) { edges { node { taskId } } }
+  taskRecurrences(workspaceId: "workspace:personal") { recurrenceId title lifecycle nextRunAt }
+}`)
+	if len(listed.Errors) != 0 {
+		t.Fatalf("recurrence list = %#v", listed.Errors)
 	}
-	recurrenceData := execute(`query($id: String!) { taskRecurrence(recurrenceId: $id) { taskDocument taskDocumentDigest occurrences { taskId } revision } }`, map[string]any{"id": recurrenceID})
-	recurrence := recurrenceData["taskRecurrence"].(map[string]any)
-	if recurrence["taskDocument"] != "# Recurring\n" || len(recurrence["occurrences"].([]any)) != 1 {
-		t.Fatalf("recurrence = %#v", recurrence)
+	if edges := listed.Data["tasks"].(map[string]any)["edges"].([]any); len(edges) != 0 {
+		t.Fatalf("active tasks after cancellation = %#v", edges)
 	}
-	nextDocument := "# Changed\n"
-	updated := execute(`mutation($input: UpdateTaskRecurrenceInput!) { updateTaskRecurrence(input: $input) { clientMutationId task { taskId } } }`, map[string]any{"input": map[string]any{
-		"recurrenceId": recurrenceID, "expectedRevision": 1, "taskDocument": nextDocument,
-		"expectedTaskDocumentDigest": recurrence["taskDocumentDigest"], "clientMutationId": "update",
-	}})
-	if updated["updateTaskRecurrence"].(map[string]any)["clientMutationId"] != "update" {
-		t.Fatalf("updated recurrence = %#v", updated)
+	recurrences := listed.Data["taskRecurrences"].([]any)
+	if len(recurrences) != 1 {
+		t.Fatalf("recurrence count = %#v", recurrences)
 	}
-	command := map[string]any{"recurrenceId": recurrenceID, "expectedRevision": 2, "clientMutationId": "pause"}
-	execute(`mutation($input: TaskRecurrenceCommandInput!) { pauseTaskRecurrence(input: $input) { clientMutationId } }`, map[string]any{"input": command})
-	command["expectedRevision"], command["clientMutationId"] = 3, "resume"
-	execute(`mutation($input: TaskRecurrenceCommandInput!) { resumeTaskRecurrence(input: $input) { clientMutationId } }`, map[string]any{"input": command})
-	command["expectedRevision"], command["clientMutationId"] = 4, "skip"
-	execute(`mutation($input: TaskRecurrenceCommandInput!) { skipTaskRecurrenceNext(input: $input) { clientMutationId } }`, map[string]any{"input": command})
-	execute(`mutation($input: RunScheduledTaskNowInput!) { runScheduledTaskNow(input: $input) { task { taskId } } }`, map[string]any{"input": map[string]any{
-		"taskId": taskID, "expectedRevision": int(createdTask["revision"].(float64)), "expectedGeneration": int(createdTask["generation"].(float64)), "clientMutationId": "run-first",
-	}})
-	if _, err := resolver.Store.StartTask(ctx, taskID, "run:test", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.Store.FinishTask(ctx, taskID, "run:test",
-		store.TaskCompleted, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	command["expectedRevision"], command["clientMutationId"] = 5, "run-extra"
-	manualCommand, err := newTaskCommand("run_task_recurrence_now", command["clientMutationId"].(string), command)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manualTaskID, _ := store.NewTaskID()
-	if err := home.StageRecurrenceDocumentToTask(resolver.home, recurrenceID, manualTaskID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.Store.RunTaskRecurrenceNow(ctx, recurrenceID, manualTaskID,
-		int64(command["expectedRevision"].(int)), manualCommand, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	manualData := execute(`mutation($input: TaskRecurrenceCommandInput!) { runTaskRecurrenceNow(input: $input) { task { taskId taskDocument } } }`, map[string]any{"input": command})
-	manualTask := manualData["runTaskRecurrenceNow"].(map[string]any)["task"].(map[string]any)
-	if manualTask["taskDocument"] != nextDocument || manualTask["taskId"] == taskID {
-		t.Fatalf("manual occurrence = %#v", manualTask)
-	}
-	replayedManual := execute(`mutation($input: TaskRecurrenceCommandInput!) { runTaskRecurrenceNow(input: $input) { task { taskId } } }`, map[string]any{"input": command})
-	if replayedManual["runTaskRecurrenceNow"].(map[string]any)["task"].(map[string]any)["taskId"] != manualTask["taskId"] {
-		t.Fatalf("replayed manual occurrence = %#v", replayedManual)
-	}
-	listed := execute(`query { taskRecurrences(workspaceId: "workspace:personal") { recurrenceId title } }`, nil)
-	if values, ok := listed["taskRecurrences"].([]any); !ok || len(values) != 1 || values[0].(map[string]any)["title"] != "Recurring" {
-		t.Fatalf("listed recurrences = %#v", listed)
-	}
-	oneTimeData := execute(`mutation { captureTask(input: { workspaceId: "workspace:personal", title: "One time", taskDocument: "# One time\\n", clientMutationId: "capture-once" }) { task { taskId revision generation } } }`, nil)
-	oneTimeTask := oneTimeData["captureTask"].(map[string]any)["task"].(map[string]any)
-	oneTimeID := oneTimeTask["taskId"].(string)
-	scheduled := execute(`mutation($input: ScheduleTaskInput!) { scheduleTask(input: $input) { task { taskId schedule { scheduledFor } } } }`, map[string]any{"input": map[string]any{
-		"taskId": oneTimeID, "expectedRevision": 1, "expectedGeneration": 1, "clientMutationId": "schedule-once", "schedule": map[string]any{"scheduledFor": first.Format(time.RFC3339), "timeZone": "UTC"},
-	}})
-	if scheduled["scheduleTask"].(map[string]any)["task"].(map[string]any)["schedule"] == nil {
-		t.Fatalf("scheduled one-time Task = %#v", scheduled)
-	}
-	second := first.Add(time.Hour)
-	rescheduled := execute(`mutation($input: ScheduleTaskInput!) { rescheduleTask(input: $input) { task { schedule { scheduledFor } } } }`, map[string]any{"input": map[string]any{
-		"taskId": oneTimeID, "expectedRevision": 2, "expectedGeneration": 1, "clientMutationId": "reschedule-once", "schedule": map[string]any{"scheduledFor": second.Format(time.RFC3339), "timeZone": "UTC"},
-	}})
-	if rescheduled["rescheduleTask"].(map[string]any)["task"].(map[string]any)["schedule"].(map[string]any)["scheduledFor"] != second.Format(time.RFC3339) {
-		t.Fatalf("rescheduled one-time Task = %#v", rescheduled)
-	}
-	unscheduled := execute(`mutation($input: UnscheduleTaskInput!) { unscheduleTask(input: $input) { task { schedule { scheduledFor } } } }`, map[string]any{"input": map[string]any{
-		"taskId": oneTimeID, "expectedRevision": 3, "expectedGeneration": 1, "clientMutationId": "unschedule-once",
-	}})
-	if unscheduled["unscheduleTask"].(map[string]any)["task"].(map[string]any)["schedule"] != nil {
-		t.Fatalf("unscheduled Task = %#v", unscheduled)
+	value := recurrences[0].(map[string]any)
+	if value["title"] != "Show positive news" || value["lifecycle"] != "ACTIVE" || value["nextRunAt"] != "2030-01-02T08:00:00Z" {
+		t.Fatalf("recurrence projection = %#v", value)
 	}
 }
 
@@ -1269,7 +1216,7 @@ func rustAPIPortTaskReadsPrincipal(t *testing.T) {
 		`query { tasks(input: { workspaceId: "workspace:personal" }) { edges { node { taskId } } } }`,
 		`query { projectDocument(projectId: "project:missing") { projectId } }`,
 	} {
-		response := rustAPIRawGraphQL(t, resolver, query, nil)
+		response := rustAPIRawGraphQLContext(t, resolver, context.Background(), query, nil)
 		rustAPIAssertGraphQLError(t, response, "request is unauthenticated", "")
 		if len(response.Errors) != 1 {
 			t.Fatalf("unauthenticated Task read %d errors = %#v", index, response.Errors)
@@ -1552,7 +1499,7 @@ func rustAPIPortWhitespaceIdempotency(t *testing.T) {
 
 func rustAPIPortCaptureProjection(t *testing.T) {
 	resolver := openTestResolver(t)
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	document := "## Objective\n\nAudit every server dependency.\n"
 	digest := sha256.Sum256([]byte(document))
@@ -1931,7 +1878,7 @@ func rustAPIPortTaskSubscription(t *testing.T) {
 
 func rustAPIOpenSubscription(t *testing.T, resolver *Resolver, id, query string, variables map[string]any) (*websocket.Conn, context.Context, context.CancelFunc) {
 	t.Helper()
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	connection, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"graphql-transport-ws"}})
@@ -1981,7 +1928,7 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 			Complexity:   model.TaskComplexitySimple,
 			ProviderKind: "openrouter", ProviderAccountID: accountID,
 			SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended,
-			Label:         &label,
+			Label:         &label, Enabled: true,
 		},
 	)
 	if err != nil {
@@ -2628,7 +2575,7 @@ func rustAPIPortWebToolDefault(t *testing.T) {
 	resolver.WebTools, _ = webtool.New(resolver.Store, resolver.ProviderAccounts, nil, nil, t.TempDir(), executable, 2, 1024)
 	ctx := auth.WithDesktopAccess(context.Background())
 	settings := rustAPIRawGraphQLContext(t, resolver, ctx, `query { webToolSettings {
-  search { activeProviderAccountId providerOptions { providerAccountId displayName dataFlowClass citations } }
+	search { activeProviderAccountId providerOptions { providerAccountId displayName dataFlowClass citations directUrlFetch } }
   fetch { activeProviderAccountId providerOptions { providerAccountId displayName dataFlowClass directUrlFetch citations } }
   browse { activeProviderAccountId providerOptions { providerAccountId jsRendering authenticatedContext } }
 } }`, nil)

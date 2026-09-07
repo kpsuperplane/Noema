@@ -130,11 +130,17 @@ func (r *mutationRootResolver) ResolveGovernedAction(ctx context.Context, input 
 
 // StartMcpAuthentication is the resolver for the startMcpAuthentication field.
 func (r *mutationRootResolver) StartMcpAuthentication(ctx context.Context, input model.StartMcpAuthenticationInput) (*model.McpOAuthSetupAttempt, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.startMCPCallAuthentication(ctx, input)
 }
 
 // SkipMcpAuthentication is the resolver for the skipMcpAuthentication field.
 func (r *mutationRootResolver) SkipMcpAuthentication(ctx context.Context, input model.SkipMcpAuthenticationInput) (*model.McpAuthenticationIntervention, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.skipMCPCallAuthentication(ctx, input)
 }
 
@@ -348,6 +354,9 @@ func (r *mutationRootResolver) SaveAgentModelPreference(ctx context.Context, inp
 
 // CreateAcpAgent is the resolver for the createAcpAgent field.
 func (r *mutationRootResolver) CreateAcpAgent(ctx context.Context, input model.CreateAcpAgentInput) (*model.AcpAgent, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.createAcpAgent(ctx, input)
 }
 
@@ -358,6 +367,9 @@ func (r *mutationRootResolver) UpdateAcpAgent(ctx context.Context, input model.U
 
 // DeleteAcpAgent is the resolver for the deleteAcpAgent field.
 func (r *mutationRootResolver) DeleteAcpAgent(ctx context.Context, input model.DeleteAcpAgentInput) (bool, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return false, err
+	}
 	return r.deleteAcpAgent(ctx, input)
 }
 
@@ -428,6 +440,9 @@ func (r *mutationRootResolver) SendA2UIAction(ctx context.Context, input model.P
 
 // CreateConversationExternalArtifact is the resolver for the createConversationExternalArtifact field.
 func (r *mutationRootResolver) CreateConversationExternalArtifact(ctx context.Context, input model.CreateConversationExternalArtifactInput) (*model.Artifact, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.createConversationExternalArtifact(ctx, input)
 }
 
@@ -639,16 +654,29 @@ func (r *queryRootResolver) Agents(ctx context.Context) ([]*model.Agent, error) 
 
 // AcpAgents is the resolver for the acpAgents field.
 func (r *queryRootResolver) AcpAgents(ctx context.Context) ([]*model.AcpAgent, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.acpAgents(ctx)
 }
 
 // Task is the resolver for the task field.
 func (r *queryRootResolver) Task(ctx context.Context, taskID string) (*model.TaskDetail, error) {
-	return r.task(ctx, taskID)
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
+	value, err := r.task(ctx, taskID)
+	if err != nil {
+		return nil, taskLifecycleError(err)
+	}
+	return value, nil
 }
 
 // TaskWorkspaceFile is the resolver for the taskWorkspaceFile field.
 func (r *queryRootResolver) TaskWorkspaceFile(ctx context.Context, taskID string, path string) (*model.TaskWorkspaceFileText, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.taskWorkspaceFile(ctx, taskID, path)
 }
 
@@ -669,11 +697,17 @@ func (r *queryRootResolver) TaskRecurrences(ctx context.Context, workspaceID str
 
 // Projects is the resolver for the projects field.
 func (r *queryRootResolver) Projects(ctx context.Context, workspaceID string, includeArchived *bool, first *int, after *string) (*model.ProjectConnection, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.projects(ctx, workspaceID, includeArchived, first, after)
 }
 
 // ProjectDocument is the resolver for the projectDocument field.
 func (r *queryRootResolver) ProjectDocument(ctx context.Context, projectID string) (*model.ProjectDocument, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.projectDocument(ctx, projectID)
 }
 
@@ -684,6 +718,9 @@ func (r *queryRootResolver) TasksOverview(ctx context.Context, workspaceID strin
 
 // Tasks is the resolver for the tasks field.
 func (r *queryRootResolver) Tasks(ctx context.Context, input model.TaskListInput, first *int, after *string) (*model.TaskConnection, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.tasks(ctx, input, first, after)
 }
 
@@ -699,6 +736,9 @@ func (r *queryRootResolver) PendingGovernedActions(ctx context.Context, conversa
 
 // PendingHumanInterventions is the resolver for the pendingHumanInterventions field.
 func (r *queryRootResolver) PendingHumanInterventions(ctx context.Context, conversationID *string, taskID *string, projectID *string, first *int) ([]model.HumanIntervention, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.pendingHumanInterventions(ctx, conversationID, taskID, projectID, first)
 }
 
@@ -807,6 +847,9 @@ func (r *queryRootResolver) PrimaryConversation(ctx context.Context) (*model.Pri
 
 // ConversationTranscriptPage is the resolver for the conversationTranscriptPage field.
 func (r *queryRootResolver) ConversationTranscriptPage(ctx context.Context, input model.ConversationTranscriptPageInput) (*model.ConversationTranscriptPage, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.conversationTranscriptPage(ctx, input)
 }
 
@@ -866,11 +909,17 @@ func (r *subscriptionRootResolver) LocalModelEvents(ctx context.Context, after *
 
 // ConversationEvents is the resolver for the conversationEvents field.
 func (r *subscriptionRootResolver) ConversationEvents(ctx context.Context, conversationID string) (<-chan model.ConversationEvent, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.conversationEvents(ctx, conversationID)
 }
 
 // MemoryEvents is the resolver for the memoryEvents field.
 func (r *subscriptionRootResolver) MemoryEvents(ctx context.Context) (<-chan *model.GraphqlNativeMemoryTree, error) {
+	if err := requireRequestPrincipal(ctx); err != nil {
+		return nil, err
+	}
 	return r.memoryEvents(ctx)
 }
 

@@ -1134,6 +1134,8 @@ export type TaskListInput = {
 export type TaskModelPoolEntryInput = {
   /** Complexity tier exposed to the primary agent. */
   complexity: TaskComplexity;
+  /** Whether this entry can be selected for new tasks. */
+  enabled: boolean;
   /** Whether this preference requests faster service. */
   fastMode: boolean;
   /** Optional human-facing label. */

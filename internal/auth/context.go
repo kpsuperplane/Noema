@@ -4,6 +4,7 @@ import "context"
 
 type browserSessionContextKey struct{}
 type desktopAccessContextKey struct{}
+type humanPrincipalContextKey struct{}
 
 // BrowserSessionHash returns the authenticated browser binding for this request.
 func BrowserSessionHash(ctx context.Context) ([32]byte, bool) {
@@ -22,4 +23,15 @@ func DesktopAccess(ctx context.Context) bool {
 
 func WithDesktopAccess(ctx context.Context) context.Context {
 	return context.WithValue(ctx, desktopAccessContextKey{}, true)
+}
+
+// HumanPrincipal identifies the human subject that authenticated a request.
+func HumanPrincipal(ctx context.Context) string {
+	value, _ := ctx.Value(humanPrincipalContextKey{}).(string)
+	return value
+}
+
+// WithHumanPrincipal attaches an authenticated human subject to a request.
+func WithHumanPrincipal(ctx context.Context, subject string) context.Context {
+	return context.WithValue(ctx, humanPrincipalContextKey{}, subject)
 }

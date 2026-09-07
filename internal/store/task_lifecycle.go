@@ -484,7 +484,7 @@ func (s *Store) taskLifecycleCommand(ctx context.Context, command TaskCommand,
 
 func fencedTaskTx(ctx context.Context, tx bun.Tx, id string, revision, generation int64) (Task, error) {
 	if !validTaskID(id) || revision < 1 || generation < 1 {
-		return Task{}, errors.New("invalid Task current-run check")
+		return Task{}, ErrTaskNotFound
 	}
 	task, err := taskTx(ctx, tx, id)
 	if err != nil {

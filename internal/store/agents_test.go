@@ -199,7 +199,7 @@ func TestAgentPreferenceAndTaskModelPoolsShareAssignments(t *testing.T) {
 	}
 	label := "Routine"
 	updated, err := database.UpdateTaskModelPoolEntry(context.Background(), simple.ID, "simple",
-		&label, simple.Assignment, 2, time.Now())
+		&label, simple.Assignment, simple.Enabled, 2, time.Now())
 	if err != nil || updated.Label == nil || *updated.Label != label || updated.SortOrder != 2 {
 		t.Fatalf("updated Task model pool = %#v, %v", updated, err)
 	}

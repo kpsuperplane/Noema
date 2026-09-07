@@ -57,6 +57,9 @@ func (r *Resolver) projects(ctx context.Context, workspaceID string, includeArch
 	if first != nil {
 		limit = *first
 	}
+	if limit < 1 || limit > 100 {
+		return nil, projectGraphQLError(store.ErrInvalidCursor)
+	}
 	page, err := r.Projects.List(ctx, archived, limit, after)
 	if err != nil {
 		return nil, projectGraphQLError(err)
@@ -134,7 +137,7 @@ func projectGraphQLError(err error) error {
 	case errors.Is(err, store.ErrProjectNotFound):
 		code, message = "work_unavailable", "Project is unavailable"
 	case errors.Is(err, store.ErrInvalidCursor):
-		code, message = "invalid_cursor", "the Project cursor is invalid"
+		code, message = "invalid_cursor", "invalid task cursor"
 	}
 	result := gqlerror.Errorf("%s", message)
 	result.Extensions = map[string]any{"code": code}
