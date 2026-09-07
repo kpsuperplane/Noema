@@ -271,21 +271,20 @@ func TestRustServer_request_bound_retry_survives_delay_and_is_consumed_by_its_su
 
 // Rust source: crates/noema-server/src/web/native_oauth.rs::code_exchange_refresh_rotation_and_replay_are_end_to_end.
 func TestRustServer_code_exchange_refresh_rotation_and_replay_are_end_to_end(t *testing.T) {
-	server, taskStore, _ := newAuthTest(t, true)
+	server, taskStore, paths := newAuthTest(t, true)
 	tokens := exchangeNativeTokens(t, server, taskStore, "rust-parity")
 	if tokens.AccessToken == "" || tokens.RefreshToken == "" {
 		t.Fatal("code exchange did not issue both tokens")
 	}
+	assertNativeBearer(t, server, tokens.AccessToken, testDesktopClient, http.StatusNoContent)
 	requestID := strings.Repeat("a", 32)
 	values := url.Values{
 		"grant_type": {"refresh_token"}, "refresh_token": {tokens.RefreshToken}, "refresh_request_id": {requestID},
 	}
 	first := decodeNativeTokens(t, serve(server.Handler(http.NotFoundHandler()), oauthFormRequest("/oauth/token", values)))
-	accessHash := sha256.Sum256([]byte(tokens.AccessToken))
-	access, exists, err := taskStore.ActiveNativeOAuthAccess(context.Background(), accessHash, time.Now().Unix())
-	if err != nil || !exists || access.ClientID != testDesktopClient {
-		t.Fatalf("issued access validation = %#v, exists=%v, err=%v", access, exists, err)
-	}
+	// Reconstruct the retry authority before replaying the request, as a restarted
+	// Rust web state does. The replay must come from the durable file.
+	server.native.retries = nativeRetryStore{path: paths.NativeOAuthRetries()}
 	replay := decodeNativeTokens(t, serve(server.Handler(http.NotFoundHandler()), oauthFormRequest("/oauth/token", values)))
 	if first.AccessToken != replay.AccessToken || first.RefreshToken != replay.RefreshToken {
 		t.Fatal("request-bound replay did not return the rotated successor")
@@ -300,8 +299,24 @@ func TestRustServer_code_exchange_refresh_rotation_and_replay_are_end_to_end(t *
 	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid_grant") {
 		t.Fatalf("replayed refresh after successor = %d %s", invalid.Code, invalid.Body.String())
 	}
-	if _, exists, err := taskStore.ActiveNativeOAuthAccess(context.Background(), sha256.Sum256([]byte(tokens.AccessToken)), time.Now().Unix()); err != nil || exists {
-		t.Fatalf("rotated access remained active: exists=%v, err=%v", exists, err)
+	assertNativeBearer(t, server, tokens.AccessToken, "", http.StatusUnauthorized)
+}
+
+func assertNativeBearer(t *testing.T, server *Server, token, wantClient string, wantStatus int) {
+	t.Helper()
+	var clientID string
+	application := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientID = ClientID(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})
+	request := authRequest(http.MethodGet, "/graphql", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := serve(server.Handler(application), request)
+	if response.Code != wantStatus {
+		t.Fatalf("native bearer response = %d, want %d", response.Code, wantStatus)
+	}
+	if wantStatus == http.StatusNoContent && clientID != wantClient {
+		t.Fatalf("native bearer client = %q, want %q", clientID, wantClient)
 	}
 }
 
@@ -849,6 +864,7 @@ func TestRustServer_recovery_keeps_origin_checks_and_rotates_rejected_candidates
 	handler := server.Handler(http.NotFoundHandler())
 	initial := readRecoveryCode(t, paths)
 	missing := recoveryRequest(readRecoveryCode(t, paths), nil)
+	missing.Header.Set("Authorization", "Bearer ignored")
 	missing.Header.Del("Origin")
 	if response := serve(handler, missing); response.Code != http.StatusForbidden {
 		t.Fatalf("missing recovery Origin = %d", response.Code)

@@ -24,7 +24,6 @@ import (
 
 	"github.com/coder/websocket"
 	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
-	noemaartifact "github.com/kpsuperplane/noema/internal/artifact"
 	noemaauth "github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
@@ -292,30 +291,8 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 		}
 		graphqlApplication.ServeHTTP(w, request)
 	})
-	artifactPaths, err := home.FromRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifactRoot, err := artifactPaths.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = artifactRoot.Close() })
-	artifactDatabase, err := store.Open(context.Background(), artifactPaths.Database())
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifacts, err := noemaartifact.New(artifactRoot, artifactDatabase, nil)
-	if err != nil {
-		_ = artifactDatabase.Close()
-		t.Fatal(err)
-	}
-	if err := artifactDatabase.Close(); err != nil {
-		t.Fatal(err)
-	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /favicons/{hostname}", faviconHandler)
-	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("/", application)
 	handler := server.Handler(mux)
 	graphqlRequest := externalRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ task(taskId: \"task:transport\") { taskId } }"}`))
