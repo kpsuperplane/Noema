@@ -18,6 +18,8 @@ import (
 	"github.com/kpsuperplane/noema/internal/provider"
 )
 
+const rustStoreFixtureConnectionID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func openRustStoreMigrationFixture(t *testing.T, version int) *Store {
 	return openRustStoreMigrationFixtureWithSetup(t, version, nil)
 }
@@ -89,7 +91,7 @@ func TestRustStore_fresh_sqlite_rebuilds_exact_definition_projection_from_files(
 	ctx := t.Context()
 	digest := strings.Repeat("a", 64)
 	definition := AdapterDefinitionIndex{Digest: digest, DefinitionID: "definition:fixture", AdapterID: "fixture", DefinitionRevision: "v1", SourceReference: "fixture://definition", DisplayName: "Fixture", Reviewed: true, OperationCount: 1}
-	connection := AdapterConnectionIndex{ID: "connection:fixture", Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
+	connection := AdapterConnectionIndex{ID: rustStoreFixtureConnectionID, Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
 	if err := database.ReconcileAdapters(ctx, []AdapterDefinitionIndex{definition}, []AdapterConnectionIndex{connection}, time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +111,7 @@ func TestRustStore_fresh_sqlite_rebuilds_connection_projection_without_secret_by
 	ctx := t.Context()
 	digest := strings.Repeat("a", 64)
 	definition := AdapterDefinitionIndex{Digest: digest, DefinitionID: "definition:fixture", AdapterID: "fixture", DefinitionRevision: "v1", SourceReference: "fixture://definition", DisplayName: "Fixture", Reviewed: true, OperationCount: 1}
-	connection := AdapterConnectionIndex{ID: "connection:fixture", Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
+	connection := AdapterConnectionIndex{ID: rustStoreFixtureConnectionID, Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
 	if err := database.ReconcileAdapters(ctx, []AdapterDefinitionIndex{definition}, []AdapterConnectionIndex{connection}, time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +131,7 @@ func TestRustStore_sqlite_rebuilds_the_complete_public_oauth_authority_hierarchy
 	ctx := t.Context()
 	digest := strings.Repeat("a", 64)
 	definition := AdapterDefinitionIndex{Digest: digest, DefinitionID: "definition:fixture", AdapterID: "fixture", DefinitionRevision: "v1", SourceReference: "fixture://definition", DisplayName: "Fixture", Reviewed: true, OperationCount: 1}
-	connection := AdapterConnectionIndex{ID: "connection:fixture", Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
+	connection := AdapterConnectionIndex{ID: rustStoreFixtureConnectionID, Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
 	if err := database.ReconcileAdapters(ctx, []AdapterDefinitionIndex{definition}, []AdapterConnectionIndex{connection}, time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +151,7 @@ func TestRustStore_projection_allows_revisions_but_rejects_duplicate_content_aut
 	ctx := t.Context()
 	digest := strings.Repeat("a", 64)
 	definition := AdapterDefinitionIndex{Digest: digest, DefinitionID: "definition:fixture", AdapterID: "fixture", DefinitionRevision: "v1", SourceReference: "fixture://definition", DisplayName: "Fixture", Reviewed: true, OperationCount: 1}
-	connection := AdapterConnectionIndex{ID: "connection:fixture", Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
+	connection := AdapterConnectionIndex{ID: rustStoreFixtureConnectionID, Slug: "personal", Label: "Fixture", Digest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: []string{"list"}}
 	if err := database.ReconcileAdapters(ctx, []AdapterDefinitionIndex{definition}, []AdapterConnectionIndex{connection}, time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
