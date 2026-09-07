@@ -148,7 +148,7 @@ func TestRustModelEvals_BundledCandidateAndSuiteManifestsAreValid(t *testing.T) 
 
 // Rust source: crates/noema-model-evals/src/matrix_manifest.rs::manifest_rejects_duplicate_roles_and_hides_private_base_url
 func TestRustModelEvals_ManifestRejectsDuplicateRolesAndHidesPrivateBaseURL(t *testing.T) {
-	value := rustModelEvalCandidate("candidate", 1)
+	value := rustModelEvalManifestCandidate("candidate", 1)
 	value.Roles = []string{"primary", "primary"}
 	_, policies := rustModelEvalPolicies("candidate", 0)
 	err := validateMatrix(rustModelEvalSuite(1), policies, []candidate{value}, false)
@@ -163,7 +163,11 @@ func TestRustModelEvals_ManifestRejectsDuplicateRolesAndHidesPrivateBaseURL(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "base_url") {
+	var reportValue map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &reportValue); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reportValue["base_url"]; ok {
 		t.Fatalf("private base URL was serialized: %s", encoded)
 	}
 
@@ -175,7 +179,7 @@ func TestRustModelEvals_ManifestRejectsDuplicateRolesAndHidesPrivateBaseURL(t *t
 
 // Rust source: crates/noema-model-evals/src/matrix_manifest.rs::manifest_requires_exact_openrouter_mapping_and_rejects_local_targets
 func TestRustModelEvals_ManifestRequiresExactOpenrouterMappingAndRejectsLocalTargets(t *testing.T) {
-	value := rustModelEvalCandidate("candidate", 1)
+	value := rustModelEvalManifestCandidate("candidate", 1)
 	_, policies := rustModelEvalPolicies("candidate", 0)
 	value.Targets[0].ModelProfile = "vendor/other"
 	err := validateMatrix(rustModelEvalSuite(1), policies, []candidate{value}, false)
@@ -183,7 +187,7 @@ func TestRustModelEvals_ManifestRequiresExactOpenrouterMappingAndRejectsLocalTar
 		t.Fatalf("mismatched OpenRouter target error = %v", err)
 	}
 
-	value = rustModelEvalCandidate("candidate", 1)
+	value = rustModelEvalManifestCandidate("candidate", 1)
 	value.Targets = []recommendationTarget{{Provider: "local_models", ModelProfile: "local-model"}}
 	err = validateMatrix(rustModelEvalSuite(1), policies, []candidate{value}, false)
 	if err == nil || !strings.Contains(err.Error(), "cannot map local recommendation target") {
@@ -226,10 +230,10 @@ func TestRustModelEvals_BundledLunaEffortCandidatesArePrimaryOnly(t *testing.T) 
 
 // Rust source: crates/noema-model-evals/src/matrix_report/tests.rs::default_decision_suppresses_recommendations_until_finished
 func TestRustModelEvals_DefaultDecisionSuppressesRecommendationsUntilFinished(t *testing.T) {
-	cheap := rustModelEvalCandidate("cheap", 1)
+	cheap := rustModelEvalReportCandidate("cheap", 1)
 	enabled := false
 	cheap.Enabled = &enabled
-	expensive := rustModelEvalCandidate("expensive", 2)
+	expensive := rustModelEvalReportCandidate("expensive", 2)
 	report := newMatrixReport("test", rustModelEvalSuite(2), []candidate{expensive, cheap}, rustModelEvalPoliciesForReport("cheap", 0), "default_decision")
 	for _, id := range []string{"expensive", "cheap"} {
 		report.push(matrixEntry{CandidateID: id, Repetition: 1, Cases: rustModelEvalCases("primary")})
@@ -261,7 +265,7 @@ func TestRustModelEvals_DefaultDecisionSuppressesRecommendationsUntilFinished(t 
 
 // Rust source: crates/noema-model-evals/src/matrix_report/tests.rs::exploration_never_emits_a_final_recommendation
 func TestRustModelEvals_ExplorationNeverEmitsAFinalRecommendation(t *testing.T) {
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "exploration")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "exploration")
 	report.push(matrixEntry{CandidateID: "candidate", Repetition: 1, Cases: rustModelEvalCases("primary")})
 	report.finish()
 	if report.Status != "incomplete" || report.Rankings[0].RecommendedCandidateID != "" {
@@ -271,7 +275,7 @@ func TestRustModelEvals_ExplorationNeverEmitsAFinalRecommendation(t *testing.T) 
 
 // Rust source: crates/noema-model-evals/src/matrix_report/tests.rs::returned_model_identity_is_a_qualification_gate
 func TestRustModelEvals_ReturnedModelIdentityIsAQualificationGate(t *testing.T) {
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("requested/model", 1)}, rustModelEvalPoliciesForReport("requested/model", 0), "default_decision")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("requested/model", 1)}, rustModelEvalPoliciesForReport("requested/model", 0), "default_decision")
 	cases := rustModelEvalCases("primary")
 	cases[0].ResponseModel = "other/model"
 	report.push(matrixEntry{CandidateID: "requested/model", Repetition: 1, Cases: cases})
@@ -284,7 +288,7 @@ func TestRustModelEvals_ReturnedModelIdentityIsAQualificationGate(t *testing.T) 
 
 // Rust source: crates/noema-model-evals/src/matrix_report/tests.rs::one_failed_stateful_action_blocks_primary_qualification
 func TestRustModelEvals_OneFailedStatefulActionBlocksPrimaryQualification(t *testing.T) {
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "default_decision")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "default_decision")
 	results := rustModelEvalCases("primary")
 	failed := -1
 	for i := range results {
@@ -311,7 +315,7 @@ func TestRustModelEvals_OneFailedStatefulActionBlocksPrimaryQualification(t *tes
 
 // Rust source: crates/noema-model-evals/src/matrix_report/tests.rs::markdown_exposes_each_stateful_primary_gap
 func TestRustModelEvals_MarkdownExposesEachStatefulPrimaryGap(t *testing.T) {
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "default_decision")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "default_decision")
 	results := rustModelEvalCases("primary")
 	failed := -1
 	for i := range results {
@@ -342,7 +346,7 @@ func TestRustModelEvals_MarkdownExposesEachStatefulPrimaryGap(t *testing.T) {
 
 // Rust source: crates/noema-model-evals/src/matrix_report/tests.rs::replacement_margin_retains_a_qualified_incumbent
 func TestRustModelEvals_ReplacementMarginRetainsAQualifiedIncumbent(t *testing.T) {
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("challenger", 0.5), rustModelEvalCandidate("incumbent", 1)}, rustModelEvalPoliciesForReport("incumbent", 0.1), "default_decision")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("challenger", 0.5), rustModelEvalReportCandidate("incumbent", 1)}, rustModelEvalPoliciesForReport("incumbent", 0.1), "default_decision")
 	for _, id := range []string{"challenger", "incumbent"} {
 		report.push(matrixEntry{CandidateID: id, Repetition: 1, Cases: rustModelEvalCases("primary")})
 	}
@@ -358,7 +362,7 @@ func TestRustModelEvals_QualityAndTailLatencyThresholdsAreQualificationGates(t *
 	primary := policyForRole(&policies, "primary")
 	primary.MinimumQualityScore = 0.75
 	primary.MaximumP95LatencyMS = 50
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("candidate", 1)}, policies, "default_decision")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("candidate", 1)}, policies, "default_decision")
 	passing := rustModelEvalCase("primary")
 	passing.CaseID = "fast"
 	slow := rustModelEvalCase("primary")
@@ -382,7 +386,7 @@ func TestRustModelEvals_RequiredComparisonKeepsDecisionIncompleteUntilRecorded(t
 	primary.DeterministicWeight = 0.5
 	primary.JudgeWeight = 0.5
 	primary.JudgeCaseIDs = []string{"case"}
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("challenger", 1), rustModelEvalCandidate("incumbent", 1)}, policies, "default_decision")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("challenger", 1), rustModelEvalReportCandidate("incumbent", 1)}, policies, "default_decision")
 	for _, id := range []string{"challenger", "incumbent"} {
 		report.push(matrixEntry{CandidateID: id, Repetition: 1, Cases: rustModelEvalCases("primary")})
 	}
@@ -399,7 +403,7 @@ func TestRustModelEvals_RequiredComparisonKeepsDecisionIncompleteUntilRecorded(t
 
 // Rust source: crates/noema-model-evals/src/matrix_report/tests.rs::checkpoint_rejects_a_duplicate_case_without_overwriting
 func TestRustModelEvals_CheckpointRejectsADuplicateCaseWithoutOverwriting(t *testing.T) {
-	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "default_decision")
+	report := newMatrixReport("test", rustModelEvalSuite(1), []candidate{rustModelEvalReportCandidate("candidate", 1)}, rustModelEvalPoliciesForReport("candidate", 0), "default_decision")
 	first := rustModelEvalCase("primary")
 	first.CaseID = "case"
 	if err := report.recordCase("candidate", 1, first); err != nil {
@@ -446,6 +450,7 @@ func TestRustModelEvals_DefaultDecisionRequiresEveryRuntimeRole(t *testing.T) {
 	}
 	custom := rustModelEvalCandidate("custom-endpoint", 1)
 	custom.BaseURL = "https://example.test/v1"
+	_, policies = rustModelEvalPolicies("custom-endpoint", 0)
 	err = validateDecisionCandidates([]candidate{custom}, policies)
 	if err == nil || !strings.Contains(err.Error(), "cannot override the OpenRouter base URL") {
 		t.Fatalf("custom endpoint error = %v", err)
@@ -538,8 +543,8 @@ func TestRustModelEvals_PatchChangesOnlyTheExactProviderRoleCell(t *testing.T) {
 
 // Rust source: crates/noema-model-evals/src/role_policy.rs::bundled_role_policies_cover_every_role
 func TestRustModelEvals_BundledRolePoliciesCoverEveryRole(t *testing.T) {
-	_, policies, _, err := loadMatrix(filepath.Join("..", ".."), nil)
-	if err != nil {
+	var policies rolePolicies
+	if err := readTOML(filepath.Join("..", "..", "evals/model-matrix/role-policies.toml"), &policies); err != nil {
 		t.Fatal(err)
 	}
 	if len(policies.Policies) != len(roles()) {
@@ -552,6 +557,17 @@ func rustModelEvalSuite(repetitions int) suiteConfig {
 }
 
 func rustModelEvalCandidate(id string, inputPrice float64) candidate {
+	enabled := true
+	return candidate{ID: id, Name: id, Model: "vendor/model", Roles: []string{"primary"}, Targets: []recommendationTarget{{Provider: "openrouter", ModelProfile: "vendor/model"}}, Pricing: &modelPricing{InputUSDPerMillion: inputPrice, OutputUSDPerMillion: 1}, Enabled: &enabled}
+}
+
+func rustModelEvalManifestCandidate(id string, inputPrice float64) candidate {
+	value := rustModelEvalCandidate(id, inputPrice)
+	value.Name = "Candidate"
+	return value
+}
+
+func rustModelEvalReportCandidate(id string, inputPrice float64) candidate {
 	enabled := true
 	return candidate{ID: id, Name: id, Model: id, Roles: []string{"primary"}, AcceptedResponseModels: []string{"case-model"}, Targets: []recommendationTarget{{Provider: "openrouter", ModelProfile: id}}, Pricing: &modelPricing{InputUSDPerMillion: inputPrice, OutputUSDPerMillion: 1}, Enabled: &enabled}
 }
