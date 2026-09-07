@@ -44,6 +44,23 @@ func TestGmailListHasThreeCompletePages(t *testing.T) {
 	}
 }
 
+func TestGmailListSupportsDateBounds(t *testing.T) {
+	f := &fixture{}
+	request := httptest.NewRequest("GET", "/gmail/v1/users/me/messages?q=after:2026/09/06%20before:2026/09/08&maxResults=100", nil)
+	request.Header.Set("Authorization", "Bearer "+accountAToken)
+	recorder := httptest.NewRecorder()
+	f.gmailList(recorder, request, gmailAccounts()["account-a"])
+	var result struct {
+		Messages []struct{ ID string } `json:"messages"`
+	}
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &result) != nil {
+		t.Fatalf("date-bounded list: status %d, body %s", recorder.Code, recorder.Body)
+	}
+	if len(result.Messages) != 2 || result.Messages[0].ID != "a-msg-004" || result.Messages[1].ID != "a-msg-005" {
+		t.Fatalf("date-bounded messages = %#v", result.Messages)
+	}
+}
+
 func TestAttachmentMessagePreservesTextAndAttachmentParts(t *testing.T) {
 	message := gmailAccounts()["account-a"].Messages[6]
 	payload := message.Payload

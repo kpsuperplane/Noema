@@ -191,8 +191,8 @@ func gmailAccounts() map[string]gmailAccount {
 			gmailMessageFor("a-msg-001", "a-thread-trip", []string{"INBOX", "IMPORTANT"}, "Trip itinerary confirmation", "Your upcoming trip itinerary is confirmed. Departure is Thursday.", "2026-09-05T08:15:00Z", "From: travel@example.test\nTo: alex@example.test\nSubject: Trip itinerary confirmation\n\nYour upcoming trip itinerary is confirmed. Departure is Thursday."),
 			gmailMessageFor("a-msg-002", "a-thread-trip", []string{"INBOX"}, "Re: Trip itinerary confirmation", "The airline changed the connection. Please review the updated itinerary.", "2026-09-05T09:20:00Z", "From: travel@example.test\nTo: alex@example.test\nSubject: Re: Trip itinerary confirmation\n\nThe airline changed the connection. Please review the updated itinerary."),
 			gmailMessageFor("a-msg-003", "a-thread-trip", []string{"INBOX"}, "Hotel booking for Lisbon", "The hotel booking for the upcoming trip is held until Monday.", "2026-09-05T10:30:00Z", "From: hotel@example.test\nTo: alex@example.test\nSubject: Hotel booking for Lisbon\n\nThe hotel booking for the upcoming trip is held until Monday."),
-			gmailMessageFor("a-msg-004", "a-thread-work", []string{"INBOX"}, "Q3 planning notes", "The planning review is on Tuesday afternoon.", "2026-09-05T11:00:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Q3 planning notes\n\nThe planning review is on Tuesday afternoon."),
-			gmailMessageFor("a-msg-005", "a-thread-work", []string{"STARRED"}, "Reimbursement policy", "Receipts are due within thirty days.", "2026-09-04T12:00:00Z", "From: finance@example.test\nTo: alex@example.test\nSubject: Reimbursement policy\n\nReceipts are due within thirty days."),
+			gmailMessageFor("a-msg-004", "a-thread-work", []string{"INBOX", "IMPORTANT"}, "Urgent request: confirm launch support", "Please confirm the launch support window by 12:00 today. The planning review is on Tuesday afternoon.", "2026-09-07T07:30:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Urgent request: confirm launch support\n\nPlease confirm the launch support window by 12:00 today. The planning review is on Tuesday afternoon."),
+			gmailMessageFor("a-msg-005", "a-thread-work", []string{"INBOX"}, "Reminder: confirm launch support", "Reminder: please confirm the launch support window by 12:00 today. Receipts are due within thirty days.", "2026-09-07T08:00:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Reminder: confirm launch support\n\nReminder: please confirm the launch support window by 12:00 today. Receipts are due within thirty days."),
 			gmailMessageFor("a-msg-006", "a-thread-friend", []string{"INBOX"}, "Dinner next week", "Are you free for dinner next Wednesday?", "2026-09-03T18:00:00Z", "From: friend@example.test\nTo: alex@example.test\nSubject: Dinner next week\n\nAre you free for dinner next Wednesday?"),
 			gmailMessageWithAttachment("a-msg-007", "a-thread-trip", []string{"INBOX", "IMPORTANT"}, "Packing list for upcoming trip", "Here is the packing list for the upcoming trip.", "2026-09-03T19:00:00Z", "trip-checklist.txt", "passport\ncharger\nwalking shoes\n"),
 		}, Threads: map[string][]string{"a-thread-trip": {"a-msg-001", "a-msg-002", "a-msg-003", "a-msg-007"}, "a-thread-work": {"a-msg-004", "a-msg-005"}, "a-thread-friend": {"a-msg-006"}}},
@@ -336,8 +336,33 @@ func gmailMatches(message gmailMessage, query string) bool {
 	}
 	terms := strings.Fields(strings.Trim(query, `"`))
 	search := strings.ToLower(message.Snippet + " " + message.PayloadHeader("Subject"))
+	messageTime := time.UnixMilli(0)
+	if millis, err := strconv.ParseInt(message.InternalDate, 10, 64); err == nil {
+		messageTime = time.UnixMilli(millis).UTC()
+	}
 	for _, term := range terms {
-		if !strings.Contains(search, strings.Trim(term, `"`)) {
+		term = strings.Trim(term, `"`)
+		if strings.HasPrefix(term, "after:") || strings.HasPrefix(term, "before:") {
+			parts := strings.SplitN(term, ":", 2)
+			if len(parts) != 2 {
+				return false
+			}
+			bound, err := time.Parse("2006/01/02", parts[1])
+			if err != nil {
+				bound, err = time.Parse("2006-01-02", parts[1])
+			}
+			if err != nil {
+				return false
+			}
+			if parts[0] == "after" && !messageTime.After(bound.UTC()) {
+				return false
+			}
+			if parts[0] == "before" && !messageTime.Before(bound.UTC()) {
+				return false
+			}
+			continue
+		}
+		if !strings.Contains(search, term) {
 			return false
 		}
 	}
