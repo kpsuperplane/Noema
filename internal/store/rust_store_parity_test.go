@@ -1697,112 +1697,178 @@ func TestRustStore_deleting_a_connection_terminalizes_authentication_without_los
 
 // Rust source: crates/noema-store/src/tests/governed_actions.rs::governed_action_preserves_exact_payload_and_digest.
 func TestRustStore_governed_action_preserves_exact_payload_and_digest(t *testing.T) {
-	database := openTestStore(t)
+	database, action, now := rustStoreGovernedActionFixture(t, json.RawMessage(`{"record_id":"42","body":{"value":"exact"}}`))
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	if action.State != ActionProposed || action.CapabilityName != "mcp.example.write" || action.OperationToken != "exact-token" {
+		t.Fatalf("action identity = %#v", action)
+	}
+	if action.Arguments["record_id"] != "42" {
+		t.Fatalf("action arguments = %#v", action.Arguments)
+	}
+	body, ok := action.Arguments["body"].(map[string]any)
+	if !ok || body["value"] != "exact" {
+		t.Fatalf("nested action arguments = %#v", action.Arguments)
+	}
+	canonical, err := json.Marshal(action.Arguments)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "approve this", nil, time.Unix(0, 0))
-	if err != nil {
+	digest := sha256.Sum256(canonical)
+	if action.ArgumentsSHA256 != hex.EncodeToString(digest[:]) || len(action.ArgumentsSHA256) != 64 {
+		t.Fatalf("action argument digest = %q, want %x", action.ArgumentsSHA256, digest)
+	}
+	if action.InputSchema["type"] != "object" || action.AuthorizationContext["human_or_task_request"] != "update the record" {
+		t.Fatalf("action authority fields = schema=%#v context=%#v", action.InputSchema, action.AuthorizationContext)
+	}
+	observed := []string{"https://example.com/result?q=1"}
+	if err := database.ObserveURLs(ctx, "search_result", "tool_call:search", observed, now); err != nil {
 		t.Fatal(err)
 	}
-	calls, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{ProviderCallID: "call-rust-store", ProviderName: "example", Name: "example", Arguments: json.RawMessage("{}")}}, time.Unix(0, 0))
-	if err != nil || len(calls) == 0 {
-		t.Fatalf("tool call = %#v, %v", calls, err)
+	if found, err := database.URLWasObserved(ctx, observed[0]); err != nil || !found {
+		t.Fatalf("observed URL = %v, %v", found, err)
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
-	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
-		t.Fatalf("action = %#v, %v", action, err)
+	if found, err := database.URLWasObserved(ctx, "https://example.com/result?q=2"); err != nil || found {
+		t.Fatalf("changed observed URL = %v, %v", found, err)
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/governed_actions.rs::unavailable_reviewer_requires_approval_and_cannot_be_claimed.
 func TestRustStore_unavailable_reviewer_requires_approval_and_cannot_be_claimed(t *testing.T) {
-	database := openTestStore(t)
+	database, action, now := rustStoreGovernedActionFixture(t, json.RawMessage(`{"record_id":"42"}`))
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	reviewed, _, err := database.RecordActionAssessment(ctx, action.ID, action.Revision, ActionAssessment{
+		Status: "reviewer_unavailable", ReasonCodes: []string{"authorization_ambiguous"}, Explanation: "reviewer is unavailable",
+	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "approve this", nil, time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
+	if reviewed.State != ActionAwaitingApproval || reviewed.Assessment == nil || reviewed.Assessment.Status != "reviewer_unavailable" ||
+		len(reviewed.Assessment.ReasonCodes) != 1 || reviewed.Assessment.ReasonCodes[0] != "authorization_ambiguous" {
+		t.Fatalf("fallback assessment = %#v", reviewed)
 	}
-	calls, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{ProviderCallID: "call-rust-store", ProviderName: "example", Name: "example", Arguments: json.RawMessage("{}")}}, time.Unix(0, 0))
-	if err != nil || len(calls) == 0 {
-		t.Fatalf("tool call = %#v, %v", calls, err)
+	if _, err := database.ClaimActionRequest(ctx, action.ID, action.Revision, now); err == nil {
+		t.Errorf("unapproved action was claimed")
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
-	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
-		t.Fatalf("action = %#v, %v", action, err)
+	superseded, err := database.SupersedeActionRequest(ctx, action.ID, action.Revision, "browser_session_unavailable", now)
+	if err != nil || superseded.State != ActionSuperseded || superseded.FailureCode != "browser_session_unavailable" {
+		t.Fatalf("superseded pending action = %#v, %v", superseded, err)
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/governed_actions.rs::human_approval_is_owner_scoped_and_consumed_by_one_claim.
 func TestRustStore_human_approval_is_owner_scoped_and_consumed_by_one_claim(t *testing.T) {
-	database := openTestStore(t)
+	database, action, now := rustStoreGovernedActionFixture(t, json.RawMessage(`{"record_id":"42"}`))
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
-	if err != nil {
+	if _, _, err := database.RecordActionAssessment(ctx, action.ID, action.Revision, ActionAssessment{
+		Status: "reviewer_unavailable", ReasonCodes: []string{"authorization_ambiguous"}, Explanation: "reviewer is unavailable",
+	}, now); err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "approve this", nil, time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
+	if _, err := database.DecideActionRequest(ctx, action.ID, action.Revision, "human:someone-else", "approve", now); err == nil {
+		t.Errorf("foreign human approval was accepted")
 	}
-	calls, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{ProviderCallID: "call-rust-store", ProviderName: "example", Name: "example", Arguments: json.RawMessage("{}")}}, time.Unix(0, 0))
-	if err != nil || len(calls) == 0 {
-		t.Fatalf("tool call = %#v, %v", calls, err)
+	approved, err := database.DecideActionRequest(ctx, action.ID, action.Revision, "human:local", "approve", now)
+	if err != nil || approved.State != ActionExecutable {
+		t.Fatalf("approved action = %#v, %v", approved, err)
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
-	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
-		t.Fatalf("action = %#v, %v", action, err)
+	pending, err := database.PendingActionRequests(ctx, "human:local", nil, nil, 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pending actions after approval = %#v, %v", pending, err)
+	}
+	claimed, err := database.ClaimActionRequest(ctx, action.ID, action.Revision, now)
+	if err != nil || claimed.State != ActionExecuting {
+		t.Fatalf("claimed action = %#v, %v", claimed, err)
+	}
+	if _, err := database.ClaimActionRequest(ctx, action.ID, action.Revision, now); err == nil {
+		t.Errorf("action received a second execution claim")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/governed_actions.rs::clear_review_is_claimed_once_and_records_uncertain_outcome.
 func TestRustStore_clear_review_is_claimed_once_and_records_uncertain_outcome(t *testing.T) {
-	database := openTestStore(t)
+	database, action, now := rustStoreGovernedActionFixture(t, json.RawMessage(`{"record_id":"42"}`))
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
+	reviewed, _, err := database.RecordActionAssessment(ctx, action.ID, action.Revision, ActionAssessment{
+		Status: "completed", Authorization: "explicit", Risk: "low", ReviewerSelection: map[string]any{"model_profile": "reviewer"},
+		ReasonCodes: []string{"action_matches_request"}, Explanation: "exact action is authorized",
+	}, now)
+	if err != nil || reviewed.State != ActionExecutable || reviewed.Assessment == nil || reviewed.Assessment.Authorization != "explicit" ||
+		reviewed.Assessment.Risk != "low" || reviewed.Assessment.Explanation != "exact action is authorized" {
+		t.Fatalf("reviewed action = %#v, %v", reviewed, err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "approve this", nil, time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
+	claimed, err := database.ClaimActionRequest(ctx, action.ID, action.Revision, now)
+	if err != nil || claimed.State != ActionExecuting {
+		t.Fatalf("claimed action = %#v, %v", claimed, err)
 	}
-	calls, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{ProviderCallID: "call-rust-store", ProviderName: "example", Name: "example", Arguments: json.RawMessage("{}")}}, time.Unix(0, 0))
-	if err != nil || len(calls) == 0 {
-		t.Fatalf("tool call = %#v, %v", calls, err)
+	if _, err := database.ClaimActionRequest(ctx, action.ID, action.Revision, now); err == nil {
+		t.Errorf("action received a second execution claim")
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
-	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
-		t.Fatalf("action = %#v, %v", action, err)
+	finished, err := database.FinishActionRequest(ctx, action.ID, action.Revision, ActionOutcomeUncertain, nil, "outcome_uncertain", now)
+	if err != nil || finished.State != ActionOutcomeUncertain || finished.FailureCode != "outcome_uncertain" {
+		t.Fatalf("uncertain action outcome = %#v, %v", finished, err)
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/governed_actions.rs::composed_authorization_risk_policy_has_one_global_matrix.
 func TestRustStore_composed_authorization_risk_policy_has_one_global_matrix(t *testing.T) {
+	cases := []struct {
+		authorization, risk string
+		executable          bool
+	}{
+		{authorization: "explicit", risk: "low", executable: true},
+		{authorization: "substantive", risk: "medium", executable: true},
+		{authorization: "weak", risk: "low", executable: true},
+		{authorization: "absent", risk: "low", executable: false},
+		{authorization: "weak", risk: "medium", executable: false},
+		{authorization: "explicit", risk: "high", executable: false},
+	}
+	for _, test := range cases {
+		database, action, now := rustStoreGovernedActionFixture(t, json.RawMessage(`{"record_id":"42"}`))
+		reviewed, _, err := database.RecordActionAssessment(t.Context(), action.ID, action.Revision, ActionAssessment{
+			Status: "completed", Authorization: test.authorization, Risk: test.risk,
+			ReviewerSelection: map[string]any{"model_profile": "reviewer"}, ReasonCodes: []string{"action_matches_request"}, Explanation: "bounded review",
+		}, now)
+		if err != nil {
+			t.Fatalf("authorization=%s risk=%s assessment: %v", test.authorization, test.risk, err)
+		}
+		if (reviewed.State == ActionExecutable) != test.executable {
+			t.Errorf("authorization=%s risk=%s executable=%t, want %t", test.authorization, test.risk, reviewed.State == ActionExecutable, test.executable)
+		}
+	}
+}
+
+// rustStoreGovernedActionFixture creates the exact call origin required by the
+// Go action store before it persists one proposed governed action.
+func rustStoreGovernedActionFixture(t *testing.T, arguments json.RawMessage) (*Store, ActionRequest, time.Time) {
+	t.Helper()
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(0, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "approve this", nil, time.Unix(0, 0))
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "update the record", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{ProviderCallID: "call-rust-store", ProviderName: "example", Name: "example", Arguments: json.RawMessage("{}")}}, time.Unix(0, 0))
+	calls, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{Provider: "openrouter", Call: ConversationToolCallInput{
+		ProviderCallID: "call:governed-action", ProviderName: "mcp.example", Name: "mcp.example.write", Arguments: arguments,
+	}}, now)
 	if err != nil || len(calls) == 0 {
 		t.Fatalf("tool call = %#v, %v", calls, err)
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
-	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
-		t.Fatalf("action = %#v, %v", action, err)
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{
+		ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID,
+		OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "mcp.example.write", OperationToken: "exact-token",
+		ReviewRoute: ActionLLMReview, Behavior: ActionBehavior{OpenWorld: true}, Arguments: arguments,
+		InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"human_or_task_request": "update the record"},
+		SafeSummary: "mcp.example.write wants to write external data",
+	}, now)
+	if err != nil {
+		t.Fatalf("create governed action: %v", err)
 	}
+	return database, action, now
 }
 
 // Rust source: crates/noema-store/src/tests/live_activity.rs::live_activity_client_callbacks_form_a_secret_free_timeline.
