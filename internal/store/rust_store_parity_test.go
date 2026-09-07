@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kpsuperplane/noema/internal/home"
 )
 
 func openRustStoreMigrationFixture(t *testing.T, version int) *Store {
@@ -3257,133 +3259,305 @@ func TestRustStore_primary_checkpoint_is_monotonic_until_the_conversation_change
 	}
 }
 
-// Rust source: crates/noema-store/src/work_command_tests.rs::final_run_status_finishes_active_items_and_debug_spans.
-func TestRustStore_final_run_status_finishes_active_items_and_debug_spans(t *testing.T) {
+func rustStoreExecutorFixture(t *testing.T, title string) (*Store, Task, TaskRun, time.Time) {
+	t.Helper()
 	database := openTestStore(t)
 	ctx := t.Context()
+	now := time.Unix(1700000000, 0).UTC()
 	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
 		t.Fatal(err)
 	}
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	task, err := database.CreateTask(ctx, id, title, "correlation:rust-command", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	queued, err := database.QueueTask(ctx, id, task.Revision, task.Generation,
+		testTaskLifecycleCommand("queue_task", "rust-command"), now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	_, planner, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found {
+		t.Fatalf("claim planner = %#v, %t, %v", planner, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, planner.ID, planner.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishTaskPlanning(ctx, planner.ID, planner.Generation, "simple", now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, executor, found, err := database.ClaimTaskExecution(ctx, now.Add(2*time.Second))
+	if err != nil || !found {
+		t.Fatalf("claim executor = %#v, %t, %v", executor, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, executor.ID, executor.Generation, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if queued.Task.ID != task.ID {
+		t.Fatalf("queue changed task identity: %#v", queued.Task)
+	}
+	return database, task, executor, now
+}
+
+func rustStoreTaskHome(t *testing.T, taskID, document string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	if _, err := home.CreatePendingTaskDocument(root, taskID, document); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(root, taskID); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// Rust source: crates/noema-store/src/work_command_tests.rs::final_run_status_finishes_active_items_and_debug_spans.
+func TestRustStore_final_run_status_finishes_active_items_and_debug_spans(t *testing.T) {
+	for _, test := range []struct {
+		name, itemStatus, spanStatus string
+	}{
+		{name: "completed", itemStatus: "completed", spanStatus: "completed"},
+		{name: "failed", itemStatus: "failed", spanStatus: "failed"},
+		{name: "cancelled", itemStatus: "cancelled", spanStatus: "cancelled"},
+		{name: "interrupted", itemStatus: "failed", spanStatus: "interrupted"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database, task, run, now := rustStoreExecutorFixture(t, "Rust command "+test.name)
+			ctx := t.Context()
+			if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{
+				{Kind: "assistant_output", Status: "running", Round: 0, Content: "partial output"},
+				{Kind: "tool_call", Status: "running", Round: 0, CorrelationID: "call:" + test.name, Content: "tool"},
+			}, TaskRunUsage{}, now); err != nil {
+				t.Fatal(err)
+			}
+			items, err := database.TaskRunReplayItems(ctx, run.ID)
+			if err != nil || len(items) != 2 {
+				t.Fatalf("initial run items = %#v, %v", items, err)
+			}
+			if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{
+				{Kind: "tool_result", Status: "failed", Round: 0, ParentID: items[1].ID,
+					CorrelationID: "call:" + test.name, Content: "tool failed"},
+			}, TaskRunUsage{}, now.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			span, err := database.BeginRuntimeDebugSpan(ctx, RuntimeDebugScope{Kind: "task_run", ID: run.ID},
+				"provider", "Provider call", RuntimeDebugMetadata{}, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var terminalErr error
+			switch test.name {
+			case "completed":
+				terminalErr = database.FinishTaskExecution(ctx, run.ID, run.Generation, false, now.Add(2*time.Second))
+			case "failed":
+				terminalErr = database.FailTaskExecution(ctx, run.ID, run.Generation, "work_runtime_failed", "Failed.", false, now.Add(2*time.Second))
+			case "cancelled":
+				current, loadErr := database.Task(ctx, task.ID)
+				if loadErr != nil {
+					t.Fatal(loadErr)
+				}
+				_, terminalErr = database.CancelTask(ctx, task.ID, current.Revision, current.Generation, "Cancelled.",
+					testTaskLifecycleCommand("cancel_task", "cancel-"+test.name), now.Add(2*time.Second))
+			case "interrupted":
+				_, terminalErr = database.db.ExecContext(ctx,
+					"UPDATE task_runs SET status='failed', ended_at_ms=? WHERE run_id=?", millis(now.Add(2*time.Second)), run.ID)
+			}
+			if terminalErr != nil {
+				t.Fatal(terminalErr)
+			}
+			if err := database.FinishRuntimeDebugSpan(ctx, span, test.spanStatus, RuntimeDebugMetadata{}, 2*time.Second, now.Add(2*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			items, err = database.TaskRunReplayItems(ctx, run.ID)
+			if err != nil || len(items) != 3 {
+				t.Fatalf("final run items = %#v, %v", items, err)
+			}
+			if items[0].Status != test.itemStatus || items[1].Status != "failed" || items[2].Status != "failed" {
+				t.Fatalf("active item statuses = %#v; want [%s failed failed]", items, test.itemStatus)
+			}
+			profile, err := database.RuntimeDebugProfile(ctx, RuntimeDebugScope{Kind: "task_run", ID: run.ID})
+			if err != nil || profile == nil || len(profile.Spans) != 1 {
+				t.Fatalf("debug profile = %#v, %v", profile, err)
+			}
+			if profile.Spans[0].Status != test.spanStatus || profile.Spans[0].EndedAt == nil {
+				t.Fatalf("debug span = %#v", profile.Spans[0])
+			}
+		})
 	}
 }
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::finish_execution_requires_nonblank_result.
 func TestRustStore_finish_execution_requires_nonblank_result(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
-	id, err := NewTaskID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
-	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	for _, test := range []struct {
+		name, result string
+	}{
+		{name: "missing"},
+		{name: "blank", result: " \n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database, task, run, now := rustStoreExecutorFixture(t, "Rust command result "+test.name)
+			root := rustStoreTaskHome(t, task.ID, "captured description")
+			if test.result != "" {
+				if err := home.WriteTaskFile(root, task.ID, "RESULT.md", test.result); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// FinishTaskExecution is the Go production boundary corresponding to
+			// the Rust WorkCommandService terminal command. It must inspect the
+			// current RESULT.md before it commits the terminal transition.
+			if err := database.FinishTaskExecution(t.Context(), run.ID, run.Generation, false, now.Add(time.Second)); err == nil {
+				t.Fatalf("accepted %s RESULT.md; task=%s", test.name, task.ID)
+			}
+			if _, err := home.ReadTaskDocument(root, task.ID); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::required_task_documents_cannot_be_deleted.
 func TestRustStore_required_task_documents_cannot_be_deleted(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	database, task, _, _ := rustStoreExecutorFixture(t, "Rust command files")
+	_ = database
+	root := rustStoreTaskHome(t, task.ID, "captured description")
+	if err := home.WriteTaskFile(root, task.ID, "RESULT.md", "Current result."); err != nil {
 		t.Fatal(err)
 	}
-	id, err := NewTaskID()
-	if err != nil {
-		t.Fatal(err)
+	for _, required := range []string{"TASK.md", "RESULT.md"} {
+		if err := home.DeleteTaskFile(root, task.ID, required); err == nil {
+			t.Fatalf("deleted required Task file %q", required)
+		}
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
-	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	if document, err := home.ReadTaskDocument(root, task.ID); err != nil || document.Content != "captured description" {
+		t.Fatalf("TASK.md after rejected delete = %#v, %v", document, err)
 	}
 }
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::task_files_carry_execution_across_continuation_and_review.
 func TestRustStore_task_files_carry_execution_across_continuation_and_review(t *testing.T) {
-	database := openTestStore(t)
+	database, task, first, now := rustStoreExecutorFixture(t, "Rust command file lifecycle")
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	root := rustStoreTaskHome(t, task.ID, "Durable delegated payload")
+	if err := database.FinishTaskExecution(ctx, first.ID, first.Generation, true, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := NewTaskID()
-	if err != nil {
+	runs, err := database.TaskRuns(ctx, task.ID, 10)
+	if err != nil || len(runs) != 3 {
+		t.Fatalf("continuation runs = %#v, %v", runs, err)
+	}
+	var second TaskRun
+	for _, candidate := range runs {
+		if candidate.Kind == "executor" && candidate.ID != first.ID && candidate.ParentRunID == first.ID {
+			second = candidate
+		}
+	}
+	if second.ID == "" {
+		t.Fatalf("continuation child missing from runs = %#v", runs)
+	}
+	var found bool
+	_, second, found, err = database.ClaimTaskExecution(ctx, now.Add(2*time.Second))
+	if err != nil || !found || second.Kind != "executor" {
+		t.Fatalf("claim continuation = %#v, %t, %v", second, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, second.ID, second.Generation, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
-	if err != nil {
+	if err := home.WriteTaskFile(root, task.ID, "RESULT.md", "Completed file result.\n"); err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	if err := database.FinishTaskExecution(ctx, second.ID, second.Generation, false, now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	if err := database.FinishTaskExecution(ctx, second.ID, second.Generation, false, now.Add(4*time.Second)); err != nil {
+		t.Errorf("exact execution replay returned %v; Rust replays the committed result", err)
+	}
+	_, reviewer, found, err := database.ClaimTaskExecution(ctx, now.Add(5*time.Second))
+	if err != nil || !found || reviewer.Kind != "reviewer" {
+		t.Fatalf("claim reviewer = %#v, %t, %v", reviewer, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, reviewer.ID, reviewer.Generation, now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	feedback := "The current Task result is complete."
+	if err := home.WriteTaskFile(root, task.ID, "REVIEW.md", feedback); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishTaskReview(ctx, reviewer.ID, reviewer.Generation, "approve", feedback, true, now.Add(7*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishTaskReview(ctx, reviewer.ID, reviewer.Generation, "approve", feedback, true, now.Add(7*time.Second)); err != nil {
+		t.Errorf("exact review replay returned %v; Rust replays the committed result", err)
+	}
+	if task, err := database.Task(ctx, task.ID); err != nil || task.StageKey != "done" || task.State != TaskCompleted {
+		t.Fatalf("completed Task = %#v, %v", task, err)
+	}
+	document, err := home.ReadTaskDocument(root, task.ID)
+	if err != nil || document.Content != "Durable delegated payload" {
+		t.Fatalf("TASK.md = %#v, %v", document, err)
+	}
+	result, err := home.ReadTaskFile(root, task.ID, "RESULT.md")
+	if err != nil || result != "Completed file result.\n" {
+		t.Fatalf("RESULT.md = %q, %v", result, err)
+	}
+	review, err := home.ReadTaskFile(root, task.ID, "REVIEW.md")
+	if err != nil || review != feedback {
+		t.Fatalf("REVIEW.md = %q, %v", review, err)
 	}
 }
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::reviewer_controls_completion_notification.
 func TestRustStore_reviewer_controls_completion_notification(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
-	id, err := NewTaskID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
-	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	for _, test := range []struct {
+		name   string
+		notify bool
+		want   int64
+	}{
+		{name: "notify", notify: true, want: 1},
+		{name: "silent", notify: false, want: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database, task, executor, now := rustStoreExecutorFixture(t, "Rust command notification "+test.name)
+			root := rustStoreTaskHome(t, task.ID, "Durable delegated payload")
+			if err := home.WriteTaskFile(root, task.ID, "RESULT.md", "Completed result."); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.FinishTaskExecution(t.Context(), executor.ID, executor.Generation, false, now.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			_, reviewer, found, err := database.ClaimTaskExecution(t.Context(), now.Add(2*time.Second))
+			if err != nil || !found {
+				t.Fatalf("claim reviewer = %#v, %t, %v", reviewer, found, err)
+			}
+			if err := database.StartTaskExecution(t.Context(), reviewer.ID, reviewer.Generation, now.Add(3*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			feedback := "Approved."
+			if err := home.WriteTaskFile(root, task.ID, "REVIEW.md", feedback); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.FinishTaskReview(t.Context(), reviewer.ID, reviewer.Generation, "approve", feedback, test.notify, now.Add(4*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			var count int64
+			if err := database.db.QueryRowContext(t.Context(), `SELECT COUNT(*)
+FROM work_notification_outbox
+WHERE notification_kind = 'task_completed' AND json_extract(payload_json, '$.task_id') = ?`, task.ID).Scan(&count); err != nil {
+				t.Errorf("completion notification ledger unavailable: %v", err)
+				return
+			}
+			if count != test.want {
+				t.Fatalf("completion notifications = %d, want %d", count, test.want)
+			}
+		})
 	}
 }
 
