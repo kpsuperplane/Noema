@@ -1278,26 +1278,13 @@ func TestRustStore_unavailable_exact_route_edits_cannot_redirect_or_reenable_it(
 func TestRustStore_metadata_port_rejects_non_positive_expected_index_as_domain_error(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifactID, err := NewArtifactID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	versionID, err := NewArtifactVersionID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	relativePath := "artifacts/rust-store.txt"
-	value, err := database.CreateArtifact(ctx, Artifact{ID: artifactID, Owner: ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID}, Title: "Rust artifact", Kind: "document", StorageKind: ArtifactLocalFile, CreatedByActorID: "agent:primary"}, ArtifactVersion{ID: versionID, LocalRelativePath: &relativePath, CreatedByActorID: "agent:primary"}, time.Unix(0, 0))
-	if err != nil || len(value.Versions) != 1 || value.CurrentVersion.ID != versionID {
-		t.Fatalf("artifact = %#v, %v", value, err)
-	}
-	loaded, err := database.ArtifactWithVersionsByID(ctx, artifactID)
-	if err != nil || len(loaded.Versions) != 1 {
-		t.Fatalf("loaded artifact = %#v, %v", loaded, err)
+	unused := "unused"
+	_, err := database.AppendArtifactVersion(ctx, "artifact:any", ArtifactVersion{
+		ID: "artifact_version:" + strings.Repeat("a", 32), LocalRelativePath: &unused,
+		CreatedByActorID: "agent:test",
+	}, time.Unix(0, 0))
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "invalid version index") {
+		t.Fatalf("non-positive expected index error = %v, want Rust InvalidVersionIndex{version_index: 0}", err)
 	}
 }
 
@@ -1317,14 +1304,34 @@ func TestRustStore_artifact_read_rejects_forged_non_http_external_url(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	relativePath := "artifacts/rust-store.txt"
-	value, err := database.CreateArtifact(ctx, Artifact{ID: artifactID, Owner: ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID}, Title: "Rust artifact", Kind: "document", StorageKind: ArtifactLocalFile, CreatedByActorID: "agent:primary"}, ArtifactVersion{ID: versionID, LocalRelativePath: &relativePath, CreatedByActorID: "agent:primary"}, time.Unix(0, 0))
-	if err != nil || len(value.Versions) != 1 || value.CurrentVersion.ID != versionID {
-		t.Fatalf("artifact = %#v, %v", value, err)
+	description := "Planning notes"
+	url := "https://notion.so/noema-brief"
+	mediaType := "text/html"
+	versionTitle := "Initial"
+	created, err := database.CreateArtifact(ctx, Artifact{
+		ID: artifactID, Owner: ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID},
+		Title: "Sprint brief", Description: &description, Kind: "document", StorageKind: ArtifactExternalURL,
+		CreatedByActorID: "agent:primary", Source: ArtifactSource{ConversationID: conversation.ID},
+		Metadata: map[string]any{"provider": "notion"},
+	}, ArtifactVersion{
+		ID: versionID, Title: &versionTitle, ExternalURL: &url, MediaType: &mediaType,
+		CreatedByActorID: "agent:primary", Source: ArtifactSource{ConversationID: conversation.ID},
+	}, time.Unix(0, 0))
+	if err != nil || created.Artifact.ID != artifactID || created.CurrentVersion.ID != versionID ||
+		created.CurrentVersion.ExternalURL == nil || *created.CurrentVersion.ExternalURL != url {
+		t.Fatalf("external artifact = %#v, %v", created, err)
+	}
+	if _, err := database.db.ExecContext(ctx,
+		"UPDATE artifact_versions SET external_url = ? WHERE artifact_version_id = ?",
+		"javascript:alert(1)", created.CurrentVersion.ID); err != nil {
+		t.Fatalf("forge external URL: %v", err)
 	}
 	loaded, err := database.ArtifactWithVersionsByID(ctx, artifactID)
-	if err != nil || len(loaded.Versions) != 1 {
-		t.Fatalf("loaded artifact = %#v, %v", loaded, err)
+	if err == nil {
+		t.Fatalf("forged external URL was accepted on read: %#v", loaded)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "external url") {
+		t.Fatalf("forged external URL error = %v, want Rust InvalidArtifactExternalUrl", err)
 	}
 }
 
@@ -1336,22 +1343,21 @@ func TestRustStore_artifact_owner_authorization_is_human_scoped_and_fail_closed(
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifactID, err := NewArtifactID()
-	if err != nil {
-		t.Fatal(err)
+	allowed, err := database.ArtifactOwnerAuthorized(ctx, ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID})
+	if err != nil || !allowed {
+		t.Fatalf("local conversation owner authorization = %t, %v", allowed, err)
 	}
-	versionID, err := NewArtifactVersionID()
-	if err != nil {
-		t.Fatal(err)
+	foreignAllowed, err := database.ArtifactOwnerAuthorized(ctx, ArtifactOwner{
+		ObjectType: "conversation", ObjectID: "conversation:" + strings.Repeat("f", 32),
+	})
+	if err != nil || foreignAllowed {
+		t.Fatalf("foreign conversation owner authorization = %t, %v", foreignAllowed, err)
 	}
-	relativePath := "artifacts/rust-store.txt"
-	value, err := database.CreateArtifact(ctx, Artifact{ID: artifactID, Owner: ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID}, Title: "Rust artifact", Kind: "document", StorageKind: ArtifactLocalFile, CreatedByActorID: "agent:primary"}, ArtifactVersion{ID: versionID, LocalRelativePath: &relativePath, CreatedByActorID: "agent:primary"}, time.Unix(0, 0))
-	if err != nil || len(value.Versions) != 1 || value.CurrentVersion.ID != versionID {
-		t.Fatalf("artifact = %#v, %v", value, err)
-	}
-	loaded, err := database.ArtifactWithVersionsByID(ctx, artifactID)
-	if err != nil || len(loaded.Versions) != 1 {
-		t.Fatalf("loaded artifact = %#v, %v", loaded, err)
+	unknownAllowed, err := database.ArtifactOwnerAuthorized(ctx, ArtifactOwner{
+		ObjectType: "unknown", ObjectID: "object:unknown",
+	})
+	if err != nil || unknownAllowed {
+		t.Fatalf("unknown owner authorization = %t, %v", unknownAllowed, err)
 	}
 }
 
@@ -1359,8 +1365,8 @@ func TestRustStore_artifact_owner_authorization_is_human_scoped_and_fail_closed(
 func TestRustStore_task_artifact_access_uses_v3_workspace_membership(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
-	if err != nil {
+	taskID := "task:" + strings.Repeat("a", 32)
+	if _, err := database.CreateTask(ctx, taskID, "Artifact owner", "correlation:artifact-owner", time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
 	artifactID, err := NewArtifactID()
@@ -1371,14 +1377,27 @@ func TestRustStore_task_artifact_access_uses_v3_workspace_membership(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	relativePath := "artifacts/rust-store.txt"
-	value, err := database.CreateArtifact(ctx, Artifact{ID: artifactID, Owner: ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID}, Title: "Rust artifact", Kind: "document", StorageKind: ArtifactLocalFile, CreatedByActorID: "agent:primary"}, ArtifactVersion{ID: versionID, LocalRelativePath: &relativePath, CreatedByActorID: "agent:primary"}, time.Unix(0, 0))
-	if err != nil || len(value.Versions) != 1 || value.CurrentVersion.ID != versionID {
-		t.Fatalf("artifact = %#v, %v", value, err)
+	relativePath := "tasks/output.md"
+	mediaType := "text/markdown"
+	byteSize := int64(1)
+	created, err := database.CreateArtifact(ctx, Artifact{
+		ID: artifactID, Owner: ArtifactOwner{ObjectType: "task", ObjectID: taskID},
+		Title: "Task output", Kind: "document", StorageKind: ArtifactLocalFile,
+		CreatedByActorID: "actor:system",
+	}, ArtifactVersion{
+		ID: versionID, LocalRelativePath: &relativePath, MediaType: &mediaType,
+		ByteSize: &byteSize, CreatedByActorID: "actor:system",
+	}, time.Unix(0, 0))
+	if err != nil {
+		t.Fatalf("create task artifact: %v", err)
 	}
-	loaded, err := database.ArtifactWithVersionsByID(ctx, artifactID)
-	if err != nil || len(loaded.Versions) != 1 {
-		t.Fatalf("loaded artifact = %#v, %v", loaded, err)
+	allowed, err := database.ArtifactOwnerAuthorized(ctx, created.Artifact.Owner)
+	if err != nil || !allowed {
+		t.Fatalf("task owner authorization for local human = %t, %v", allowed, err)
+	}
+	owner, version, found, err := database.AuthorizedLocalArtifactVersion(ctx, versionID)
+	if err != nil || !found || owner.ID != artifactID || version.ID != versionID || version.LocalRelativePath == nil || *version.LocalRelativePath != relativePath {
+		t.Fatalf("authorized task artifact version = %#v %#v %t, %v", owner, version, found, err)
 	}
 }
 
@@ -1386,26 +1405,66 @@ func TestRustStore_task_artifact_access_uses_v3_workspace_membership(t *testing.
 func TestRustStore_task_artifact_connection_is_owner_scoped_paginated_and_current_version_hydrated(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
-	if err != nil {
+	taskID := "task:" + strings.Repeat("b", 32)
+	if _, err := database.CreateTask(ctx, taskID, "Artifact connection owner", "correlation:artifact-connection", time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
-	artifactID, err := NewArtifactID()
+	type artifactFixture struct {
+		id, versionID, title, path string
+	}
+	fixtures := []artifactFixture{
+		{id: "artifact:" + strings.Repeat("a", 32), versionID: "artifact_version:" + strings.Repeat("a", 32), title: "Artifact a", path: "tasks/a.md"},
+		{id: "artifact:" + strings.Repeat("b", 32), versionID: "artifact_version:" + strings.Repeat("b", 32), title: "Artifact b", path: "tasks/b.md"},
+	}
+	for _, fixture := range fixtures {
+		path := fixture.path
+		mediaType := "text/markdown"
+		byteSize := int64(1)
+		if _, err := database.CreateArtifact(ctx, Artifact{
+			ID: fixture.id, Owner: ArtifactOwner{ObjectType: "task", ObjectID: taskID},
+			Title: fixture.title, Kind: "document", StorageKind: ArtifactLocalFile,
+			CreatedByActorID: "actor:system",
+		}, ArtifactVersion{
+			ID: fixture.versionID, LocalRelativePath: &path, MediaType: &mediaType,
+			ByteSize: &byteSize, CreatedByActorID: "actor:system",
+		}, time.Unix(0, 0)); err != nil {
+			t.Fatalf("create %s: %v", fixture.id, err)
+		}
+	}
+	currentPath := "tasks/a-current.md"
+	currentTitle := "Current"
+	mediaType := "text/markdown"
+	byteSize := int64(1)
+	appended, err := database.AppendArtifactVersion(ctx, fixtures[0].id, ArtifactVersion{
+		ID: "artifact_version:" + strings.Repeat("c", 32), Title: &currentTitle,
+		LocalRelativePath: &currentPath, MediaType: &mediaType, ByteSize: &byteSize,
+		CreatedByActorID: "actor:system", Index: 2,
+	}, time.Unix(1, 0))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("append current version: %v", err)
 	}
-	versionID, err := NewArtifactVersionID()
-	if err != nil {
-		t.Fatal(err)
+	owner := ArtifactOwner{ObjectType: "task", ObjectID: taskID}
+	listed, err := database.ArtifactsForOwner(ctx, owner, 2)
+	if err != nil || len(listed) != 2 {
+		t.Fatalf("owner artifact page = %#v, %v", listed, err)
 	}
-	relativePath := "artifacts/rust-store.txt"
-	value, err := database.CreateArtifact(ctx, Artifact{ID: artifactID, Owner: ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID}, Title: "Rust artifact", Kind: "document", StorageKind: ArtifactLocalFile, CreatedByActorID: "agent:primary"}, ArtifactVersion{ID: versionID, LocalRelativePath: &relativePath, CreatedByActorID: "agent:primary"}, time.Unix(0, 0))
-	if err != nil || len(value.Versions) != 1 || value.CurrentVersion.ID != versionID {
-		t.Fatalf("artifact = %#v, %v", value, err)
+	if listed[0].Artifact.Owner != owner || listed[1].Artifact.Owner != owner {
+		t.Fatalf("artifact owners = %#v %#v, want %#v", listed[0].Artifact.Owner, listed[1].Artifact.Owner, owner)
 	}
-	loaded, err := database.ArtifactWithVersionsByID(ctx, artifactID)
-	if err != nil || len(loaded.Versions) != 1 {
-		t.Fatalf("loaded artifact = %#v, %v", loaded, err)
+	page, err := database.ArtifactsForOwner(ctx, owner, 1)
+	if err != nil || len(page) != 1 {
+		t.Fatalf("bounded artifact page = %#v, %v", page, err)
+	}
+	var currentA ArtifactWithVersions
+	for _, value := range listed {
+		if value.Artifact.ID == fixtures[0].id {
+			currentA = value
+		}
+	}
+	if currentA.Artifact.ID != fixtures[0].id || currentA.Artifact.Owner.ObjectType != "task" || currentA.Artifact.Owner.ObjectID != taskID ||
+		currentA.CurrentVersion.ID != appended.ID || len(currentA.Versions) != 2 || currentA.CurrentVersion.Title == nil || *currentA.CurrentVersion.Title != currentTitle ||
+		currentA.CurrentVersion.LocalRelativePath == nil || *currentA.CurrentVersion.LocalRelativePath != currentPath {
+		t.Fatalf("hydrated current Artifact = %#v, want version %s", currentA, appended.ID)
 	}
 }
 
