@@ -53,6 +53,11 @@ func (s *Store) EnsurePrimaryConversation(
 	}
 	cwd = strings.TrimSpace(cwd)
 	now = now.UTC()
+	var conversationCWD *string
+	if cwd != "" {
+		conversationCWD = &cwd
+	}
+	draft := NewLocalConversationForProvider(providerKind, nil, conversationCWD)
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return Conversation{}, fmt.Errorf("begin primary conversation: %w", err)
@@ -76,8 +81,8 @@ func (s *Store) EnsurePrimaryConversation(
 	}
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO conversations (
-    conversation_id, owner_human_id, provider, cwd, created_at_ms, updated_at_ms
-) VALUES (?, 'human:local', ?, ?, ?, ?)`, id, providerKind, storedCWD, millis(now), millis(now)); err != nil {
+		conversation_id, owner_human_id, provider, cwd, created_at_ms, updated_at_ms
+) VALUES (?, ?, ?, ?, ?, ?)`, id, draft.Owner.HumanID, draft.Provider, storedCWD, millis(now), millis(now)); err != nil {
 		return Conversation{}, fmt.Errorf("create primary conversation: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -85,7 +90,7 @@ UPDATE local_human_state SET primary_conversation_id = ? WHERE state_id = 1`, id
 		return Conversation{}, fmt.Errorf("select primary conversation: %w", err)
 	}
 	conversation, err := commitConversation(tx, Conversation{
-		ID: id, Provider: providerKind, CWD: cwd, CreatedAt: now, UpdatedAt: now,
+		ID: id, Provider: draft.Provider, CWD: cwd, CreatedAt: now, UpdatedAt: now,
 	})
 	if err == nil {
 		s.NotifyWork()

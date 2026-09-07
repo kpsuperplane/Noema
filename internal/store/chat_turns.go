@@ -39,6 +39,7 @@ const (
 	ConversationMultipleChoiceSelection ConversationItemKind = "multiple_choice_selection"
 	ConversationA2UICard                ConversationItemKind = "a2ui_card"
 	ConversationApprovalRequest         ConversationItemKind = "approval_request"
+	ConversationApprovalResult          ConversationItemKind = "approval_result"
 	ConversationErrorNotice             ConversationItemKind = "error_notice"
 	ConversationArtifactReference       ConversationItemKind = "artifact_reference"
 	ConversationTaskReference           ConversationItemKind = "task_reference"
@@ -267,10 +268,7 @@ func (s *Store) SetConversationAgentStatus(
 	status string,
 	now time.Time,
 ) error {
-	switch status {
-	case "idle", "input_received", "thinking", "tool_running",
-		"waiting_for_previous_turn_completion", "interrupting", "error":
-	default:
+	if _, err := ParseAgentStatus(status); err != nil {
 		return errors.New("conversation agent status is invalid")
 	}
 	result, err := s.db.ExecContext(ctx, `
