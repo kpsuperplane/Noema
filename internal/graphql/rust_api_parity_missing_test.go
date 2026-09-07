@@ -15,11 +15,13 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -721,6 +723,7 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var requireAuth atomic.Bool
 	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
 	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "search", Description: "Search documents",
 		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
@@ -728,7 +731,40 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 		func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, map[string]any, error) {
 			return nil, map[string]any{"ok": true}, nil
 		})
-	remoteServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	mcpHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil)
+	var remoteURL string
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/.well-known/oauth-protected-resource":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"resource": remoteURL + "/mcp", "authorization_servers": []string{remoteURL}})
+		case "/.well-known/oauth-authorization-server":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer": remoteURL, "authorization_endpoint": remoteURL + "/authorize", "token_endpoint": remoteURL + "/token",
+				"jwks_uri": remoteURL + "/.well-known/jwks.json", "response_types_supported": []string{"code"},
+				"grant_types_supported":            []string{"authorization_code", "refresh_token"},
+				"code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_post"},
+			})
+		case "/token":
+			if err := request.ParseForm(); err != nil || request.Form.Get("code") == "" || request.Form.Get("client_id") != "mcp-client" || request.Form.Get("client_secret") != "mcp-secret" {
+				http.Error(w, "invalid token request", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "mcp-access", "refresh_token": "mcp-refresh", "token_type": "Bearer", "expires_in": 3600})
+		case "/mcp":
+			if requireAuth.Load() && request.Header.Get("Authorization") != "Bearer mcp-access" {
+				w.Header().Set("WWW-Authenticate", "Bearer resource_metadata="+remoteURL+"/.well-known/oauth-protected-resource")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			mcpHandler.ServeHTTP(w, request)
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	remoteURL = remoteServer.URL
 	t.Cleanup(remoteServer.Close)
 	service, err := mcp.NewService(paths, resolver.Store, false, nil, "http://localhost/mcp/oauth/callback")
 	if err != nil {
@@ -753,7 +789,7 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	setup, err := service.Create(context.Background(), mcp.SetupInput{DisplayName: "Docs", TransportKind: "streamable_http",
-		URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
+		URL: remoteServer.URL + "/mcp", AuthPreference: "USE_ANONYMOUS", Secrets: mcp.SecretMaterial{Client: &mcp.OAuthClient{ClientID: "mcp-client", ClientSecret: "mcp-secret"}}})
 	if err != nil || setup.Server == nil {
 		t.Fatalf("MCP OAuth server setup = %#v, %v", setup, err)
 	}
@@ -793,19 +829,21 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attemptID := "mcp_oauth:" + strings.Repeat("a", 32)
-	now := time.Now()
-	if err := resolver.Store.CreateMCPOAuthAttempt(context.Background(), store.MCPOAuthAttempt{ID: attemptID,
-		OwnerHumanID: "human:local", ServerID: setup.Server.ID, ExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now}); err != nil {
+	requireAuth.Store(true)
+	attempt, err := service.StartOAuthReauthentication(context.Background(), "human:local", setup.Server.ID, "http://localhost/mcp/oauth/callback")
+	if err != nil || attempt.ID == "" || attempt.AuthorizationURL == "" {
+		t.Fatalf("MCP OAuth reauthentication = %#v, %v", attempt, err)
+	}
+	if _, err := resolver.Store.BeginMCPAuthentication(context.Background(), request.ID, request.Revision, "human:local", attempt.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolver.Store.BeginMCPAuthentication(context.Background(), request.ID, request.Revision, "human:local", attemptID, now); err != nil {
-		t.Fatal(err)
+	authorization, err := url.Parse(attempt.AuthorizationURL)
+	if err != nil || authorization.Query().Get("state") == "" {
+		t.Fatalf("MCP OAuth authorization URL = %q, %v", attempt.AuthorizationURL, err)
 	}
-	// Completion is read from the durable attempt row before the runtime drains
-	// the exact request attached to that attempt.
-	if err := resolver.Store.FinishMCPOAuthAttempt(context.Background(), attemptID, "completed", "", setup.Server.ID, time.Now()); err != nil {
-		t.Fatal(err)
+	callback := "http://localhost/mcp/oauth/callback?attemptId=" + url.QueryEscape(attempt.ID) + "&code=oauth-code&state=" + url.QueryEscape(authorization.Query().Get("state"))
+	if err := service.CompleteOAuth(context.Background(), attempt.ID, callback); err != nil {
+		t.Fatalf("MCP OAuth callback completion = %v", err)
 	}
 	// The callback validator is the durable route boundary used before an
 	// attempt can bind to a runtime authentication request.
@@ -818,8 +856,8 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	}, RedirectURI: "http://127.0.0.1:4444/mcp/oauth/callback"}); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("mismatched MCP OAuth setup = %v", err)
 	}
-	completed, err := service.Attempt(context.Background(), attemptID, "human:local")
-	if err != nil || completed.ID != attemptID || completed.Status != "completed" {
+	completed, err := service.Attempt(context.Background(), attempt.ID, "human:local")
+	if err != nil || completed.ID != attempt.ID || completed.Status != "completed" {
 		t.Fatalf("MCP OAuth durable completion = %#v, %v", completed, err)
 	}
 	if _, err := resolver.Store.FinishMCPAuthRequest(ctx, request.ID, request.Revision, "superseded", "oauth_attempt_superseded", time.Now()); err != nil {
