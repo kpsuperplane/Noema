@@ -13,18 +13,14 @@ import (
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
-func rustBoolPointer(value bool) *bool { return &value }
-
 // Rust source: crates/noema-capabilities/src/integration.rs::classification_fills_only_missing_hints_and_defaults_fail_closed.
 func TestRustCapabilities_classification_fills_only_missing_hints_and_defaults_fail_closed(t *testing.T) {
-	policyReadOnly, policyDestructive, policyIdempotent, policyOpenWorld := true, false, false, true
+	policyReadOnly, policyDestructive := true, false
 	policy := store.MCPTool{
 		ID:          "tool",
 		ReadOnly:    store.MCPHint{Value: &policyReadOnly, Source: "annotation"},
-		Idempotent:  store.MCPHint{Value: &policyIdempotent, Source: "safe_default"},
 		Destructive: store.MCPHint{Value: &policyDestructive, Source: "annotation"},
-		OpenWorld:   store.MCPHint{Value: &policyOpenWorld, Source: "safe_default"},
-		Status:      "defaulted", PolicyRevision: 1, SourceRevision: "revision",
+		Status:      "pending", PolicyRevision: 1, SourceRevision: "revision",
 	}
 	completion, completionErr := noemamcp.ParseToolClassificationResponse(
 		`{"idempotent":true,"openWorld":false}`,
@@ -77,7 +73,7 @@ func TestRustCapabilities_classification_fills_only_missing_hints_and_defaults_f
 	tool := store.MCPTool{ID: "mcp_tool:" + strings.Repeat("4", 32), ServerID: serverID, Name: "read", Description: "Read documents.",
 		InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: json.RawMessage(`{"readOnlyHint":true,"destructiveHint":false}`), SourceRevision: strings.Repeat("a", 64),
 		ReadOnly: store.MCPHint{Value: &readOnly, Source: "annotation"}, Destructive: store.MCPHint{Value: &destructive, Source: "annotation"},
-		Idempotent: store.MCPHint{Value: rustBoolPointer(false), Source: "safe_default"}, OpenWorld: store.MCPHint{Value: rustBoolPointer(true), Source: "safe_default"},
+		Idempotent: store.MCPHint{}, OpenWorld: store.MCPHint{},
 		Status: "defaulted", PolicyRevision: 1}
 	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID,
 		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat("4", 32), AuthStatus: "none", Tools: []store.MCPTool{tool}}, time.Now().UTC())
@@ -95,27 +91,21 @@ func TestRustCapabilities_classification_fills_only_missing_hints_and_defaults_f
 		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: mcpClassificationTool,
 			Payload: json.RawMessage(`{"read_only":true,"idempotent":true,"destructive":false,"open_world":false}`)}}}, nil
 	})
-	mcpService.SetToolClassifier(chat.MCPToolClassifier())
-
-	var classified store.MCPTool
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for {
-		tools, loadErr := database.MCPTools(t.Context(), server.ID)
-		if loadErr != nil {
-			t.Fatal(loadErr)
-		}
-		if len(tools) == 1 && tools[0].Status == "ready" {
-			classified = tools[0]
-			break
-		}
-		select {
-		case <-ticker.C:
-		case <-deadline.C:
-			t.Fatalf("classification did not complete: %#v", tools)
-		}
+	tools, err := database.MCPTools(t.Context(), server.ID)
+	if err != nil || len(tools) != 1 {
+		t.Fatalf("pending classification tool = %#v, %v", tools, err)
+	}
+	behavior, err := chat.MCPToolClassifier()(t.Context(), tools[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	classified, err := mcpService.ClassifyToolResponse(t.Context(), server.ID, server.ConnectionRevision, tools[0].ID, tools[0].SourceRevision, tools[0].PolicyRevision,
+		`{"idempotent":true,"openWorld":false}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if behavior != [4]bool{true, true, false, false} {
+		t.Fatalf("classifier behavior = %#v", behavior)
 	}
 	if classified.ReadOnly.Source != "annotation" || classified.ReadOnly.Value == nil || !*classified.ReadOnly.Value ||
 		classified.Idempotent.Source != "model" || classified.Idempotent.Value == nil || !*classified.Idempotent.Value ||

@@ -155,7 +155,7 @@ func (router *CapabilityRegistryRouter) dispatch(ctx context.Context, snapshot B
 	if binding.ReviewRoute != "" && authorization == nil {
 		return CapabilityDispatch{}, capabilityFailure(ErrCapabilityDenied, binding, arguments)
 	}
-	if binding.ReviewRoute != "" && binding.ServerID == "" {
+	if binding.ReviewRoute != "" && binding.Destination == nil {
 		return CapabilityDispatch{}, capabilityFailure(ErrCapabilityDenied, binding, arguments)
 	}
 	if authorization != nil && !authorization.MatchesArguments(arguments) {

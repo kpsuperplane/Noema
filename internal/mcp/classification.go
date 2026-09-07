@@ -41,10 +41,10 @@ func ParseToolClassificationResponse(raw string, tool store.MCPTool) (ToolHintCo
 		return ToolHintCompletion{}, errors.Join(ErrToolClassificationJSON, err)
 	}
 	expected := [4]bool{
-		tool.ReadOnly.Source == "safe_default",
-		tool.Idempotent.Source == "safe_default",
-		tool.Destructive.Source == "safe_default",
-		tool.OpenWorld.Source == "safe_default",
+		tool.ReadOnly.Value == nil,
+		tool.Idempotent.Value == nil,
+		tool.Destructive.Value == nil,
+		tool.OpenWorld.Value == nil,
 	}
 	actual := [4]bool{
 		completion.ReadOnly != nil,
@@ -62,7 +62,7 @@ func ParseToolClassificationResponse(raw string, tool store.MCPTool) (ToolHintCo
 // source-owned annotations.
 func ApplyToolClassification(tool store.MCPTool, completion ToolHintCompletion) store.MCPTool {
 	apply := func(hint *store.MCPHint, value *bool) {
-		if hint.Source == "safe_default" && value != nil {
+		if hint.Value == nil && value != nil {
 			copy := *value
 			hint.Value, hint.Source = &copy, "model"
 		}

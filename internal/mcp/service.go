@@ -77,7 +77,8 @@ type Binding struct {
 	InputSchema                                         json.RawMessage
 	Behavior                                            store.ActionBehavior
 	ReviewRoute                                         store.ActionReviewRoute
-	PersistencePolicy                                   BindingPersistencePolicy `json:"persistence_policy,omitempty"`
+	Destination                                         *store.CapabilityDestination `json:",omitempty"`
+	PersistencePolicy                                   BindingPersistencePolicy     `json:"persistence_policy,omitempty"`
 }
 
 // GoString preserves the Rust authority names in diagnostic formatting used
@@ -544,11 +545,18 @@ func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
 			if description == "" {
 				description = "MCP tool"
 			}
+			destination, destinationErr := store.NewCapabilityDestination(
+				"mcp", server.ID, nil, server.ConnectionRevision,
+			)
+			if destinationErr != nil {
+				return BindingCatalogResult{}, ErrInvalidBindingSource
+			}
 			binding := Binding{Name: "mcp." + server.ID + "." + tool.Name, Description: description,
 				ServerID: server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
 				ConnectionRevision: server.ConnectionRevision, ServerPolicyRevision: server.PolicyRevision,
 				ToolPolicyRevision: tool.PolicyRevision, InputSchema: append(json.RawMessage(nil), tool.InputSchema...),
 				Behavior: behavior, ReviewRoute: route, InvokerKey: "mcp", OperationToken: tool.Name,
+				Destination:       &destination,
 				PersistencePolicy: BindingPersistenceRedacted}
 			if err := builder.Add(binding); err != nil {
 				return BindingCatalogResult{}, ErrInvalidBindingSource
@@ -967,7 +975,17 @@ func sameBindingAuthority(left, right Binding) bool {
 		left.ServerPolicyRevision == right.ServerPolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision &&
 		left.InvokerKey == right.InvokerKey && left.OperationToken == right.OperationToken &&
 		left.PersistencePolicy == right.PersistencePolicy && left.Behavior == right.Behavior &&
-		left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
+		left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema) &&
+		sameCapabilityDestination(left.Destination, right.Destination)
+}
+
+func sameCapabilityDestination(left, right *store.CapabilityDestination) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.ServiceID == right.ServiceID && left.ConnectionID == right.ConnectionID && left.Revision == right.Revision &&
+		(left.AccountID == nil && right.AccountID == nil || left.AccountID != nil && right.AccountID != nil && *left.AccountID == *right.AccountID) &&
+		(left.AuthenticationRevision == nil && right.AuthenticationRevision == nil || left.AuthenticationRevision != nil && right.AuthenticationRevision != nil && *left.AuthenticationRevision == *right.AuthenticationRevision)
 }
 func emptyNil(value string) any {
 	if value == "" {

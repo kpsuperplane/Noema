@@ -42,7 +42,11 @@ func (invoker *rustCapabilityTokenCheckingInvoker) Invoke(_ context.Context, inv
 	return CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}, nil
 }
 
-func rustCapabilityRawDigest(raw json.RawMessage) string {
+func rustCapabilityRawDigest(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
 	digest := sha256.Sum256(raw)
 	return hex.EncodeToString(digest[:])
 }
@@ -123,33 +127,77 @@ func TestRustCapabilities_strict_resolution_rejects_unknown_and_forwards_exact_t
 // Rust source: crates/noema-capabilities/src/router.rs::reviewed_decision_requires_explicit_reviewed_dispatch.
 func TestRustCapabilities_reviewed_decision_requires_explicit_reviewed_dispatch(t *testing.T) {
 	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
-	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "reviewer_may_approve", invoker)
+	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: invoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := store.NewCapabilityDestination("mcp", "mcp:docs", nil, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := Binding{
+		Name: "mcp.docs.write", Description: "Write docs.", ServerID: "mcp:docs", ToolID: "mcp_tool:write",
+		SourceRevision: "source:write", ConnectionRevision: "connection:docs", ServerPolicyRevision: 1, ToolPolicyRevision: 1,
+		InvokerKey: "mcp", OperationToken: "reviewed:write", InputSchema: json.RawMessage(`{"type":"object"}`),
+		Behavior:    store.ActionBehavior{ReadOnly: false, RepeatSafe: false, Destructive: true, OpenWorld: true},
+		ReviewRoute: store.ActionLLMReview, Destination: &destination, PersistencePolicy: BindingPersistenceOmitted,
+	}
+	snapshot := rustCapabilityRouterSnapshot(t, binding)
 	arguments := json.RawMessage(`{"body":"exact"}`)
-	if _, _, err := service.Call(t.Context(), binding, arguments); !errors.Is(err, ErrDenied) || len(invoker.invocations) != 0 {
-		t.Fatalf("ordinary reviewed dispatch = %v, invocations=%d", err, len(invoker.invocations))
+	_, denied := router.Dispatch(t.Context(), snapshot, binding.Name, arguments)
+	if !errors.Is(denied.Error, ErrCapabilityDenied) || len(invoker.invocations) != 0 {
+		t.Fatalf("ordinary reviewed dispatch = %v, invocations=%d", denied.Error, len(invoker.invocations))
 	}
 	wrong := ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(json.RawMessage(`{"body":"forged"}`))}
-	if _, _, err := service.CallReviewed(t.Context(), binding, arguments, wrong); !errors.Is(err, ErrDenied) || len(invoker.invocations) != 0 {
-		t.Fatalf("forged reviewed authorization = %v, invocations=%d", err, len(invoker.invocations))
+	_, forged := router.DispatchReviewed(t.Context(), snapshot, binding.Name, arguments, wrong)
+	if !errors.Is(forged.Error, ErrCapabilityDenied) || len(invoker.invocations) != 0 {
+		t.Fatalf("forged reviewed authorization = %v, invocations=%d", forged.Error, len(invoker.invocations))
+	}
+	missingDestination := binding
+	missingDestination.Destination = nil
+	missingSnapshot := rustCapabilityRouterSnapshot(t, missingDestination)
+	_, missing := router.DispatchReviewed(t.Context(), missingSnapshot, binding.Name, arguments, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(arguments)})
+	if !errors.Is(missing.Error, ErrCapabilityDenied) || len(invoker.invocations) != 0 {
+		t.Fatalf("reviewed dispatch without destination = %v, invocations=%d", missing.Error, len(invoker.invocations))
 	}
 	authorization := ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(arguments)}
-	payload, success, err := service.CallReviewed(t.Context(), binding, arguments, authorization)
-	if err != nil || !success || len(invoker.invocations) != 1 {
-		t.Fatalf("reviewed dispatch = %s, %v, %v", payload, success, err)
+	dispatch, failure := router.DispatchReviewed(t.Context(), snapshot, binding.Name, arguments, authorization)
+	if failure.Error != nil || !dispatch.Output.Success || len(invoker.invocations) != 1 {
+		t.Fatalf("reviewed dispatch = %#v, %#v", dispatch, failure)
 	}
 	received := invoker.invocations[0]
 	if received.ReviewedAuthorization == nil || received.ReviewedAuthorization.ActionID != "action:test" || received.ReviewedAuthorization.Revision != 1 || received.ReviewedAuthorization.ArgumentsSHA256 != authorization.ArgumentsSHA256 {
 		t.Fatalf("reviewed authorization lost at invoker boundary = %#v", received.ReviewedAuthorization)
+	}
+	if binding.ServerID != "mcp:docs" || binding.ToolID != "mcp_tool:write" || binding.SourceRevision != "source:write" || binding.ConnectionRevision != "connection:docs" || binding.ServerPolicyRevision != 1 || binding.ToolPolicyRevision != 1 || binding.Destination == nil || binding.Destination.ServiceID != "mcp" || binding.Destination.ConnectionID != "mcp:docs" || binding.Destination.Revision != "1" {
+		t.Fatalf("reviewed destination authority = %#v", binding)
 	}
 }
 
 // Rust source: crates/noema-capabilities/src/router.rs::immediate_external_tool_reaches_the_invoker.
 func TestRustCapabilities_immediate_external_tool_reaches_the_invoker(t *testing.T) {
 	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
-	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
-	payload, success, err := service.Call(t.Context(), binding, json.RawMessage(`{"body":"exact"}`))
-	if err != nil || !success || string(payload) != `{"ok":true}` || len(invoker.invocations) != 1 {
-		t.Fatalf("safe external tool dispatch = %s, %v, %v", payload, success, err)
+	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: invoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := store.NewCapabilityDestination("mcp", "mcp:docs", nil, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := Binding{
+		Name: "mcp.docs.write", Description: "Write docs.", ServerID: "mcp:docs", ToolID: "mcp_tool:write",
+		SourceRevision: "source:write", ConnectionRevision: "connection:docs", ServerPolicyRevision: 1, ToolPolicyRevision: 1,
+		InvokerKey: "mcp", OperationToken: "reviewed:write", InputSchema: json.RawMessage(`{"type":"object"}`),
+		Behavior:    store.ActionBehavior{ReadOnly: false, RepeatSafe: false, Destructive: false, OpenWorld: false},
+		Destination: &destination, PersistencePolicy: BindingPersistenceOmitted,
+	}
+	dispatch, failure := router.Dispatch(t.Context(), rustCapabilityRouterSnapshot(t, binding), binding.Name, json.RawMessage(`{"body":"exact"}`))
+	if failure.Error != nil || !dispatch.Output.Success || !reflect.DeepEqual(dispatch.Output.Payload, map[string]any{"ok": true}) || len(invoker.invocations) != 1 {
+		t.Fatalf("safe external tool dispatch = %#v, %#v", dispatch, failure)
+	}
+	if binding.ServerID != "mcp:docs" || binding.ToolID != "mcp_tool:write" || binding.SourceRevision != "source:write" || binding.ConnectionRevision != "connection:docs" || binding.ServerPolicyRevision != 1 || binding.ToolPolicyRevision != 1 || binding.Destination == nil || binding.Destination.ServiceID != "mcp" || binding.Destination.ConnectionID != "mcp:docs" || binding.Destination.Revision != "1" {
+		t.Fatalf("immediate destination authority = %#v", binding)
 	}
 }
 
@@ -165,24 +213,40 @@ func TestRustCapabilities_source_input_check_protects_immediate_and_reviewed_dis
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
-			service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`, test.unsafePolicy, invoker)
-			valid := json.RawMessage(`{"value":"ok"}`)
-			invalid := json.RawMessage(`{"value":7}`)
-			var validPayload, invalidPayload json.RawMessage
-			var validSuccess, invalidSuccess bool
-			var validErr, invalidErr error
+			router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "checked", Invoker: invoker})
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding := Binding{
+				Name: "checked.call", Description: "Checked call.", InvokerKey: "checked", OperationToken: "checked",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`),
+				Behavior:    store.ActionBehavior{ReadOnly: true, RepeatSafe: true}, PersistencePolicy: BindingPersistenceRedacted,
+			}
 			if test.reviewed {
-				validPayload, validSuccess, validErr = service.CallReviewed(t.Context(), binding, valid, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(valid)})
-				invalidPayload, invalidSuccess, invalidErr = service.CallReviewed(t.Context(), binding, invalid, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(invalid)})
+				destination, destinationErr := store.NewCapabilityDestination("test", "checked", nil, "1")
+				if destinationErr != nil {
+					t.Fatal(destinationErr)
+				}
+				binding.ReviewRoute = store.ActionLLMReview
+				binding.Destination = &destination
+			}
+			snapshot := rustCapabilityRouterSnapshot(t, binding)
+			valid := map[string]any{"value": "ok"}
+			invalid := map[string]any{"value": 7}
+			var validDispatch, invalidDispatch CapabilityDispatch
+			var validFailure, invalidFailure CapabilityDispatchFailure
+			if test.reviewed {
+				validDispatch, validFailure = router.DispatchReviewed(t.Context(), snapshot, binding.Name, valid, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(valid)})
+				invalidDispatch, invalidFailure = router.DispatchReviewed(t.Context(), snapshot, binding.Name, invalid, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(invalid)})
 			} else {
-				validPayload, validSuccess, validErr = service.Call(t.Context(), binding, valid)
-				invalidPayload, invalidSuccess, invalidErr = service.Call(t.Context(), binding, invalid)
+				validDispatch, validFailure = router.Dispatch(t.Context(), snapshot, binding.Name, valid)
+				invalidDispatch, invalidFailure = router.Dispatch(t.Context(), snapshot, binding.Name, invalid)
 			}
-			if validErr != nil || !validSuccess || len(validPayload) == 0 {
-				t.Fatalf("valid source dispatch = %s, %t, %v", validPayload, validSuccess, validErr)
+			if validFailure.Error != nil || !validDispatch.Output.Success || len(invoker.invocations) != 1 {
+				t.Fatalf("valid source dispatch = %#v, %#v", validDispatch, validFailure)
 			}
-			if invalidPayload != nil || invalidSuccess || !errors.Is(invalidErr, ErrInvalidArguments) || len(invoker.invocations) != 1 {
-				t.Fatalf("invalid source dispatch = %s, %t, %v, invocations=%d", invalidPayload, invalidSuccess, invalidErr, len(invoker.invocations))
+			if invalidDispatch.Output.Payload != nil || invalidFailure.Error == nil || !errors.Is(invalidFailure.Error, ErrCapabilityInvalidArguments) || len(invoker.invocations) != 1 {
+				t.Fatalf("invalid source dispatch = %#v, %#v, invocations=%d", invalidDispatch, invalidFailure, len(invoker.invocations))
 			}
 		})
 	}
