@@ -877,26 +877,24 @@ func rustAPIPortRuntimeDebugSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	round, inputTokens := 1, 21
+	inputTokens, outputTokens, totalTokens := 120, 40, 160
 	spanID, err := resolver.Store.BeginRuntimeDebugSpan(ctx,
 		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "provider", "Provider request",
-		store.RuntimeDebugMetadata{Provider: "openai", Model: "gpt-test", Phase: "continuation",
-			RoundIndex: &round, InputTokens: &inputTokens}, started.Add(10*time.Millisecond))
+		store.RuntimeDebugMetadata{}, started)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = resolver.Store.FinishRuntimeDebugSpan(ctx, spanID, "completed",
-		store.RuntimeDebugMetadata{Provider: "openai", Model: "gpt-test", Phase: "continuation",
-			RoundIndex: &round, InputTokens: &inputTokens}, 30*time.Millisecond, started.Add(40*time.Millisecond)); err != nil {
+		store.RuntimeDebugMetadata{Provider: "codex", Model: "gpt-5.6", Phase: "finalization",
+			InputTokens: &inputTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens}, 65272*time.Millisecond, started.Add(65272*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = resolver.Store.FailConversationTurn(ctx, turn, "Test failure.", started.Add(100*time.Millisecond)); err != nil {
+	if _, err = resolver.Store.CompleteConversationTurn(ctx, turn, "Done", "Done", nil, started.Add(65272*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
 	profileResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
   runtimeDebugProfile(input: { kind: CONVERSATION_TURN, scopeId: %q }) {
-    status accountedMilliseconds uninstrumentedMilliseconds
-    spans { durationMilliseconds startOffsetMilliseconds provider inputTokens }
+    status spans { name durationMilliseconds provider phase totalTokens }
   }
 }`, turn.ID), nil)
 	if len(profileResponse.Errors) != 0 {
@@ -905,11 +903,8 @@ func rustAPIPortRuntimeDebugSchema(t *testing.T) {
 	profile := profileResponse.Data["runtimeDebugProfile"].(map[string]any)
 	spans := profile["spans"].([]any)
 	span := spans[0].(map[string]any)
-	if span["durationMilliseconds"] != float64(30) || span["startOffsetMilliseconds"] != float64(10) || span["provider"] != "openai" || span["inputTokens"] != float64(21) {
+	if span["name"] != "Provider request" || span["durationMilliseconds"] != float64(65272) || span["provider"] != "codex" || span["phase"] != "finalization" || span["totalTokens"] != float64(160) {
 		t.Fatalf("span = %#v", span)
-	}
-	if profile["accountedMilliseconds"] != float64(30) || profile["uninstrumentedMilliseconds"] != float64(70) {
-		t.Fatalf("profile timing = %#v", profile)
 	}
 	missingResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query {
   runtimeDebugProfile(input: { kind: CONVERSATION_TURN, scopeId: "turn:00000000000000000000000000000000" }) { status }
@@ -917,31 +912,62 @@ func rustAPIPortRuntimeDebugSchema(t *testing.T) {
 	if len(missingResponse.Errors) != 0 || missingResponse.Data["runtimeDebugProfile"] != nil {
 		t.Fatalf("unowned profile = %#v", missingResponse)
 	}
-	ended := started.Add(50 * time.Millisecond)
-	runningStarted := started.Add(20 * time.Millisecond)
-	persistenceStarted := started.Add(40 * time.Millisecond)
-	persistenceEnded := started.Add(80 * time.Millisecond)
-	persistenceDuration := int64(40)
-	projected := runtimeDebugProfileModel(&store.RuntimeDebugProfile{
-		Scope: store.RuntimeDebugScope{Kind: "task_run", ID: "run:test"}, Status: "failed",
-		StartedAt: started, EndedAt: &ended, Spans: []store.RuntimeDebugSpan{
-			{ID: "debug_span:test", Category: "runtime", Name: "Work", Status: "running", StartedAt: runningStarted},
-			{ID: "debug_span:persistence", Category: "persistence", Name: "Save", Status: "completed",
-				StartedAt: persistenceStarted, EndedAt: &persistenceEnded, DurationMilliseconds: &persistenceDuration},
-		},
-	}, ended)
-	if projected.Kind != model.RuntimeDebugScopeKindTaskRun || projected.Spans[0].Status != model.RuntimeDebugStatusInterrupted ||
-		projected.ElapsedMilliseconds != 80 || projected.AccountedMilliseconds != 60 || projected.UninstrumentedMilliseconds != 20 ||
-		projected.EndedAt == nil || *projected.EndedAt != debugTime(persistenceEnded) {
-		t.Fatalf("terminal projection = %#v", projected)
+	legacy, _, err := resolver.Store.BeginConversationTurn(ctx, conversation.ID, "Legacy turn.", nil, started.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.CompleteConversationTurn(ctx, legacy, "Done", "Done", nil, started.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	legacyResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  runtimeDebugProfile(input: { kind: CONVERSATION_TURN, scopeId: %q }) { status }
+}`, legacy.ID), nil)
+	if len(legacyResponse.Errors) != 0 || legacyResponse.Data["runtimeDebugProfile"] != nil {
+		t.Fatalf("legacy completed-turn profile = %#v", legacyResponse)
 	}
 }
 
 func rustAPIPortAgentPreference(t *testing.T) {
 	t.Helper()
-	resolver := readyAgentTestResolver(t)
+	resolver := openProviderTestResolver(t)
 	ctx := context.Background()
+	secret, err := provider.NewSecret("agent-profile-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := resolver.ProviderAccounts.PublishVerifiedSecret(ctx, "provider_account:openrouter:default", 0,
+		provider.AuthSecretInput, secret, []provider.ModelProfile{{ID: "openai/gpt-5.6-luna", Label: "GPT-5.6 Luna",
+			ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignments := make([]store.ModelAssignment, 0, len(store.HostedModelRoles()))
+	for _, role := range store.HostedModelRoles() {
+		assignments = append(assignments, store.ModelAssignment{Role: role, ProviderKind: "openrouter",
+			ProviderAccountID: account.ID, SelectionMode: store.ModelSelectionNoemaRecommended})
+	}
+	if created, err := resolver.Store.ConfirmHostedModelAssignments(ctx, account.ID, assignments); err != nil || !created {
+		t.Fatalf("agent provider assignments = %t, %v", created, err)
+	}
 	profile := "openai/gpt-5.6-luna"
+	options := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query {
+  agents { modelOptions { profiles { id reasoningEfforts defaultReasoningEffort } recommendations { useCase modelProfile reasoningEffort disabledReason } } }
+}`, nil)
+	if len(options.Errors) != 0 {
+		t.Fatalf("Agent options errors = %#v", options.Errors)
+	}
+	var selected map[string]any
+	for _, raw := range options.Data["agents"].([]any)[0].(map[string]any)["modelOptions"].([]any) {
+		for _, profileValue := range raw.(map[string]any)["profiles"].([]any) {
+			candidate := profileValue.(map[string]any)
+			if candidate["id"] == profile {
+				selected = candidate
+			}
+		}
+	}
+	if selected == nil || fmt.Sprintf("%v", selected["reasoningEfforts"]) != "[LOW MEDIUM HIGH]" || selected["defaultReasoningEffort"] != "MEDIUM" {
+		t.Fatalf("Agent reasoning profile = %#v", selected)
+	}
 	missingEffort := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
   saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, fastMode: false }) {
     modelProfile reasoningEffort
@@ -974,6 +1000,12 @@ func rustAPIPortAgentPreference(t *testing.T) {
 	if recommendedValue["modelProfile"] != nil || recommendedValue["reasoningEffort"] != nil || recommendedValue["selectionMode"] != "NOEMA_RECOMMENDED" {
 		t.Fatalf("recommended Agent preference = %#v", recommendedValue)
 	}
+	invalidRecommended := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: NOEMA_RECOMMENDED, modelProfile: %q, fastMode: false }) { selectionMode }
+}`, store.PrimaryAgentID, profile), nil)
+	if len(invalidRecommended.Errors) != 1 || !strings.Contains(invalidRecommended.Errors[0].Message, "does not accept") {
+		t.Fatalf("invalid recommended Agent preference = %#v", invalidRecommended)
+	}
 	taskPreference := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
   saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, reasoningEffort: HIGH, fastMode: false }) { providerKind }
 }`, store.TaskExecutorAgentID, profile), nil)
@@ -988,14 +1020,14 @@ func rustAPIPortACPSetup(t *testing.T) {
 	ctx := context.Background()
 	createdResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation {
   createAcpAgent(input: { displayName: "Codex ACP", command: "/usr/bin/codex", arguments: ["--acp"] }) {
-    agentId connectionRevision healthStatus authStatus arguments enabled
+    agentId displayName command connectionRevision healthStatus authStatus capabilities arguments enabled
   }
 }`, nil)
 	if len(createdResponse.Errors) != 0 {
 		t.Fatalf("created ACP agent errors = %#v", createdResponse.Errors)
 	}
 	created, ok := createdResponse.Data["createAcpAgent"].(map[string]any)
-	if !ok || created["connectionRevision"] != float64(1) || created["healthStatus"] != "UNKNOWN" || created["authStatus"] != "UNKNOWN" || created["arguments"].([]any)[0] != "--acp" {
+	if !ok || created["agentId"] == nil || created["displayName"] != "Codex ACP" || created["command"] != "/usr/bin/codex" || created["connectionRevision"] != float64(1) || created["healthStatus"] != "UNKNOWN" || created["authStatus"] != "UNKNOWN" || created["arguments"].([]any)[0] != "--acp" || created["capabilities"] == nil || strings.Contains(fmt.Sprintf("%#v", createdResponse.Data), "credential") {
 		t.Fatalf("created ACP agent = %#v", createdResponse.Data)
 	}
 	agentID := created["agentId"].(string)
