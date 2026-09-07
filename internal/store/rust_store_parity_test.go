@@ -3565,25 +3565,31 @@ WHERE notification_kind = 'task_completed' AND json_extract(payload_json, '$.tas
 func TestRustStore_task_summary_does_not_read_task_files(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	task, err := database.CreateTask(ctx, id, "Summary without files", "correlation:task-summary", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	root := rustStoreTaskHome(t, task.ID, "captured description")
+	if err := os.Remove(filepath.Join(root.Name(), "tasks", strings.TrimPrefix(task.ID, "task:"), "TASK.md")); err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	stored, err := database.Task(ctx, task.ID)
+	if err != nil || stored.Title != "Summary without files" {
+		t.Fatalf("task summary state = %#v, %v", stored, err)
+	}
+	preview := ""
+	if value, readErr := home.ReadTaskFile(root, task.ID, "TASK.md"); readErr == nil {
+		preview = value
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("read missing Task document = %v", readErr)
+	}
+	if preview != "" {
+		t.Fatalf("missing Task document preview = %q", preview)
 	}
 }
 
@@ -3591,25 +3597,41 @@ func TestRustStore_task_summary_does_not_read_task_files(t *testing.T) {
 func TestRustStore_event_pagination_rejects_malformed_rows_in_both_directions(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
-	id, err := NewTaskID()
+	now := time.Unix(1700000000, 0).UTC()
+	firstID, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	if _, err := database.CreateTask(ctx, firstID, "First event", "correlation:event:first", now); err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	if _, err := database.CreateTask(ctx, secondID, "Second event", "correlation:event:second", now.Add(time.Second)); err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	events, err := database.WorkEvents(ctx, "workspace:personal", 0, 1)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("oldest event page = %#v, %v", events, err)
+	}
+	all, err := database.WorkEvents(ctx, "workspace:personal", 0, 100)
+	if err != nil || len(all) < 2 || events[0].ID >= all[len(all)-1].ID {
+		t.Fatalf("event order = %#v, %v", all, err)
+	}
+	newest, err := database.WorkEvents(ctx, "workspace:personal", events[0].ID, 1)
+	if err != nil || len(newest) != 1 {
+		t.Fatalf("newest event page = %#v, %v", newest, err)
+	}
+	if _, err := database.db.ExecContext(ctx, "UPDATE work_events SET payload_json = '{}'", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.WorkEvents(ctx, "workspace:personal", 0, 1); err == nil {
+		t.Errorf("oldest page accepted a malformed persisted event payload")
+	}
+	if _, err := database.WorkEvents(ctx, "workspace:personal", events[0].ID, 1); err == nil {
+		t.Errorf("newest page accepted a malformed persisted event payload")
 	}
 }
 
@@ -3617,25 +3639,79 @@ func TestRustStore_event_pagination_rejects_malformed_rows_in_both_directions(t 
 func TestRustStore_task_notification_suppresses_near_term_same_task_references(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
-	id, err := NewTaskID()
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Capture the task.", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	if err := database.CancelConversationTurn(ctx, turn, now); err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	chatID, err := NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatResult, err := database.CreateTaskWithOptions(ctx, chatID, "Chat task", testTaskCommand("notification-chat"), TaskCreateOptions{
+		Source: ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID}, SourceToolCallID: "tool_call:notification-chat",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatEvent, err := database.LatestTaskWorkEvent(ctx, chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.CommitPrimaryNotification(ctx, PrimaryNotificationWrite{
+		Event: chatEvent, Conversation: conversation, Source: "work_notification", Task: &chatResult.Task,
+		Metadata: map[string]any{"notification_kind": "task_created"},
+	}, now)
+	if err != nil || len(items) != 1 || items[0].Kind != ConversationTaskReference || items[0].TurnID != turn.ID {
+		t.Fatalf("chat creation notification = %#v, %v", items, err)
+	}
+	intervening, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Intervening message.", nil, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CancelConversationTurn(ctx, intervening, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	started, err := database.StartTask(ctx, chatID, "run:notification", now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedEvent, err := database.LatestTaskWorkEvent(ctx, chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = database.CommitPrimaryNotification(ctx, PrimaryNotificationWrite{
+		Event: startedEvent, Conversation: conversation, Source: "work_notification", Text: "Task waiting again.", Task: &started,
+		Metadata: map[string]any{"notification_kind": "task_waiting"},
+	}, now.Add(2*time.Second))
+	if err != nil || len(items) != 1 || items[0].Kind != ConversationAssistantText {
+		t.Errorf("near-term waiting notification = %#v, %v", items, err)
+	}
+	workID, err := NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workTask, err := database.CreateTask(ctx, workID, "Work UI task", "correlation:notification:work-ui", now.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workEvent, err := database.LatestTaskWorkEvent(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = database.CommitPrimaryNotification(ctx, PrimaryNotificationWrite{
+		Event: workEvent, Conversation: conversation, Source: "work_notification", Text: "Another task completed.", Task: &workTask,
+		Metadata: map[string]any{"notification_kind": "task_completed"},
+	}, now.Add(3*time.Second))
+	if err != nil || len(items) != 2 || items[0].Kind != ConversationAssistantText || items[1].Kind != ConversationTaskReference {
+		t.Fatalf("distant completion notification = %#v, %v", items, err)
 	}
 }
 
@@ -3643,25 +3719,36 @@ func TestRustStore_task_notification_suppresses_near_term_same_task_references(t
 func TestRustStore_receipt_replay_is_exact_and_divergent_replay_is_rejected(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
+	now := time.Unix(1700000000, 0).UTC()
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	command := testTaskCommand("receipt-capture")
+	command.Name, command.ClientMutationID, command.CorrelationID = "task.capture", "idem:capture", "correlation:idem:capture"
+	first, err := database.CreateTaskWithOptions(ctx, id, "first title", command, TaskCreateOptions{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	returned := first.Task
+	replay, err := database.CreateTaskWithOptions(ctx, id, "first title", command, TaskCreateOptions{}, now)
+	if err != nil || !replay.Replayed || replay.Event.ID != first.Event.ID || replay.Task != returned {
+		t.Fatalf("exact receipt replay = %#v, %v", replay, err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	divergent := command
+	digest := sha256.Sum256([]byte("different title"))
+	divergent.RequestDigest = hex.EncodeToString(digest[:])
+	if _, err := database.CreateTaskWithOptions(ctx, id, "different title", divergent, TaskCreateOptions{}, now); !errors.Is(err, ErrCommandConflict) {
+		t.Fatalf("divergent receipt error = %v, want %v", err, ErrCommandConflict)
+	}
+	updatedTitle := "edited title"
+	updated, err := database.UpdateInboxTask(ctx, returned.ID, returned.Revision, returned.Generation,
+		TaskUpdate{Title: &updatedTitle}, testTaskLifecycleCommand("update_task", "idem:update"), now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returned.Title != "first title" || updated.Task.Title != "edited title" {
+		t.Fatalf("receipt snapshots mutated: returned=%#v updated=%#v", returned, updated.Task)
 	}
 }
 
@@ -3669,25 +3756,48 @@ func TestRustStore_receipt_replay_is_exact_and_divergent_replay_is_rejected(t *t
 func TestRustStore_inbox_document_save_is_exact_and_a_stale_digest_changes_nothing(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
+	now := time.Unix(1700000000, 0).UTC()
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	task, err := database.CreateTask(ctx, id, "Original title", "correlation:document-save", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	root := rustStoreTaskHome(t, task.ID, "captured description")
+	current, err := home.ReadTaskDocument(root, task.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	exact := "# Exact\n\n- [x] kept  \n\n```rust\nlet value = 1;\n```\n"
+	if err := home.WriteTaskFile(root, task.ID, "TASK.md", exact); err != nil {
+		t.Fatal(err)
+	}
+	updatedTitle := "Updated title"
+	updated, err := database.UpdateInboxTask(ctx, task.ID, task.Revision, task.Generation,
+		TaskUpdate{Title: &updatedTitle, DocumentDigest: current.Digest}, testTaskLifecycleCommand("update_task", "document-save:update"), now.Add(time.Second))
+	if err != nil || updated.Task.Title != "Updated title" {
+		t.Fatalf("exact document update = %#v, %v", updated, err)
+	}
+	if document, err := home.ReadTaskDocument(root, task.ID); err != nil || document.Content != exact {
+		t.Fatalf("saved Task document = %#v, %v", document, err)
+	}
+	if err := home.WriteTaskFile(root, task.ID, "TASK.md", "External change\n"); err != nil {
+		t.Fatal(err)
+	}
+	staleTitle := "Stale title"
+	stale, err := database.UpdateInboxTask(ctx, task.ID, updated.Task.Revision, updated.Task.Generation,
+		TaskUpdate{Title: &staleTitle, DocumentDigest: current.Digest}, testTaskLifecycleCommand("update_task", "document-save:stale"), now.Add(2*time.Second))
+	if err == nil {
+		t.Errorf("stale document digest was accepted with result %#v", stale)
+	}
+	after, readErr := database.Task(ctx, task.ID)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if after.Title != "Updated title" {
+		t.Errorf("stale document changed Task title to %q", after.Title)
 	}
 }
 
