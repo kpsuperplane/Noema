@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 // ErrGenerationRequestTooLarge means local replay exceeded a provider request bound.
@@ -127,7 +128,52 @@ const (
 
 // GenerationTool is one source model-visible function.
 type GenerationTool struct {
-	Name        string
-	Description string
-	InputSchema json.RawMessage
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
+}
+
+// Validate checks the provider-neutral tool contract before a provider maps it
+// into its own request format.
+func (tool GenerationTool) Validate() error {
+	if err := validateGenerationToolName(tool.Name); err != nil {
+		return err
+	}
+	if strings.TrimSpace(tool.Description) == "" {
+		return errors.New("tool description is required")
+	}
+	var schema map[string]any
+	if json.Unmarshal(tool.InputSchema, &schema) != nil || schema["type"] != "object" {
+		return errors.New("tool input schema root must be an object")
+	}
+	return nil
+}
+
+func validateGenerationToolName(name string) error {
+	if name == "" || strings.TrimSpace(name) != name {
+		return errors.New("tool name is invalid")
+	}
+	for _, character := range name {
+		if !((character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '_' || character == '-' || character == '.' || character == ':') {
+			return errors.New("tool name is invalid")
+		}
+	}
+	for _, segment := range strings.Split(name, ".") {
+		valid := false
+		for _, character := range segment {
+			if (character >= 'a' && character <= 'z') ||
+				(character >= 'A' && character <= 'Z') ||
+				(character >= '0' && character <= '9') {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return errors.New("tool name is invalid")
+		}
+	}
+	return nil
 }

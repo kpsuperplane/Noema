@@ -17,11 +17,11 @@ func TestRustCapabilities_accepts_public_url_without_resolving_dns(t *testing.T)
 	if url.Hostname() != "www.rust-lang.org" {
 		t.Errorf("public URL host = %q", url.Hostname())
 	}
-	normalized, err := observationURL(context.Background(), " HTTPS://1.1.1.1:443/a/../b?q=1#section ")
+	normalized, err := observationURL(context.Background(), " HTTPS://Example.COM:443/a/../b?q=1#section ")
 	if err != nil {
 		t.Fatalf("normalize URL: %v", err)
 	}
-	if normalized != "https://1.1.1.1/b?q=1" {
+	if normalized != "https://example.com/b?q=1" {
 		t.Errorf("normalized URL = %q", normalized)
 	}
 	if _, err := netpolicy.CheckURLTarget("https://user:secret@example.com/"); err == nil {

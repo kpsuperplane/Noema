@@ -71,11 +71,11 @@ func TestRustCapabilities_connection_declared_names_extend_exact_field_and_url_c
 		"authz":               true,
 		"x-custom-credential": true,
 	}
-	sanitized, ok := sanitizeSensitiveOutput(map[string]any{
+	sanitized, ok := sanitizeSensitiveOutputWithQueryNames(map[string]any{
 		"X-Custom-Credential":       "private",
 		"x_custom_credential_count": 2,
 		"url":                       "https://example.com/path?view=full&x-custom-credential=ordinary&authz=private#section",
-	}, sensitive, nil).(map[string]any)
+	}, sensitive, map[string]bool{"authz": true}, nil).(map[string]any)
 	if !ok {
 		t.Fatal("sanitized payload is not an object")
 	}

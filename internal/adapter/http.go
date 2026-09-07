@@ -25,10 +25,11 @@ var (
 )
 
 type encodedRequest struct {
-	method, rawURL string
-	headers        map[string]string
-	body           []byte
-	secretValues   []string
+	method, rawURL      string
+	headers             map[string]string
+	body                []byte
+	secretValues        []string
+	sensitiveQueryNames map[string]bool
 }
 
 // GoString keeps request-auth output useful while removing every reviewed
@@ -438,11 +439,11 @@ func decodeResponse(response httpResponse, contract Response) (any, error) {
 	return result, nil
 }
 
-func responseFailure(response httpResponse, sensitive map[string]bool, secretValues []string) json.RawMessage {
+func responseFailure(response httpResponse, sensitive, querySensitive map[string]bool, secretValues []string) json.RawMessage {
 	value := map[string]any{"error": "remote_request_failed", "status": response.status}
 	if len(response.body) != 0 && len(response.body) <= 4096 && (response.contentType == "application/json" || strings.HasSuffix(response.contentType, "+json")) {
 		if body, err := script.DecodeJSON(response.body); err == nil {
-			value["body"] = sanitizeSensitiveOutput(body, sensitive, secretValues)
+			value["body"] = sanitizeSensitiveOutputWithQueryNames(body, sensitive, querySensitive, secretValues)
 		}
 	}
 	raw, _ := json.Marshal(value)
@@ -450,6 +451,10 @@ func responseFailure(response httpResponse, sensitive map[string]bool, secretVal
 }
 
 func sanitizeSensitiveOutput(value any, sensitive map[string]bool, secretValues []string) any {
+	return sanitizeSensitiveOutputWithQueryNames(value, sensitive, sensitive, secretValues)
+}
+
+func sanitizeSensitiveOutputWithQueryNames(value any, sensitive, querySensitive map[string]bool, secretValues []string) any {
 	value = sanitizeOutput(value)
 	if len(sensitive) == 0 && len(secretValues) == 0 {
 		return value
@@ -476,18 +481,24 @@ func sanitizeSensitiveOutput(value any, sensitive map[string]bool, secretValues 
 					if parsed, err := url.Parse(text); err == nil {
 						query := parsed.Query()
 						for name := range query {
-							if sensitive[strings.ToLower(name)] {
+							if querySensitive[strings.ToLower(name)] {
 								query.Del(name)
 							}
 						}
 						parsed.RawQuery = query.Encode()
-						if fragment, err := url.ParseQuery(parsed.Fragment); err == nil {
-							for name := range fragment {
-								if sensitive[strings.ToLower(name)] {
-									fragment.Del(name)
-								}
+						if strings.Contains(parsed.Fragment, "=") {
+							fragment, err := url.ParseQuery(parsed.Fragment)
+							if err != nil {
+								fragment = nil
 							}
-							parsed.Fragment = fragment.Encode()
+							if fragment != nil {
+								for name := range fragment {
+									if querySensitive[strings.ToLower(name)] {
+										fragment.Del(name)
+									}
+								}
+								parsed.Fragment = fragment.Encode()
+							}
 						}
 						current[key] = parsed.String()
 					}

@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // MCPAuthRequest is one secret-free durable call authentication interruption.
@@ -33,6 +35,7 @@ func (s *Store) CreateMCPAuthRequest(ctx context.Context, value MCPAuthRequest, 
 	}
 	if value.OwnerHumanID != "human:local" || !json.Valid([]byte(value.BindingJSON)) || !json.Valid([]byte(value.ArgumentsJSON)) ||
 		(value.AuthorityKind != "mcp_server" && value.AuthorityKind != "adapter_connection" && value.AuthorityKind != "adapter_grant") || value.AuthorityID == "" ||
+		!validAuthorityIdentity(value.AuthorityID) ||
 		(value.AuthorityKind == "adapter_grant" && (value.AdapterConnectionID == "" || value.AdapterSemanticDigest == "" || value.AdapterAuthorityRevision < 1)) {
 		return MCPAuthRequest{}, ConversationItem{}, errors.New("MCP authentication request is invalid")
 	}
@@ -135,6 +138,12 @@ WHERE run_id=? AND task_id=? AND task_generation=? AND status='running'`, millis
 		return MCPAuthRequest{}, ConversationItem{}, err
 	}
 	return value, notice, nil
+}
+
+func validAuthorityIdentity(value string) bool {
+	return value != "" && strings.TrimSpace(value) == value && len([]rune(value)) <= 512 && strings.IndexFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}) < 0
 }
 
 func numberValue(value any) float64 { result, _ := value.(float64); return result }

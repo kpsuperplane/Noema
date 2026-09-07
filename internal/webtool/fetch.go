@@ -48,6 +48,110 @@ type fetchResponse struct {
 	FallbackReason  string   `json:"fallback_reason,omitempty"`
 }
 
+const (
+	redactedSensitiveURL = "[REDACTED_SENSITIVE_URL]"
+	rawMarkdownLimit     = 8_000
+	singlePassLimit      = 250_000
+	chunkedSummaryLimit  = 1_000_000
+	rawExcerptLimit      = 2_000
+)
+
+type fetchSummaryDecision string
+
+const (
+	fetchSummaryRaw     fetchSummaryDecision = "raw"
+	fetchSummarySingle  fetchSummaryDecision = "single_pass"
+	fetchSummaryChunked fetchSummaryDecision = "chunked"
+	fetchSummaryRefuse  fetchSummaryDecision = "refuse"
+)
+
+func summaryStrategyForChars(chars int) fetchSummaryDecision {
+	switch {
+	case chars <= rawMarkdownLimit:
+		return fetchSummaryRaw
+	case chars <= singlePassLimit:
+		return fetchSummarySingle
+	case chars <= chunkedSummaryLimit:
+		return fetchSummaryChunked
+	default:
+		return fetchSummaryRefuse
+	}
+}
+
+func rawExcerpt(markdown string) string {
+	runes := []rune(markdown)
+	if len(runes) > rawExcerptLimit {
+		runes = runes[:rawExcerptLimit]
+	}
+	return string(runes)
+}
+
+var fetchCredentialQueries = map[string]bool{
+	"access_token": true, "api_key": true, "apikey": true, "client_assertion": true,
+	"client_secret": true, "code_verifier": true, "device_code": true, "id_token": true,
+	"password": true, "refresh_token": true, "sig": true, "user_code": true,
+	"x-amz-security-token": true, "x-amz-signature": true, "x-goog-signature": true,
+}
+
+func sanitizePayloadForStorage(value any) any {
+	return sanitizeFetchValue(value)
+}
+
+func sanitizeFetchValue(value any) any {
+	switch current := value.(type) {
+	case map[string]any:
+		rejected := false
+		for _, key := range []string{"url", "final_url"} {
+			raw, ok := current[key].(string)
+			if !ok {
+				continue
+			}
+			clean, removed := sanitizeFetchURL(raw)
+			current[key], rejected = clean, rejected || removed
+		}
+		if rejected {
+			current["__noema_rejected_sensitive_url"] = true
+		}
+		for key, child := range current {
+			if key != "__noema_rejected_sensitive_url" {
+				current[key] = sanitizeFetchValue(child)
+			}
+		}
+	case []any:
+		for index, child := range current {
+			current[index] = sanitizeFetchValue(child)
+		}
+	}
+	return value
+}
+
+func sanitizeFetchURL(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == redactedSensitiveURL {
+		return redactedSensitiveURL, false
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return redactedSensitiveURL, true
+	}
+	removed := parsed.User != nil
+	parsed.User = nil
+	query := parsed.Query()
+	for name := range query {
+		if fetchCredentialQueries[strings.ToLower(name)] {
+			query.Del(name)
+			removed = true
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), removed
+}
+
+func sanitizedDisplayURL(raw string) string {
+	clean, _ := sanitizeFetchURL(raw)
+	return clean
+}
+
 func parseFetch(raw json.RawMessage) (fetchRequest, error) {
 	var input struct {
 		URL      string `json:"url"`
@@ -204,14 +308,15 @@ func (s *Service) extractedHTML(ctx context.Context, request fetchRequest, reque
 	if chars > 1_000_000 {
 		return fetchResponse{}, errors.New("web page is too large to summarize")
 	}
-	if chars <= 8_000 {
+	if summaryStrategyForChars(chars) == fetchSummaryRaw {
 		result.Content, result.Truncated = boundRunes(content, request.MaxChars)
 		result.ContentKind, result.SummaryStrategy = "raw_markdown", "not_summarized"
 	} else {
-		strategy := "single_pass"
-		if chars > 250_000 {
-			strategy = "chunked"
+		decision := summaryStrategyForChars(chars)
+		if decision == fetchSummaryRefuse {
+			return fetchResponse{}, errors.New("web page is too large to summarize")
 		}
+		strategy := string(decision)
 		summary, model, summaryErr := s.summarize(ctx, final, title, content, request.MaxChars, strategy)
 		if summaryErr != nil {
 			return fetchResponse{}, summaryErr

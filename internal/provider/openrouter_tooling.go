@@ -56,6 +56,9 @@ func prepareOpenRouterTools(
 	names := make([]string, len(tools))
 	groups := make(map[string][]int)
 	for index, tool := range tools {
+		if err := tool.Validate(); err != nil {
+			return openRouterToolNameMap{}, nil, err
+		}
 		if err := validateOpenRouterToolName(tool.Name); err != nil {
 			return openRouterToolNameMap{}, nil, err
 		}

@@ -1199,7 +1199,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		if (response.status >= 500 || response.status >= 300 && response.status < 400) && !current.Behavior.ReadOnly {
 			return nil, false, ErrOutcomeUncertain
 		}
-		return responseFailure(response, sensitive, secretValues), false, nil
+		return responseFailure(response, sensitive, request.sensitiveQueryNames, secretValues), false, nil
 	}
 	nextToken := ""
 	if operation.Pagination.Kind == "response_token" {
@@ -1245,7 +1245,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			}
 		}
 	}
-	payload, err := wrapResult(sanitizeSensitiveOutput(result, sensitive, secretValues))
+	payload, err := wrapResult(sanitizeSensitiveOutputWithQueryNames(result, sensitive, request.sensitiveQueryNames, secretValues))
 	return payload, err == nil, err
 }
 

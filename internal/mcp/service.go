@@ -650,7 +650,12 @@ func validateSetup(input SetupInput) error {
 
 func storedTools(serverID string, discovered []DiscoveredTool) ([]store.MCPTool, error) {
 	result := make([]store.MCPTool, 0, len(discovered))
+	seenNames := make(map[string]struct{}, len(discovered))
 	for _, source := range discovered {
+		if _, exists := seenNames[source.Name]; exists {
+			return nil, errors.New("MCP tool catalog contains duplicate names")
+		}
+		seenNames[source.Name] = struct{}{}
 		id, err := newPrefixedID("mcp_tool:")
 		if err != nil {
 			return nil, err

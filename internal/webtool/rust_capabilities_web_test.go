@@ -10,7 +10,7 @@ import (
 
 // Rust source: crates/noema-capabilities/src/web/browse.rs::parsers_enforce_operation_specific_arguments.
 func TestRustCapabilities_parsers_enforce_operation_specific_arguments(t *testing.T) {
-	if _, _, _, err := parseBrowserArguments(context.Background(), BrowseOpenName, json.RawMessage(`{"url":" https://1.1.1.1 "}`)); err != nil {
+	if _, _, _, err := parseBrowserArguments(context.Background(), BrowseOpenName, json.RawMessage(`{"url":" https://example.com "}`)); err != nil {
 		t.Errorf("open arguments: %v", err)
 	}
 	assertBrowserError := func(raw string, want string) {
@@ -47,14 +47,14 @@ func TestRustCapabilities_parsers_enforce_operation_specific_arguments(t *testin
 	assertWaitError(`{"condition":{"text":"ready","ref":"e1"}}`, "arguments do not match the web browse schema")
 	assertWaitError(`{"timeout_ms":5000}`, "arguments do not match the web browse schema")
 	assertWaitError(`{"condition":{"text":"`+strings.Repeat("x", 501)+`"}}`, "wait text is too long")
-	_, revision, _, err := parseBrowserArguments(context.Background(), BrowseSwitchName, json.RawMessage(`{"snapshot_revision":4,"url":" https://1.1.1.1/start "}`))
+	_, revision, _, err := parseBrowserArguments(context.Background(), BrowseSwitchName, json.RawMessage(`{"snapshot_revision":4,"url":" https://example.com/start "}`))
 	if err != nil {
 		t.Fatalf("provider switch: %v", err)
 	}
 	if revision != 4 {
 		t.Errorf("provider switch revision = %d, want 4", revision)
 	}
-	_, revision, _, err = parseBrowserArguments(context.Background(), BrowseSwitchName, json.RawMessage(`{"url":"https://1.1.1.1/start"}`))
+	_, revision, _, err = parseBrowserArguments(context.Background(), BrowseSwitchName, json.RawMessage(`{"url":"https://example.com/start"}`))
 	if err != nil {
 		t.Fatalf("provider switch without revision: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestRustCapabilities_exact_tool_spec_snapshot_is_stable(t *testing.T) {
 
 // Rust source: crates/noema-capabilities/src/web/fetch.rs::parser_error_does_not_echo_secret_values.
 func TestRustCapabilities_parser_error_does_not_echo_secret_values(t *testing.T) {
-	_, err := parseFetch(json.RawMessage(`{"url":"https://1.1.1.1","max_chars":"secret-value-that-must-not-leak"}`))
+	_, err := parseFetch(json.RawMessage(`{"url":"https://example.com","max_chars":"secret-value-that-must-not-leak"}`))
 	if err == nil {
 		t.Fatal("wrong max_chars type was accepted")
 	}
@@ -110,11 +110,11 @@ func TestRustCapabilities_parser_error_does_not_echo_secret_values(t *testing.T)
 
 // Rust source: crates/noema-capabilities/src/web/fetch.rs::parser_normalizes_nested_arguments_and_enforces_bounds.
 func TestRustCapabilities_parser_normalizes_nested_arguments_and_enforces_bounds(t *testing.T) {
-	parsed, err := parseFetch(json.RawMessage(`{"arguments":{"url":"  https://1.1.1.1/page  ","reason":"  source  ","max_chars":1}}`))
+	parsed, err := parseFetch(json.RawMessage(`{"arguments":{"url":"  https://example.com/page  ","reason":"  source  ","max_chars":1}}`))
 	if err != nil {
 		t.Fatalf("nested fetch arguments: %v", err)
 	}
-	want := fetchRequest{URL: "https://1.1.1.1/page", Reason: "source", MaxChars: 1000}
+	want := fetchRequest{URL: "https://example.com/page", Reason: "source", MaxChars: 1000}
 	if !reflect.DeepEqual(parsed, want) {
 		t.Errorf("nested fetch = %#v, want %#v", parsed, want)
 	}
@@ -126,14 +126,14 @@ func TestRustCapabilities_parser_normalizes_nested_arguments_and_enforces_bounds
 			t.Errorf("invalid fetch arguments were accepted: %s", raw)
 		}
 	}
-	defaulted, err := parseFetch(json.RawMessage(`{"url":"https://1.1.1.1"}`))
+	defaulted, err := parseFetch(json.RawMessage(`{"url":"https://example.com"}`))
 	if err != nil {
 		t.Fatalf("default fetch arguments: %v", err)
 	}
 	if defaulted.MaxChars != 20_000 {
 		t.Errorf("default max chars = %d", defaulted.MaxChars)
 	}
-	_, err = parseFetch(json.RawMessage(`{"arguments":{"url":"https://1.1.1.1"},"operation_token":"forged"}`))
+	_, err = parseFetch(json.RawMessage(`{"arguments":{"url":"https://example.com"},"operation_token":"forged"}`))
 	if err == nil || err.Error() != "nested arguments payload cannot include outer fields" {
 		t.Errorf("outer authority error = %v", err)
 	}
@@ -175,7 +175,7 @@ func TestRustCapabilities_web_search_parser_normalizes_nested_arguments_and_enfo
 		t.Errorf("nested search = %#v, want %#v", parsed, want)
 	}
 	empty, err := parseSearch(json.RawMessage(`{"query":"  "}`))
-	if err == nil || err.Error() != "web.search query is invalid" || empty.Query != "" {
+	if err == nil || err.Error() != "query is required" || empty.Query != "" {
 		t.Errorf("empty query = %#v, %v", empty, err)
 	}
 	defaulted, err := parseSearch(json.RawMessage(`{"query":"rust"}`))

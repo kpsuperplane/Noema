@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,14 +46,98 @@ func CheckURLTarget(raw string) (*url.URL, error) {
 	if parsed.User != nil {
 		return nil, errors.New("public URL credentials are unavailable")
 	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	parsed.Host = normalizedHost(parsed, host)
+	parsed.Path = normalizedPath(parsed.Path)
 	if blockedHostname(host) {
 		return nil, errors.New("public URL target is blocked")
 	}
-	if address, parseErr := netip.ParseAddr(host); parseErr == nil && !IsPublic(address) {
+	address, parseErr := netip.ParseAddr(host)
+	isLiteral := parseErr == nil
+	if !isLiteral {
+		address, isLiteral = parseIPv4Literal(host)
+	}
+	if isLiteral && !IsPublic(address) {
 		return nil, errors.New("public URL target is blocked")
 	}
 	return parsed, nil
+}
+
+func normalizedHost(parsed *url.URL, host string) string {
+	port := parsed.Port()
+	if (parsed.Scheme == "http" && port == "80") || (parsed.Scheme == "https" && port == "443") {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return host
+}
+
+func normalizedPath(value string) string {
+	if value == "" {
+		return ""
+	}
+	clean := path.Clean(value)
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(clean, "/") {
+		clean = "/" + clean
+	}
+	if strings.HasSuffix(value, "/") && clean != "/" && !strings.HasSuffix(clean, "/") {
+		clean += "/"
+	}
+	return clean
+}
+
+func parseIPv4Literal(host string) (netip.Addr, bool) {
+	parts := strings.Split(host, ".")
+	if len(parts) == 0 || len(parts) > 4 {
+		return netip.Addr{}, false
+	}
+	values := make([]uint64, len(parts))
+	for index, part := range parts {
+		if part == "" {
+			return netip.Addr{}, false
+		}
+		base := 10
+		text := part
+		if strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X") {
+			base, text = 16, text[2:]
+		} else if len(text) > 1 && text[0] == '0' {
+			base = 8
+		}
+		value, err := strconv.ParseUint(text, base, 32)
+		if err != nil {
+			return netip.Addr{}, false
+		}
+		values[index] = value
+	}
+	var number uint64
+	switch len(values) {
+	case 1:
+		number = values[0]
+	case 2:
+		if values[0] > 0xff || values[1] > 0xffffff {
+			return netip.Addr{}, false
+		}
+		number = values[0]<<24 | values[1]
+	case 3:
+		if values[0] > 0xff || values[1] > 0xff || values[2] > 0xffff {
+			return netip.Addr{}, false
+		}
+		number = values[0]<<24 | values[1]<<16 | values[2]
+	case 4:
+		for _, value := range values {
+			if value > 0xff {
+				return netip.Addr{}, false
+			}
+		}
+		number = values[0]<<24 | values[1]<<16 | values[2]<<8 | values[3]
+	}
+	return netip.AddrFrom4([4]byte{byte(number >> 24), byte(number >> 16), byte(number >> 8), byte(number)}), true
 }
 
 // ResolvePublic returns all resolved addresses only when each one is public.

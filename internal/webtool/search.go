@@ -63,8 +63,11 @@ func parseSearch(raw json.RawMessage) (searchRequest, error) {
 	}
 	request.Query = strings.TrimSpace(request.Query)
 	request.Reason = strings.TrimSpace(request.Reason)
-	if request.Query == "" || utf8.RuneCountInString(request.Query) > 500 {
-		return request, errors.New("web.search query is invalid")
+	if request.Query == "" {
+		return request, errors.New("query is required")
+	}
+	if utf8.RuneCountInString(request.Query) > 500 {
+		return request, errors.New("query is too long")
 	}
 	if utf8.RuneCountInString(request.Reason) > 500 {
 		return request, errors.New("web.search reason is invalid")

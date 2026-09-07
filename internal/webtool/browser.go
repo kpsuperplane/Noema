@@ -695,6 +695,9 @@ func (s *Service) executeBrowserProvider(ctx context.Context, session *browserSe
 func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage) (map[string]any, uint64, string, error) {
 	var object map[string]json.RawMessage
 	if err := decodeExact(raw, &object); err != nil {
+		if name == BrowseWaitName && err.Error() == "arguments do not match the web tool schema" {
+			return nil, 0, "", browserArgumentsError(name)
+		}
 		return nil, 0, "", err
 	}
 	var allowed map[string]bool
@@ -724,17 +727,17 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 	}
 	for key := range object {
 		if !allowed[key] {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 	}
 	for _, key := range required {
 		if _, ok := object[key]; !ok {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 	}
 	var values map[string]any
 	if json.Unmarshal(raw, &values) != nil {
-		return nil, 0, "", errors.New("arguments do not match the web tool schema")
+		return nil, 0, "", browserArgumentsError(name)
 	}
 	if nested, ok := values["arguments"].(map[string]any); ok {
 		values = nested
@@ -742,7 +745,7 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 	stringValue := func(key string, max int) (string, error) {
 		value, ok := values[key].(string)
 		if !ok || !utf8.ValidString(value) || len([]rune(value)) > max {
-			return "", errors.New("arguments do not match the web tool schema")
+			return "", browserArgumentsError(name)
 		}
 		return value, nil
 	}
@@ -750,7 +753,7 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 	if rawRevision, ok := values["snapshot_revision"]; ok {
 		number, ok := rawRevision.(float64)
 		if !ok || number < 1 || number != float64(uint64(number)) {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 		revision = uint64(number)
 	}
@@ -769,11 +772,11 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 	if reason, ok := values["reason"]; ok {
 		value, valid := reason.(string)
 		if !valid || len([]rune(value)) > 500 {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 	}
 	if wait, ok := values["wait_until"]; ok && wait != "load" && wait != "domcontentloaded" && wait != "networkidle0" {
-		return nil, 0, "", errors.New("arguments do not match the web tool schema")
+		return nil, 0, "", browserArgumentsError(name)
 	}
 	if name == BrowseOpenName {
 		if _, ok := values["wait_until"]; !ok {
@@ -781,7 +784,7 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 		}
 	}
 	if max, ok := integer(values["max_chars"]); values["max_chars"] != nil && (!ok || max < 1000 || max > 20000) {
-		return nil, 0, "", errors.New("arguments do not match the web tool schema")
+		return nil, 0, "", browserArgumentsError(name)
 	}
 	if name == BrowseSnapshotName {
 		if _, ok := values["max_chars"]; !ok {
@@ -791,24 +794,33 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 	if name == BrowseInteractName {
 		ref, err := stringValue("ref", 32)
 		if err != nil || strings.TrimSpace(ref) == "" {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 		action, err := stringValue("action", 20)
 		if err != nil || !oneOf(action, "click", "fill", "type", "press_key", "select_option", "upload_file") {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 		value, has := values["value"].(string)
-		if values["value"] != nil && (!has || len([]rune(value)) > 4096) || action != "click" && action != "upload_file" && (!has || value == "") || (action == "click" || action == "upload_file") && has {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+		if values["value"] != nil && (!has || len([]rune(value)) > 4096) {
+			return nil, 0, "", browserArgumentsError(name)
+		}
+		if action != "click" && action != "upload_file" && (!has || value == "") {
+			return nil, 0, "", errors.New("value is required for this interaction")
+		}
+		if (action == "click" || action == "upload_file") && has {
+			return nil, 0, "", browserArgumentsError(name)
 		}
 		artifactID, hasArtifact := values["artifact_id"].(string)
 		versionID, hasVersion := values["artifact_version_id"].(string)
 		if values["artifact_id"] != nil && (!hasArtifact || strings.TrimSpace(artifactID) == "" || len(artifactID) > 200) ||
 			values["artifact_version_id"] != nil && (!hasVersion || strings.TrimSpace(versionID) == "" || len(versionID) > 200) {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
-		if action == "upload_file" && (!hasArtifact || !hasVersion) || action != "upload_file" && (hasArtifact || hasVersion) {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+		if action == "upload_file" && (!hasArtifact || !hasVersion) {
+			return nil, 0, "", errors.New("artifact_id and artifact_version_id are required for file upload")
+		}
+		if action != "upload_file" && (hasArtifact || hasVersion) {
+			return nil, 0, "", browserArgumentsError(name)
 		}
 		if hasArtifact {
 			values["artifact_id"] = strings.TrimSpace(artifactID)
@@ -818,27 +830,37 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 	if name == BrowseHistoryName {
 		action, err := stringValue("action", 10)
 		if err != nil || !oneOf(action, "back", "forward", "reload") {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 	}
 	if name == BrowseWaitName {
 		condition, ok := values["condition"].(map[string]any)
 		if !ok || len(condition) != 1 {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 		text, hasText := condition["text"].(string)
 		ref, hasRef := condition["ref"].(string)
-		if hasText == hasRef || hasText && (strings.TrimSpace(text) == "" || len([]rune(text)) > 500) || hasRef && (strings.TrimSpace(ref) == "" || len([]rune(ref)) > 32) {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+		if hasText == hasRef || hasText && strings.TrimSpace(text) == "" || hasRef && strings.TrimSpace(ref) == "" || hasRef && len([]rune(ref)) > 32 {
+			return nil, 0, "", browserArgumentsError(name)
+		}
+		if hasText && len([]rune(text)) > 500 {
+			return nil, 0, "", errors.New("wait text is too long")
 		}
 		if timeout, ok := integer(values["timeout_ms"]); values["timeout_ms"] != nil && (!ok || timeout < 1 || timeout > 10000) {
-			return nil, 0, "", errors.New("arguments do not match the web tool schema")
+			return nil, 0, "", browserArgumentsError(name)
 		}
 		if _, ok := values["timeout_ms"]; !ok {
 			values["timeout_ms"] = float64(5000)
 		}
 	}
 	return values, revision, target, nil
+}
+
+func browserArgumentsError(name string) error {
+	if name == BrowseWaitName {
+		return errors.New("arguments do not match the web browse schema")
+	}
+	return errors.New("arguments do not match the web tool schema")
 }
 
 func validateBrowserSnapshot(ctx context.Context, snapshot *browseSnapshot) error {

@@ -119,6 +119,9 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 	if err != nil || !ok || len(object) > 2 {
 		return nil, nil, errors.New("adapter request authentication failed")
 	}
+	if request.sensitiveQueryNames == nil {
+		request.sensitiveQueryNames = map[string]bool{}
+	}
 	sensitive := map[string]bool{}
 	secretValues := []string{}
 	seenValues := map[string]bool{}
@@ -153,6 +156,7 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 			return errors.New("adapter credential query is invalid")
 		}
 		query.Add(name, value)
+		request.sensitiveQueryNames[strings.ToLower(name)] = true
 		sensitive[strings.ToLower(name)] = true
 		rememberValue(value)
 		return nil
