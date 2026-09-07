@@ -314,7 +314,7 @@ func attribute(node *html.Node, key string) string {
 	return ""
 }
 
-func normalizeText(value string) string { return strings.Join(strings.Fields(value), " ") }
+func normalizeText(value string) string { return provider.NormalizeWebText(value) }
 func stringValue(value map[string]any, key string) string {
 	result, _ := value[key].(string)
 	return result

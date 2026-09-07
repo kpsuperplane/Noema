@@ -38,6 +38,7 @@ type ProviderTransportError struct {
 	Provider  string
 	Operation string
 	Message   string
+	Cause     error
 }
 
 func (e ProviderTransportError) Error() string {
@@ -46,8 +47,10 @@ func (e ProviderTransportError) Error() string {
 
 func (e ProviderTransportError) GoString() string { return e.Error() }
 
+func (e ProviderTransportError) Unwrap() error { return e.Cause }
+
 func providerTransportError(provider, operation string) error {
-	return ProviderTransportError{Provider: provider, Operation: operation, Message: "connection failed"}
+	return ProviderTransportError{Provider: provider, Operation: operation, Message: "connection failed", Cause: ErrProviderUnavailable}
 }
 
 // foundationBridgeProcess is the line-oriented Foundation host boundary.
@@ -1485,9 +1488,10 @@ func (selection ProviderSelection) normalizedForPersistence() (ProviderSelection
 }
 
 type providerTrackedProvider struct {
-	label string
-	drops *int
-	mu    *sync.Mutex
+	label     string
+	generator Generator
+	drops     *int
+	mu        *sync.Mutex
 }
 
 type providerRegistry struct {

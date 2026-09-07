@@ -49,24 +49,29 @@ func (r *Resolver) createProviderAccount(
 	if r.ProviderAccounts == nil || input.AuthMethod != model.ProviderAuthMethodSecretInput {
 		return nil, provider.ErrAuthMethodMismatch
 	}
-	secret, err := provider.NewSecret(input.Secret)
-	if err != nil {
-		return nil, err
-	}
-	var account provider.Account
+	var (
+		account provider.Account
+		err     error
+	)
 	if input.ProviderKind == "openrouter" {
+		secret, secretErr := provider.NewSecret(input.Secret)
+		if secretErr != nil {
+			return nil, secretErr
+		}
 		if r.OpenRouter == nil {
 			return nil, errors.New("OpenRouter onboarding is unavailable")
 		}
 		account, err = r.OpenRouter.CreateAPIKeyAccount(ctx, secret)
 	} else {
-		displayName := ""
+		var displayName *string
 		if input.DisplayName != nil {
-			displayName = *input.DisplayName
+			displayName = input.DisplayName
 		}
-		account, err = r.ProviderAccounts.CreateSecretAccount(
-			ctx, input.ProviderKind, displayName, secret, time.Now(),
-		)
+		request, requestErr := provider.NewCreateSecretProviderAccountRequest(input.ProviderKind, displayName, input.Secret)
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		account, err = r.ProviderAccounts.CreateSecretAccountRequest(ctx, request, time.Now())
 	}
 	if err != nil {
 		return nil, err
@@ -81,11 +86,11 @@ func (r *Resolver) saveProviderSecret(
 	if r.ProviderAccounts == nil {
 		return nil, errors.New("provider account service is unavailable")
 	}
-	secret, err := provider.NewSecret(input.Secret)
+	request, err := provider.NewSaveProviderAccountSecretRequest(input.ProviderAccountID, input.Secret)
 	if err != nil {
 		return nil, err
 	}
-	account, err := r.ProviderAccounts.SaveSecret(ctx, input.ProviderAccountID, secret, time.Now())
+	account, err := r.ProviderAccounts.SaveSecretRequest(ctx, request, time.Now())
 	if err != nil {
 		return nil, err
 	}

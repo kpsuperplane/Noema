@@ -3177,7 +3177,6 @@ func TestRustProviders_ProductionTransportOwnsEndpointRedactionAndTimeout(t *tes
 	}
 }
 
-// Rust source: crates/noema-providers/src/adapters/web/fetch/direct_http.rs::fetches_html_and_extracts_markdown (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func parityWebOneShot(t *testing.T, status int, contentType string, body []byte) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3189,6 +3188,7 @@ func parityWebOneShot(t *testing.T, status int, contentType string, body []byte)
 	return server.URL + "/"
 }
 
+// Rust source: crates/noema-providers/src/adapters/web/fetch/direct_http.rs::fetches_html_and_extracts_markdown (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_FetchesHtmlAndExtractsMarkdown(t *testing.T) {
 	body := []byte("<html><head><title>Rust</title></head><body><article><h1>Rust</h1><p>Fast and reliable systems programming for everyone.</p><p>It helps teams build dependable software with confidence.</p><a href='https://example.com/docs#part'>Documentation</a></article></body></html>")
 	url := parityWebOneShot(t, http.StatusOK, "text/html", body)

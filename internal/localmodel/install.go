@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -313,19 +314,14 @@ func validateRemote(repo, revision, file, digest string) error {
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return errors.New("Hugging Face repository must use owner/repository form")
 	}
-	if len(revision) != 40 {
-		return errors.New("Hugging Face revision must be an immutable commit")
-	}
-	for _, c := range revision {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return errors.New("Hugging Face revision must be an immutable commit")
-		}
+	if err := provider.ValidateLocalModelRevision(revision); err != nil {
+		return err
 	}
 	if !safeGGUFPath(file) {
 		return errors.New("Hugging Face artifact path is invalid")
 	}
-	if !validDigest(digest) {
-		return errors.New("SHA-256 must be lowercase hexadecimal")
+	if err := provider.ValidateLocalModelSHA256(digest); err != nil {
+		return err
 	}
 	return nil
 }
@@ -341,15 +337,7 @@ func safeGGUFPath(file string) bool {
 	return true
 }
 func validDigest(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-	for _, c := range value {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
+	return provider.ValidateLocalModelSHA256(value) == nil
 }
 func (s *Service) huggingFaceURL(repo, revision, file string) string {
 	parts := strings.Split(repo, "/")

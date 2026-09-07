@@ -54,9 +54,15 @@ func newOpenRouterGenerator(
 	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &OpenRouterGenerator{
+	generator := &OpenRouterGenerator{
 		accounts: accounts, client: &boundedClient, chatURL: parsed.String(),
-	}, nil
+	}
+	if accounts.runtime != nil {
+		if _, err := accounts.runtime.RegisterGenerator(openRouterGenerationAccountID, generator); err != nil {
+			return nil, err
+		}
+	}
+	return generator, nil
 }
 
 // Generate streams text deltas and returns the completed response.
@@ -69,6 +75,22 @@ func (g *OpenRouterGenerator) Generate(
 	if err != nil {
 		return GenerationResult{}, err
 	}
+	if g.accounts != nil && g.accounts.runtime != nil {
+		active, release, routeErr := g.accounts.runtime.LeaseGenerator(openRouterGenerationAccountID)
+		if routeErr != nil {
+			return GenerationResult{}, routeErr
+		}
+		if active != g {
+			release()
+			return active.Generate(ctx, request, onEvent)
+		}
+		defer release()
+	}
+	release, err := g.accounts.admitGeneration(ctx, generationPriority(request))
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	defer release()
 	var secret Secret
 	if request.ExpectedCredentialRevision == nil {
 		secret, err = g.accounts.LoadSecret(ctx, request.AccountID)
@@ -102,10 +124,10 @@ func (g *OpenRouterGenerator) Generate(
 		if ctx.Err() != nil {
 			return GenerationResult{}, ctx.Err()
 		}
-		return GenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, providerTransportError("openrouter", "send_generation")
 	}
 	if response == nil {
-		return GenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, providerTransportError("openrouter", "send_generation")
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		_ = response.Body.Close()

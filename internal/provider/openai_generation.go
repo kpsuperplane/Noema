@@ -52,9 +52,15 @@ func newOpenAIGenerator(
 	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &OpenAIGenerator{
+	generator := &OpenAIGenerator{
 		accounts: accounts, client: &boundedClient, responsesURL: parsed.String(),
-	}, nil
+	}
+	if accounts.runtime != nil {
+		if _, err := accounts.runtime.RegisterGenerator(openAIDefaultAccountID, generator); err != nil {
+			return nil, err
+		}
+	}
+	return generator, nil
 }
 
 // Generate streams text deltas and returns one completed OpenAI response.
@@ -67,6 +73,22 @@ func (g *OpenAIGenerator) Generate(
 	if err != nil {
 		return GenerationResult{}, err
 	}
+	if g.accounts != nil && g.accounts.runtime != nil {
+		active, release, routeErr := g.accounts.runtime.LeaseGenerator(openAIDefaultAccountID)
+		if routeErr != nil {
+			return GenerationResult{}, routeErr
+		}
+		if active != g {
+			release()
+			return active.Generate(ctx, request, onEvent)
+		}
+		defer release()
+	}
+	release, err := g.accounts.admitGeneration(ctx, generationPriority(request))
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	defer release()
 	account, secret, err := g.accountSecret(ctx, request)
 	if err != nil {
 		return GenerationResult{}, err
@@ -98,10 +120,10 @@ func (g *OpenAIGenerator) Generate(
 		if ctx.Err() != nil {
 			return GenerationResult{}, ctx.Err()
 		}
-		return GenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, providerTransportError("openai", "send_generation")
 	}
 	if response == nil {
-		return GenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, providerTransportError("openai", "send_generation")
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		_ = response.Body.Close()

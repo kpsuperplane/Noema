@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kpsuperplane/noema/internal/artifact"
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -235,16 +235,7 @@ func (s *Service) deleteKernelBrowser(ctx context.Context, session *browserSessi
 }
 
 func safeKernelSessionID(value string) bool {
-	if value == "" || len(value) > 200 {
-		return false
-	}
-	for _, char := range value {
-		if char < utf8.RuneSelf && (char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-' || char == '_') {
-			continue
-		}
-		return false
-	}
-	return true
+	return provider.SafeWebSessionID(value)
 }
 
 func (s *Service) browserUpload(ctx context.Context, owner string, arguments map[string]any) (artifact.File, string, string, error) {

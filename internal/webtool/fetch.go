@@ -66,16 +66,11 @@ const (
 )
 
 func summaryStrategyForChars(chars int) fetchSummaryDecision {
-	switch {
-	case chars <= rawMarkdownLimit:
+	decision := provider.WebSummaryStrategy(chars)
+	if decision == "not_summarized" {
 		return fetchSummaryRaw
-	case chars <= singlePassLimit:
-		return fetchSummarySingle
-	case chars <= chunkedSummaryLimit:
-		return fetchSummaryChunked
-	default:
-		return fetchSummaryRefuse
 	}
+	return fetchSummaryDecision(decision)
 }
 
 func rawExcerpt(markdown string) string {

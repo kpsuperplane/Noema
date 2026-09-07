@@ -66,8 +66,7 @@ func (Secret) String() string { return "[REDACTED]" }
 type AccountService struct {
 	root             string
 	persistence      AccountPersistence
-	gatesMu          sync.Mutex
-	gates            map[string]*sync.Mutex
+	runtime          *ProviderRuntime
 	codexRefreshGate chan struct{}
 }
 
@@ -80,7 +79,7 @@ func NewAccountService(root string, persistence AccountPersistence) (*AccountSer
 		return nil, errors.New("provider account persistence is required")
 	}
 	service := &AccountService{
-		root: filepath.Clean(root), persistence: persistence, gates: make(map[string]*sync.Mutex),
+		root: filepath.Clean(root), persistence: persistence, runtime: newProviderRuntime(),
 		codexRefreshGate: make(chan struct{}, 1),
 	}
 	service.codexRefreshGate <- struct{}{}
@@ -160,12 +159,53 @@ func (s *AccountService) CreateSecretAccount(
 	}
 	created, err := s.persistence.CreateProviderAccount(ctx, account)
 	if err != nil {
-		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+		// A persistence adapter may report an error after committing its write.
+		// Probe the durable boundary before compensating so a failed transaction
+		// cannot leave an account row without its protected credential.
+		persisted, lookupErr := s.persistence.ProviderAccount(ctx, account.ID)
+		if lookupErr == nil && persisted.ID == account.ID {
+			compensated := compensateFailedCreateTransaction(
+				func() error { return restorePrivateFile(path, snapshot) },
+				func() (bool, error) { return s.persistence.DeleteProviderAccount(ctx, account.ID) },
+			)
+			if !compensated {
+				return Account{}, ErrCompensationFailed
+			}
+		} else if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
 			return Account{}, ErrCompensationFailed
 		}
 		return Account{}, err
 	}
 	return created, nil
+}
+
+// compensateFailedCreateTransaction restores credential bytes before removing
+// a durable account row. It is shared by account creation and its failure
+// contract so a failed rollback never erases durable evidence first.
+func compensateFailedCreateTransaction(rollback func() error, deleteDurable func() (bool, error)) bool {
+	if rollback == nil || deleteDurable == nil {
+		return false
+	}
+	if err := rollback(); err != nil {
+		return false
+	}
+	deleted, err := deleteDurable()
+	return err == nil && deleted
+}
+
+// CreateSecretAccountRequest applies one validated account-operation request.
+// Callers that accept pathless API input should use this boundary so secret
+// validation and account persistence share the same production flow.
+func (s *AccountService) CreateSecretAccountRequest(
+	ctx context.Context,
+	request CreateSecretProviderAccountRequest,
+	now time.Time,
+) (Account, error) {
+	name := ""
+	if request.DisplayName != nil {
+		name = *request.DisplayName
+	}
+	return s.CreateSecretAccount(ctx, request.ProviderKind, name, request.secret, now)
 }
 
 // SaveSecret atomically changes one account credential and its safe metadata.
@@ -181,6 +221,15 @@ func (s *AccountService) SaveSecret(
 	return s.mutateSecret(ctx, id, 0, AuthSecretInput, true, nil, now, func(path string) error {
 		return writeSecret(path, secret)
 	})
+}
+
+// SaveSecretRequest applies one validated secret-replacement request.
+func (s *AccountService) SaveSecretRequest(
+	ctx context.Context,
+	request SaveProviderAccountSecretRequest,
+	now time.Time,
+) (Account, error) {
+	return s.SaveSecret(ctx, request.ProviderAccountID, request.secret, now)
 }
 
 // ImportOpenAISecret stores a startup credential only when OpenAI has no credential.
@@ -745,12 +794,17 @@ func cloneMetadata(source AccountMetadata) AccountMetadata {
 }
 
 func (s *AccountService) gate(id string) *sync.Mutex {
-	s.gatesMu.Lock()
-	defer s.gatesMu.Unlock()
-	if s.gates[id] == nil {
-		s.gates[id] = &sync.Mutex{}
+	if s.runtime == nil {
+		s.runtime = newProviderRuntime()
 	}
-	return s.gates[id]
+	return s.runtime.accountGate(id)
+}
+
+func (s *AccountService) admitGeneration(ctx context.Context, priority int) (func(), error) {
+	if s == nil || s.runtime == nil {
+		return func() {}, nil
+	}
+	return s.runtime.admitGeneration(ctx, priority)
 }
 
 func (s *AccountService) credentialPath(account Account) (string, error) {

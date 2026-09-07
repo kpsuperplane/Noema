@@ -46,7 +46,7 @@ func (s *CodexService) fetchModelCatalog(
 		return sendErr
 	})
 	if err != nil || response == nil {
-		return codexModelCatalog{}, codexRemoteError{kind: codexNetwork}
+		return codexModelCatalog{}, codexNetworkError("catalog_models")
 	}
 	defer response.Body.Close()
 	data, err := readCodexResponse(response.Body)

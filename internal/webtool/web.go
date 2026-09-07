@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/netpolicy"
@@ -238,21 +237,16 @@ func normalizePublicURL(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if parsed, parseErr := url.Parse(strings.TrimSpace(raw)); parseErr == nil {
+		checked.URL.Fragment = parsed.Fragment
+	}
 	return checked.URL.String(), nil
 }
 
 // normalizePublicURLTarget validates and normalizes a public URL without DNS
 // resolution. Callers that perform a network request must use normalizePublicURL.
 func normalizePublicURLTarget(raw string) (string, error) {
-	if !utf8.ValidString(raw) || utf8.RuneCountInString(raw) > 2048 {
-		return "", errors.New("public URL is invalid")
-	}
-	checked, err := netpolicy.CheckURLTarget(strings.TrimSpace(raw))
-	if err != nil {
-		return "", err
-	}
-	checked.Fragment = ""
-	return checked.String(), nil
+	return provider.NormalizePublicURLTarget(raw)
 }
 
 func observationURL(ctx context.Context, raw string) (string, error) {

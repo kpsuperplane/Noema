@@ -115,6 +115,13 @@ type GenerateRequest struct {
 	FastMode                   bool
 }
 
+func generationPriority(request GenerateRequest) int {
+	if request.FastMode {
+		return 1
+	}
+	return 0
+}
+
 // GenerationResult is one completed provider response.
 type GenerationResult struct {
 	ID           string

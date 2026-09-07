@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,45 @@ type CodexTokens struct {
 	accessToken  string
 	refreshToken string
 	lastRefresh  uint64
+}
+
+// CodexDeviceAuthRequest is the safe configuration projection used when a
+// device-auth operation crosses a product boundary. It contains no live
+// device code or token material.
+type CodexDeviceAuthRequest struct {
+	ProviderAccountID string
+	AccountHome       string
+	Issuer            string
+	ClientID          string
+	TokenURL          string
+	TimeoutSeconds    uint64
+	AttemptTimeout    time.Duration
+}
+
+func (request CodexDeviceAuthRequest) String() string {
+	return fmt.Sprintf("provider.CodexDeviceAuthRequest{provider_account_id:%q,account_home:%q,issuer:%q,client_id:%q,token_url:%q,timeout_seconds:%d,attempt_timeout:%s}",
+		request.ProviderAccountID, request.AccountHome,
+		sanitizeOAuthDebugURL(request.Issuer), request.ClientID,
+		sanitizeOAuthDebugURL(request.TokenURL), request.TimeoutSeconds, request.AttemptTimeout)
+}
+
+func (request CodexDeviceAuthRequest) GoString() string { return request.String() }
+
+func sanitizeOAuthDebugURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	parsed.User = nil
+	query := parsed.Query()
+	for key := range query {
+		switch strings.ToLower(key) {
+		case "access_token", "api_key", "client_secret", "code", "code_verifier", "device_code", "id_token", "password", "refresh_token", "secret", "token", "user_code":
+			query.Del(key)
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 // Use supplies Codex tokens only to one explicit secure binding.
@@ -76,6 +116,7 @@ func (f codexTokenFile) tokens() CodexTokens {
 
 type codexAttempt struct {
 	view             AuthAttempt
+	auth             CodexDeviceAuthRequest
 	expectedRevision uint64
 	cancel           context.CancelFunc
 	subscribers      map[chan AuthAttempt]struct{}
@@ -105,6 +146,20 @@ func NewCodexService(accounts *AccountService) (*CodexService, error) {
 		accounts, codexOAuthIssuer, codexOAuthTokenURL,
 		&http.Client{Timeout: 20 * time.Second}, codexAttemptTTL, codexPollFloor,
 	)
+}
+
+// DeviceAuthRequest returns the non-secret configuration used by StartAuth.
+// The returned value is safe to include in diagnostics and test reports.
+func (s *CodexService) DeviceAuthRequest(accountHome string) CodexDeviceAuthRequest {
+	return CodexDeviceAuthRequest{
+		ProviderAccountID: "provider_account:codex:default",
+		AccountHome:       accountHome,
+		Issuer:            s.issuer,
+		ClientID:          codexOAuthClientID,
+		TokenURL:          s.tokenURL,
+		TimeoutSeconds:    uint64(s.client.Timeout / time.Second),
+		AttemptTimeout:    s.attemptTTL,
+	}
 }
 
 func newCodexService(
@@ -161,9 +216,14 @@ func (s *CodexService) StartAuth(
 		account.AuthMethod != AuthOAuthDeviceCode {
 		return AuthAttempt{}, ErrAccountConflict
 	}
-	device, err := s.requestDeviceCode(ctx)
+	tokenPath, pathErr := s.accounts.codexTokenPath(account)
+	if pathErr != nil {
+		return AuthAttempt{}, pathErr
+	}
+	authRequest := s.DeviceAuthRequest(filepath.Dir(tokenPath))
+	device, err := s.requestDeviceCode(ctx, authRequest)
 	if err != nil {
-		return AuthAttempt{}, ErrProviderUnavailable
+		return AuthAttempt{}, codexAvailabilityError(err)
 	}
 	attemptID, err := randomBase64URL(24)
 	if err != nil {
@@ -177,7 +237,7 @@ func (s *CodexService) StartAuth(
 	}
 	pollContext, cancel := context.WithTimeout(context.Background(), s.attemptTTL)
 	attempt := &codexAttempt{
-		view: view, expectedRevision: account.Metadata.CredentialRevision(), cancel: cancel,
+		view: view, auth: authRequest, expectedRevision: account.Metadata.CredentialRevision(), cancel: cancel,
 		subscribers: make(map[chan AuthAttempt]struct{}),
 	}
 
@@ -316,7 +376,7 @@ func (s *CodexService) runAttempt(ctx context.Context, attempt *codexAttempt, de
 		case <-timer.C:
 		}
 
-		authorization, pending, err := s.pollDeviceAuthorization(ctx, device)
+		authorization, pending, err := s.pollDeviceAuthorization(ctx, device, attempt.auth)
 		if err != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
 				return
@@ -337,7 +397,7 @@ func (s *CodexService) runAttempt(ctx context.Context, attempt *codexAttempt, de
 			s.finishFailed(attempt, "codex_device_auth_failed", "Codex authorization response was incomplete")
 			return
 		}
-		tokens, err := s.exchangeAuthorizationCode(ctx, authorization)
+		tokens, err := s.exchangeAuthorizationCode(ctx, authorization, attempt.auth)
 		if err != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
 				return
@@ -521,14 +581,14 @@ func (a codexAuthorization) String() string {
 // GoString prevents %#v diagnostics from exposing token exchange data.
 func (a codexAuthorization) GoString() string { return a.String() }
 
-func (s *CodexService) requestDeviceCode(ctx context.Context) (codexDeviceCode, error) {
+func (s *CodexService) requestDeviceCode(ctx context.Context, auth CodexDeviceAuthRequest) (codexDeviceCode, error) {
 	var response struct {
 		DeviceAuthID string          `json:"device_auth_id"`
 		UserCode     string          `json:"user_code"`
 		Interval     json.RawMessage `json:"interval"`
 	}
-	if err := s.postJSON(ctx, s.issuer+"/api/accounts/deviceauth/usercode", map[string]string{
-		"client_id": codexOAuthClientID,
+	if err := s.postJSON(ctx, auth.Issuer+"/api/accounts/deviceauth/usercode", map[string]string{
+		"client_id": auth.ClientID,
 	}, &response, false); err != nil {
 		return codexDeviceCode{}, err
 	}
@@ -545,9 +605,10 @@ func (s *CodexService) requestDeviceCode(ctx context.Context) (codexDeviceCode, 
 func (s *CodexService) pollDeviceAuthorization(
 	ctx context.Context,
 	device codexDeviceCode,
+	auth CodexDeviceAuthRequest,
 ) (codexAuthorization, bool, error) {
 	var response codexAuthorization
-	err := s.postJSON(ctx, s.issuer+"/api/accounts/deviceauth/token", map[string]string{
+	err := s.postJSON(ctx, auth.Issuer+"/api/accounts/deviceauth/token", map[string]string{
 		"device_auth_id": device.DeviceAuthID, "user_code": device.UserCode,
 	}, &response, true)
 	if errors.Is(err, errCodexPending) {
@@ -559,22 +620,23 @@ func (s *CodexService) pollDeviceAuthorization(
 func (s *CodexService) exchangeAuthorizationCode(
 	ctx context.Context,
 	authorization codexAuthorization,
+	auth CodexDeviceAuthRequest,
 ) (CodexTokens, error) {
 	values := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {authorization.AuthorizationCode},
-		"redirect_uri":  {s.issuer + "/deviceauth/callback"},
-		"client_id":     {codexOAuthClientID},
+		"redirect_uri":  {auth.Issuer + "/deviceauth/callback"},
+		"client_id":     {auth.ClientID},
 		"code_verifier": {authorization.CodeVerifier},
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.tokenURL, strings.NewReader(values.Encode()))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, auth.TokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
 		return CodexTokens{}, codexRemoteError{kind: codexUnavailable}
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := s.client.Do(request)
 	if err != nil {
-		return CodexTokens{}, codexRemoteError{kind: codexNetwork}
+		return CodexTokens{}, codexNetworkError("exchange_token")
 	}
 	defer response.Body.Close()
 	data, err := readCodexResponse(response.Body)
@@ -605,7 +667,8 @@ func (s *CodexService) exchangeAuthorizationCode(
 // completeDeviceAuthorization returns protected tokens before account
 // publication. The account service owns persistence for the normal flow.
 func (s *CodexService) completeDeviceAuthorization(ctx context.Context, device codexDeviceCode) (CodexTokens, error) {
-	authorization, pending, err := s.pollDeviceAuthorization(ctx, device)
+	auth := s.DeviceAuthRequest("")
+	authorization, pending, err := s.pollDeviceAuthorization(ctx, device, auth)
 	if err != nil {
 		return CodexTokens{}, err
 	}
@@ -615,7 +678,7 @@ func (s *CodexService) completeDeviceAuthorization(ctx context.Context, device c
 	if strings.TrimSpace(authorization.AuthorizationCode) == "" || strings.TrimSpace(authorization.CodeVerifier) == "" {
 		return CodexTokens{}, codexRemoteError{kind: codexMalformed}
 	}
-	return s.exchangeAuthorizationCode(ctx, authorization)
+	return s.exchangeAuthorizationCode(ctx, authorization, auth)
 }
 
 var errCodexPending = errors.New("Codex authorization is pending")
@@ -630,9 +693,18 @@ const (
 	codexRejected
 )
 
-type codexRemoteError struct{ kind codexRemoteKind }
+type codexRemoteError struct {
+	kind  codexRemoteKind
+	cause error
+}
 
 func (e codexRemoteError) Error() string { return "Codex authorization request failed" }
+
+func (e codexRemoteError) Unwrap() error { return e.cause }
+
+func codexNetworkError(operation string) codexRemoteError {
+	return codexRemoteError{kind: codexNetwork, cause: providerTransportError("codex", operation)}
+}
 
 func safeCodexError(err error) string {
 	var remote codexRemoteError
@@ -653,6 +725,17 @@ func safeCodexError(err error) string {
 	}
 }
 
+func codexAvailabilityError(err error) error {
+	var remote codexRemoteError
+	if !errors.As(err, &remote) {
+		return fmt.Errorf("%w: Codex authorization request failed", ErrProviderUnavailable)
+	}
+	if remote.cause == nil {
+		remote.cause = ErrProviderUnavailable
+	}
+	return remote
+}
+
 func (s *CodexService) postJSON(
 	ctx context.Context,
 	endpoint string,
@@ -671,7 +754,7 @@ func (s *CodexService) postJSON(
 	request.Header.Set("Content-Type", "application/json")
 	response, err := s.client.Do(request)
 	if err != nil {
-		return codexRemoteError{kind: codexNetwork}
+		return codexNetworkError("device_auth")
 	}
 	defer response.Body.Close()
 	data, err := readCodexResponse(response.Body)

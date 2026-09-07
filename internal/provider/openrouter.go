@@ -433,7 +433,7 @@ func (s *OpenRouterService) getJSON(ctx context.Context, endpoint string, key st
 func (s *OpenRouterService) doJSON(request *http.Request, destination any) error {
 	response, err := s.client.Do(request)
 	if err != nil {
-		return ErrProviderUnavailable
+		return providerTransportError("openrouter", "request")
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {

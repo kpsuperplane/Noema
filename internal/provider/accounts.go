@@ -25,6 +25,64 @@ var (
 	ErrCompensationFailed = errors.New("provider account compensation failed")
 )
 
+// ProviderAccountInstanceKey returns the canonical registry identity for one
+// durable provider account.
+func ProviderAccountInstanceKey(accountID string) (string, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return "", errors.New("provider account id cannot be empty")
+	}
+	return accountID, nil
+}
+
+// CreateSecretProviderAccountRequest is the pathless, validated input for a
+// secret-backed account creation. The secret remains private to this package.
+type CreateSecretProviderAccountRequest struct {
+	ProviderKind string
+	DisplayName  *string
+	secret       Secret
+}
+
+// NewCreateSecretProviderAccountRequest validates a create-account secret.
+func NewCreateSecretProviderAccountRequest(providerKind string, displayName *string, value string) (CreateSecretProviderAccountRequest, error) {
+	secret, err := NewSecret(value)
+	if err != nil {
+		return CreateSecretProviderAccountRequest{}, ErrInvalidSecret
+	}
+	return CreateSecretProviderAccountRequest{ProviderKind: providerKind, DisplayName: displayName, secret: secret}, nil
+}
+
+func (request CreateSecretProviderAccountRequest) String() string {
+	return fmt.Sprintf("provider.CreateSecretProviderAccountRequest{provider_kind:%q,display_name:%v,secret:[REDACTED]}", request.ProviderKind, request.DisplayName)
+}
+
+func (request CreateSecretProviderAccountRequest) GoString() string { return request.String() }
+
+// SaveProviderAccountSecretRequest is the pathless, validated input for a
+// secret replacement.
+type SaveProviderAccountSecretRequest struct {
+	ProviderAccountID string
+	secret            Secret
+}
+
+// NewSaveProviderAccountSecretRequest validates a replacement secret.
+func NewSaveProviderAccountSecretRequest(accountID, value string) (SaveProviderAccountSecretRequest, error) {
+	secret, err := NewSecret(value)
+	if err != nil {
+		return SaveProviderAccountSecretRequest{}, ErrInvalidSecret
+	}
+	return SaveProviderAccountSecretRequest{ProviderAccountID: accountID, secret: secret}, nil
+}
+
+func (request SaveProviderAccountSecretRequest) String() string {
+	return fmt.Sprintf("provider.SaveProviderAccountSecretRequest{provider_account_id:%q,secret:[REDACTED]}", request.ProviderAccountID)
+}
+
+func (request SaveProviderAccountSecretRequest) GoString() string { return request.String() }
+
+// ErrInvalidSecret identifies a missing or blank write-only secret.
+var ErrInvalidSecret = errors.New("provider secret is invalid")
+
 const openAIDefaultAccountID = "provider_account:openai:default"
 
 // AuthMethod identifies one provider authentication method.

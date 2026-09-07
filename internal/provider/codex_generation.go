@@ -63,9 +63,15 @@ func newCodexGenerator(
 	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &CodexGenerator{
+	generator := &CodexGenerator{
 		accounts: accounts, client: &boundedClient, responsesURL: parsed.String(), tokenURL: codexOAuthTokenURL,
-	}, nil
+	}
+	if accounts.runtime != nil {
+		if _, err := accounts.runtime.RegisterGenerator(codexGenerationAccountID, generator); err != nil {
+			return nil, err
+		}
+	}
+	return generator, nil
 }
 
 // Generate streams text deltas and returns one completed Codex response.
@@ -78,6 +84,22 @@ func (g *CodexGenerator) Generate(
 	if err != nil {
 		return GenerationResult{}, err
 	}
+	if g.accounts != nil && g.accounts.runtime != nil {
+		active, release, routeErr := g.accounts.runtime.LeaseGenerator(codexGenerationAccountID)
+		if routeErr != nil {
+			return GenerationResult{}, routeErr
+		}
+		if active != g {
+			release()
+			return active.Generate(ctx, request, onEvent)
+		}
+		defer release()
+	}
+	release, err := g.accounts.admitGeneration(ctx, generationPriority(request))
+	if err != nil {
+		return GenerationResult{}, err
+	}
+	defer release()
 	account, err := g.accounts.LoadAccount(ctx, request.AccountID)
 	if err != nil {
 		return GenerationResult{}, err
@@ -102,10 +124,10 @@ func (g *CodexGenerator) Generate(
 		if ctx.Err() != nil {
 			return GenerationResult{}, ctx.Err()
 		}
-		return GenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, providerTransportError("codex", "send_generation")
 	}
 	if response == nil {
-		return GenerationResult{}, ErrProviderUnavailable
+		return GenerationResult{}, providerTransportError("codex", "send_generation")
 	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
 		_ = response.Body.Close()
@@ -120,7 +142,7 @@ func (g *CodexGenerator) Generate(
 			if ctx.Err() != nil {
 				return GenerationResult{}, ctx.Err()
 			}
-			return GenerationResult{}, ErrProviderUnavailable
+			return GenerationResult{}, providerTransportError("codex", "refresh_token")
 		}
 		if err := g.validateCredentialRevision(ctx, request.ExpectedCredentialRevision); err != nil {
 			return GenerationResult{}, err
@@ -130,10 +152,10 @@ func (g *CodexGenerator) Generate(
 			if ctx.Err() != nil {
 				return GenerationResult{}, ctx.Err()
 			}
-			return GenerationResult{}, ErrProviderUnavailable
+			return GenerationResult{}, providerTransportError("codex", "send_generation")
 		}
 		if response == nil {
-			return GenerationResult{}, ErrProviderUnavailable
+			return GenerationResult{}, providerTransportError("codex", "send_generation")
 		}
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -372,7 +394,7 @@ func (g *CodexGenerator) refreshCodexTokens(ctx context.Context, tokens CodexTok
 		if ctx.Err() != nil {
 			return CodexTokens{}, ctx.Err()
 		}
-		return CodexTokens{}, ErrProviderUnavailable
+		return CodexTokens{}, providerTransportError("codex", "refresh_token")
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {

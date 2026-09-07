@@ -2,8 +2,10 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // LocalModelBackend identifies one local inference backend.
@@ -170,3 +172,21 @@ func valueOrZero(value *int) int {
 }
 
 func intPointer(value int) *int { return &value }
+
+// ValidateLocalModelRevision accepts only an immutable forty-character
+// hexadecimal revision.
+func ValidateLocalModelRevision(value string) error {
+	if len(value) != 40 || strings.Trim(value, "0123456789abcdefABCDEF") != "" {
+		return errors.New("Hugging Face revision must be an immutable commit")
+	}
+	return nil
+}
+
+// ValidateLocalModelSHA256 accepts the lowercase digest stored with an
+// installation.
+func ValidateLocalModelSHA256(value string) error {
+	if len(value) != sha256.Size*2 || strings.Trim(value, "0123456789abcdef") != "" {
+		return errors.New("SHA-256 must be lowercase hexadecimal")
+	}
+	return nil
+}
