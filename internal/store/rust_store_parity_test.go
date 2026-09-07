@@ -5405,33 +5405,30 @@ func TestRustStore_inline_governed_action_cannot_resume_a_later_task_gate(t *tes
 func TestRustStore_executor_continuation_receives_actions_after_latest_task_save(t *testing.T) {
 	database, task, first, now := rustStoreExecutorFixture(t, "Unsaved actions")
 	ctx := t.Context()
-	appendCall := func(round int64, correlation, name string, status string, payload map[string]any) TaskRunItem {
-		t.Helper()
-		if err := database.AppendTaskRunItems(ctx, first.ID, first.Generation, []TaskRunItemInput{{
-			Kind: "tool_call", Status: status, Round: round, CorrelationID: correlation, Content: name, Payload: payload,
-		}}, TaskRunUsage{}, now); err != nil {
-			t.Fatal(err)
-		}
-		page, err := database.TaskRunItems(ctx, first.ID, 100, nil)
-		if err != nil || len(page.Items) == 0 {
-			t.Fatalf("latest run item = %#v, %v", page.Items, err)
-		}
-		return page.Items[0]
+	const (
+		oldResultID  = "run_item:00000000000000000000000000000001"
+		oldCallID    = "run_item:00000000000000000000000000000002"
+		saveResultID = "run_item:00000000000000000000000000000003"
+		saveCallID   = "run_item:00000000000000000000000000000004"
+		newResultID  = "run_item:00000000000000000000000000000005"
+		newCallID    = "run_item:00000000000000000000000000000006"
+	)
+	if err := database.AppendTaskRunItems(ctx, first.ID, first.Generation, []TaskRunItemInput{
+		{ID: oldResultID, Kind: "tool_result", Status: "completed", Round: 0, CorrelationID: "call:old", ParentID: oldCallID,
+			Content: "web.browse.interact", Payload: map[string]any{"success": true, "payload": map[string]any{"state": "old"}}},
+		{ID: oldCallID, Kind: "tool_call", Status: "completed", Round: 0, CorrelationID: "call:old",
+			Content: "web.browse.interact", Payload: map[string]any{"arguments": map[string]any{"ref": "old"}}},
+		{ID: saveResultID, Kind: "tool_result", Status: "completed", Round: 1, CorrelationID: "call:save", ParentID: saveCallID,
+			Content: "task.files.write", Payload: map[string]any{"success": true, "payload": map[string]any{"path": "TASK.md"}}},
+		{ID: saveCallID, Kind: "tool_call", Status: "completed", Round: 1, CorrelationID: "call:save",
+			Content: "task.files.write", Payload: map[string]any{"arguments": map[string]any{"path": "TASK.md", "content": "Saved progress."}}},
+		{ID: newResultID, Kind: "tool_result", Status: "failed", Round: 2, CorrelationID: "call:new", ParentID: newCallID,
+			Content: "web.browse.interact", Payload: map[string]any{"success": false, "payload": map[string]any{"code": "outcome_uncertain"}}},
+		{ID: newCallID, Kind: "tool_call", Status: "failed", Round: 2, CorrelationID: "call:new",
+			Content: "web.browse.interact", Payload: map[string]any{"arguments": map[string]any{"ref": "e3", "action": "click"}}},
+	}, TaskRunUsage{}, now); err != nil {
+		t.Fatal(err)
 	}
-	appendResult := func(round int64, correlation, name, status, parent string, payload map[string]any) {
-		t.Helper()
-		if err := database.AppendTaskRunItems(ctx, first.ID, first.Generation, []TaskRunItemInput{{
-			Kind: "tool_result", Status: status, Round: round, CorrelationID: correlation, ParentID: parent, Content: name, Payload: payload,
-		}}, TaskRunUsage{}, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	oldCall := appendCall(0, "call:old", "web.browse.interact", "completed", map[string]any{"arguments": map[string]any{"ref": "old"}})
-	appendResult(0, "call:old", "web.browse.interact", "completed", oldCall.ID, map[string]any{"success": true, "payload": map[string]any{"state": "old"}})
-	saveCall := appendCall(1, "call:save", "task.files.write", "completed", map[string]any{"arguments": map[string]any{"path": "TASK.md", "content": "Saved progress."}})
-	appendResult(1, "call:save", "task.files.write", "completed", saveCall.ID, map[string]any{"success": true, "payload": map[string]any{"path": "TASK.md"}})
-	newCall := appendCall(2, "call:new", "web.browse.interact", "failed", map[string]any{"arguments": map[string]any{"ref": "e3", "action": "click"}})
-	appendResult(2, "call:new", "web.browse.interact", "failed", newCall.ID, map[string]any{"success": false, "payload": map[string]any{"code": "outcome_uncertain"}})
 	if err := database.FinishTaskExecution(ctx, first.ID, first.Generation, true, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -5442,10 +5439,15 @@ func TestRustStore_executor_continuation_receives_actions_after_latest_task_save
 	if err := database.StartTaskExecution(ctx, second.ID, second.Generation, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	admitted, err := database.TaskRunContinuationItems(ctx, second.ID)
+	admission, err := database.AdmitTaskRunExecutionContext(ctx, second.ID, second.Generation)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if admission.Run.ID != second.ID || admission.Run.Generation != second.Generation || admission.Task.ID != task.ID ||
+		admission.Task.CurrentRunID != second.ID || admission.Task.Generation != second.Generation {
+		t.Errorf("continuation admission fence = run %#v task %#v", admission.Run, admission.Task)
+	}
+	admitted := admission.Lineage
 	if len(admitted) != 2 {
 		t.Errorf("admitted continuation lineage length = %d, want 2", len(admitted))
 	}

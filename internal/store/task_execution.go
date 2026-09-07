@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -19,9 +20,9 @@ type AcpPermissionResult struct {
 
 // TaskRunItemInput is one durable provider or tool transcript item.
 type TaskRunItemInput struct {
-	Kind, Status, CorrelationID, ParentID, Content string
-	Round                                          int64
-	Payload                                        map[string]any
+	ID, Kind, Status, CorrelationID, ParentID, Content string
+	Round                                              int64
+	Payload                                            map[string]any
 }
 
 // TaskRunUsage adds one provider call's bounded usage to a run.
@@ -179,9 +180,15 @@ func (s *Store) AppendTaskRunItems(ctx context.Context, runID string, generation
 			if !validTaskRunItem(item) {
 				return errors.New("invalid Task run item")
 			}
-			id, err := newID("run_item")
-			if err != nil {
-				return err
+			id := item.ID
+			var err error
+			if id == "" {
+				id, err = newID("run_item")
+				if err != nil {
+					return err
+				}
+			} else if !validTaskRunItemID(id) {
+				return errors.New("invalid Task run item id")
 			}
 			payload, err := json.Marshal(item.Payload)
 			if err != nil {
@@ -457,6 +464,36 @@ func (s *Store) TaskRunContinuationItems(ctx context.Context, runID string) ([]T
 		filtered = filtered[len(filtered)-maxLineageItems:]
 	}
 	return filtered, nil
+}
+
+// TaskRunExecutionContext is the fenced context admitted before a provider
+// receives a continuation run.
+type TaskRunExecutionContext struct {
+	Task    Task
+	Run     TaskRun
+	Lineage []TaskRunItem
+}
+
+// AdmitTaskRunExecutionContext reads one current continuation through the
+// production run fence and returns the bounded action lineage for admission.
+func (s *Store) AdmitTaskRunExecutionContext(ctx context.Context, runID string, generation int64) (TaskRunExecutionContext, error) {
+	run, err := taskRunTx(ctx, s.db, runID)
+	if err != nil {
+		return TaskRunExecutionContext{}, err
+	}
+	task, err := taskTx(ctx, s.db, run.TaskID)
+	if err != nil {
+		return TaskRunExecutionContext{}, err
+	}
+	if run.Kind != "executor" || run.ParentRunID == "" || run.Status != "running" ||
+		run.Generation != generation || task.Generation != generation || task.CurrentRunID != run.ID {
+		return TaskRunExecutionContext{}, ErrStaleRun
+	}
+	lineage, err := s.TaskRunContinuationItems(ctx, run.ID)
+	if err != nil {
+		return TaskRunExecutionContext{}, err
+	}
+	return TaskRunExecutionContext{Task: task, Run: run, Lineage: lineage}, nil
 }
 
 func (s *Store) taskRunContinuationItemsForRun(ctx context.Context, runID string, limit int) ([]TaskRunItem, error) {
@@ -929,6 +966,15 @@ func validTaskRunItem(item TaskRunItemInput) bool {
 		item.Kind == "task_review" || item.Kind == "failure" || item.Kind == "cancellation" || item.Kind == "context_checkpoint"
 	validStatus := item.Status == "pending" || item.Status == "running" || item.Status == "completed" || item.Status == "failed" || item.Status == "skipped"
 	return validKind && validStatus && item.Round >= 0 && len(item.Content) <= 512<<10
+}
+
+func validTaskRunItemID(id string) bool {
+	value, ok := strings.CutPrefix(id, "run_item:")
+	if !ok || len(value) != 32 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && hex.EncodeToString(decoded) == value
 }
 
 func max64(left, right int64) int64 {
