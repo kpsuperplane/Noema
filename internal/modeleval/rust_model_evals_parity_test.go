@@ -42,15 +42,16 @@ func TestRustModelEvals_PlanRoundTripDetectsMutationAndHasACostBound(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	cost, err := estimate(suite, policies, candidates)
+	plan, err := createDecisionPlan(root, suite, policies, candidates)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cost <= 0 {
-		t.Fatalf("estimated cost = %f, want positive", cost)
+	if plan.EstimatedMaxCostUSD <= 0 {
+		t.Fatalf("estimated cost = %f, want positive", plan.EstimatedMaxCostUSD)
 	}
-	plan := decisionPlan{SchemaVersion: 2, DecisionID: "decision-test", RuntimeSuiteVersion: runtime.EvaluationSuiteVersion, Suite: suite, Policies: policies, Candidates: candidates, EstimatedMaxCostUSD: cost, SpendCeilingUSD: cost}
-	plan.ContentFingerprint = plan.hash()
+	if plan.GitCommit == "" || plan.CreatedAtUnixSeconds <= 0 || plan.ContentFingerprint == "" {
+		t.Fatalf("plan metadata was not populated: %#v", plan)
+	}
 	if err := plan.validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +81,11 @@ func TestRustModelEvals_DirtyPlanCannotBeExecuted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cost, err := estimate(suite, policies, candidates)
+	plan, err := createDecisionPlan(root, suite, policies, candidates)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := decisionPlan{SchemaVersion: 2, DecisionID: "decision-test", RuntimeSuiteVersion: runtime.EvaluationSuiteVersion, Suite: suite, Policies: policies, Candidates: candidates, EstimatedMaxCostUSD: cost, SpendCeilingUSD: cost, GitDirty: true}
+	plan.GitDirty = true
 	if err := plan.validateExecutionGitState(root); err == nil {
 		t.Fatal("dirty plan was executable")
 	}
@@ -464,9 +465,12 @@ func TestRustModelEvals_RenderedCellLineMatchesTheTableAuthority(t *testing.T) {
 	if !found {
 		t.Fatal("action reviewer recommendation is unavailable")
 	}
-	block := recommendationCellLine(string(provider.ModelUseActionReviewer), "openai/gpt-5.6-luna", "low")
+	block := recommendationCellLine(string(action.UseCase), action.ModelProfile, action.ReasoningEffort)
 	if block != "{UseCase: ModelUseCase(\"action_reviewer\"), ModelProfile: \"openai/gpt-5.6-luna\", ReasoningEffort: \"low\"},\n" {
 		t.Fatalf("rendered recommendation cell = %q", block)
+	}
+	if source := renderRecommendationSource("openrouter", recommendations); !strings.Contains(source, block) {
+		t.Fatalf("rendered recommendation source lacks the authoritative cell: %s", source)
 	}
 	if action.ModelProfile != "openai/gpt-5.6-luna" || action.ReasoningEffort != "low" {
 		t.Fatalf("table authority action reviewer = %#v", action)
@@ -509,9 +513,15 @@ func TestRustModelEvals_ProviderSelectionRetainsIncumbentBelowMargin(t *testing.
 
 // Rust source: crates/noema-model-evals/src/recommendation_proposal.rs::patch_changes_only_the_exact_provider_role_cell
 func TestRustModelEvals_PatchChangesOnlyTheExactProviderRoleCell(t *testing.T) {
-	oldLine := recommendationCellLine(string(provider.ModelUsePrimary), "gpt-5.6-terra", "medium")
-	newLine := recommendationCellLine(string(provider.ModelUsePrimary), "gpt-5.6-luna", "high")
-	patch := recommendationCellPatch("openai", string(provider.ModelUsePrimary), oldLine, newLine)
+	source := renderRecommendationSource("codex", provider.ModelRecommendations("codex")) + renderRecommendationSource("openai", provider.ModelRecommendations("openai"))
+	old := recommendationFor(provider.ModelRecommendations("openai"), provider.ModelUsePrimary)
+	replacement := provider.ModelRecommendation{UseCase: provider.ModelUsePrimary, ModelProfile: "gpt-5.6-luna", ReasoningEffort: "high"}
+	patch, err := renderRecommendationPatch(source, "openai", string(provider.ModelUsePrimary), old, replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldLine := recommendationCellLine(string(provider.ModelUsePrimary), old.ModelProfile, old.ReasoningEffort)
+	newLine := recommendationCellLine(string(provider.ModelUsePrimary), replacement.ModelProfile, replacement.ReasoningEffort)
 	if strings.Count(patch, "@@ ") != 1 || !strings.Contains(patch, "-"+oldLine) || !strings.Contains(patch, "+"+newLine) {
 		t.Fatalf("recommendation patch = %q", patch)
 	}
@@ -600,12 +610,6 @@ func recommendationFor(recommendations []provider.ModelRecommendation, useCase p
 		}
 	}
 	return provider.ModelRecommendation{}
-}
-
-func recommendationCellPatch(providerKind, role, oldLine, newLine string) string {
-	_ = providerKind
-	_ = role
-	return fmt.Sprintf("--- a/internal/provider/recommendations.go\n+++ b/internal/provider/recommendations.go\n@@ -1,1 +1,1 @@\n-%s+%s", oldLine, newLine)
 }
 
 func intPointer(value int) *int { return &value }

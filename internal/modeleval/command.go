@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/kpsuperplane/noema/internal/runtime"
 )
 
 // Run executes the evaluation CLI from a repository directory.
@@ -82,23 +80,16 @@ func Run(ctx context.Context, root string, args []string) error {
 		return e
 	}
 	if args[0] == "defaults" && command == "plan" {
-		cost, e := estimate(s, p, cs)
+		plan, e := createDecisionPlan(root, s, p, cs)
 		if e != nil {
 			return e
 		}
-		commit, dirty, e := gitState(root)
-		if e != nil {
-			return e
-		}
-		now := time.Now()
-		plan := decisionPlan{SchemaVersion: 2, DecisionID: fmt.Sprintf("decision-%d-%s", now.UnixNano(), commit[:12]), CreatedAtUnixSeconds: now.Unix(), GitCommit: commit, GitDirty: dirty, RuntimeSuiteVersion: runtime.EvaluationSuiteVersion, Suite: s, Policies: p, Candidates: cs, EstimatedMaxCostUSD: cost, SpendCeilingUSD: cost}
-		plan.ContentFingerprint = plan.hash()
 		path := filepath.Join(root, "target/noema-model-evals/plans", plan.DecisionID+".json")
 		if e = writeJSON(path, plan, true); e != nil {
 			return e
 		}
-		fmt.Printf("Decision plan: %s\nMaximum estimated cost: $%.4f\n", path, cost)
-		if dirty {
+		fmt.Printf("Decision plan: %s\nMaximum estimated cost: $%.4f\n", path, plan.EstimatedMaxCostUSD)
+		if plan.GitDirty {
 			fmt.Println("The plan records a dirty worktree. Create a clean plan before execution.")
 		}
 		return nil

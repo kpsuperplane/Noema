@@ -37,8 +37,8 @@ func proposal(root, dir string, verify bool) error {
 	var summary strings.Builder
 	fmt.Fprintf(&summary, "# Model recommendation proposal\n\nDecision: %s.\n\nApply the patch after evidence review.\n\n", r.RunID)
 	for _, kind := range []string{"codex", "openai", "openrouter"} {
-		fmt.Fprintf(&body, "case %q: return []ModelRecommendation{\n", kind)
 		current := provider.ModelRecommendations(kind)
+		selected := make([]provider.ModelRecommendation, 0, len(rankings))
 		for _, ranking := range rankings {
 			currentIndex := slices.IndexFunc(current, func(value provider.ModelRecommendation) bool { return string(value.UseCase) == ranking.Role })
 			if currentIndex < 0 {
@@ -53,10 +53,10 @@ func proposal(root, dir string, verify bool) error {
 			}) {
 				return fmt.Errorf("shipped recommendation differs for %s/%s", kind, ranking.Role)
 			}
-			body.WriteString(recommendationCellLine(ranking.Role, target.ModelProfile, target.ReasoningEffort))
+			selected = append(selected, provider.ModelRecommendation{UseCase: provider.ModelUseCase(ranking.Role), ModelProfile: target.ModelProfile, ReasoningEffort: target.ReasoningEffort})
 			fmt.Fprintf(&summary, "- %s / %s: %s (%s). %s\n", kind, ranking.Role, winner, target.ReasoningEffort, reason)
 		}
-		body.WriteString("}\n")
+		body.WriteString(renderRecommendationSource(kind, selected))
 	}
 	body.WriteString("}\nreturn nil\n}\n")
 	if verify {
@@ -118,6 +118,37 @@ func proposal(root, dir string, verify bool) error {
 
 func recommendationCellLine(role, model, effort string) string {
 	return fmt.Sprintf("{UseCase: ModelUseCase(%q), ModelProfile: %q, ReasoningEffort: %q},\n", role, model, effort)
+}
+
+func renderRecommendationSource(providerKind string, recommendations []provider.ModelRecommendation) string {
+	var source strings.Builder
+	fmt.Fprintf(&source, "case %q: return []ModelRecommendation{\n", providerKind)
+	for _, recommendation := range recommendations {
+		source.WriteString(recommendationCellLine(string(recommendation.UseCase), recommendation.ModelProfile, recommendation.ReasoningEffort))
+	}
+	source.WriteString("}\n")
+	return source.String()
+}
+
+func renderRecommendationPatch(source, providerKind, role string, old, replacement provider.ModelRecommendation) (string, error) {
+	marker := fmt.Sprintf("case %q: return []ModelRecommendation{\n", providerKind)
+	start := strings.Index(source, marker)
+	if start < 0 {
+		return "", fmt.Errorf("recommendation source has no provider %q", providerKind)
+	}
+	segmentStart := start + len(marker)
+	segment := source[segmentStart:]
+	if next := strings.Index(segment, "\ncase "); next >= 0 {
+		segment = segment[:next]
+	}
+	oldLine := recommendationCellLine(role, old.ModelProfile, old.ReasoningEffort)
+	newLine := recommendationCellLine(role, replacement.ModelProfile, replacement.ReasoningEffort)
+	offset := strings.Index(segment, oldLine)
+	if offset < 0 {
+		return "", fmt.Errorf("recommendation source has no %s/%s cell", providerKind, role)
+	}
+	line := strings.Count(source[:segmentStart+offset], "\n") + 1
+	return fmt.Sprintf("--- a/internal/provider/recommendations.go\n+++ b/internal/provider/recommendations.go\n@@ -%d,1 +%d,1 @@\n-%s+%s", line, line, oldLine, newLine), nil
 }
 
 func selectForProvider(report matrixReport, ranking roleRanking, providerKind string, current provider.ModelRecommendation) (string, *recommendationTarget, string) {

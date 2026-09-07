@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/runtime"
@@ -99,11 +100,48 @@ func gitState(root string) (string, bool, error) {
 	return strings.TrimSpace(string(b)), len(status) > 0, e
 }
 func roles() []string {
-	var result []string
-	for _, r := range provider.ModelRecommendations("openrouter") {
-		result = append(result, string(r.UseCase))
+	return []string{
+		string(provider.ModelUsePrimary),
+		string(provider.ModelUseTaskSimple),
+		string(provider.ModelUseTaskMedium),
+		string(provider.ModelUseTaskDifficult),
+		string(provider.ModelUseTaskReviewer),
+		string(provider.ModelUseWebFetchSummarizer),
+		string(provider.ModelUseToolProgressAudit),
+		string(provider.ModelUseActionReviewer),
+		string(provider.ModelUseMemoryConsolidation),
 	}
-	return result
+}
+
+func createDecisionPlan(root string, suite suiteConfig, policies rolePolicies, candidates []candidate) (decisionPlan, error) {
+	cost, err := estimate(suite, policies, candidates)
+	if err != nil {
+		return decisionPlan{}, err
+	}
+	commit, dirty, err := gitState(root)
+	if err != nil {
+		return decisionPlan{}, err
+	}
+	now := time.Now()
+	shortCommit := commit
+	if len(shortCommit) > 12 {
+		shortCommit = shortCommit[:12]
+	}
+	plan := decisionPlan{
+		SchemaVersion:        2,
+		DecisionID:           fmt.Sprintf("decision-%d-%s", now.UnixNano(), shortCommit),
+		CreatedAtUnixSeconds: now.Unix(),
+		GitCommit:            commit,
+		GitDirty:             dirty,
+		RuntimeSuiteVersion:  runtime.EvaluationSuiteVersion,
+		Suite:                suite,
+		Policies:             policies,
+		Candidates:           candidates,
+		EstimatedMaxCostUSD:  cost,
+		SpendCeilingUSD:      cost,
+	}
+	plan.ContentFingerprint = plan.hash()
+	return plan, nil
 }
 func validID(id string) bool {
 	if id == "" || id == "." || id == ".." {
