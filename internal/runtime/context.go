@@ -14,6 +14,11 @@ import (
 
 const contextSafetyTokens = uint32(128)
 
+const (
+	backgroundCompactionThresholdNumerator   = uint32(7)
+	backgroundCompactionThresholdDenominator = uint32(10)
+)
+
 var errContextWindowExceeded = errors.New("model context window exceeded")
 
 type modelContextRequest struct {
@@ -49,8 +54,7 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 		available -= contextSafetyTokens
 	}
 	estimated := CountModelContext(ctx, request.generator, messages, request.tools, request.hostedWeb)
-	soft := available * 7 / 10
-	if estimated <= available && (estimated < soft || len(request.completed) == 0) {
+	if estimated <= available && (!shouldCompactBackground(estimated, available) || len(request.completed) == 0) {
 		return messages, false, nil
 	}
 	if len(request.completed) == 0 {
@@ -85,6 +89,10 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 		}
 	}
 	return nil, false, fmt.Errorf("%w: compacted context does not fit the selected model", errContextWindowExceeded)
+}
+
+func shouldCompactBackground(estimated, available uint32) bool {
+	return estimated >= available*backgroundCompactionThresholdNumerator/backgroundCompactionThresholdDenominator
 }
 
 func contextWindow(ctx context.Context, database *store.Store, accountID, providerKind, model string) (uint32, error) {
@@ -267,8 +275,12 @@ func splitActiveHistory(history, incremental []provider.GenerationMessage) (
 	if len(incremental) == 0 {
 		start = len(history) - 1
 	}
-	if start > 0 && history[start].Role == "tool" && len(history[start-1].ToolCalls) != 0 {
-		start--
+	if start > 0 && history[start].Role == "tool" {
+		if len(history[start-1].ToolCalls) != 0 {
+			start--
+		} else {
+			start = 0
+		}
 	}
 	start = completeContextStart(history, start)
 	return history[:start], history[start:]

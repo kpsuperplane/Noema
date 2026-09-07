@@ -12,14 +12,12 @@ import (
 
 func TestRustRuntime_background_threshold_uses_context_budget(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/context_compaction.rs::background_threshold_uses_context_budget.
-	database := contextTestStore(t, 1_000)
-	messages := []provider.GenerationMessage{{Role: "user", Content: strings.Repeat("x", 1_500)}}
-	estimate := CountModelContext(context.Background(), nil, messages, nil, false)
-	if estimate <= 500 {
-		t.Fatalf("context estimate ignored the bounded budget: %d", estimate)
+	available := uint32(1_000 - 100 - contextSafetyTokens)
+	if !shouldCompactBackground(611, available) {
+		t.Fatalf("background threshold ignored the bounded budget: available=%d", available)
 	}
-	if _, compacted, err := prepareModelContext(context.Background(), modelContextRequest{database: database, providerKind: "openrouter", model: "test", accountID: "provider_account:openrouter:context-test", active: messages, outputReserve: 100}); err == nil || compacted {
-		t.Fatalf("active overflow did not remain a hard admission failure: compacted=%t err=%v", compacted, err)
+	if shouldCompactBackground(available*backgroundCompactionThresholdNumerator/backgroundCompactionThresholdDenominator-1, available) {
+		t.Fatalf("background threshold compacted below the exact boundary: available=%d", available)
 	}
 }
 
@@ -194,10 +192,25 @@ func TestRustRuntime_oversized_active_result_is_rejected_without_provider_dispat
 
 func TestRustRuntime_recent_continuation_suffix_uses_complete_consumed_rounds(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/continuation_context.rs::recent_continuation_suffix_uses_complete_consumed_rounds.
-	history := []provider.GenerationMessage{{Role: "assistant", Content: "round 1"}, {Role: "tool", Content: "result 1"}, {Role: "assistant", Content: "round 2"}}
-	prior, recent := splitActiveHistory(history, history[1:])
-	if len(prior) != 0 || len(recent) != len(history) {
-		t.Fatalf("continuation split lost whole consumed round: prior=%#v recent=%#v", prior, recent)
+	continuation := NewContinuationContext([]provider.GenerationMessage{{Role: "user", Content: "original request"}})
+	for round := 1; round <= 3; round++ {
+		continuation.AppendResponse(provider.GenerationResult{Text: "round " + itoa(round)})
+		continuation.FinishRound()
+	}
+	if len(continuation.roundEnds) != 3 {
+		t.Fatalf("continuation round boundaries = %#v", continuation.roundEnds)
+	}
+	firstEnd, completedEnd := continuation.roundEnds[0], continuation.roundEnds[1]
+	var completedRound []provider.GenerationMessage
+	for _, item := range continuation.items[firstEnd:completedEnd] {
+		completedRound = append(completedRound, item.message)
+	}
+	tokens := CountModelContext(context.Background(), nil, completedRound, nil, false)
+	if got := continuation.recentCompletedSuffixBoundary(tokens); got != firstEnd {
+		t.Fatalf("complete consumed suffix boundary = %d, want %d", got, firstEnd)
+	}
+	if got := continuation.recentCompletedSuffixBoundary(tokens - 1); got != completedEnd {
+		t.Fatalf("oversized consumed round was split at %d, want %d", got, completedEnd)
 	}
 }
 

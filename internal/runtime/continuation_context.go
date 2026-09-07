@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -174,6 +175,36 @@ func (c *ContinuationContext) FinishRound() {
 	c.roundEnds = append(c.roundEnds, len(c.items))
 	c.awaitingProvider = true
 	c.pendingCallIDs = nil
+}
+
+// recentCompletedSuffixBoundary returns a boundary between complete provider
+// rounds. The current round stays active until the next provider request has
+// consumed it, so it cannot be selected as compactable history.
+func (c *ContinuationContext) recentCompletedSuffixBoundary(suffixTokenCap uint32) int {
+	completedRounds := len(c.roundEnds)
+	if c.awaitingProvider && completedRounds > 0 {
+		completedRounds--
+	}
+	if completedRounds == 0 {
+		return 0
+	}
+	completedEnd := c.roundEnds[completedRounds-1]
+	suffixStart := completedEnd
+	for round := completedRounds - 1; round >= 0; round-- {
+		candidate := 0
+		if round > 0 {
+			candidate = c.roundEnds[round-1]
+		}
+		messages := make([]provider.GenerationMessage, 0, completedEnd-candidate)
+		for _, item := range c.items[candidate:completedEnd] {
+			messages = append(messages, item.message)
+		}
+		if CountModelContext(context.Background(), nil, messages, nil, false) > suffixTokenCap {
+			break
+		}
+		suffixStart = candidate
+	}
+	return suffixStart
 }
 
 // ProviderInput returns the ordered production input items before provider
