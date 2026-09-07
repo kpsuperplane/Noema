@@ -2,8 +2,8 @@
 
 Date: 2026-09-06
 Status: In progress. The direct local CLI is implemented and validated. Gmail,
-Notion, and Calendar setup work is live. PA-001 is the first accepted assistant
-case; PA-002 through PA-100 remain not run.
+Notion, and Calendar setup work is live. PA-001 and PA-002 are accepted.
+PA-003 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -204,7 +204,7 @@ All rows start **Not run**. Requests below are natural starting messages; follow
 | ID | Outcome | Setup and later change | Starting request | Case-specific acceptance |
 | --- | --- | --- | --- | --- |
 | PA-001 | Pass | Gmail: urgent request and duplicate reminder. Calendar: two meetings. Notion: deadline. Memory: 16:00 stop time. | Give me today's brief. | Reconcile four sources; count the deadline once; identify preparation, urgency, and work beyond capacity. [Evidence](../validation/evidence/personal-assistant-live/PA-001/) |
-| PA-002 | Promise register | Three promises with owners and dates; one repeated email. Later extend one date and supply one completion receipt. | Keep track of what I owe people and what they owe me. | Save three promises with sources; preserve the date replacement; close only the receipted promise; unchanged check creates no duplicate. |
+| PA-002 | Pass | Three promises with owners and dates; one repeated email. Later extend one date and supply one completion receipt. | Keep track of what I owe people and what they owe me. | Save three promises with sources; preserve the date replacement; close only the receipted promise; unchanged check creates no duplicate. [Evidence](../validation/evidence/personal-assistant-live/PA-002/) |
 | PA-003 | Incoming actions | Email and Notion repeat one agreed action; another paragraph only proposes a date. | Pick out what I need to do from these updates. | Create one native Task and one agreed calendar item; exclude speculation; repeated intake creates neither again. |
 | PA-004 | Reply queue | Five threads: urgent client ask, overdue promise, friend, newsletter, resolved request. Later add an inbound correction. | Help me get through my replies. | Order by urgency and relationship; draft correct replies; preserve the correction; close only after mock send receipts; unchanged check stays quiet. |
 | PA-005 | Calendar audit | Recurring event, all-day leave, two overlapping meetings, and 40-minute travel between 20-minute gaps. | Check next week's calendar for trouble. | Read bounded instances; preserve timezones and recurrence IDs; flag overlaps, leave, travel, and preparation without treating all-day dates as UTC instants. |
