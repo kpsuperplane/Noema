@@ -298,7 +298,7 @@ func adapterOAuthFailureMessage(event OAuthAttemptEvent, err error) string {
 	if event.Status == "failed" {
 		return "Noema could not finish activating this connection. Return to Noema to review its status or try again."
 	}
-	return "Noema no longer recognizes this connection attempt. Return to Noema and start again."
+	return "Noema could not finish activating this connection. Return to Noema to review its status or try again."
 }
 
 func writeAdapterOAuthResult(w http.ResponseWriter, status int, message string) {

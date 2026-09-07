@@ -406,7 +406,7 @@ func (s *Service) CallbackHandler() http.Handler {
 			return
 		}
 		id := r.URL.Query().Get("attemptId")
-		if err := s.CompleteOAuth(r.Context(), id, absoluteCallback(r)); err != nil {
+		if err := s.CompleteOAuth(r.Context(), id, AbsoluteCallback(r)); err != nil {
 			publicpage.Callback(w, http.StatusBadRequest, false)
 			return
 		}
@@ -512,7 +512,10 @@ func (s *Service) refreshOAuth(ctx context.Context, server store.MCPServer, secr
 	}
 	return updated, nil
 }
-func absoluteCallback(r *http.Request) string {
+
+// AbsoluteCallback reconstructs the production callback URL from the request
+// authority and the forwarded transport scheme.
+func AbsoluteCallback(r *http.Request) string {
 	scheme := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")))
 	if scheme != "http" && scheme != "https" {
 		scheme = "http"
@@ -522,7 +525,9 @@ func absoluteCallback(r *http.Request) string {
 	}
 	return scheme + "://" + r.Host + r.URL.RequestURI()
 }
-func oauthFailureMessage(string) string { return "Noema could not complete MCP OAuth authorization" }
+
+func absoluteCallback(r *http.Request) string { return AbsoluteCallback(r) }
+func oauthFailureMessage(string) string       { return "Noema could not complete MCP OAuth authorization" }
 func jsonUnmarshalSafe(data json.RawMessage, input *SetupInput) error {
 	return json.Unmarshal(data, safeTarget(input))
 }

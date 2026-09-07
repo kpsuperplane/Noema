@@ -522,13 +522,12 @@ func (s *Server) serveGraphQL(
 			application.ServeHTTP(w, r)
 			return
 		}
-		select {
-		case s.wsSlots <- struct{}{}:
-			defer func() { <-s.wsSlots }()
-		default:
+		release, ok := s.websocketSlot()
+		if !ok {
 			writeAuthError(w, http.StatusServiceUnavailable, "server_busy")
 			return
 		}
+		defer release()
 		s.serveNativeWebSocket(w, r, application, *native)
 		return
 	}
@@ -550,13 +549,12 @@ func (s *Server) serveGraphQL(
 		application.ServeHTTP(w, r.WithContext(withBrowserSession(r.Context(), browser.digest)))
 		return
 	}
-	select {
-	case s.wsSlots <- struct{}{}:
-		defer func() { <-s.wsSlots }()
-	default:
+	release, ok := s.websocketSlot()
+	if !ok {
 		writeAuthError(w, http.StatusServiceUnavailable, "server_busy")
 		return
 	}
+	defer release()
 	ctx, cancel := context.WithCancel(r.Context())
 	id := s.sessions.registerConnection(browser.digest, cancel)
 	defer func() {
@@ -568,6 +566,17 @@ func (s *Server) serveGraphQL(
 		return
 	}
 	application.ServeHTTP(w, r.WithContext(withBrowserSession(ctx, browser.digest)))
+}
+
+// websocketSlot reserves one production WebSocket connection capacity.
+// The returned function releases the reservation.
+func (s *Server) websocketSlot() (func(), bool) {
+	select {
+	case s.wsSlots <- struct{}{}:
+		return func() { <-s.wsSlots }, true
+	default:
+		return nil, false
+	}
 }
 
 func (s *Server) serveNativeWebSocket(

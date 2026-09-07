@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,7 +39,26 @@ const (
 	parityRedirect  = "http://127.0.0.1:49152/oauth/callback"
 	parityVerifier  = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	parityChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+	parityRecovery  = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 )
+
+// Rust source: crates/noema-server/src/web/router/tests.rs::development_auth_bypass_allows_graphql_without_bootstrap.
+func TestRustServer_development_auth_bypass_allows_graphql_without_bootstrap(t *testing.T) {
+	server, _, paths := newExternalAuthTest(t, true)
+	application := externalGraphQLApplication(t, server, paths, false)
+	handler := server.Handler(application)
+	graphql := externalRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ __typename }"}`))
+	response := externalServe(handler, graphql)
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || response.Code != http.StatusOK ||
+		!reflect.DeepEqual(payload, map[string]any{"data": map[string]any{"__typename": "QueryRoot"}}) {
+		t.Fatalf("development GraphQL = %d %q (%v)", response.Code, response.Body.String(), err)
+	}
+	recovery := externalRequest(http.MethodPost, "/auth/recovery", bytes.NewBufferString(fmt.Sprintf(`{"code":%q}`, parityRecovery)))
+	if response := externalServe(handler, recovery); response.Code != http.StatusNotFound {
+		t.Fatalf("development recovery = %d", response.Code)
+	}
+}
 
 // Rust source: crates/noema-server/src/web/router/tests.rs::passkey_management_requires_auth_and_revokes_affected_sessions.
 func TestRustServer_passkey_management_requires_auth_and_revokes_affected_sessions(t *testing.T) {

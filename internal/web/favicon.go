@@ -74,6 +74,22 @@ type faviconCacheEntry struct {
 	expiresAt time.Time
 }
 
+// faviconFreshValue is the cached result that is still within its outcome
+// lifetime. A nil err is an available icon; the sentinels represent the
+// cached missing and transient outcomes.
+type faviconFreshValue struct {
+	body []byte
+	err  error
+}
+
+// faviconCachedValue mirrors the production cache authority. Fresh contains
+// the typed outcome, Stale contains an available body, and both nil means a
+// cache miss.
+type faviconCachedValue struct {
+	fresh *faviconFreshValue
+	stale []byte
+}
+
 type faviconResponse struct {
 	body      []byte
 	finalURL  *url.URL
@@ -94,38 +110,34 @@ func (h *faviconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid hostname", http.StatusBadRequest)
 		return
 	}
-	entry, fresh := h.cacheEntry(hostname, time.Now())
-	if entry.outcome == faviconAvailable && (fresh || !entry.expiresAt.IsZero()) {
-		body := entry.body
-		h.writeResponse(w, r, body)
+	cached := h.readCache(hostname, time.Now())
+	if cached.fresh != nil {
+		if cached.fresh.err == nil {
+			h.writeResponse(w, r, cached.fresh.body)
+		} else {
+			h.writeCachedFailure(w, cached.fresh.err)
+		}
 		return
 	}
-	if fresh {
-		switch entry.outcome {
-		case faviconCachedMissing:
-			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-			return
-		case faviconCachedTransient:
-			http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
-			return
-		}
+	if cached.stale != nil {
+		h.writeResponse(w, r, cached.stale)
+		return
 	}
 	lock := h.hostMutex(hostname)
 	lock.Lock()
 	defer lock.Unlock()
-	entry, fresh = h.cacheEntry(hostname, time.Now())
-	if fresh {
-		switch entry.outcome {
-		case faviconAvailable:
-			h.writeResponse(w, r, entry.body)
-			return
-		case faviconCachedMissing:
-			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-			return
-		case faviconCachedTransient:
-			http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
-			return
+	cached = h.readCache(hostname, time.Now())
+	if cached.fresh != nil {
+		if cached.fresh.err == nil {
+			h.writeResponse(w, r, cached.fresh.body)
+		} else {
+			h.writeCachedFailure(w, cached.fresh.err)
 		}
+		return
+	}
+	if cached.stale != nil {
+		h.writeResponse(w, r, cached.stale)
+		return
 	}
 	body, err := func() ([]byte, error) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -150,6 +162,14 @@ func (h *faviconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.write(hostname, body)
 	h.writeResponse(w, r, body)
+}
+
+func (h *faviconHandler) writeCachedFailure(w http.ResponseWriter, failure error) {
+	status := http.StatusBadGateway
+	if failure == faviconMissing {
+		status = http.StatusNotFound
+	}
+	http.Error(w, http.StatusText(status), status)
 }
 
 func (h *faviconHandler) writeResponse(w http.ResponseWriter, r *http.Request, body []byte) {
@@ -181,14 +201,6 @@ func normalizeFaviconHostname(raw string) (string, error) {
 }
 
 var errInvalidFaviconHostname = errors.New("invalid favicon hostname")
-
-func (h *faviconHandler) read(hostname string) []byte {
-	entry, _ := h.cacheEntry(hostname, time.Now())
-	if entry.outcome != faviconAvailable {
-		return nil
-	}
-	return append([]byte(nil), entry.body...)
-}
 
 func (h *faviconHandler) write(hostname string, body []byte) {
 	h.writeOutcome(hostname, faviconAvailable, body, time.Now())
@@ -247,6 +259,29 @@ func (h *faviconHandler) cacheEntry(hostname string, now time.Time) (faviconCach
 		entry.body = body
 	}
 	return entry, entry.expiresAt.After(now)
+}
+
+// readCache is the production cache read path. It retains stale available
+// icons while allowing fresh negative outcomes to suppress another fetch.
+func (h *faviconHandler) readCache(hostname string, now time.Time) faviconCachedValue {
+	entry, fresh := h.cacheEntry(hostname, now)
+	if entry.outcome == faviconAvailable {
+		if fresh {
+			return faviconCachedValue{fresh: &faviconFreshValue{body: append([]byte(nil), entry.body...)}}
+		}
+		return faviconCachedValue{stale: append([]byte(nil), entry.body...)}
+	}
+	if !fresh {
+		return faviconCachedValue{}
+	}
+	switch entry.outcome {
+	case faviconCachedMissing:
+		return faviconCachedValue{fresh: &faviconFreshValue{err: faviconMissing}}
+	case faviconCachedTransient:
+		return faviconCachedValue{fresh: &faviconFreshValue{err: faviconTransient}}
+	default:
+		return faviconCachedValue{}
+	}
 }
 
 func (h *faviconHandler) hostMutex(hostname string) *sync.Mutex {

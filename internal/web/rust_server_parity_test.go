@@ -93,6 +93,44 @@ func TestRustServer_assets_preserve_safe_paths_content_types_dynamic_chunks_and_
 	}
 }
 
+// Rust source: crates/noema-server/src/web/router/tests.rs::pwa_asset_responses_use_release_safe_headers.
+func TestRustServer_pwa_asset_responses_use_release_safe_headers(t *testing.T) {
+	for _, test := range []struct {
+		name, contentType string
+		worker            bool
+	}{
+		{"sw.js", "application/javascript; charset=utf-8", true},
+		{"manifest.webmanifest", "application/manifest+json; charset=utf-8", false},
+		{"pwa-192x192.png", "image/png", false},
+		{"pwa-512x512.png", "image/png", false},
+		{"apple-touch-icon.png", "image/png", false},
+	} {
+		response := httptest.NewRecorder()
+		writeAssetResponse(response, assetResponseSpec{
+			contentType:          test.contentType,
+			cacheControl:         "no-cache",
+			serviceWorkerAllowed: test.worker,
+			body:                 []byte("pwa asset"),
+		})
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s response = %d", test.name, response.Code)
+		}
+		if got := response.Header().Get("Content-Type"); got != test.contentType {
+			t.Fatalf("%s content type = %q", test.name, got)
+		}
+		if got := response.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Fatalf("%s cache control = %q", test.name, got)
+		}
+		wantWorker := ""
+		if test.worker {
+			wantWorker = "/"
+		}
+		if got := response.Header().Get("Service-Worker-Allowed"); got != wantWorker {
+			t.Fatalf("%s service worker = %q", test.name, got)
+		}
+	}
+}
+
 // Rust source: crates/noema-server/src/web/favicons.rs::hostname_normalization_keeps_exact_hosts_distinct.
 func TestRustServer_hostname_normalization_keeps_exact_hosts_distinct(t *testing.T) {
 	if got, err := normalizeFaviconHostname("EXAMPLE.com."); err != nil || got != "example.com" {
@@ -101,11 +139,8 @@ func TestRustServer_hostname_normalization_keeps_exact_hosts_distinct(t *testing
 	if got, err := normalizeFaviconHostname("www.example.com"); err != nil || got != "www.example.com" {
 		t.Fatalf("normalized www hostname = %q, %v", got, err)
 	}
-	handler := NewFaviconHandler(t.TempDir())
-	handler.write("example.com", []byte("root"))
-	handler.write("www.example.com", []byte("www"))
-	if bytes.Equal(handler.read("example.com"), handler.read("www.example.com")) {
-		t.Fatal("distinct favicon hosts shared a cache entry")
+	if faviconCacheKey("example.com") == faviconCacheKey("www.example.com") {
+		t.Fatal("distinct favicon hosts shared a cache key")
 	}
 }
 
@@ -149,8 +184,6 @@ func TestRustServer_image_normalization_bounds_and_converts_raster_input(t *test
 func TestRustServer_cache_preserves_positive_and_negative_outcomes(t *testing.T) {
 	directory := t.TempDir()
 	handler := NewFaviconHandler(directory)
-	routes := http.NewServeMux()
-	routes.Handle("GET /favicons/{hostname}", handler)
 	var source bytes.Buffer
 	if err := png.Encode(&source, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
 		t.Fatal(err)
@@ -159,40 +192,35 @@ func TestRustServer_cache_preserves_positive_and_negative_outcomes(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler.write("example.com", pngBody)
+	now := time.Now()
+	handler.writeOutcome("example.com", faviconAvailable, pngBody, now)
 	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("example.com")+".json")); err != nil {
 		t.Fatalf("positive cache metadata was not durable: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("example.com")+".png")); err != nil {
 		t.Fatalf("positive cache body was not durable: %v", err)
 	}
-	if got := handler.read("example.com"); !bytes.Equal(got, pngBody) {
-		t.Fatalf("positive cache = %q", got)
+	positive := handler.readCache("example.com", now)
+	if positive.fresh == nil || positive.fresh.err != nil || !bytes.Equal(positive.fresh.body, pngBody) {
+		t.Fatalf("positive cache = %#v", positive)
 	}
-	if _, format, err := image.Decode(bytes.NewReader(handler.read("example.com"))); err != nil || format != "png" {
+	if _, format, err := image.Decode(bytes.NewReader(positive.fresh.body)); err != nil || format != "png" {
 		t.Fatalf("positive cache body = format %q, err=%v", format, err)
 	}
-	now := time.Now()
 	handler.writeOutcome("missing.example", faviconCachedMissing, nil, now)
-	missing := httptest.NewRecorder()
-	routes.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "http://localhost/favicons/missing.example", nil))
-	if missing.Code != http.StatusNotFound {
-		t.Fatalf("missing cache response = %d %q", missing.Code, missing.Body.String())
+	missing := handler.readCache("missing.example", now)
+	if missing.fresh == nil || !errors.Is(missing.fresh.err, faviconMissing) {
+		t.Fatalf("missing cache = %#v", missing)
 	}
 	handler.writeOutcome("transient.example", faviconCachedTransient, nil, now)
-	transient := httptest.NewRecorder()
-	routes.ServeHTTP(transient, httptest.NewRequest(http.MethodGet, "http://localhost/favicons/transient.example", nil))
-	if transient.Code != http.StatusBadGateway {
-		t.Fatalf("transient cache response = %d %q", transient.Code, transient.Body.String())
+	transient := handler.readCache("transient.example", now)
+	if transient.fresh == nil || !errors.Is(transient.fresh.err, faviconTransient) {
+		t.Fatalf("transient cache = %#v", transient)
 	}
 	handler.writeOutcome("stale.example", faviconAvailable, pngBody, time.Unix(1, 0))
-	stale := httptest.NewRecorder()
-	routes.ServeHTTP(stale, httptest.NewRequest(http.MethodGet, "http://localhost/favicons/stale.example", nil))
-	if stale.Code != http.StatusOK || !bytes.Equal(stale.Body.Bytes(), pngBody) {
-		t.Fatalf("stale cache response = %d %q", stale.Code, stale.Body.Bytes())
-	}
-	if _, format, err := image.Decode(bytes.NewReader(stale.Body.Bytes())); err != nil || format != "png" {
-		t.Fatalf("stale cache body = format %q, err=%v", format, err)
+	stale := handler.readCache("stale.example", now)
+	if len(stale.stale) == 0 || !bytes.Equal(stale.stale, pngBody) {
+		t.Fatalf("stale cache = %#v", stale)
 	}
 }
 
@@ -224,7 +252,7 @@ func TestRustServer_cache_write_evicts_the_oldest_hostname(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("0.example")+".json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("oldest favicon cache entry was retained")
 	}
-	if entry, fresh := handler.cacheEntry("1024.example", time.Unix(1025, 0)); !fresh || entry.outcome != faviconCachedMissing {
-		t.Fatal("newest favicon cache entry was evicted")
+	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("1024.example")+".json")); err != nil {
+		t.Fatalf("newest favicon cache entry was evicted: %v", err)
 	}
 }

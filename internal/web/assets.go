@@ -30,6 +30,13 @@ type assetHandler struct {
 	assets fs.FS
 }
 
+type assetResponseSpec struct {
+	contentType          string
+	cacheControl         string
+	serviceWorkerAllowed bool
+	body                 []byte
+}
+
 // NewAssetHandler serves the current Vite build and browser routes.
 func NewAssetHandler() http.Handler {
 	return assetHandler{assets: assetFileSystem()}
@@ -101,16 +108,27 @@ func (h assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", contentType)
 	// The desktop loopback callback uses the server's public fonts.
 	if strings.HasPrefix(contentType, "font/") {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 	}
-	w.Header().Set("Cache-Control", cacheControl(name))
-	if name == "sw.js" {
+	writeAssetResponse(w, assetResponseSpec{
+		contentType:          contentType,
+		cacheControl:         cacheControl(name),
+		serviceWorkerAllowed: name == "sw.js",
+		body:                 body,
+	})
+}
+
+// writeAssetResponse applies the release asset response policy after the
+// caller has selected an embedded asset.
+func writeAssetResponse(w http.ResponseWriter, asset assetResponseSpec) {
+	w.Header().Set("Content-Type", asset.contentType)
+	w.Header().Set("Cache-Control", asset.cacheControl)
+	if asset.serviceWorkerAllowed {
 		w.Header().Set("Service-Worker-Allowed", "/")
 	}
-	_, _ = w.Write(body)
+	_, _ = w.Write(asset.body)
 }
 
 func assetRequest(path string) (name string, contentType string, ok bool) {
