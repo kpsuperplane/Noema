@@ -529,7 +529,7 @@ func TestRustModelEvals_PatchChangesOnlyTheExactProviderRoleCell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := provider.ModelRecommendation{UseCase: provider.ModelUsePrimary, ModelProfile: "gpt-5.6-terra", ReasoningEffort: "medium"}
+	old := recommendationFor(provider.ModelRecommendations("openai"), provider.ModelUsePrimary)
 	replacement := provider.ModelRecommendation{UseCase: provider.ModelUsePrimary, ModelProfile: "gpt-5.6-luna", ReasoningEffort: "high"}
 	patch, err := renderRecommendationPatch(path, source, []recommendationChange{{Provider: "openai", Role: string(provider.ModelUsePrimary), Old: old, New: replacement}})
 	if err != nil {
