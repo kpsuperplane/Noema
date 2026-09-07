@@ -85,10 +85,45 @@ func TestRustRuntime_full_request_accounting_includes_every_provider_visible_sur
 
 func TestRustRuntime_continuation_context_preserves_reasoning_calls_and_results_in_order(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/continuation_context.rs::continuation_context_preserves_reasoning_calls_and_results_in_order.
-	call := provider.GenerationMessage{Role: "assistant", ToolCalls: []provider.ReplayToolCall{{Name: "web.fetch", ProviderCallID: "call_1"}}}
-	result := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{Name: "web.fetch", ProviderCallID: "call_1", Success: true, Payload: json.RawMessage(`{"content":"450,000 black bears"}`)}}
-	items := joinContextMessages([]provider.GenerationMessage{{Role: "user", Content: "Research bears"}}, []provider.GenerationMessage{call, result})
-	if len(items) != 3 || items[1].Role != "assistant" || items[2].Role != "tool" || !strings.Contains(string(items[2].ToolResult.Payload), "450,000") {
+	result := provider.GenerationResult{
+		Text: "I will inspect the source before answering.",
+		Reasoning: []provider.GenerationReasoning{{
+			ID: "reasoning_1", ProviderDetails: []json.RawMessage{json.RawMessage(`{"type":"reasoning","id":"reasoning_1","encrypted_content":"encrypted"}`)},
+		}},
+		Searches: []provider.HostedSearch{{
+			ID: "search_1", Name: "web.search", Status: "completed",
+			Arguments: json.RawMessage(`{"query":"black bears"}`),
+			Result:    json.RawMessage(`{"content":"450,000 black bears"}`),
+			Sources:   []provider.WebSource{{Title: "Bear facts", URL: "https://example.test/bears"}},
+		}},
+		ToolCalls: []provider.GenerationToolCall{{
+			ProviderItemID: "item_1", ProviderCallID: "call_1", ProviderName: "web", Name: "web.fetch",
+			Payload: json.RawMessage(`{"url":"https://example.test/bears"}`),
+		}},
+	}
+	items := joinContextMessages(
+		[]provider.GenerationMessage{{Role: "user", Content: "Research bears"}},
+		taskResultMessages(result),
+	)
+	if len(items) != 3 || items[1].Role != "hosted_web_search" || items[1].HostedSearch == nil ||
+		items[2].Role != "assistant" || len(items[2].ReasoningDetails) != 1 {
+		t.Fatalf("provider continuation prefix = %#v", items)
+	}
+	items[2].ToolCalls = []provider.ReplayToolCall{{
+		ProviderItemID: "item_1", ProviderCallID: "call_1", ProviderName: "web", Name: "web.fetch",
+		Arguments: result.ToolCalls[0].Payload,
+	}}
+	items = append(items, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{
+		Name: "web.fetch", ProviderName: "web", ProviderCallID: "call_1",
+		Arguments: result.ToolCalls[0].Payload, Success: true,
+		Payload: json.RawMessage(`{"content":"450,000 black bears"}`),
+	}})
+	if len(items) != 4 || items[0].Role != "user" || items[1].HostedSearch == nil ||
+		items[1].HostedSearch.Status != "completed" || items[1].HostedSearch.Arguments == nil ||
+		!strings.Contains(string(items[1].HostedSearch.Arguments), "black bears") ||
+		items[2].Content != result.Text || len(items[2].ToolCalls) != 1 ||
+		items[2].ToolCalls[0].ProviderCallID != "call_1" || items[3].ToolResult == nil ||
+		!strings.Contains(string(items[3].ToolResult.Payload), "450,000 black bears") {
 		t.Fatalf("continuation order = %#v", items)
 	}
 }

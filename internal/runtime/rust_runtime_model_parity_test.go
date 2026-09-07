@@ -3,15 +3,21 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/kpsuperplane/noema/internal/webtool"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestRustRuntime_diffs_emit_stable_full_replacement_and_removal_updates(t *testing.T) {
@@ -244,21 +250,106 @@ func TestRustRuntime_service_context_is_deduplicated_without_changing_tool_descr
 
 func TestRustRuntime_complete_catalog_is_stable_for_native_transport(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/model_tools/tests.rs::complete_catalog_is_stable_for_native_transport.
-	names := make([]string, 0, len(localChatTools()))
-	for _, tool := range localChatTools() {
+	chat, database, _ := chatFixture(t)
+	accounts, err := provider.NewAccountService(chat.home.Name(), database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.Initialize(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	web, err := webtool.New(database, accounts, nil, nil, chat.home.Name(), "", 2, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(web.Close)
+	chat.web = web
+	for _, name := range []string{webtool.SearchName, webtool.FetchName} {
+		account := "provider_account:duckduckgo_public:system"
+		if name == webtool.FetchName {
+			account = "provider_account:direct_http:system"
+		}
+		if err := database.SaveWebProviderBinding(t.Context(), name, account, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secret, err := provider.NewSecret("runtime-catalog-kernel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kernel, err := accounts.CreateSecretAccount(t.Context(), "kernel", "Kernel", secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveBrowserProviderRoute(t.Context(), []string{kernel.ID}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "read", Description: "Read a document.", Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: runtimeBool(false), OpenWorldHint: runtimeBool(false)}},
+		func(context.Context, *mcpsdk.CallToolRequest, struct {
+			Path string `json:"path"`
+		}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{"path": "ordinary"}, nil
+		})
+	httpServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(httpServer.Close)
+	paths, err := home.FromRoot(chat.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpService, err := noemamcp.NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mcpService.Close)
+	setup, err := mcpService.Create(t.Context(), noemamcp.SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || setup.Server == nil {
+		t.Fatalf("MCP catalog setup = %#v, %v", setup, err)
+	}
+	if _, err := mcpService.SaveConnectionPolicy(t.Context(), setup.Server.ID, setup.Server.ConnectionRevision, 0, "allow_automatically", "never_ask"); err != nil {
+		t.Fatal(err)
+	}
+	chat.mcp = mcpService
+	tools, err := chat.chatTools(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
 		names = append(names, tool.Name)
 	}
-	for _, required := range []string{noemamemory.ReadPageToolName, noemamemory.SearchToolName, fileParseName, updateOwnNameToolName, artifactCreateLocalName, luaRunName, fileDownloadName, presentMultipleChoiceName, presentA2UIName, taskDelegateName, projectCreateName} {
-		found := false
-		for _, name := range names {
-			if name == required {
-				found = true
+	want := []string{
+		"read_memory_page", "search_memory", "file.parse", "update_own_name", "artifact.create_local_file", "code.run_luau", "file.download",
+		"noema.present_multiple_choice", "noema.present_a2ui", "task.capture", "task.list", "task.inspect", "task.update", "task.queue", "task.schedule",
+		"task.reschedule", "task.unschedule", "task.schedule.run_now", "task.recurrence.update", "task.recurrence.pause", "task.recurrence.resume",
+		"task.recurrence.skip_next", "task.recurrence.end", "task.recurrence.run_now", "task.delegate", "task.answer", "task.retry", "task.cancel",
+		"task.reopen", "project.create", "project.list", "project.read", "project.update", "project.archive", "project.reopen", "web.search", "web.fetch",
+		"web.browse.open", "web.browse.snapshot", "web.browse.interact", "web.browse.wait", "web.browse.history", "web.browse.switch_provider", "web.browse.close",
+		"mcp.mcp:docs.read",
+	}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("complete native catalog names = %#v, want %#v", names, want)
+	}
+	for _, name := range []string{"task.schedule", "noema.present_multiple_choice", "noema.present_a2ui", "task.delegate"} {
+		var tool provider.GenerationTool
+		for _, candidate := range tools {
+			if candidate.Name == name {
+				tool = candidate
 				break
 			}
 		}
-		if !found {
-			t.Fatalf("native catalog omitted %q: %v", required, names)
+		if tool.Name == "" {
+			t.Errorf("complete catalog omitted schema for %q", name)
+			continue
 		}
+		if err := tool.Validate(); err != nil {
+			t.Errorf("production catalog schema for %q is invalid: %v", name, err)
+		}
+	}
+	bindings, err := mcpService.Bindings(t.Context())
+	if err != nil || len(bindings) != 1 || bindings[0].Description != "Read a document." {
+		t.Errorf("MCP production catalog binding = %#v, %v", bindings, err)
 	}
 }
 

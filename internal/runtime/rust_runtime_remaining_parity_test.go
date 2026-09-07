@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -319,8 +320,18 @@ func TestRustRuntime_unsaved_action_context_keeps_exact_tool_arguments(t *testin
 
 func TestRustRuntime_task_research_policy_changes_low_yield_retrieval_strategy(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/task_run_context.rs::task_research_policy_changes_low_yield_retrieval_strategy.
-	policy := taskRolePrompt("executor")
-	for _, required := range []string{"source types likely to contain it", "high-yield specialist indexes", "Do not open search-engine result pages", "After two low-yield searches", "candidate and evidence ledger", "exact source pages read"} {
+	policy := strings.Join([]string{taskRolePrompt("planner"), taskRolePrompt("executor"), taskRolePrompt("reviewer")}, "\n")
+	for _, required := range []string{
+		"source types likely to contain it", "high-yield specialist indexes", "Theme words can help discover",
+		"when its public URL is known", "before broad search", "is still search", "page-open action",
+		"read that source before issuing more", "Do not open search-engine result pages", "link href",
+		"Do not use browser interaction only to navigate", "After two low-yield searches",
+		"Do not repeat near-synonym queries", "Do not reread the same page", "verify claims from source content",
+		"candidate and evidence ledger", "Do not prescribe query strings", "fixed domain lists",
+		"Executor selects live sources", "exact source pages read", "result URLs alone do not prove",
+		"every explicit TASK.md requirement", "omitted, incomplete, deferred", "Do not use private provider",
+		"[^noema-source-N]", "<artifact:artifact-id>",
+	} {
 		if !strings.Contains(policy, required) {
 			t.Errorf("Task research policy omitted %q", required)
 		}
@@ -559,8 +570,16 @@ func TestRustRuntime_falls_back_when_bound_capability_is_not_available(t *testin
 
 func TestRustRuntime_browser_route_digest_fences_capability_state_changes(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/web_tools.rs::browser_route_digest_fences_capability_state_changes.
-	service, database, _ := rustRuntimeWebFixture(t)
-	if err := database.SaveBrowserProviderRoute(context.Background(), []string{"provider_account:obscura:system"}, time.Now()); err != nil {
+	service, database, accounts := rustRuntimeWebFixture(t)
+	secret, err := provider.NewSecret("runtime-route-kernel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kernel, err := accounts.CreateSecretAccount(context.Background(), "kernel", "Kernel", secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveBrowserProviderRoute(context.Background(), []string{kernel.ID, "provider_account:obscura:system"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	arguments := json.RawMessage(`{"url":"https://example.test"}`)
@@ -568,14 +587,18 @@ func TestRustRuntime_browser_route_digest_fences_capability_state_changes(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if authority.ProviderAccountID == "" || !service.CurrentBrowserAuthority(context.Background(), authority, arguments) {
+	if authority.ProviderAccountID != kernel.ID || !service.CurrentBrowserAuthority(context.Background(), authority, arguments) {
 		t.Fatalf("available browser authority = %#v", authority)
 	}
-	if err := database.SetProviderAccountStatus(context.Background(), authority.ProviderAccountID, provider.StatusUnauthenticated, "auth_failed", "test", time.Now()); err != nil {
+	if err := database.SetProviderAccountStatus(context.Background(), kernel.ID, provider.StatusUnauthenticated, "auth_failed", "test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if service.CurrentBrowserAuthority(context.Background(), authority, arguments) {
-		t.Fatal("browser authority remained valid after provider capability state changed")
+	changed, err := service.BrowserAuthority(context.Background(), "conversation:test", webtool.BrowseOpenName, arguments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.ProviderAccountID == authority.ProviderAccountID || service.CurrentBrowserAuthority(context.Background(), authority, arguments) {
+		t.Fatalf("browser route authority remained valid after capability state changed: before %#v after %#v", authority, changed)
 	}
 }
 
@@ -687,13 +710,139 @@ func TestRustRuntime_supervisor_enforces_fifo_cap_and_releases_ninth_only_after_
 		t.Errorf("Go Task supervisor worker cap = %d, Rust contract requires 8", taskExecutionWorkerCount)
 	}
 	chat, database, _ := chatFixture(t)
-	for index := 0; index < 9; index++ {
-		createQueuedRuntimeTask(t, database, chat.home, fmt.Sprintf("FIFO %d", index))
+	tasks := make([]store.Task, 0, taskExecutionWorkerCount)
+	for index := 0; index < taskExecutionWorkerCount; index++ {
+		tasks = append(tasks, createQueuedRuntimeTask(t, database, chat.home, fmt.Sprintf("FIFO %d", index)))
 	}
-	_, first, found, err := database.ClaimTaskExecution(context.Background(), time.Now())
-	if err != nil || !found || first.ID == "" {
-		t.Fatalf("FIFO claim = %#v %t %v", first, found, err)
+	started := make(chan string, taskExecutionWorkerCount+2)
+	settling := make(chan struct{})
+	release := make(chan struct{})
+	var firstMu sync.Mutex
+	firstRun := ""
+	generator := generatorFunc(func(ctx context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		runID := request.ConversationID
+		started <- runID
+		firstMu.Lock()
+		if firstRun == "" {
+			firstRun = runID
+		}
+		isFirst := firstRun == runID
+		firstMu.Unlock()
+		if isFirst {
+			<-ctx.Done()
+			select {
+			case <-settling:
+			default:
+				close(settling)
+			}
+			<-release
+			return provider.GenerationResult{}, ctx.Err()
+		}
+		<-ctx.Done()
+		return provider.GenerationResult{}, ctx.Err()
+	})
+	runtime, err := NewTaskExecution(t.Context(), database, generator, generator, generator, chat.home)
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(runtime.Close)
+	for index := 0; index < taskExecutionWorkerCount; index++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d of %d Task providers started", index, taskExecutionWorkerCount)
+		}
+	}
+	firstMu.Lock()
+	oldRunID := firstRun
+	firstMu.Unlock()
+	if oldRunID == "" {
+		t.Fatal("Task supervisor did not identify the first provider run")
+	}
+	var oldTask store.Task
+	for _, task := range tasks {
+		runs, runErr := database.TaskRuns(t.Context(), task.ID, 10)
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+		for _, run := range runs {
+			if run.ID == oldRunID {
+				oldTask = task
+			}
+		}
+	}
+	if oldTask.ID == "" {
+		t.Fatalf("first provider run %q was not linked to a durable Task", oldRunID)
+	}
+	before, err := database.Task(t.Context(), oldTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := database.CancelTask(t.Context(), oldTask.ID, before.Revision, before.Generation,
+		"Replace old work", runtimeTaskCommand("cancel_task", "settlement"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	complexity := "simple"
+	reopened, err := database.ReopenTask(t.Context(), oldTask.ID, cancelled.Task.Revision, cancelled.Task.Generation,
+		"Continue after the cancelled run settles", &complexity, "", runtimeTaskCommand("reopen_task", "settlement"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	successorRunID := reopened.Task.CurrentRunID
+	if successorRunID == "" || successorRunID == oldRunID {
+		t.Fatalf("reopen did not create a queued successor: %#v", reopened.Task)
+	}
+	select {
+	case <-settling:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled provider did not enter its settling phase")
+	}
+	runs, err := database.TaskRuns(t.Context(), oldTask.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldStatus, successorStatus string
+	for _, run := range runs {
+		switch run.ID {
+		case oldRunID:
+			oldStatus = run.Status
+		case successorRunID:
+			successorStatus = run.Status
+		}
+	}
+	if oldStatus != "cancelled" || successorStatus != "queued" {
+		t.Fatalf("durable cancellation state before release = old %q successor %q", oldStatus, successorStatus)
+	}
+	select {
+	case runID := <-started:
+		if runID == successorRunID {
+			t.Fatal("queued successor started while predecessor provider was settling")
+		}
+	default:
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case runID := <-started:
+			if runID == successorRunID {
+				runs, runErr := database.TaskRuns(t.Context(), oldTask.ID, 10)
+				if runErr != nil {
+					t.Fatal(runErr)
+				}
+				for _, run := range runs {
+					if run.ID == successorRunID && run.Status != "running" && run.Status != "leased" {
+						t.Fatalf("successor started with durable status %q", run.Status)
+					}
+				}
+				return
+			}
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	t.Fatal("queued successor did not start after predecessor provider settled")
 }
 
 func TestRustRuntime_failed_run_publishes_work_invalidation_for_automatic_replacement(t *testing.T) {
