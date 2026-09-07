@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -39,7 +40,7 @@ func TestRustServer_bind_ip_requires_an_explicit_numeric_address(t *testing.T) {
 			if err := home.AtomicWritePrivate(paths.Config(), []byte("web:\n  host: "+host+"\n")); err != nil {
 				t.Fatal(err)
 			}
-			_, _, err = LoadConfig(paths, "")
+			config, _, err := LoadConfig(paths, "")
 			if host == "localhost" {
 				if err == nil {
 					t.Fatal("hostname bind address was accepted")
@@ -48,6 +49,10 @@ func TestRustServer_bind_ip_requires_an_explicit_numeric_address(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("numeric bind address rejected: %v", err)
+			}
+			parsedHost, _, splitErr := net.SplitHostPort(config.ListenAddress)
+			if splitErr != nil || net.ParseIP(parsedHost) == nil || parsedHost != host {
+				t.Fatalf("numeric bind address = %q, parsed host=%q, err=%v", config.ListenAddress, parsedHost, splitErr)
 			}
 		})
 	}
@@ -119,30 +124,73 @@ func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
 
 // Rust source: crates/noema-server/src/web/mod.rs::websocket_capacity_rejects_excess_work.
 func TestRustServer_websocket_capacity_rejects_excess_work(t *testing.T) {
-	server, _, _ := newAuthTest(t, true)
-	if cap(server.wsSlots) != websocketConnLimit {
-		t.Fatalf("WebSocket capacity = %d, want %d", cap(server.wsSlots), websocketConnLimit)
-	}
-	permits := make([]func(), 0, cap(server.wsSlots))
-	for range cap(server.wsSlots) {
-		release, ok := server.websocketSlot()
-		if !ok {
-			t.Fatal("WebSocket slot was unavailable before capacity was reached")
+	server, _, _ := newAuthTest(t, false)
+	applicationReturned := make(chan struct{}, websocketConnLimit+1)
+	application := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		connection, err := websocket.Accept(w, request, &websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws"}})
+		if err != nil {
+			t.Errorf("WebSocket handshake: %v", err)
+			return
 		}
-		permits = append(permits, release)
+		defer connection.CloseNow()
+		_, _, _ = connection.Read(context.Background())
+		applicationReturned <- struct{}{}
+	})
+	handler := server.TestHandler(application)
+	cookie := authenticateViaTestRoute(t, handler, server)
+	network := httptest.NewServer(server.Handler(application))
+	t.Cleanup(network.Close)
+	server.config.Authority = strings.TrimPrefix(network.URL, "http://")
+	server.config.Origin = network.URL
+	wsURL := "ws" + strings.TrimPrefix(network.URL, "http") + "/graphql/ws"
+	dial := func() (*websocket.Conn, *http.Response, error) {
+		requestHeaders := http.Header{
+			"Cookie": []string{cookie.Name + "=" + cookie.Value},
+			"Origin": []string{server.config.Origin},
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		return websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+			Subprotocols: []string{"graphql-transport-ws"},
+			HTTPHeader:   requestHeaders,
+		})
 	}
-	if release, ok := server.websocketSlot(); ok {
-		release()
-		t.Fatal("WebSocket capacity accepted excess work")
+	connections := make([]*websocket.Conn, 0, websocketConnLimit)
+	for index := 0; index < websocketConnLimit; index++ {
+		connection, response, err := dial()
+		if err != nil {
+			if response != nil {
+				t.Fatalf("WebSocket %d handshake: %v (%s)", index, err, response.Status)
+			}
+			t.Fatalf("WebSocket %d handshake: %v", index, err)
+		}
+		connections = append(connections, connection)
 	}
-	for _, release := range permits {
-		release()
+	connection, response, err := dial()
+	if err == nil || response == nil || response.StatusCode != http.StatusServiceUnavailable {
+		if connection != nil {
+			_ = connection.CloseNow()
+		}
+		t.Fatalf("full WebSocket capacity = %v (%v)", response, err)
 	}
-	release, ok := server.websocketSlot()
-	if !ok {
-		t.Fatal("released WebSocket capacity was not reusable")
+	_ = response.Body.Close()
+	_ = connections[0].CloseNow()
+	select {
+	case <-applicationReturned:
+	case <-time.After(time.Second):
+		t.Fatal("released WebSocket did not finish")
 	}
-	release()
+	reusable, response, err := dial()
+	if err != nil {
+		if response != nil {
+			t.Fatalf("released WebSocket capacity = %v (%s)", err, response.Status)
+		}
+		t.Fatalf("released WebSocket capacity = %v", err)
+	}
+	connections = append(connections, reusable)
+	for _, connection := range connections {
+		_ = connection.CloseNow()
+	}
 }
 
 // Rust source: crates/noema-server/src/web/native_oauth.rs::authorization_requires_s256_pkce_and_client_state.
@@ -606,6 +654,9 @@ func TestRustServer_authority_session_and_removed_bootstrap_boundary(t *testing.
 	server, _, _ := newAuthTest(t, false)
 	handler := server.TestHandler(http.NotFoundHandler())
 	cookie := authenticateViaTestRoute(t, handler, server)
+	if got := cookie.Name + "=" + cookie.Value; !strings.HasPrefix(got, "noema.sid=") {
+		t.Fatalf("normal authentication cookie = %q", got)
+	}
 	invalid := authRequest(http.MethodGet, "/auth/status", nil)
 	invalid.Host = "attacker.invalid:3737"
 	if response := serve(handler, invalid); response.Code != http.StatusBadRequest {

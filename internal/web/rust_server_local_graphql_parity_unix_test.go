@@ -4,6 +4,7 @@ package web_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -46,27 +47,23 @@ func TestRustServer_socket_serves_local_authority_with_private_permissions_and_c
 	defer cancel()
 	result := make(chan error, 1)
 	go func() { result <- server.Serve(ctx) }()
-	transport := &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) {
-		return net.Dial("unix", path)
-	}}
-	client := &http.Client{Transport: transport}
-	defer transport.CloseIdleConnections()
-	request, err := http.NewRequest(http.MethodPost, "http://local/graphql", strings.NewReader(`{"query":"{ task(taskId: \"task:transport\") { taskId } }"}`))
+	body := `{"query":"{ task(taskId: \"task:transport\") { taskId } }"}`
+	stream, err := net.Dial("unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := client.Do(request)
+	_, err = fmt.Fprintf(stream, "POST /graphql HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(body), body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := io.ReadAll(response.Body)
-	_ = response.Body.Close()
+	response, err := io.ReadAll(stream)
+	_ = stream.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Noema store is unavailable") {
-		t.Fatalf("local GraphQL response = %d %q", response.StatusCode, body)
+	responseText := string(response)
+	if !strings.HasPrefix(responseText, "HTTP/1.1 200 OK") || !strings.Contains(responseText, "Noema store is unavailable") {
+		t.Fatalf("local GraphQL response = %q", responseText)
 	}
 	cancel()
 	select {

@@ -124,6 +124,7 @@ func TestRustServer_passkey_management_requires_auth_and_revokes_affected_sessio
 		t.Fatal("removed passkey did not revoke its WebSocket session")
 	}
 	unauthenticated := externalRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ __typename }"}`))
+	unauthenticated.AddCookie(firstCookie)
 	if response := externalServe(public, unauthenticated); response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated GraphQL = %d", response.Code)
 	}
@@ -160,7 +161,8 @@ func TestRustServer_router_serves_schema_graphiql_and_spa_fallback(t *testing.T)
 	t.Setenv("NOEMA_DEV_ASSET_DIR", directory)
 	server, _, paths := newExternalAuthTest(t, true)
 	disabled := externalGraphQLApplication(t, server, paths, false)
-	if response := externalParityRequest(disabled, http.MethodGet, "/graphql"); response.Code != http.StatusNotFound {
+	disabledHandler := server.Handler(disabled)
+	if response := externalParityRequest(disabledHandler, http.MethodGet, "/graphql"); response.Code != http.StatusNotFound {
 		t.Fatalf("disabled GraphiQL = %d", response.Code)
 	}
 	enabled := externalGraphQLApplication(t, server, paths, true)
@@ -176,11 +178,12 @@ func TestRustServer_router_serves_schema_graphiql_and_spa_fallback(t *testing.T)
 		t.Fatalf("GraphiQL asset route = %d", response.Code)
 	}
 	schema := externalServe(handler, externalRequest(http.MethodGet, "/graphql/schema.graphql", nil))
-	if schema.Code != http.StatusOK || !strings.Contains(schema.Body.String(), "type QueryRoot") || schema.Header().Get("Cache-Control") != "no-store" {
+	if schema.Code != http.StatusOK || schema.Header().Get("Content-Type") != "text/plain; charset=utf-8" ||
+		schema.Header().Get("Cache-Control") != "no-store" || schema.Body.Len() == 0 || !strings.Contains(schema.Body.String(), "type QueryRoot") {
 		t.Fatalf("schema response = %d %q %#v", schema.Code, schema.Body.String(), schema.Header())
 	}
 	spa := externalServe(handler, externalRequest(http.MethodGet, "/memory/thread", nil))
-	if spa.Code != http.StatusOK || spa.Body.String() != "<html>app</html>" {
+	if spa.Code != http.StatusOK || spa.Header().Get("Content-Type") != "text/html; charset=utf-8" || spa.Body.Len() == 0 || spa.Body.String() != "<html>app</html>" {
 		t.Fatalf("SPA response = %d %q", spa.Code, spa.Body.String())
 	}
 }
@@ -214,8 +217,9 @@ func TestRustServer_authenticated_http_and_websocket_ignore_client_identity_meta
 	handler := server.Handler(application)
 	graphqlRequest := externalRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ task(taskId: \"task:transport\") { taskId } }","extensions":{"principal":{"subjectId":"attacker"}}}`))
 	graphqlRequest.AddCookie(cookie)
-	if response := externalServe(handler, graphqlRequest); response.Code != http.StatusOK {
-		t.Fatalf("authenticated HTTP = %d", response.Code)
+	if response := externalServe(handler, graphqlRequest); response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" ||
+		response.Body.String() != `{"errors":[{"message":"Noema store is unavailable","path":["task"],"locations":[{"line":1,"column":3}]}],"data":null}` {
+		t.Fatalf("authenticated HTTP = %d %#v %q", response.Code, response.Header(), response.Body.String())
 	}
 	connection, stop := dialExternalWebSocket(t, handler, cookie.Value, "")
 	defer stop()
@@ -233,10 +237,11 @@ func TestRustServer_authenticated_http_and_websocket_ignore_client_identity_meta
 	if err := connection.Write(context.Background(), websocket.MessageText, []byte(`{"id":"principal","type":"subscribe","payload":{"query":"subscription { tasksEvents(workspaceId: \"workspace:personal\") { cursor } }","extensions":{"principal":{"subjectId":"attacker"}}}}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, payload, err := connection.Read(context.Background()); err != nil || !bytes.Contains(payload, []byte("Noema store is unavailable")) {
+	if _, payload, err := connection.Read(context.Background()); err != nil ||
+		string(payload) != `{"payload":{"errors":[{"message":"Noema store is unavailable","path":["tasksEvents"],"locations":[{"line":1,"column":16}]}],"data":null},"id":"principal","type":"next"}` {
 		t.Fatalf("browser subscription result = %q, %v", payload, err)
 	}
-	if _, payload, err := connection.Read(context.Background()); err != nil || !bytes.Contains(payload, []byte(`"complete"`)) {
+	if _, payload, err := connection.Read(context.Background()); err != nil || string(payload) != `{"id":"principal","type":"complete"}` {
 		t.Fatalf("browser subscription completion = %q, %v", payload, err)
 	}
 	logout := externalRequest(http.MethodPost, "/auth/logout", nil)
@@ -317,8 +322,9 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	graphqlRequest.Header.Del("Origin")
 	graphqlRequest.Header.Set("Authorization", "Bearer "+access)
 	response := externalServe(handler, graphqlRequest)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Noema store is unavailable") {
-		t.Fatalf("native GraphQL = %d", response.Code)
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" ||
+		response.Body.String() != `{"errors":[{"message":"Noema store is unavailable","path":["task"],"locations":[{"line":1,"column":3}]}],"data":null}` {
+		t.Fatalf("native GraphQL = %d %#v %q", response.Code, response.Header(), response.Body.String())
 	}
 	invalid := externalRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ __typename }"}`))
 	invalid.Header.Del("Origin")
