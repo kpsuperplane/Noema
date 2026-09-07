@@ -36,9 +36,8 @@ var (
 	ErrFinalPasskey = errors.New("final passkey cannot be removed")
 )
 
-// SetBrowserSessionCapacityForTesting bounds one store's browser authority.
-// It is used by parity tests that exercise the Rust capacity-one fixture.
-func (s *Store) SetBrowserSessionCapacityForTesting(capacity int) error {
+// ConfigureBrowserSessionCapacity bounds one store's browser authority.
+func (s *Store) ConfigureBrowserSessionCapacity(capacity int) error {
 	if capacity < 1 {
 		return errors.New("browser session capacity must be positive")
 	}

@@ -421,8 +421,21 @@ func TestRustServer_browser_cookie_key_survives_session_security_reconstruction(
 
 // Rust source: crates/noema-server/src/web/session_store/tests.rs::capacity_rejects_new_sessions_without_evicting_active_sessions.
 func TestRustServer_capacity_rejects_new_sessions_without_evicting_active_sessions(t *testing.T) {
-	_, taskStore, _ := newAuthTest(t, false)
-	if err := taskStore.SetBrowserSessionCapacityForTesting(1); err != nil {
+	paths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, recovery, err := LoadConfig(paths, "127.0.0.1:3737")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.BrowserMaxSessions = 1
+	taskStore, err := store.Open(context.Background(), paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = taskStore.Close() })
+	if _, err := New(paths, taskStore, config, recovery); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()

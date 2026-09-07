@@ -39,6 +39,9 @@ func New(paths home.Paths, taskStore *store.Store, config Config, recovery *Reco
 	if taskStore == nil || recovery == nil {
 		return nil, errors.New("browser authentication dependencies are unavailable")
 	}
+	if err := taskStore.ConfigureBrowserSessionCapacity(config.BrowserMaxSessions); err != nil {
+		return nil, fmt.Errorf("configure browser session capacity: %w", err)
+	}
 	sessions, err := newSessionSecurity(paths, taskStore, config.Secure)
 	if err != nil {
 		return nil, err
