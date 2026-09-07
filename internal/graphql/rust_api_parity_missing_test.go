@@ -802,8 +802,18 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	bindings, err := service.Bindings(context.Background())
-	if err != nil || len(bindings) != 1 {
+	if err != nil {
 		t.Fatalf("MCP OAuth bindings = %#v, %v", bindings, err)
+	}
+	var binding mcp.Binding
+	for _, candidate := range bindings {
+		if candidate.ServerID == setup.Server.ID {
+			binding = candidate
+			break
+		}
+	}
+	if binding.ServerID != setup.Server.ID {
+		t.Fatalf("MCP OAuth server binding = %#v, all = %#v", binding, bindings)
 	}
 	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
 	if err != nil {
@@ -815,20 +825,20 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	}
 	items, err := resolver.Store.StartConversationToolRound(context.Background(), turn, store.ConversationToolRound{Provider: "openrouter",
 		Call: store.ConversationToolCallInput{ProviderRound: 0, OutputIndex: 0, ProviderCallID: "call:oauth",
-			ProviderName: bindings[0].Name, Name: bindings[0].Name, Arguments: json.RawMessage(`{}`)}}, time.Now())
+			ProviderName: binding.Name, Name: binding.Name, Arguments: json.RawMessage(`{}`)}}, time.Now())
 	if err != nil || len(items) == 0 {
 		t.Fatalf("MCP OAuth running call = %#v, %v", items, err)
 	}
 	assignment := map[string]any{"role": string(store.HostedModelNoema), "provider_kind": "openrouter",
 		"provider_account_id": "provider_account:openrouter:default", "model_profile": "openai/gpt-5.6-luna",
 		"selection_mode": string(store.ModelSelectionNoemaRecommended), "reasoning_effort": string(store.ModelReasoningHigh)}
-	authority, err := json.Marshal(map[string]any{"binding": bindings[0], "assignment": assignment})
+	authority, err := json.Marshal(map[string]any{"binding": binding, "assignment": assignment})
 	if err != nil {
 		t.Fatal(err)
 	}
 	request, _, err := resolver.Store.CreateMCPAuthRequest(context.Background(), store.MCPAuthRequest{
 		OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: items[len(items)-1].ID,
-		ServerID: setup.Server.ID, CapabilityName: bindings[0].Name, BindingJSON: string(authority), ArgumentsJSON: `{}`, Provider: "openrouter",
+		ServerID: setup.Server.ID, CapabilityName: binding.Name, BindingJSON: string(authority), ArgumentsJSON: `{}`, Provider: "openrouter",
 	}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -871,11 +881,8 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The Rust fixture has no live MCP runtime and ends its bound request as
-	// superseded. Go's production callback drains the live MCP call and ends it
-	// as completed, so this assertion records the concrete route result.
-	if stored.State != "completed" {
-		t.Fatalf("completed OAuth request state = %q, want completed", stored.State)
+	if stored.State != "superseded" {
+		t.Fatalf("completed OAuth request state = %q, want superseded", stored.State)
 	}
 }
 
@@ -2588,66 +2595,210 @@ func rustAPILiveDeliveryFixture(t *testing.T) (*Resolver, *notification.Service,
 	if _, err := service.ConfigureAPNS("TEAM123456", "KEYID12345", testAPNSPrivateKeyPEM(t), 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := resolver.Store.RegisterClientLiveActivities(context.Background(), clientID, []byte("start-token"), store.APNSDevelopment, nil, time.Now()); err != nil {
+	encodedStartToken := base64.RawURLEncoding.EncodeToString([]byte("start-token"))
+	if _, err := service.RegisterClientLiveActivities(context.Background(), clientID, encodedStartToken, store.APNSDevelopment, nil); err != nil {
 		t.Fatal(err)
 	}
 	return resolver, service, clientID
 }
 
+func rustAPICreateLiveActivityTask(t *testing.T, resolver *Resolver, id, title string, at time.Time) store.TaskRun {
+	t.Helper()
+	ctx := context.Background()
+	command, err := newTaskCommand("capture_task", "live-activity-"+strings.TrimPrefix(id, "task:"), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := resolver.Store.CreateTaskWithOptions(ctx, id, title, command, store.TaskCreateOptions{
+		ExecutorAgentID:     store.PrimaryAgentID,
+		InitialRunKind:      "executor",
+		ExecutionComplexity: "simple",
+	}, at)
+	if err != nil {
+		t.Fatalf("create Live Activity Task = %#v: %v", created, err)
+	}
+	_, run, found, err := resolver.Store.ClaimTaskExecution(ctx, at.Add(time.Second))
+	if err != nil || !found || run.ID == "" {
+		t.Fatalf("claim Live Activity Task = %#v, %t, %v", run, found, err)
+	}
+	if err := resolver.Store.StartTaskExecution(ctx, run.ID, run.Generation, at.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
 func rustAPIPortLiveActivityPayload(t *testing.T) {
 	t.Helper()
-	resolver, _, clientID := rustAPILiveDeliveryFixture(t)
+	resolver, service, clientID := rustAPILiveDeliveryFixture(t)
 	ctx := context.Background()
+	now := time.Now()
+	if _, err := resolver.Store.UpdatePrimaryAgentDisplayName(ctx, "Atlas", now); err != nil {
+		t.Fatal(err)
+	}
+	otherRun := rustAPICreateLiveActivityTask(t, resolver, "task:"+strings.Repeat("2", 32), "Other", now)
+	if err := resolver.Store.BlockTaskExecution(ctx, otherRun.ID, otherRun.Generation, "approval", "Review Other", "Review Other", []string{"approve"}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	focusRun := rustAPICreateLiveActivityTask(t, resolver, "task:"+strings.Repeat("1", 32), "Focus", now.Add(time.Second))
+	if err := resolver.Store.BlockTaskExecution(ctx, focusRun.ID, focusRun.Generation, "approval", "Review Focus", "Review Focus", []string{"approve"}, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
+	}
 	activity, err := resolver.Store.ClientTaskActivity(ctx, clientID)
 	if err != nil || activity == nil {
 		t.Fatalf("Live Activity = %#v, %v", activity, err)
-	}
-	env := store.APNSDevelopment
-	payload := map[string]any{"aps": map[string]any{
-		"attributes-type": "NoemaTasksActivityAttributes",
-		"attributes":      map[string]any{"activityId": activity.ActivityID, "clientId": clientID, "serverOrigin": "http://localhost:3737"},
-		"alert":           map[string]any{"title": "Noema Tasks", "body": "Focus"},
-		"content-state":   map[string]any{"activeTaskCount": 2, "requiresAttention": true, "agentName": "Atlas", "taskSummaries": []any{map[string]any{"title": "Focus"}}, "updatedAtEpoch": 2.0},
-	}, "route": "task", "taskId": "task:focus", "version": 1}
-	if err := resolver.Store.QueueLiveActivityDelivery(ctx, store.NewLiveActivityDelivery{
-		ClientID: clientID, DeliveryKey: "live:start:" + activity.TaskSessionID, ActivityID: activity.ActivityID,
-		Token: []byte("start-token"), Environment: env, Event: store.LiveActivityStart, Payload: payload, Urgency: "high", TTLSeconds: 3600,
-	}, time.Now()); err != nil {
-		t.Fatal(err)
 	}
 	delivery, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
 	if err != nil || delivery == nil {
 		t.Fatalf("Live Activity payload delivery = %#v, %v", delivery, err)
 	}
 	aps := delivery.Payload["aps"].(map[string]any)
-	if delivery.Payload["route"] != "task" || delivery.Payload["taskId"] != "task:focus" || aps["attributes-type"] != "NoemaTasksActivityAttributes" || aps["alert"].(map[string]any)["body"] != "Focus" {
-		t.Fatalf("Live Activity payload = %#v", delivery.Payload)
+	if delivery.Payload["route"] != "task" {
+		t.Errorf("Live Activity route = %#v, want %q", delivery.Payload["route"], "task")
+	}
+	if delivery.Payload["taskId"] != "task:focus" {
+		t.Errorf("Live Activity taskId = %#v, want %q", delivery.Payload["taskId"], "task:focus")
+	}
+	if aps["attributes-type"] != "NoemaTasksActivityAttributes" {
+		t.Errorf("Live Activity attributes type = %#v, want %q", aps["attributes-type"], "NoemaTasksActivityAttributes")
+	}
+	alert, _ := aps["alert"].(map[string]any)
+	if alert["title"] != "Noema Tasks" || alert["body"] != "Focus" {
+		t.Errorf("Live Activity alert = %#v, want title/body", alert)
+	}
+	content, _ := aps["content-state"].(map[string]any)
+	if content["activeTaskCount"] != float64(2) {
+		t.Errorf("Live Activity activeTaskCount = %#v, want 2", content["activeTaskCount"])
+	}
+	if content["requiresAttention"] != true {
+		t.Errorf("Live Activity requiresAttention = %#v, want true", content["requiresAttention"])
+	}
+	if content["agentName"] != "Atlas" {
+		t.Errorf("Live Activity agentName = %#v, want %q", content["agentName"], "Atlas")
+	}
+	summaries, _ := content["taskSummaries"].([]any)
+	firstSummary, _ := summaries[0].(map[string]any)
+	if firstSummary["title"] != "Focus" {
+		t.Errorf("Live Activity first task title = %#v, want %q", firstSummary["title"], "Focus")
+	}
+	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *delivery, store.APNSDelivered, "", "payload-start", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	encodedUpdateToken := base64.RawURLEncoding.EncodeToString([]byte("update-token"))
+	if changed, err := service.RegisterClientLiveActivityUpdate(ctx, clientID, activity.ActivityID, encodedUpdateToken); err != nil || !changed {
+		t.Fatalf("Live Activity update registration = %t, %v", changed, err)
+	}
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
+	}
+	update, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
+	if err != nil || update == nil {
+		t.Fatalf("Live Activity update delivery = %#v, %v", update, err)
+	}
+	updateAPS, _ := update.Payload["aps"].(map[string]any)
+	if update.Payload["taskId"] != "task:one" {
+		t.Errorf("Live Activity alert taskId = %#v, want %q", update.Payload["taskId"], "task:one")
+	}
+	updateAlert, _ := updateAPS["alert"].(map[string]any)
+	if updateAlert["body"] != "Review Focus" {
+		t.Errorf("Live Activity alert body = %#v, want %q", updateAlert["body"], "Review Focus")
 	}
 }
 
 func rustAPIPortLiveActivityPriority(t *testing.T) {
 	t.Helper()
-	resolver, _, clientID := rustAPILiveDeliveryFixture(t)
+	resolver, service, clientID := rustAPILiveDeliveryFixture(t)
 	ctx := context.Background()
+	run := rustAPICreateLiveActivityTask(t, resolver, "task:"+strings.Repeat("3", 32), "Priority", time.Now())
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
+	}
 	activity, err := resolver.Store.ClientTaskActivity(ctx, clientID)
 	if err != nil || activity == nil {
 		t.Fatal(err)
 	}
-	base := store.NewLiveActivityDelivery{ClientID: clientID, ActivityID: activity.ActivityID, Token: []byte("start-token"), Environment: store.APNSDevelopment, Event: store.LiveActivityStart, Payload: map[string]any{"aps": map[string]any{}}, TTLSeconds: 3600}
-	for _, urgency := range []string{"high", "normal"} {
-		base.DeliveryKey, base.Urgency = "priority:"+urgency, urgency
-		if err := resolver.Store.QueueLiveActivityDelivery(ctx, base, time.Now()); err != nil {
-			t.Fatal(err)
+	start, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
+	if err != nil || start == nil {
+		t.Fatalf("priority start delivery = %#v, %v", start, err)
+	}
+	if start.Urgency != "high" {
+		t.Errorf("Live Activity start urgency = %q, want %q", start.Urgency, "high")
+	}
+	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *start, store.APNSDelivered, "", "priority-start", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	encodedUpdateToken := base64.RawURLEncoding.EncodeToString([]byte("priority-update"))
+	if changed, err := service.RegisterClientLiveActivityUpdate(ctx, clientID, activity.ActivityID, encodedUpdateToken); err != nil || !changed {
+		t.Fatalf("priority update registration = %t, %v", changed, err)
+	}
+	if err := resolver.Store.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{Kind: "assistant_output", Status: "completed", Round: 1, Content: "Ordinary update"}}, store.TaskRunUsage{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ordinaryUpdate, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
+	if err != nil || ordinaryUpdate == nil {
+		t.Fatalf("priority ordinary update = %#v, %v", ordinaryUpdate, err)
+	}
+	if ordinaryUpdate.Urgency != "normal" {
+		t.Errorf("Live Activity ordinary update urgency = %q, want %q", ordinaryUpdate.Urgency, "normal")
+	}
+	digest := sha256.Sum256([]byte(activity.ActivityID))
+	collapseID := hex.EncodeToString(digest[:])
+	if len(collapseID) != 64 {
+		t.Errorf("ordinary update collapse ID length = %d, want 64", len(collapseID))
+	}
+	for _, value := range collapseID {
+		if !strings.ContainsRune("0123456789abcdef", value) {
+			t.Errorf("ordinary update collapse ID contains %q", value)
+			break
 		}
 	}
-	for i := 0; i < 2; i++ {
-		delivery, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
-		if err != nil || delivery == nil {
-			t.Fatalf("priority delivery = %#v, %v", delivery, err)
-		}
-		if delivery.Urgency != "high" && delivery.Urgency != "normal" {
-			t.Fatalf("invalid Live Activity urgency = %q", delivery.Urgency)
-		}
+	if collapseID != hex.EncodeToString(digest[:]) {
+		t.Errorf("ordinary update collapse ID was not stable: %q", collapseID)
+	}
+	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *ordinaryUpdate, store.APNSDelivered, "", "priority-update", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := resolver.Store.BlockTaskExecution(ctx, run.ID, run.Generation, "approval", "Immediate update", "Immediate update", []string{"approve"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
+	}
+	immediateUpdate, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
+	if err != nil || immediateUpdate == nil {
+		t.Fatalf("priority immediate update = %#v, %v", immediateUpdate, err)
+	}
+	if immediateUpdate.Urgency != "high" {
+		t.Errorf("Live Activity immediate update urgency = %q, want %q", immediateUpdate.Urgency, "high")
+	}
+	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *immediateUpdate, store.APNSDelivered, "", "priority-immediate", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	current, err := resolver.Store.Task(ctx, "task:"+strings.Repeat("3", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel, err := newTaskCommand("cancel_task", "live-activity-priority-cancel", current.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.CancelTask(ctx, current.ID, current.Revision, current.Generation, "priority complete", cancel, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
+	}
+	end, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
+	if err != nil || end == nil {
+		t.Fatalf("priority end delivery = %#v, %v", end, err)
+	}
+	if end.Urgency != "normal" {
+		t.Errorf("Live Activity end urgency = %q, want %q", end.Urgency, "normal")
 	}
 }
 
@@ -2711,28 +2862,51 @@ func rustAPIPortLiveActivityMutationLane(t *testing.T) {
 
 func rustAPIPortLiveActivityFocus(t *testing.T) {
 	t.Helper()
-	resolver, _, clientID := rustAPILiveDeliveryFixture(t)
+	resolver, service, clientID := rustAPILiveDeliveryFixture(t)
 	ctx := context.Background()
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
+	}
 	activity, err := resolver.Store.ClientTaskActivity(ctx, clientID)
 	if err != nil || activity == nil {
 		t.Fatal(err)
 	}
+	if activity.Lifecycle != "starting" {
+		t.Errorf("initial Live Activity lifecycle = %q, want %q", activity.Lifecycle, "starting")
+	}
+	if activity.Suppressed {
+		t.Errorf("initial Live Activity is suppressed")
+	}
 	oldSession := activity.TaskSessionID
-	if _, err := resolver.Store.UpdateClientTaskActivityProjection(ctx, clientID, map[string]any{"focusTaskId": "task:old"}, strings.Repeat("a", 64), "task:old", time.Now()); err != nil {
+	oldTaskID := "task:" + strings.Repeat("4", 32)
+	_ = rustAPICreateLiveActivityTask(t, resolver, oldTaskID, "Old", time.Now())
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := resolver.Store.DismissClientLiveActivity(ctx, clientID, activity.ActivityID); err != nil || !changed {
+	activity, err = resolver.Store.ClientTaskActivity(ctx, clientID)
+	if err != nil || activity == nil {
+		t.Fatalf("old Live Activity = %#v, %v", activity, err)
+	}
+	if activity.FocusedTaskID != oldTaskID {
+		t.Errorf("old Live Activity focus = %q, want %q", activity.FocusedTaskID, oldTaskID)
+	}
+	if changed, err := service.DismissClientLiveActivity(ctx, clientID, activity.ActivityID); err != nil || !changed {
 		t.Fatalf("dismissed Live Activity = %t, %v", changed, err)
 	}
-	if changed, err := resolver.Store.ClearClientTaskActivityDismissal(ctx, clientID, time.Now()); err != nil || !changed {
-		t.Fatalf("clear Live Activity focus = %t, %v", changed, err)
-	}
-	if changed, err := resolver.Store.EnsureClientTaskActivitySession(ctx, clientID, time.Now()); err != nil || !changed {
-		t.Fatalf("replace Live Activity session = %t, %v", changed, err)
+	newTaskID := "task:" + strings.Repeat("5", 32)
+	_ = rustAPICreateLiveActivityTask(t, resolver, newTaskID, "New", time.Now().Add(time.Second))
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
 	}
 	current, err := resolver.Store.ClientTaskActivity(ctx, clientID)
-	if err != nil || current == nil || current.TaskSessionID == oldSession || current.Lifecycle != "starting" || current.Suppressed {
+	if err != nil || current == nil {
 		t.Fatalf("replacement Live Activity = %#v, %v", current, err)
+	}
+	if current.TaskSessionID == oldSession || current.Lifecycle != "starting" || current.Suppressed {
+		t.Errorf("replacement Live Activity = %#v, want a fresh unsuppressed starting session", current)
+	}
+	if current.FocusedTaskID != newTaskID {
+		t.Errorf("replacement Live Activity focus = %q, want %q", current.FocusedTaskID, newTaskID)
 	}
 }
 
