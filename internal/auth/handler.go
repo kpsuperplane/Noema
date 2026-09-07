@@ -120,6 +120,10 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 				http.NotFound(w, r)
 				return
 			}
+			if r.URL.Path == "/graphql/ws" && r.Method == http.MethodHead {
+				http.NotFound(w, r)
+				return
+			}
 			if r.URL.Path == "/graphql/ws" && !isWebSocket(r) {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return

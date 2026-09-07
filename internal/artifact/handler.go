@@ -88,9 +88,20 @@ func inlineMediaType(value string) bool {
 }
 
 func contentDisposition(kind, filename string) string {
-	value := mime.FormatMediaType(kind, map[string]string{"filename": filename})
-	if value == "" {
-		return fmt.Sprintf("%s; filename=%q", kind, "artifact")
+	var safe strings.Builder
+	for _, character := range filename {
+		switch character {
+		case '\r', '\n':
+			safe.WriteByte('_')
+		case '\\', '"':
+			safe.WriteByte('\\')
+			safe.WriteRune(character)
+		default:
+			safe.WriteRune(character)
+		}
 	}
-	return value
+	if safe.Len() == 0 {
+		return fmt.Sprintf(`%s; filename="artifact"`, kind)
+	}
+	return fmt.Sprintf(`%s; filename="%s"`, kind, safe.String())
 }

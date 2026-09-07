@@ -30,9 +30,12 @@ import (
 )
 
 const (
-	faviconSourceLimit = 256 * 1024
-	faviconSize        = 32
-	faviconCacheLimit  = 1024
+	faviconSourceLimit  = 256 * 1024
+	faviconSize         = 32
+	faviconCacheLimit   = 1024
+	faviconPositiveTTL  = 30 * 24 * time.Hour
+	faviconMissingTTL   = 24 * time.Hour
+	faviconTransientTTL = 5 * time.Minute
 )
 
 type faviconFailure byte
@@ -46,8 +49,24 @@ const (
 func (failure faviconFailure) Error() string { return "favicon unavailable" }
 
 type faviconHandler struct {
-	mu    sync.Mutex
-	cache map[string][]byte
+	mu       sync.Mutex
+	cache    map[string]faviconCacheEntry
+	hostLock map[string]*sync.Mutex
+}
+
+type faviconCacheOutcome byte
+
+const (
+	faviconAvailable faviconCacheOutcome = iota + 1
+	faviconCachedMissing
+	faviconCachedTransient
+)
+
+type faviconCacheEntry struct {
+	outcome   faviconCacheOutcome
+	body      []byte
+	fetchedAt time.Time
+	expiresAt time.Time
 }
 
 type faviconResponse struct {
@@ -57,9 +76,12 @@ type faviconResponse struct {
 }
 
 // NewFaviconHandler serves normalized public-site icons from one bounded cache.
-func NewFaviconHandler() http.Handler {
-	return &faviconHandler{cache: make(map[string][]byte)}
+func NewFaviconHandler() *faviconHandler {
+	return &faviconHandler{cache: make(map[string]faviconCacheEntry), hostLock: make(map[string]*sync.Mutex)}
 }
+
+// Seed primes one handler with an already normalized icon.
+func (h *faviconHandler) Seed(hostname string, body []byte) { h.write(hostname, body) }
 
 func (h *faviconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hostname, err := normalizeFaviconHostname(r.PathValue("hostname"))
@@ -67,23 +89,65 @@ func (h *faviconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid hostname", http.StatusBadRequest)
 		return
 	}
-	body := h.read(hostname)
-	if body == nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-		body, err = fetchFavicon(ctx, hostname)
-		if err != nil {
-			status := http.StatusBadGateway
-			if errors.Is(err, context.DeadlineExceeded) || err == faviconTimeout {
-				status = http.StatusGatewayTimeout
-			} else if err == faviconMissing {
-				status = http.StatusNotFound
-			}
-			http.Error(w, http.StatusText(status), status)
+	entry, fresh := h.cacheEntry(hostname, time.Now())
+	if entry.outcome == faviconAvailable && (fresh || !entry.expiresAt.IsZero()) {
+		body := entry.body
+		h.writeResponse(w, r, body)
+		return
+	}
+	if fresh {
+		switch entry.outcome {
+		case faviconCachedMissing:
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		case faviconCachedTransient:
+			http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
 			return
 		}
-		h.write(hostname, body)
 	}
+	lock := h.hostMutex(hostname)
+	lock.Lock()
+	defer lock.Unlock()
+	entry, fresh = h.cacheEntry(hostname, time.Now())
+	if fresh {
+		switch entry.outcome {
+		case faviconAvailable:
+			h.writeResponse(w, r, entry.body)
+			return
+		case faviconCachedMissing:
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		case faviconCachedTransient:
+			http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+			return
+		}
+	}
+	body, err := func() ([]byte, error) {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		return fetchFavicon(ctx, hostname)
+	}()
+	if err != nil {
+		if err == faviconMissing {
+			h.writeOutcome(hostname, faviconCachedMissing, nil, time.Now())
+		} else {
+			h.writeOutcome(hostname, faviconCachedTransient, nil, time.Now())
+		}
+		status := http.StatusBadGateway
+		if errors.Is(err, context.DeadlineExceeded) || err == faviconTimeout {
+			status = http.StatusGatewayTimeout
+		}
+		if err == faviconMissing {
+			status = http.StatusNotFound
+		}
+		http.Error(w, http.StatusText(status), status)
+		return
+	}
+	h.write(hostname, body)
+	h.writeResponse(w, r, body)
+}
+
+func (h *faviconHandler) writeResponse(w http.ResponseWriter, r *http.Request, body []byte) {
 	digest := sha256.Sum256(body)
 	etag := fmt.Sprintf("\"%x\"", digest)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
@@ -112,21 +176,62 @@ func normalizeFaviconHostname(raw string) (string, error) {
 }
 
 func (h *faviconHandler) read(hostname string) []byte {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.cache[hostname]
+	entry, _ := h.cacheEntry(hostname, time.Now())
+	if entry.outcome != faviconAvailable {
+		return nil
+	}
+	return append([]byte(nil), entry.body...)
 }
 
 func (h *faviconHandler) write(hostname string, body []byte) {
+	h.writeOutcome(hostname, faviconAvailable, body, time.Now())
+}
+
+func (h *faviconHandler) writeOutcome(hostname string, outcome faviconCacheOutcome, body []byte, now time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.cache) >= faviconCacheLimit {
-		for victim := range h.cache {
+	if _, exists := h.cache[hostname]; !exists && len(h.cache) >= faviconCacheLimit {
+		victim := ""
+		var oldest time.Time
+		for key, value := range h.cache {
+			if victim == "" || value.fetchedAt.Before(oldest) || value.fetchedAt.Equal(oldest) && key < victim {
+				victim, oldest = key, value.fetchedAt
+			}
+		}
+		if victim != "" {
 			delete(h.cache, victim)
-			break
 		}
 	}
-	h.cache[hostname] = body
+	ttl := faviconPositiveTTL
+	if outcome == faviconCachedMissing {
+		ttl = faviconMissingTTL
+	} else if outcome == faviconCachedTransient {
+		ttl = faviconTransientTTL
+	}
+	h.cache[hostname] = faviconCacheEntry{
+		outcome: outcome, body: append([]byte(nil), body...), fetchedAt: now, expiresAt: now.Add(ttl),
+	}
+}
+
+func (h *faviconHandler) cacheEntry(hostname string, now time.Time) (faviconCacheEntry, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry, ok := h.cache[hostname]
+	if !ok {
+		return faviconCacheEntry{}, false
+	}
+	return entry, entry.expiresAt.After(now)
+}
+
+func (h *faviconHandler) hostMutex(hostname string) *sync.Mutex {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if lock := h.hostLock[hostname]; lock != nil {
+		return lock
+	}
+	lock := &sync.Mutex{}
+	h.hostLock[hostname] = lock
+	return lock
 }
 
 func fetchFavicon(ctx context.Context, hostname string) ([]byte, error) {

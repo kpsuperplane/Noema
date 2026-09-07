@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -127,6 +128,9 @@ func runWithLoadedProviderConfig(
 	}
 	if err := home.Initialize(paths, initialConfig); err != nil {
 		return err
+	}
+	if _, err := generateGraphQLSchemaIfConfigured(); err != nil {
+		return fmt.Errorf("generate GraphQL schema: %w", err)
 	}
 	if loadedConfig == nil && configuredProvider == nil {
 		resolved, resolveErr := auth.ResolveProviderConfig(paths, "")
@@ -381,9 +385,9 @@ func runWithLoadedProviderConfig(
 	mux.Handle("/graphql", webGraphQL)
 	mux.Handle("/graphql/ws", webGraphQL)
 	mux.Handle("/graphql/schema.graphql", webGraphQL)
-	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
-	mux.Handle("/mcp/oauth/callback", mcpService.CallbackHandler())
-	mux.Handle("/adapter/oauth/callback", adapterService.OAuthCallbackHandler())
+	mux.Handle("GET /provider/oauth/callback/", openRouter.CallbackHandler())
+	mux.Handle("GET /mcp/oauth/callback", mcpService.CallbackHandler())
+	mux.Handle("GET /adapter/oauth/callback", adapterService.OAuthCallbackHandler())
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("GET /favicons/{hostname}", web.NewFaviconHandler())
 	mux.Handle("/", web.NewAssetHandler())
@@ -459,6 +463,35 @@ func runWithLoadedProviderConfig(
 		}
 		return fmt.Errorf("serve local GraphQL: %w", err)
 	}
+}
+
+// generateGraphQLSchemaIfConfigured refreshes the development schema only
+// when its explicit output path is configured. Release startup never writes
+// source files as a side effect.
+func generateGraphQLSchemaIfConfigured() (bool, error) {
+	path := os.Getenv("NOEMA_DEV_SCHEMA_PATH")
+	if path == "" {
+		return false, nil
+	}
+	changed, err := writeGraphQLSchemaIfChanged(path, noemagraphql.Schema())
+	if err != nil {
+		return false, err
+	}
+	return changed, nil
+}
+
+func writeGraphQLSchemaIfChanged(path string, contents []byte) (bool, error) {
+	existing, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existing, contents) {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func configureProviderComposition(ctx context.Context, database *store.Store, configured auth.ResolvedProviderConfig, now time.Time) error {

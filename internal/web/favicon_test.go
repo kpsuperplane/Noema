@@ -30,7 +30,7 @@ func TestFaviconRouteServesBoundedPNGWithPrivateETag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewFaviconHandler().(*faviconHandler)
+	handler := NewFaviconHandler()
 	handler.write("example.com", body)
 	mux := http.NewServeMux()
 	mux.Handle("GET /favicons/{hostname}", handler)

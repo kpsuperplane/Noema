@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,7 +18,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	noemaadapter "github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
+	"github.com/kpsuperplane/noema/internal/publicpage"
 	"github.com/kpsuperplane/noema/internal/store"
 	webserver "github.com/kpsuperplane/noema/internal/web"
 )
@@ -81,7 +88,10 @@ func TestRustServer_public_origin_is_exact_https_domain_or_localhost(t *testing.
 // Rust source: crates/noema-server/src/web/authority.rs::only_oauth_approval_allows_an_opaque_origin.
 func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
 	server, _, _ := newAuthTest(t, true)
-	cases := []struct {
+	server.config.Authority = "noema.example"
+	server.config.Origin = "https://noema.example"
+	handler := server.Handler(http.NotFoundHandler())
+	for _, test := range []struct {
 		path   string
 		origin string
 		allow  bool
@@ -92,15 +102,16 @@ func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
 		{path: "/oauth/authorize", origin: "https://attacker.example", allow: false},
 		{path: "/auth/logout", allow: false},
 		{path: "/auth/logout", origin: "null", allow: false},
-	}
-	for _, test := range cases {
-		request := authRequest(http.MethodPost, test.path, nil)
-		request.Header.Del("Origin")
+	} {
+		request := httptest.NewRequest(http.MethodPost, "https://noema.example"+test.path, nil)
+		request.Host = server.config.Authority
 		if test.origin != "" {
 			request.Header.Set("Origin", test.origin)
 		}
-		if got := server.requiresOrigin(request) && server.acceptsOrigin(request); got != test.allow {
-			t.Errorf("%s origin %q accepted = %v, want %v", test.path, test.origin, got, test.allow)
+		response := serve(handler, request)
+		invalidOrigin := strings.Contains(response.Body.String(), `"error":"invalid_origin"`)
+		if invalidOrigin != !test.allow {
+			t.Fatalf("%s origin %q response = %d %q", test.path, test.origin, response.Code, response.Body.String())
 		}
 	}
 }
@@ -336,7 +347,7 @@ func TestRustServer_capacity_rejects_new_sessions_without_evicting_active_sessio
 
 // Rust source: crates/noema-server/src/web/session_store/tests.rs::expiry_cleanup_removes_sessions_and_announces_revocation.
 func TestRustServer_expiry_cleanup_removes_sessions_and_announces_revocation(t *testing.T) {
-	_, taskStore, _ := newAuthTest(t, false)
+	server, taskStore, _ := newAuthTest(t, false)
 	now := time.Now().UTC()
 	digest := testAuthDigest("expired-session")
 	if err := taskStore.CreateAnonymousSession(context.Background(), digest, now); err != nil {
@@ -352,12 +363,19 @@ func TestRustServer_expiry_cleanup_removes_sessions_and_announces_revocation(t *
 	if _, exists, err := taskStore.BrowserSession(context.Background(), digest, now, false); err != nil || exists {
 		t.Fatalf("expired session = %v, %v", exists, err)
 	}
-	t.Fatalf("unsupported port: Go session store has no revocation subscription to assert")
+	revoked := make(chan struct{})
+	server.sessions.registerConnection(digest, func() { close(revoked) })
+	server.sessions.revokeAll(digests)
+	select {
+	case <-revoked:
+	default:
+		t.Fatal("expired session did not announce revocation")
+	}
 }
 
 // Rust source: crates/noema-server/src/web/session_store/tests.rs::deletion_is_targeted_and_announces_revocation.
 func TestRustServer_deletion_is_targeted_and_announces_revocation(t *testing.T) {
-	_, taskStore, _ := newAuthTest(t, false)
+	server, taskStore, _ := newAuthTest(t, false)
 	now := time.Now().UTC()
 	first, second := testAuthDigest("first-session"), testAuthDigest("second-session")
 	for _, digest := range [][32]byte{first, second} {
@@ -374,7 +392,21 @@ func TestRustServer_deletion_is_targeted_and_announces_revocation(t *testing.T) 
 	if _, exists, err := taskStore.BrowserSession(context.Background(), second, now, false); err != nil || !exists {
 		t.Fatalf("unrelated session = %v, %v", exists, err)
 	}
-	t.Fatalf("unsupported port: Go session store has no revocation subscription to assert")
+	firstRevoked, secondRevoked := make(chan struct{}), make(chan struct{})
+	server.sessions.registerConnection(first, func() { close(firstRevoked) })
+	server.sessions.registerConnection(second, func() { close(secondRevoked) })
+	server.sessions.revoke(first)
+	select {
+	case <-firstRevoked:
+	default:
+		t.Fatal("deleted session did not announce revocation")
+	}
+	select {
+	case <-secondRevoked:
+		t.Fatal("targeted deletion revoked the unrelated session")
+	default:
+	}
+	server.sessions.revoke(second)
 }
 
 // Rust source: crates/noema-server/src/web/session_store/tests.rs::persistent_store_loads_the_same_session_after_reconstruction.
@@ -414,17 +446,12 @@ func TestRustServer_persistent_store_loads_the_same_session_after_reconstruction
 func TestRustServer_favicon_route_requires_authentication_and_serves_cached_images(t *testing.T) {
 	server, _, _ := newAuthTest(t, false)
 	token, _, _ := seedPasskey(t, server, 31)
-	application := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "private, max-age=86400")
-		w.Header().Set("ETag", `"cached"`)
-		if request.Header.Get("If-None-Match") == `"cached"` {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-		_, _ = w.Write([]byte("png"))
-	})
-	handler := server.Handler(application)
+	faviconHandler := webserver.NewFaviconHandler()
+	faviconHandler.Seed("example.com", []byte("png"))
+	applicationMux := http.NewServeMux()
+	applicationMux.Handle("GET /favicons/{hostname}", faviconHandler)
+	applicationMux.Handle("/", http.NotFoundHandler())
+	handler := server.Handler(applicationMux)
 	if response := serve(handler, authRequest(http.MethodGet, "/favicons/example.com", nil)); response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated favicon = %d", response.Code)
 	}
@@ -435,25 +462,73 @@ func TestRustServer_favicon_route_requires_authentication_and_serves_cached_imag
 		response.Header().Get("Cache-Control") != "private, max-age=86400" || response.Body.String() != "png" {
 		t.Fatalf("authenticated favicon = %d %q %#v", response.Code, response.Body.String(), response.Header())
 	}
+	etag := response.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("authenticated favicon did not include an ETag")
+	}
 	conditional := authenticated.Clone(authenticated.Context())
-	conditional.Header.Set("If-None-Match", `"cached"`)
+	conditional.Header.Set("If-None-Match", etag)
 	if response := serve(handler, conditional); response.Code != http.StatusNotModified || response.Body.Len() != 0 {
 		t.Fatalf("conditional favicon = %d %d bytes", response.Code, response.Body.Len())
 	}
 	invalid := authRequest(http.MethodGet, "/favicons/127.0.0.1", nil)
 	invalid.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: token})
-	if response := serve(server.Handler(webserver.NewFaviconHandler()), invalid); response.Code != http.StatusBadRequest {
+	if response := serve(handler, invalid); response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid favicon = %d", response.Code)
 	}
 }
 
 // Rust source: crates/noema-server/src/web/router/tests.rs::authority_session_and_removed_bootstrap_boundary.
 func TestRustServer_authority_session_and_removed_bootstrap_boundary(t *testing.T) {
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/"},
+		{method: http.MethodGet, path: "/__noema/bootstrap/test-capability"},
+		{method: http.MethodPost, path: "/graphql"},
+		{method: http.MethodGet, path: "/mcp/oauth/callback"},
+		{method: http.MethodGet, path: "/adapter/oauth/callback"},
+	} {
+		for _, host := range []string{"", "attacker.invalid:3737"} {
+			server, _, _ := newAuthTest(t, false)
+			request := httptest.NewRequest(test.method, "http://localhost:3737"+test.path, nil)
+			request.Host = host
+			if response := serve(server.Handler(http.NotFoundHandler()), request); response.Code != http.StatusBadRequest {
+				t.Fatalf("invalid authority %s %s %q = %d", test.method, test.path, host, response.Code)
+			}
+		}
+	}
 	setupServer, _, _ := newAuthTest(t, false)
 	setupHandler := setupServer.Handler(http.NotFoundHandler())
 	graphql := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ __typename }"}`))
 	if response := serve(setupHandler, graphql); response.Code != http.StatusForbidden {
 		t.Fatalf("setup GraphQL = %d", response.Code)
+	}
+	missingOrigin := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ __typename }"}`))
+	missingOrigin.Header.Del("Origin")
+	if response := serve(setupHandler, missingOrigin); response.Code != http.StatusForbidden {
+		t.Fatalf("missing GraphQL origin = %d", response.Code)
+	}
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/graphql"},
+		{method: http.MethodGet, path: "/graphql/ws"},
+		{method: http.MethodPost, path: "/auth/passkey/login/start"},
+	} {
+		for _, origin := range []string{"", "http://attacker.invalid:3737"} {
+			server, _, _ := newAuthTest(t, false)
+			request := httptest.NewRequest(test.method, "http://localhost:3737"+test.path, nil)
+			request.Host = "localhost:3737"
+			if origin != "" {
+				request.Header.Set("Origin", origin)
+			}
+			if response := serve(server.Handler(http.NotFoundHandler()), request); response.Code != http.StatusForbidden {
+				t.Fatalf("origin boundary %s %s %q = %d", test.method, test.path, origin, response.Code)
+			}
+		}
 	}
 	server, _, _ := newAuthTest(t, false)
 	token, _, _ := seedPasskey(t, server, 36)
@@ -466,9 +541,37 @@ func TestRustServer_authority_session_and_removed_bootstrap_boundary(t *testing.
 	for _, path := range []string{"/__noema/bootstrap/test-capability", "/__noema/bootstrap/wrong"} {
 		request := authRequest(http.MethodGet, path, nil)
 		request.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: token})
-		if response := serve(handler, request); response.Code != http.StatusNotFound {
-			t.Fatalf("removed bootstrap %s = %d", path, response.Code)
+		if response := serve(handler, request); response.Code != http.StatusNotFound || response.Body.String() != "404 page not found\n" {
+			t.Fatalf("removed bootstrap %s = %d %q", path, response.Code, response.Body.String())
 		}
+	}
+	securePaths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secureConfig, recovery, err := LoadConfig(securePaths, "127.0.0.1:3737")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secureConfig, err = canonicalConfig("https://noema.example", "noema.example", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secureStore, err := store.Open(context.Background(), securePaths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secureStore.Close()
+	secureServer, err := New(securePaths, secureStore, secureConfig, recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secureStart := httptest.NewRequest(http.MethodPost, "https://noema.example/auth/passkey/register/start", nil)
+	secureStart.Host = "noema.example"
+	secureStart.Header.Set("Origin", "https://noema.example")
+	secureResponse := serve(secureServer.Handler(http.NotFoundHandler()), secureStart)
+	if secureResponse.Code != http.StatusOK || !strings.HasPrefix(secureResponse.Header().Get("Set-Cookie"), "__Host-noema.sid=") {
+		t.Fatalf("secure authentication cookie = %d %q", secureResponse.Code, secureResponse.Header().Get("Set-Cookie"))
 	}
 }
 
@@ -479,6 +582,12 @@ func TestRustServer_recovery_authorizes_one_setup_session_without_authenticating
 	initial := serve(handler, authRequest(http.MethodPost, "/auth/passkey/register/start", nil))
 	if initial.Code != http.StatusOK {
 		t.Fatalf("initial registration = %d", initial.Code)
+	}
+	var initialPayload struct {
+		CeremonyID string `json:"ceremonyId"`
+	}
+	if err := json.Unmarshal(initial.Body.Bytes(), &initialPayload); err != nil || initialPayload.CeremonyID == "" {
+		t.Fatalf("initial registration body = %q, %v", initial.Body.String(), err)
 	}
 	recovery := serve(handler, recoveryRequest(readRecoveryCode(t, paths), nil))
 	if recovery.Code != http.StatusNoContent {
@@ -492,8 +601,20 @@ func TestRustServer_recovery_authorizes_one_setup_session_without_authenticating
 	}
 	start := authRequest(http.MethodPost, "/auth/passkey/register/start", nil)
 	start.AddCookie(setupCookie)
-	if response := serve(handler, start); response.Code != http.StatusOK {
+	response := serve(handler, start)
+	if response.Code != http.StatusOK {
 		t.Fatalf("setup registration = %d", response.Code)
+	}
+	var payload struct {
+		CeremonyID string `json:"ceremonyId"`
+		Options    struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+			} `json:"publicKey"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || payload.CeremonyID == "" || payload.Options.PublicKey.Challenge == "" {
+		t.Fatalf("setup registration body = %q, %v", response.Body.String(), err)
 	}
 }
 
@@ -511,6 +632,13 @@ func TestRustServer_development_mode_keeps_canonical_host_and_origin_checks(t *t
 	logout.Header.Del("Origin")
 	if response := serve(handler, logout); response.Code != http.StatusForbidden {
 		t.Fatalf("development logout without origin = %d", response.Code)
+	}
+	approval := authRequest(http.MethodPost, "/oauth/authorize", nil)
+	approval.Header.Set("Authorization", "Bearer ignored")
+	approval.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	approval.Body = io.NopCloser(strings.NewReader("csrf=ignored&decision=approve"))
+	if response := serve(handler, approval); response.Code != http.StatusForbidden {
+		t.Fatalf("development OAuth approval = %d", response.Code)
 	}
 }
 
@@ -762,13 +890,19 @@ func TestRustServer_authenticated_http_and_websocket_ignore_client_identity_meta
 		} else {
 			browserBinding.Store(true)
 		}
-		if isWebSocket(request) {
-			close(started)
-			<-request.Context().Done()
-			close(returned)
+		if !isWebSocket(request) {
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		connection, err := websocket.Accept(w, request, &websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws"}})
+		if err != nil {
+			t.Errorf("browser WebSocket handshake: %v", err)
+			return
+		}
+		defer connection.CloseNow()
+		close(started)
+		<-request.Context().Done()
+		close(returned)
 	})
 	handler := server.Handler(application)
 	graphql := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ __typename }","extensions":{"principal":{"subjectId":"attacker"}}}`))
@@ -776,11 +910,8 @@ func TestRustServer_authenticated_http_and_websocket_ignore_client_identity_meta
 	if response := serve(handler, graphql); response.Code != http.StatusNoContent {
 		t.Fatalf("authenticated HTTP = %d", response.Code)
 	}
-	ws := authRequest(http.MethodGet, "/graphql/ws", nil)
-	ws.Header.Set("Upgrade", "websocket")
-	ws.Header.Set("Connection", "Upgrade")
-	ws.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: token})
-	go handler.ServeHTTP(httptest.NewRecorder(), ws)
+	_, stop := dialParityWebSocket(t, server, handler, server.sessions.cookieName+"="+token, "")
+	defer stop()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
@@ -802,24 +933,31 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	server, taskStore, _ := newAuthTest(t, false)
 	_, _, _ = seedPasskey(t, server, 40)
 	tokens := exchangeNativeTokens(t, server, taskStore, "rust-bearer")
+	faviconHandler := webserver.NewFaviconHandler()
+	faviconHandler.Seed("example.com", []byte("png"))
 	started, returned := make(chan struct{}), make(chan struct{})
 	application := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if ClientID(request.Context()) != testDesktopClient {
 			t.Errorf("native client context = %q", ClientID(request.Context()))
 		}
 		if isWebSocket(request) {
+			connection, err := websocket.Accept(w, request, &websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws"}})
+			if err != nil {
+				t.Errorf("native WebSocket handshake: %v", err)
+				return
+			}
+			defer connection.CloseNow()
 			close(started)
 			<-request.Context().Done()
 			close(returned)
 			return
 		}
-		if request.URL.Path == "/favicons/example.com" {
-			_, _ = w.Write([]byte("png"))
-			return
-		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := server.Handler(application)
+	applicationMux := http.NewServeMux()
+	applicationMux.Handle("GET /favicons/{hostname}", faviconHandler)
+	applicationMux.Handle("/", application)
+	handler := server.Handler(applicationMux)
 	graphql := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{"query":"{ __typename }"}`))
 	graphql.Header.Del("Origin")
 	graphql.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
@@ -832,10 +970,10 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	if response := serve(handler, invalid); response.Code != http.StatusUnauthorized {
 		t.Fatalf("invalid bearer = %d", response.Code)
 	}
-	favicon := authRequest(http.MethodGet, "/favicons/example.com", nil)
-	favicon.Header.Del("Origin")
-	favicon.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
-	if response := serve(handler, favicon); response.Code != http.StatusOK || response.Body.String() != "png" {
+	faviconRequest := authRequest(http.MethodGet, "/favicons/example.com", nil)
+	faviconRequest.Header.Del("Origin")
+	faviconRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	if response := serve(handler, faviconRequest); response.Code != http.StatusOK || response.Body.String() != "png" {
 		t.Fatalf("native favicon = %d %q", response.Code, response.Body.String())
 	}
 	browser := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))
@@ -843,11 +981,8 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	if response := serve(handler, browser); response.Code != http.StatusForbidden {
 		t.Fatalf("browser request without Origin = %d", response.Code)
 	}
-	websocket := authRequest(http.MethodGet, "/graphql/ws", nil)
-	websocket.Header.Del("Origin")
-	websocket.Header.Set("Upgrade", "websocket")
-	websocket.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
-	go handler.ServeHTTP(httptest.NewRecorder(), websocket)
+	_, stop := dialParityWebSocket(t, server, handler, "", "Bearer "+tokens.AccessToken)
+	defer stop()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
@@ -865,7 +1000,112 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 
 // Rust source: crates/noema-server/src/web/router/tests.rs::router_preserves_oauth_and_plain_text_not_found_responses.
 func TestRustServer_router_preserves_oauth_and_plain_text_not_found_responses(t *testing.T) {
-	t.Fatalf("unsupported port: Go server has no Rust OAuth callback and artifact adapter response layer")
+	server, taskStore, paths := newAuthTest(t, true)
+	server.config.Authority = "localhost:3737"
+	server.config.Origin = "http://localhost:3737"
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	mcpService, err := noemamcp.NewService(paths, taskStore, false, nil, server.config.Origin+"/mcp/oauth/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mcpService.Close)
+	adapterService, err := noemaadapter.NewService(root, taskStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adapterService.SetOAuthCallback(server.config.Origin + "/adapter/oauth/callback"); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := artifact.New(root, taskStore, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphql := webserver.NewGraphQLHandler(http.NotFoundHandler(), []byte("type QueryRoot"), false)
+	applicationMux := http.NewServeMux()
+	applicationMux.Handle("/graphql", graphql)
+	applicationMux.Handle("/graphql/ws", graphql)
+	applicationMux.Handle("/graphql/schema.graphql", graphql)
+	applicationMux.Handle("GET /mcp/oauth/callback", mcpService.CallbackHandler())
+	applicationMux.Handle("GET /adapter/oauth/callback", adapterService.OAuthCallbackHandler())
+	applicationMux.Handle("/artifacts/versions/", artifacts.Handler())
+	applicationMux.Handle("/", http.NotFoundHandler())
+	application := applicationMux
+	handler := server.Handler(application)
+	expectedFailure := httptest.NewRecorder()
+	publicpage.Callback(expectedFailure, http.StatusBadRequest, false)
+	oauth := serve(handler, authRequest(http.MethodGet, "/mcp/oauth/callback", nil))
+	if oauth.Code != http.StatusBadRequest || oauth.Header().Get("Content-Type") != "text/html; charset=utf-8" ||
+		oauth.Body.String() != expectedFailure.Body.String() {
+		t.Fatalf("OAuth callback response = %d %#v %q", oauth.Code, oauth.Header(), oauth.Body.String())
+	}
+	adapter := serve(handler, authRequest(http.MethodGet, "/adapter/oauth/callback?state=missing&code=hidden", nil))
+	if adapter.Code != http.StatusBadRequest || adapter.Header().Get("Content-Type") != "text/html; charset=utf-8" ||
+		adapter.Body.String() != expectedFailure.Body.String() {
+		t.Fatalf("adapter callback response = %d %#v %q", adapter.Code, adapter.Header(), adapter.Body.String())
+	}
+	oversized := serve(handler, authRequest(http.MethodGet, "/adapter/oauth/callback?state="+strings.Repeat("x", 8193), nil))
+	if oversized.Code != http.StatusBadRequest || oversized.Header().Get("Content-Type") != "text/html; charset=utf-8" ||
+		oversized.Body.String() != expectedFailure.Body.String() {
+		t.Fatalf("oversized callback response = %d %#v %q", oversized.Code, oversized.Header(), oversized.Body.String())
+	}
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodHead, path: "/graphql"},
+		{method: http.MethodPut, path: "/graphql/schema.graphql"},
+		{method: http.MethodHead, path: "/graphql/ws"},
+		{method: http.MethodPut, path: "/mcp/oauth/callback"},
+		{method: http.MethodPut, path: "/adapter/oauth/callback"},
+		{method: http.MethodHead, path: "/artifacts/versions/missing/download"},
+		{method: http.MethodHead, path: "/artifacts/versions/missing/preview"},
+		{method: http.MethodPut, path: "/memory"},
+	} {
+		response := serve(handler, authRequest(test.method, test.path, nil))
+		if response.Code != http.StatusNotFound || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+			t.Fatalf("%s %s = %d %#v", test.method, test.path, response.Code, response.Header())
+		}
+		if test.method != http.MethodHead && response.Body.String() != "404 page not found\n" {
+			t.Fatalf("%s %s body = %q", test.method, test.path, response.Body.String())
+		}
+	}
+}
+
+func dialParityWebSocket(t *testing.T, server *Server, handler http.Handler, cookie, bearer string) (*websocket.Conn, func()) {
+	t.Helper()
+	network := httptest.NewServer(handler)
+	authority := strings.TrimPrefix(network.URL, "http://")
+	server.config.Authority = authority
+	server.config.Origin = "http://" + authority
+	requestHeaders := make(http.Header)
+	if cookie != "" {
+		requestHeaders.Set("Cookie", cookie)
+		requestHeaders.Set("Origin", server.config.Origin)
+	}
+	if bearer != "" {
+		requestHeaders.Set("Authorization", bearer)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	connection, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(network.URL, "http")+"/graphql/ws", &websocket.DialOptions{
+		Subprotocols: []string{"graphql-transport-ws"}, HTTPHeader: requestHeaders,
+	})
+	cancel()
+	if err != nil {
+		network.Close()
+		if response != nil {
+			t.Fatalf("WebSocket handshake: %v (%s)", err, response.Status)
+		}
+		t.Fatal(err)
+	}
+	stop := func() {
+		_ = connection.CloseNow()
+		network.Close()
+	}
+	return connection, stop
 }
 
 func parityRequest(handler http.Handler, method string, target string) *httptest.ResponseRecorder {

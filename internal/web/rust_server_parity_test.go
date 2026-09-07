@@ -2,11 +2,13 @@ package web
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/png"
 	"net/http"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // Rust source: crates/noema-server/src/web/assets.rs::assets_preserve_safe_paths_content_types_dynamic_chunks_and_spa_boundaries.
@@ -92,7 +94,7 @@ func TestRustServer_hostname_normalization_keeps_exact_hosts_distinct(t *testing
 	if got, err := normalizeFaviconHostname("www.example.com"); err != nil || got != "www.example.com" {
 		t.Fatalf("normalized www hostname = %q, %v", got, err)
 	}
-	handler := NewFaviconHandler().(*faviconHandler)
+	handler := NewFaviconHandler()
 	handler.write("example.com", []byte("root"))
 	handler.write("www.example.com", []byte("www"))
 	if bytes.Equal(handler.read("example.com"), handler.read("www.example.com")) {
@@ -138,20 +140,46 @@ func TestRustServer_image_normalization_bounds_and_converts_raster_input(t *test
 
 // Rust source: crates/noema-server/src/web/favicons.rs::cache_preserves_positive_and_negative_outcomes.
 func TestRustServer_cache_preserves_positive_and_negative_outcomes(t *testing.T) {
-	handler := NewFaviconHandler().(*faviconHandler)
+	handler := NewFaviconHandler()
 	handler.write("example.com", []byte("png"))
 	if got := handler.read("example.com"); !bytes.Equal(got, []byte("png")) {
 		t.Fatalf("positive cache = %q", got)
 	}
-	t.Fatalf("unsupported port: Go favicon handler has no durable missing, transient, or stale cache outcomes")
+	now := time.Now()
+	handler.writeOutcome("missing.example", faviconCachedMissing, nil, now)
+	if entry, fresh := handler.cacheEntry("missing.example", now); !fresh || entry.outcome != faviconCachedMissing {
+		t.Fatalf("missing cache = %#v, fresh=%v", entry, fresh)
+	}
+	handler.writeOutcome("transient.example", faviconCachedTransient, nil, now)
+	if entry, fresh := handler.cacheEntry("transient.example", now); !fresh || entry.outcome != faviconCachedTransient {
+		t.Fatalf("transient cache = %#v, fresh=%v", entry, fresh)
+	}
+	handler.writeOutcome("stale.example", faviconAvailable, []byte("png"), time.Unix(1, 0))
+	if entry, fresh := handler.cacheEntry("stale.example", now); fresh || entry.outcome != faviconAvailable || !bytes.Equal(entry.body, []byte("png")) {
+		t.Fatalf("stale cache = %#v, fresh=%v", entry, fresh)
+	}
 }
 
 // Rust source: crates/noema-server/src/web/favicons.rs::concurrent_requests_share_one_hostname_fetch_lock.
 func TestRustServer_concurrent_requests_share_one_hostname_fetch_lock(t *testing.T) {
-	t.Fatalf("unsupported port: Go favicon handler has no per-host fetch lock")
+	handler := NewFaviconHandler()
+	first := handler.hostMutex("example.com")
+	second := handler.hostMutex("example.com")
+	if first != second {
+		t.Fatal("favicon requests for one hostname did not share a lock")
+	}
 }
 
 // Rust source: crates/noema-server/src/web/favicons.rs::cache_write_evicts_the_oldest_hostname.
 func TestRustServer_cache_write_evicts_the_oldest_hostname(t *testing.T) {
-	t.Fatalf("unsupported port: Go favicon cache has no insertion timestamps and evicts an arbitrary key")
+	handler := NewFaviconHandler()
+	for index := 0; index <= faviconCacheLimit; index++ {
+		handler.writeOutcome(fmt.Sprintf("%d.example", index), faviconCachedMissing, nil, time.Unix(int64(index+1), 0))
+	}
+	if _, ok := handler.cache["0.example"]; ok {
+		t.Fatal("oldest favicon cache entry was retained")
+	}
+	if entry, ok := handler.cache["1024.example"]; !ok || entry.outcome != faviconCachedMissing {
+		t.Fatal("newest favicon cache entry was evicted")
+	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -21,10 +22,55 @@ func TestRustServer_application_runtime_supports_cold_iana_timezone_parsing(t *t
 
 // Rust source: crates/noema-server/src/bin/noema_web.rs::unchanged_schema_is_not_rewritten.
 func TestRustServer_unchanged_schema_is_not_rewritten(t *testing.T) {
-	t.Fatalf("unsupported port: Go server has no generated-schema write-if-changed production path")
+	path := t.TempDir() + "/schema.graphql"
+	if err := os.WriteFile(path, []byte("type Query"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := writeGraphQLSchemaIfChanged(path, []byte("type Query"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("unchanged schema was rewritten")
+	}
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err = writeGraphQLSchemaIfChanged(path, []byte("type Query"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("unchanged schema was rewritten on the second comparison")
+	}
+	second, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatal("unchanged schema bytes changed")
+	}
 }
 
 // Rust source: crates/noema-server/src/bin/noema_web.rs::changed_schema_is_rewritten.
 func TestRustServer_changed_schema_is_rewritten(t *testing.T) {
-	t.Fatalf("unsupported port: Go server has no generated-schema write-if-changed production path")
+	path := t.TempDir() + "/schema.graphql"
+	if err := os.WriteFile(path, []byte("type Query"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := writeGraphQLSchemaIfChanged(path, []byte("type Mutation"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("changed schema was not rewritten")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "type Mutation" {
+		t.Fatalf("rewritten schema = %q", contents)
+	}
 }
