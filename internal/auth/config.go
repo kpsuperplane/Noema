@@ -43,6 +43,13 @@ type Recovery struct {
 	disabled bool
 }
 
+// recoveryCode keeps decoded recovery material out of ordinary debug output.
+type recoveryCode struct {
+	value []byte
+}
+
+func (recoveryCode) GoString() string { return "RecoveryCode{value: [REDACTED]}" }
+
 // RecoveryErrorKind identifies the recovery-code state that prevented an
 // attempt from completing.
 type RecoveryErrorKind string
@@ -446,8 +453,16 @@ func configPort(values map[string]any, key string, fallback uint16) (uint16, err
 }
 
 func validRecoveryCode(value string) bool {
+	_, err := parseRecoveryCode(value)
+	return err == nil
+}
+
+func parseRecoveryCode(value string) (recoveryCode, error) {
 	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	return err == nil && len(decoded) == 32 && base64.RawURLEncoding.EncodeToString(decoded) == value
+	if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != value {
+		return recoveryCode{}, errors.New("recovery code is not canonical")
+	}
+	return recoveryCode{value: decoded}, nil
 }
 
 func randomBase64URL(size int) (string, error) {

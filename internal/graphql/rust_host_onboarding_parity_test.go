@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -191,13 +193,7 @@ func openRustHostLocalResolver(t *testing.T, live bool) *Resolver {
 	runtimeRoot := ""
 	if live {
 		runtimeRoot = filepath.Join(t.TempDir(), "runtime")
-		executable := filepath.Join(runtimeRoot, "cpu", "llama-server")
-		if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(executable, []byte(rustHostFakeRuntimeScript), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		buildRustHostFakeRuntime(t, runtimeRoot)
 	}
 	service, err := localmodel.New(resolver.Store, resolver.home.Name(), runtimeRoot)
 	if err != nil {
@@ -214,38 +210,20 @@ func openRustHostLocalResolver(t *testing.T, live bool) *Resolver {
 	return resolver
 }
 
-const rustHostFakeRuntimeScript = `#!/usr/bin/env python3
-import http.server
-import json
-import sys
-
-port = int(sys.argv[sys.argv.index("--port") + 1])
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def log_message(self, *_):
-        pass
-
-    def do_GET(self):
-        if self.path == "/health":
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-            return
-        self.send_error(404)
-
-    def do_POST(self):
-        if self.path != "/v1/chat/completions":
-            self.send_error(404)
-            return
-        length = int(self.headers.get("Content-Length", "0"))
-        self.rfile.read(length)
-        payload = {"id":"response","model":"rust-host-local-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"noema_local_qualification","arguments":"{}"}}]}}]}
-        body = ("data: " + json.dumps(payload) + "\n\ndata: [DONE]\n\n").encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-http.server.HTTPServer(("127.0.0.1", port), Handler).serve_forever()
-`
+func buildRustHostFakeRuntime(t *testing.T, runtimeRoot string) {
+	t.Helper()
+	executable := "llama-server"
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	path := filepath.Join(runtimeRoot, "cpu", executable)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("go", "build", "-trimpath", "-o", path, "./testdata/fake_runtime")
+	command.Env = append(os.Environ(), "CGO_ENABLED=0")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build deterministic local runtime fixture: %v\n%s", err, output)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kpsuperplane/noema/internal/foundation"
+	"github.com/kpsuperplane/noema/internal/home"
 )
 
 // Rust source: crates/noema-host/src/composition/tests.rs:157::configured_foundation_bridge_establishes_default_readiness
@@ -26,14 +27,38 @@ done
 	if err := os.WriteFile(bridgePath, []byte(bridge), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	selection, err := foundation.ResolveDefaultSelection(context.Background(), bridgePath, "foundation-live")
+	paths, err := home.FromRoot(filepath.Join(root, "home"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.ProviderKind != "foundation_local" {
-		t.Fatalf("Foundation default provider = %q", selection.ProviderKind)
+	if err := home.Initialize(paths, []byte(home.DefaultConfigYAML)); err != nil {
+		t.Fatal(err)
 	}
-	if selection.ModelProfile != "foundation-live" {
-		t.Fatalf("Foundation default profile = %q", selection.ModelProfile)
+	host, err := foundation.AssembleHost(context.Background(), paths, bridgePath, "foundation-live")
+	if err != nil {
+		t.Fatalf("start configured Foundation host: %v", err)
 	}
+	shutdown := false
+	t.Cleanup(func() {
+		if !shutdown {
+			_ = host.Shutdown()
+		}
+	})
+	preference, err := host.Store.DefaultModelPreference(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preference == nil {
+		t.Fatal("Foundation default preference was not persisted")
+	}
+	if preference.ProviderKind != "foundation_local" {
+		t.Fatalf("Foundation default provider = %q", preference.ProviderKind)
+	}
+	if preference.ModelProfile != "foundation-live" {
+		t.Fatalf("Foundation default profile = %q", preference.ModelProfile)
+	}
+	if err := host.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	shutdown = true
 }

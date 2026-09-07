@@ -145,6 +145,7 @@ func TestRustHost_startup_entrypoint_child(t *testing.T) {
 	loaded := auth.Config{
 		Authority: "localhost:4848", Origin: "http://localhost:4848", RPID: "localhost",
 		ListenAddress: "127.0.0.1:4848", BrowserMaxSessions: 2, BrowserMaxOldSpaceMB: 1024,
+		Secure: false, DevNoAuth: false, GraphiQL: false, LocalGraphQLSocket: false,
 	}
 	if err := runLoadedHostForRustTest(t, loaded); err != nil {
 		t.Fatalf("loaded configuration startup = %v", err)
@@ -201,6 +202,12 @@ func runHostForRustTest(t *testing.T) error {
 
 func runLoadedHostForRustTest(t *testing.T, config auth.Config) error {
 	t.Helper()
+	if config.Authority != "localhost:4848" || config.Origin != "http://localhost:4848" ||
+		config.RPID != "localhost" || config.ListenAddress != "127.0.0.1:4848" ||
+		config.Secure || config.DevNoAuth || config.GraphiQL || config.LocalGraphQLSocket ||
+		config.BrowserMaxSessions != 2 || config.BrowserMaxOldSpaceMB != 1024 {
+		return fmt.Errorf("loaded web config = %#v", config)
+	}
 	output := &rustHostReadyWriter{ready: make(chan struct{})}
 	result := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())

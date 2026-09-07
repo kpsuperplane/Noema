@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -44,11 +43,15 @@ func TestRustHost_missing_code_is_generated_privately_without_losing_other_value
 	if strings.Contains(fmt.Sprintf("%#v", recovery), code) {
 		t.Fatal("recovery object retained the generated code")
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(code)
+	if debug := fmt.Sprintf("%#v", recovery); !strings.Contains(debug, "Recovery") {
+		t.Fatalf("recovery debug output was empty: %q", debug)
+	}
+	parsed, err := parseRecoveryCode(code)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(fmt.Sprintf("%#v", decoded), code) {
+	debug := fmt.Sprintf("%#v", parsed)
+	if strings.Contains(debug, code) || !strings.Contains(debug, "RecoveryCode") || !strings.Contains(debug, "[REDACTED]") {
 		t.Fatal("parsed recovery code retained the source code")
 	}
 	assertRustHostRecoveryPermissions(t, paths.Config())
@@ -152,6 +155,32 @@ func TestRustHost_failed_live_read_disables_later_attempts(t *testing.T) {
 
 // Rust source: crates/noema-host/src/config/tests.rs:75::configuration_source_and_provider_contracts
 func TestRustHost_configuration_source_and_provider_contracts(t *testing.T) {
+	t.Run("bare Codex does not require OpenAI credentials", func(t *testing.T) {
+		paths, err := home.FromRoot(filepath.Join(t.TempDir(), "bare-codex"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := home.AtomicWritePrivate(paths.Config(), []byte("provider: codex\n")); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{
+			"NOEMA_PROVIDER", "NOEMA_MODEL", "NOEMA_REASONING_EFFORT", "NOEMA_CODEX__MODEL",
+			"NOEMA_CODEX__REASONING_EFFORT", "NOEMA_CODEX__BASE_URL", "NOEMA_CODEX__TIMEOUT_SECONDS",
+			"NOEMA_CODEX__TOOL_CLASSIFICATION_MODEL", "NOEMA_OPENAI__API_KEY",
+		} {
+			unsetRustHostEnv(t, name)
+		}
+		resolved, err := ResolveProviderConfig(paths, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved.Provider != "codex" || resolved.Model != "gpt-5.6-terra" ||
+			resolved.Codex.BaseURL != "https://chatgpt.com/backend-api/codex" ||
+			resolved.Codex.DefaultModel != "gpt-5.6-terra" || resolved.Codex.TimeoutSeconds != 300 {
+			t.Fatalf("bare Codex resolution = %#v", resolved)
+		}
+	})
+
 	providerSource, err := home.FromRoot(filepath.Join(t.TempDir(), "provider-source"))
 	if err != nil {
 		t.Fatal(err)
@@ -377,6 +406,27 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 			t.Fatalf("YAML API key error = %v", err)
 		}
 	})
+	t.Run("legacy OpenAI environment is ignored", func(t *testing.T) {
+		paths, err := home.FromRoot(filepath.Join(t.TempDir(), "legacy-openai-env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := home.AtomicWritePrivate(paths.Config(), []byte("provider: openai\n")); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("NOEMA_PROVIDER", "openai")
+		t.Setenv("OPENAI_API_KEY", "old-key")
+		t.Setenv("NOEMA_OPENAI__API_KEY", "")
+		_, err = ResolveProviderConfig(paths, "")
+		if err == nil {
+			t.Fatal("legacy OPENAI_API_KEY satisfied provider credentials")
+		}
+		var configErr *ProviderConfigError
+		if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigMissingSecret ||
+			configErr.Provider != "openai" || configErr.Credential != "NOEMA_OPENAI__API_KEY" {
+			t.Fatalf("legacy OpenAI credential error = %v", err)
+		}
+	})
 	t.Run("Codex model selection", func(t *testing.T) {
 		for _, yaml := range []string{"provider: codex\ncodex:\n  model: gpt-5.5\n", "provider: codex\ncodex:\n  reasoning_effort: medium\n"} {
 			paths, err := home.FromRoot(filepath.Join(t.TempDir(), "partial-codex"))
@@ -492,4 +542,19 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 	if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigUnsupported || configErr.Provider != "unknown" {
 		t.Fatalf("unsupported provider error = %v", err)
 	}
+}
+
+func unsetRustHostEnv(t *testing.T, name string) {
+	t.Helper()
+	previous, existed := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if existed {
+			_ = os.Setenv(name, previous)
+		} else {
+			_ = os.Unsetenv(name)
+		}
+	})
 }
