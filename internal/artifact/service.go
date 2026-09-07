@@ -31,6 +31,38 @@ const (
 
 var ErrUnavailable = errors.New("Artifact is unavailable")
 
+// These sentinels preserve the Rust operation error categories at Go
+// boundaries. Callers can inspect a category with errors.Is while retaining
+// the underlying failure as the wrapped cause.
+var (
+	ErrFilesystem        = errors.New("Artifact filesystem operation failed")
+	ErrMetadata          = errors.New("Artifact metadata operation failed")
+	ErrMetadataInvariant = errors.New("Artifact metadata invariant violated")
+	ErrUnsafeOperationID = errors.New("unsafe Artifact operation id")
+)
+
+type categorizedError struct {
+	category error
+	cause    error
+}
+
+func (e categorizedError) Error() string {
+	if e.cause == nil {
+		return e.category.Error()
+	}
+	return e.category.Error() + ": " + e.cause.Error()
+}
+
+func (e categorizedError) Unwrap() error { return e.cause }
+
+func (e categorizedError) Is(target error) bool {
+	return target == e.category || errors.Is(e.cause, target)
+}
+
+func categorize(category, cause error) error {
+	return categorizedError{category: category, cause: cause}
+}
+
 // LocalInput describes one local Artifact creation.
 type LocalInput struct {
 	Owner            store.ArtifactOwner
@@ -76,6 +108,9 @@ type Service struct {
 	// covered by the Rust filesystem contract.
 	testOperationIDs []string
 	testPublishHook  func() error
+	testArtifactIDs  []string
+	testVersionIDs   []string
+	testMetadataGate func() error
 }
 
 // New creates one concrete Artifact service and cleans stale stages.
@@ -96,7 +131,7 @@ func (s *Service) CreateExternal(ctx context.Context, input ExternalInput) (stor
 	if err != nil {
 		return store.ArtifactWithVersions{}, err
 	}
-	artifactID, versionID, err := newIDs()
+	artifactID, versionID, err := s.nextIDs()
 	if err != nil {
 		return store.ArtifactWithVersions{}, err
 	}
@@ -125,13 +160,18 @@ func (s *Service) CreateLocal(ctx context.Context, input LocalInput) (store.Arti
 		}
 		return store.ArtifactWithVersions{}, ErrUnavailable
 	}
-	artifactID, versionID, err := newIDs()
+	artifactID, versionID, err := s.nextIDs()
 	if err != nil {
 		return store.ArtifactWithVersions{}, err
 	}
 	publication, err := s.publish(input.Owner, artifactID, 1, input.Filename, input.Bytes)
 	if err != nil {
 		return store.ArtifactWithVersions{}, err
+	}
+	if s.testMetadataGate != nil {
+		if err := s.testMetadataGate(); err != nil {
+			return store.ArtifactWithVersions{}, errors.Join(categorize(ErrMetadata, err), s.discardPublication(publication))
+		}
 	}
 	result, err := s.store.CreateArtifact(ctx, store.Artifact{
 		ID: artifactID, Owner: input.Owner, Title: input.Title, Description: input.Description,
@@ -143,7 +183,7 @@ func (s *Service) CreateLocal(ctx context.Context, input LocalInput) (store.Arti
 		CreatedByActorID: input.CreatedByActorID, Source: input.Source,
 	}, s.now())
 	if err != nil {
-		return store.ArtifactWithVersions{}, errors.Join(err, s.discardPublication(publication))
+		return store.ArtifactWithVersions{}, errors.Join(categorize(ErrMetadata, err), s.discardPublication(publication))
 	}
 	return result, nil
 }
@@ -172,7 +212,7 @@ func (s *Service) AppendLocal(
 		return store.ArtifactVersion{}, ErrUnavailable
 	}
 	next := int64(len(artifact.Versions) + 1)
-	versionID, err := store.NewArtifactVersionID()
+	versionID, err := s.nextVersionID()
 	if err != nil {
 		return store.ArtifactVersion{}, err
 	}
@@ -186,7 +226,7 @@ func (s *Service) AppendLocal(
 		CreatedByActorID: actor, Source: source, Metadata: metadata,
 	}, s.now())
 	if err != nil {
-		return store.ArtifactVersion{}, errors.Join(err, s.discardPublication(publication))
+		return store.ArtifactVersion{}, errors.Join(categorize(ErrMetadata, err), s.discardPublication(publication))
 	}
 	return version, nil
 }
@@ -195,6 +235,9 @@ func (s *Service) AppendLocal(
 func (s *Service) Read(artifact store.Artifact, version store.ArtifactVersion) (File, error) {
 	if artifact.ID != version.ArtifactID || artifact.StorageKind != store.ArtifactLocalFile ||
 		version.LocalRelativePath == nil || version.ByteSize == nil || version.ContentSHA256 == nil {
+		if version.LocalRelativePath != nil && (version.ByteSize == nil || version.ContentSHA256 == nil) {
+			return File{}, categorize(ErrMetadataInvariant, ErrUnavailable)
+		}
 		return File{}, ErrUnavailable
 	}
 	filename, parent, err := validateStoredPath(artifact, version)
@@ -259,19 +302,19 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.cleanupStaging(s.now()); err != nil {
-		return publication{}, err
+		return publication{}, categorize(ErrFilesystem, err)
 	}
 	opID, err := s.nextOperationID()
 	if err != nil {
 		return publication{}, err
 	}
 	if !validOperationID(opID) {
-		return publication{}, errors.New("unsafe Artifact operation id")
+		return publication{}, ErrUnsafeOperationID
 	}
 	stageDir := filepath.Join(stagingRootName, opID)
 	stage, err := createExclusiveDirectory(s.root, stagingRootName, opID)
 	if err != nil {
-		return publication{}, fmt.Errorf("create Artifact stage: %w", err)
+		return publication{}, categorize(ErrFilesystem, fmt.Errorf("create Artifact stage: %w", err))
 	}
 	stagePath := filepath.Join(stageDir, filename)
 	staged, err := stage.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
@@ -290,12 +333,12 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 	_ = stage.Close()
 	if err != nil {
 		_ = removeStage(s.root, stageDir, filename)
-		return publication{}, fmt.Errorf("write Artifact stage: %w", err)
+		return publication{}, categorize(ErrFilesystem, fmt.Errorf("write Artifact stage: %w", err))
 	}
 	if s.testPublishHook != nil {
 		if err := s.testPublishHook(); err != nil {
 			_ = removeStage(s.root, stageDir, filename)
-			return publication{}, err
+			return publication{}, categorize(ErrFilesystem, err)
 		}
 	}
 	finalBase := filepath.Join(versionDirectory(owner, artifactID, index), "objects")
@@ -303,27 +346,27 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 	final, err := createExclusiveDirectory(s.root, finalBase, opID)
 	if err != nil {
 		_ = removeStage(s.root, stageDir, filename)
-		return publication{}, fmt.Errorf("create Artifact object directory: %w", err)
+		return publication{}, categorize(ErrFilesystem, fmt.Errorf("create Artifact object directory: %w", err))
 	}
 	finalPath := filepath.Join(finalDir, filename)
 	if err := s.root.Link(stagePath, finalPath); err != nil {
 		_ = final.Close()
 		_ = s.root.Remove(finalDir)
 		_ = removeStage(s.root, stageDir, filename)
-		return publication{}, fmt.Errorf("publish Artifact without replacement: %w", err)
+		return publication{}, categorize(ErrFilesystem, fmt.Errorf("publish Artifact without replacement: %w", err))
 	}
 	if err := syncDirectory(final); err != nil {
 		_ = final.Close()
 		_ = s.root.Remove(finalPath)
 		_ = s.root.Remove(finalDir)
 		_ = removeStage(s.root, stageDir, filename)
-		return publication{}, fmt.Errorf("sync Artifact publication: %w", err)
+		return publication{}, categorize(ErrFilesystem, fmt.Errorf("sync Artifact publication: %w", err))
 	}
 	_ = final.Close()
 	if err := removeStage(s.root, stageDir, filename); err != nil {
 		_ = s.root.Remove(finalPath)
 		_ = s.root.Remove(finalDir)
-		return publication{}, err
+		return publication{}, categorize(ErrFilesystem, err)
 	}
 	digest := sha256.Sum256(bytes)
 	return publication{
@@ -339,6 +382,29 @@ func (s *Service) nextOperationID() (string, error) {
 		return value, nil
 	}
 	return operationID()
+}
+
+func (s *Service) nextIDs() (string, string, error) {
+	if len(s.testArtifactIDs) > 0 || len(s.testVersionIDs) > 0 {
+		if len(s.testArtifactIDs) == 0 || len(s.testVersionIDs) == 0 {
+			return "", "", errors.New("test Artifact identifiers exhausted")
+		}
+		artifactID := s.testArtifactIDs[0]
+		versionID := s.testVersionIDs[0]
+		s.testArtifactIDs = s.testArtifactIDs[1:]
+		s.testVersionIDs = s.testVersionIDs[1:]
+		return artifactID, versionID, nil
+	}
+	return newIDs()
+}
+
+func (s *Service) nextVersionID() (string, error) {
+	if len(s.testVersionIDs) > 0 {
+		value := s.testVersionIDs[0]
+		s.testVersionIDs = s.testVersionIDs[1:]
+		return value, nil
+	}
+	return store.NewArtifactVersionID()
 }
 
 func (s *Service) discardPublication(value publication) error {

@@ -19,6 +19,9 @@ import (
 const (
 	rustArtifactOperationOne = "op-1111111111111111111111111111111111111111111111111111111111111111"
 	rustArtifactOperationTwo = "op-2222222222222222222222222222222222222222222222222222222222222222"
+	rustArtifactID           = "artifact:00000000000000000000000000000001"
+	rustArtifactVersionOne   = "artifact_version:00000000000000000000000000000001"
+	rustArtifactVersionTwo   = "artifact_version:00000000000000000000000000000002"
 )
 
 // Rust source: crates/noema-artifacts/src/domain.rs::tests::external_artifact_urls_normalize_http_and_reject_other_schemes.
@@ -173,7 +176,7 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	}
 	incompleteVersion := created.CurrentVersion
 	incompleteVersion.ByteSize = nil
-	if _, err := env.service.Read(created.Artifact, incompleteVersion); !errors.Is(err, ErrUnavailable) {
+	if _, err := env.service.Read(created.Artifact, incompleteVersion); !errors.Is(err, ErrMetadataInvariant) {
 		t.Fatalf("incomplete local metadata error = %v", err)
 	}
 	assertRustArtifactStagingEmpty(t, env.rootPath)
@@ -187,7 +190,7 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	}
 	failedInput := rustArtifactLocalInput(env.owner, []byte("discard"))
 	failedInput.Metadata = map[string]any{"value": strings.Repeat("x", 64*1024)}
-	if _, err := env.service.CreateLocal(context.Background(), failedInput); err == nil {
+	if _, err := env.service.CreateLocal(context.Background(), failedInput); err == nil || !errors.Is(err, ErrMetadata) {
 		t.Fatal("metadata failure was accepted")
 	}
 	artifacts, err := env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
@@ -200,7 +203,7 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	if got, err := os.ReadFile(unrelated); err != nil || !bytes.Equal(got, []byte("keep")) {
 		t.Fatalf("unrelated bytes = %q, %v", got, err)
 	}
-	assertRustArtifactObjectDirectoriesEmpty(t, filepath.Join(env.rootPath, "tasks", sanitizeSegment(env.owner.ObjectID), "artifacts"))
+	assertRustArtifactObjectsEmpty(t, filepath.Join(env.rootPath, versionDirectory(env.owner, rustArtifactID, 1), "objects"))
 	assertRustArtifactStagingEmpty(t, env.rootPath)
 
 	// Case: cancelling_blocked_metadata_future_commits_nothing_and_removes_bytes.
@@ -208,14 +211,10 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	env.service.testOperationIDs = []string{rustArtifactOperationOne}
 	metadataEntered := make(chan struct{})
 	metadataRelease := make(chan struct{})
-	nowCalls := 0
-	env.service.now = func() time.Time {
-		nowCalls++
-		if nowCalls == 2 {
-			close(metadataEntered)
-			<-metadataRelease
-		}
-		return time.Now()
+	env.service.testMetadataGate = func() error {
+		close(metadataEntered)
+		<-metadataRelease
+		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	metadataDone := make(chan error, 1)
@@ -229,7 +228,7 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 	}
 	cancel()
 	close(metadataRelease)
-	if err := <-metadataDone; err == nil {
+	if err := <-metadataDone; err == nil || !errors.Is(err, ErrMetadata) {
 		t.Fatal("cancelled metadata write succeeded")
 	}
 	artifacts, err = env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
@@ -265,8 +264,19 @@ func TestRustArtifacts_PublicationLifecycleAndCancellationContracts(t *testing.T
 		t.Fatalf("staged files while publication is blocked = %d", got)
 	}
 	cancel()
+	select {
+	case <-publishDone:
+		t.Fatal("cancelled publication returned before the detached worker was released")
+	default:
+	}
 	close(publishRelease)
-	if err := <-publishDone; err == nil {
+	for attempt := 0; attempt < 100; attempt++ {
+		if len(rustArtifactRegularFiles(env.rootPath)) == 0 && rustArtifactStagingIsEmpty(env.rootPath) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := <-publishDone; err == nil || !errors.Is(err, ErrFilesystem) {
 		t.Fatal("cancelled publication succeeded")
 	}
 	artifacts, err = env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
@@ -294,8 +304,8 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 	if err := os.Mkdir(env.rootPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.service.CreateLocal(context.Background(), rustArtifactLocalInput(env.owner, []byte("confined"))); err == nil {
-		t.Fatal("root replacement was accepted")
+	if _, err := env.service.CreateLocal(context.Background(), rustArtifactLocalInput(env.owner, []byte("confined"))); err == nil || !errors.Is(err, ErrFilesystem) {
+		t.Fatalf("root replacement error = %v", err)
 	}
 	artifacts, err := env.database.ArtifactsForOwner(context.Background(), env.owner, 20)
 	if err != nil {
@@ -312,7 +322,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 	}
 
 	// Case: conversation_local_file_artifact_rejects_symlinked_artifact_root.
-	if runtime.GOOS != "windows" {
+	if rustArtifactUnix() {
 		env = newRustArtifactEnvironment(t)
 		env.service.testOperationIDs = []string{rustArtifactOperationOne}
 		ownerRoot := filepath.Join(env.rootPath, "tasks", sanitizeSegment(env.owner.ObjectID))
@@ -326,7 +336,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 		if err := os.Symlink(outside, filepath.Join(ownerRoot, "artifacts")); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := env.service.CreateLocal(context.Background(), rustArtifactLocalInput(env.owner, []byte("report"))); err == nil {
+		if _, err := env.service.CreateLocal(context.Background(), rustArtifactLocalInput(env.owner, []byte("report"))); err == nil || !errors.Is(err, ErrFilesystem) {
 			t.Fatal("symlinked artifact root was accepted")
 		}
 	}
@@ -358,7 +368,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 
 	invalid := newRustArtifactEnvironment(t)
 	invalid.service.testOperationIDs = []string{"op-not-random"}
-	if _, err := invalid.service.CreateLocal(context.Background(), rustArtifactLocalInput(invalid.owner, []byte("never-written"))); err == nil || err.Error() != "unsafe Artifact operation id" {
+	if _, err := invalid.service.CreateLocal(context.Background(), rustArtifactLocalInput(invalid.owner, []byte("never-written"))); err == nil || !errors.Is(err, ErrUnsafeOperationID) {
 		t.Fatalf("malformed operation ID error = %v", err)
 	}
 	if got := rustArtifactRegularFiles(invalid.rootPath); len(got) != 0 {
@@ -366,7 +376,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 	}
 
 	// Case: startup_cleanup_only_removes_recognized_real_private_entries.
-	env = newRustArtifactEnvironment(t)
+	env = newRustArtifactResources(t)
 	staging := filepath.Join(env.rootPath, stagingRootName)
 	stale := filepath.Join(staging, rustArtifactOperationOne)
 	invalidEntry := filepath.Join(staging, "not-governed")
@@ -386,7 +396,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	var outside string
-	if runtime.GOOS != "windows" {
+	if rustArtifactUnix() {
 		outside = filepath.Join(env.rootPath, "outside")
 		if err := os.Mkdir(outside, 0o700); err != nil {
 			t.Fatal(err)
@@ -398,7 +408,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := env.service.CleanupStaging(); err != nil {
+	if _, err := New(env.root, env.database, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
@@ -407,7 +417,7 @@ func TestRustArtifacts_ConfinementIdentityAndCleanupContracts(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(invalidEntry, "keep.txt")); err != nil || !bytes.Equal(got, []byte("keep")) {
 		t.Fatalf("invalid entry bytes = %q, %v", got, err)
 	}
-	if runtime.GOOS != "windows" {
+	if rustArtifactUnix() {
 		if got, err := os.ReadFile(filepath.Join(outside, "victim.txt")); err != nil || !bytes.Equal(got, []byte("keep")) {
 			t.Fatalf("outside bytes = %q, %v", got, err)
 		}
@@ -427,6 +437,19 @@ type rustArtifactEnvironment struct {
 
 func newRustArtifactEnvironment(t *testing.T) *rustArtifactEnvironment {
 	t.Helper()
+	environment := newRustArtifactResources(t)
+	service, err := New(environment.root, environment.database, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment.service = service
+	service.testArtifactIDs = []string{rustArtifactID}
+	service.testVersionIDs = []string{rustArtifactVersionOne, rustArtifactVersionTwo}
+	return environment
+}
+
+func newRustArtifactResources(t *testing.T) *rustArtifactEnvironment {
+	t.Helper()
 	ctx := context.Background()
 	rootPath := t.TempDir()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "metadata.sqlite3"))
@@ -444,13 +467,7 @@ func newRustArtifactEnvironment(t *testing.T) *rustArtifactEnvironment {
 		_ = database.Close()
 		t.Fatal(err)
 	}
-	service, err := New(root, database, nil)
-	if err != nil {
-		_ = root.Close()
-		_ = database.Close()
-		t.Fatal(err)
-	}
-	environment := &rustArtifactEnvironment{rootPath: rootPath, root: root, database: database, service: service, owner: owner}
+	environment := &rustArtifactEnvironment{rootPath: rootPath, root: root, database: database, owner: owner}
 	t.Cleanup(func() {
 		_ = root.Close()
 		_ = database.Close()
@@ -497,29 +514,27 @@ func assertRustArtifactStagingEmpty(t *testing.T, root string) {
 	}
 }
 
-func assertRustArtifactObjectDirectoriesEmpty(t *testing.T, root string) {
+func assertRustArtifactObjectsEmpty(t *testing.T, root string) {
 	t.Helper()
-	count := 0
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() && entry.Name() == "objects" {
-			count++
-			entries, readErr := os.ReadDir(path)
-			if readErr != nil {
-				return readErr
-			}
-			if len(entries) != 0 {
-				t.Fatalf("objects entries = %#v", entries)
-			}
-		}
-		return nil
-	})
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count == 0 {
-		t.Fatal("published object directory was not created")
+	if len(entries) != 0 {
+		t.Fatalf("objects entries = %#v", entries)
+	}
+}
+
+func rustArtifactStagingIsEmpty(root string) bool {
+	entries, err := os.ReadDir(filepath.Join(root, stagingRootName))
+	return err == nil && len(entries) == 0
+}
+
+func rustArtifactUnix() bool {
+	switch runtime.GOOS {
+	case "aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "linux", "netbsd", "openbsd", "solaris":
+		return true
+	default:
+		return false
 	}
 }
