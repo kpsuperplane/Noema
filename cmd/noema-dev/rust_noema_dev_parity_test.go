@@ -11,6 +11,7 @@ import (
 // Rust source: crates/noema-dev/src/main.rs::nested_cargo_does_not_inherit_native_compiler_wrappers (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustDev_nested_cargo_does_not_inherit_native_compiler_wrappers(t *testing.T) {
 	command := exec.Command("cargo")
+	command.Env = append(os.Environ(), "CC=test-native-cc", "CXX=test-native-cxx")
 	stripCargoRunEnv(command)
 	for _, key := range []string{"CC", "CXX"} {
 		for _, entry := range command.Env {

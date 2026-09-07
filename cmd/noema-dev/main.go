@@ -91,16 +91,20 @@ func run(ctx context.Context) error {
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		return errors.New("run noema-dev from the repository root")
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	commands := [][]string{
 		{"go", "run", "github.com/air-verse/air@v1.67.4", "-c", ".air.toml"},
 		{"bun", "run", "--cwd", "apps/web", "dev:assets"},
 	}
+	return superviseDevProcesses(ctx, root, commands)
+}
+
+func superviseDevProcesses(ctx context.Context, root string, commands [][]string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var group sync.WaitGroup
 	failures := make(chan error, len(commands))
 	for _, args := range commands {
-		args := args
+		args := append([]string(nil), args...)
 		group.Go(func() {
 			if err := watch(ctx, root, args); err != nil {
 				failures <- err

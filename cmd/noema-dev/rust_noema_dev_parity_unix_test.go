@@ -3,10 +3,15 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -22,39 +27,69 @@ func TestRustDev_root_web_assets_use_a_public_read_umask(t *testing.T) {
 	}
 }
 
-func spawnRustDevWatcher(t *testing.T) *exec.Cmd {
-	t.Helper()
-	command := exec.Command("sh", "-c", "trap 'exit 0' TERM; while :; do sleep 1; done")
-	command.Stdin, command.Stdout, command.Stderr = nil, nil, nil
-	configureProcess(command)
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
-	return command
-}
-
 // Rust source: crates/noema-dev/src/main.rs::supervisor_stops_watchers_when_shutdown_signal_arrives (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustDev_supervisor_stops_watchers_when_shutdown_signal_arrives(t *testing.T) {
-	web := spawnRustDevWatcher(t)
-	server := spawnRustDevWatcher(t)
-	bridge := spawnRustDevWatcher(t)
-	watchers := []*exec.Cmd{web, server, bridge}
-	for _, watcher := range watchers {
-		watcher := watcher
-		t.Cleanup(func() {
-			if watcher.ProcessState == nil {
-				stopProcess(watcher)
-				_ = watcher.Wait()
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	if err := syscall.Mkfifo(ready, 0600); err != nil {
+		t.Fatal(err)
+	}
+	watcherScript := `trap 'printf exited > "$3"; exit 0' TERM; printf '%s\n' "$1" > "$2"; while :; do :; done`
+	names := []string{"web", "server", "bridge"}
+	commands := make([][]string, 0, len(names))
+	for _, name := range names {
+		commands = append(commands, []string{"sh", "-c", watcherScript, "noema-dev-test-watcher", name, ready, filepath.Join(dir, name+"-exited")})
+	}
+	ctx, stop := signal.NotifyContext(t.Context(), shutdownSignals()...)
+	defer stop()
+	done := make(chan error, 1)
+	go func() { done <- superviseDevProcesses(ctx, t.TempDir(), commands) }()
+
+	readyNames := make(chan string, len(names))
+	go func() {
+		file, err := os.OpenFile(ready, os.O_RDWR, 0600)
+		if err != nil {
+			return
+		}
+		defer file.Close()
+		scanner := bufio.NewScanner(file)
+		for range names {
+			if !scanner.Scan() {
+				return
 			}
-		})
+			readyNames <- scanner.Text()
+		}
+	}()
+	seen := make(map[string]bool, len(names))
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for len(seen) < len(names) {
+		select {
+		case name := <-readyNames:
+			seen[name] = true
+		case <-deadline.C:
+			t.Fatal("watchers did not start")
+		}
 	}
-	for _, watcher := range watchers {
-		stopProcess(watcher)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
 	}
-	for _, watcher := range watchers {
-		_ = watcher.Wait()
-		if watcher.ProcessState == nil {
-			t.Fatal("watcher did not exit")
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("supervisor did not stop watchers")
+	}
+	for _, name := range names {
+		path := filepath.Join(dir, name+"-exited")
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s watcher did not exit: %v", name, err)
+		}
+		if string(contents) != "exited" {
+			t.Fatalf("%s watcher exit marker = %q", name, contents)
 		}
 	}
 }
