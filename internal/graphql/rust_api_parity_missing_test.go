@@ -6,6 +6,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
@@ -32,8 +34,56 @@ import (
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/kpsuperplane/noema/internal/webtool"
+	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
+
+// rustAPIGraphQLResponse keeps GraphQL errors and extensions visible for
+// parity cases whose Rust tests assert the public error boundary.
+type rustAPIGraphQLResponse struct {
+	Data   map[string]any `json:"data"`
+	Errors []struct {
+		Message    string         `json:"message"`
+		Extensions map[string]any `json:"extensions"`
+	} `json:"errors"`
+}
+
+func rustAPIRawGraphQL(t *testing.T, resolver *Resolver, query string, variables map[string]any) rustAPIGraphQLResponse {
+	return rustAPIRawGraphQLContext(t, resolver, context.Background(), query, variables)
+}
+
+func rustAPIRawGraphQLContext(t *testing.T, resolver *Resolver, ctx context.Context, query string, variables map[string]any) rustAPIGraphQLResponse {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"query": query, "variables": variables})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://localhost:3737/graphql", bytes.NewReader(body)).WithContext(ctx)
+	request.Header.Set("Content-Type", "application/json")
+	NewHandler(resolver).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GraphQL status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response rustAPIGraphQLResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("GraphQL response = %s: %v", recorder.Body.String(), err)
+	}
+	return response
+}
+
+func rustAPIAssertGraphQLError(t *testing.T, response rustAPIGraphQLResponse, message, code string) {
+	t.Helper()
+	if len(response.Errors) != 1 {
+		t.Fatalf("GraphQL errors = %#v, want one error", response.Errors)
+	}
+	if !strings.Contains(response.Errors[0].Message, message) {
+		t.Fatalf("GraphQL error = %q, want %q", response.Errors[0].Message, message)
+	}
+	if code != "" && response.Errors[0].Extensions["code"] != code {
+		t.Fatalf("GraphQL error code = %#v, want %q", response.Errors[0].Extensions["code"], code)
+	}
+}
 
 func rustAPIPortSubscriptionProjectionFailure(t *testing.T) {
 	t.Helper()
@@ -122,60 +172,82 @@ available enabled registered environment } }`)
 func rustAPIPortOwnerPrincipal(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
-	ctx := context.Background()
-	queryChecks := []func() error{
-		func() error { _, err := resolver.task(context.Background(), "task:foreign"); return err },
-		func() error {
-			_, err := resolver.taskWorkspaceFile(context.Background(), "task:foreign", "TASK.md")
-			return err
-		},
-		func() error {
-			_, err := resolver.conversationTranscriptPage(context.Background(), model.ConversationTranscriptPageInput{ConversationID: "conversation:foreign"})
-			return err
-		},
-		func() error { _, err := resolver.pendingHumanInterventions(ctx, nil, nil, nil, nil); return err },
-		func() error { _, err := resolver.acpAgents(ctx); return err },
+	query := `query {
+  task(taskId: "task:foreign") { taskId }
+  taskWorkspaceFile(taskId: "task:foreign", path: "TASK.md") { path }
+  conversationTranscriptPage(input: { conversationId: "conversation:foreign" }) { pageInfo { hasMoreBefore } }
+  pendingHumanInterventions { __typename }
+  acpAgents { agentId }
+}`
+	response := rustAPIRawGraphQL(t, resolver, query, nil)
+	if len(response.Errors) != 5 {
+		t.Errorf("owner-sensitive query errors = %#v, want five", response.Errors)
 	}
-	for index, check := range queryChecks {
-		if err := check(); err == nil || !strings.Contains(err.Error(), "request is unauthenticated") {
-			t.Fatalf("owner-sensitive query %d = %v", index, err)
+	for index, errorValue := range response.Errors {
+		if !strings.Contains(errorValue.Message, "request is unauthenticated") {
+			t.Errorf("owner-sensitive query %d = %q", index, errorValue.Message)
 		}
 	}
-	mutationChecks := []func() error{
-		func() error {
-			_, err := resolver.createConversationExternalArtifact(ctx, model.CreateConversationExternalArtifactInput{ConversationID: "conversation:foreign", Title: "Foreign", ArtifactKind: "document", ExternalURL: "https://example.com/foreign"})
-			return err
-		},
-		func() error {
-			_, err := resolver.startMCPCallAuthentication(ctx, model.StartMcpAuthenticationInput{RequestID: "mcp_auth:foreign", ExpectedRevision: 1, RedirectURI: "http://localhost/callback"})
-			return err
-		},
-		func() error {
-			_, err := resolver.skipMCPCallAuthentication(ctx, model.SkipMcpAuthenticationInput{RequestID: "mcp_auth:foreign", ExpectedRevision: 1})
-			return err
-		},
-		func() error {
-			_, err := resolver.createAcpAgent(ctx, model.CreateAcpAgentInput{DisplayName: "Foreign", Command: "/bin/false"})
-			return err
-		},
-		func() error {
-			_, err := resolver.deleteAcpAgent(ctx, model.DeleteAcpAgentInput{AgentID: "agent:foreign", ExpectedRevision: 1})
-			return err
-		},
+	mutation := `mutation {
+  createConversationExternalArtifact(input: {
+    conversationId: "conversation:foreign", title: "Foreign",
+    artifactKind: "document", externalUrl: "https://example.com/foreign"
+  }) { artifactId }
+  startMcpAuthentication(input: {
+    requestId: "mcp_auth:foreign", expectedRevision: 1,
+    redirectUri: "http://localhost/callback"
+  }) { attemptId }
+  skipMcpAuthentication(input: {
+    requestId: "mcp_auth:foreign", expectedRevision: 1
+  }) { requestId }
+  createAcpAgent(input: { displayName: "Foreign", command: "/bin/false" }) { agentId }
+  deleteAcpAgent(input: { agentId: "agent:foreign", expectedRevision: 1 })
+}`
+	response = rustAPIRawGraphQL(t, resolver, mutation, nil)
+	if len(response.Errors) != 5 {
+		t.Errorf("owner-sensitive mutation errors = %#v, want five", response.Errors)
 	}
-	for index, check := range mutationChecks {
-		if err := check(); err == nil || !strings.Contains(err.Error(), "request is unauthenticated") {
-			t.Fatalf("owner-sensitive mutation %d = %v", index, err)
+	for index, errorValue := range response.Errors {
+		if !strings.Contains(errorValue.Message, "request is unauthenticated") {
+			t.Errorf("owner-sensitive mutation %d = %q", index, errorValue.Message)
 		}
 	}
-	// The Go resolver exposes subscription streams directly. The first
-	// response must still reject an ownerless context before opening either
-	// stream.
-	if _, err := resolver.conversationEvents(ctx, "conversation:foreign"); err == nil || !strings.Contains(err.Error(), "request is unauthenticated") {
-		t.Fatalf("owner-sensitive conversation subscription = %v", err)
+	rustAPIAssertUnauthenticatedSubscription(t, resolver, "conversationEvents(conversationId: \"conversation:foreign\") { __typename }")
+	rustAPIAssertUnauthenticatedSubscription(t, resolver, "memoryEvents { pendingCount }")
+}
+
+func rustAPIAssertUnauthenticatedSubscription(t *testing.T, resolver *Resolver, field string) {
+	t.Helper()
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	connection, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"graphql-transport-ws"}})
+	if err != nil {
+		if response != nil {
+			t.Fatalf("unauthenticated subscription dial: %v (%s)", err, response.Status)
+		}
+		t.Fatal(err)
 	}
-	if _, err := resolver.memoryEvents(ctx); err == nil || !strings.Contains(err.Error(), "request is unauthenticated") {
-		t.Fatalf("owner-sensitive memory subscription = %v", err)
+	t.Cleanup(func() { _ = connection.CloseNow() })
+	writeWS(t, ctx, connection, map[string]any{"type": "connection_init"})
+	if message := readWS(t, ctx, connection); message["type"] != "connection_ack" {
+		t.Fatalf("unauthenticated subscription ack = %#v", message)
+	}
+	writeWS(t, ctx, connection, map[string]any{"id": "unauthenticated", "type": "subscribe", "payload": map[string]any{"query": "subscription { " + field + " }"}})
+	message := readWS(t, ctx, connection)
+	if message["type"] != "next" {
+		t.Errorf("unauthenticated subscription response = %#v, want GraphQL error payload", message)
+		return
+	}
+	payload, ok := message["payload"].(map[string]any)
+	if !ok {
+		t.Errorf("unauthenticated subscription payload = %#v", message["payload"])
+		return
+	}
+	encoded, err := json.Marshal(payload["errors"])
+	if err != nil || !bytes.Contains(encoded, []byte("request is unauthenticated")) {
+		t.Errorf("unauthenticated subscription errors = %s, %v", encoded, err)
 	}
 }
 
@@ -246,23 +318,48 @@ func rustAPIPortACPDeleteReferences(t *testing.T) {
 func rustAPIPortAgentErrorSanitization(t *testing.T) {
 	t.Helper()
 	resolver := openProviderTestResolver(t)
-	agents, err := resolver.agents(context.Background())
-	if err != nil {
+	if err := resolver.Store.SetLocalModelAccountStatus(context.Background(), provider.StatusUnavailable,
+		"unsupported_platform", "/Users/alice/.secret/token.txt failed with token abc123", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(agents)
+	response := rustAPIRawGraphQL(t, resolver, `{ agents { modelOptions {
+  providerKind disabledReason profiles { id disabledReason }
+} } }`, nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("agents query errors = %#v", response.Errors)
+	}
+	agentList, ok := response.Data["agents"].([]any)
+	if !ok || len(agentList) == 0 {
+		t.Fatalf("agents query data = %#v", response.Data)
+	}
+	first, ok := agentList[0].(map[string]any)
+	if !ok {
+		t.Fatalf("agent projection = %#v", agentList[0])
+	}
+	options, ok := first["modelOptions"].([]any)
+	if !ok {
+		t.Fatalf("agent model options = %#v", first["modelOptions"])
+	}
+	var local map[string]any
+	for _, value := range options {
+		option, ok := value.(map[string]any)
+		if ok && option["providerKind"] == "local_models" {
+			local = option
+			break
+		}
+	}
+	if local == nil {
+		t.Fatalf("local model option missing: %#v", options)
+	}
+	if local["disabledReason"] != "Provider is unavailable on this platform." {
+		t.Fatalf("local model disabled reason = %#v", local["disabledReason"])
+	}
+	encoded, err := json.Marshal(local)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytesContainsAny(encoded, []byte("/Users/alice"), []byte("abc123"), []byte("token.txt")) {
 		t.Fatalf("Agent projection exposed provider diagnostics: %s", encoded)
-	}
-	for _, agent := range agents {
-		for _, option := range agent.ModelOptions {
-			if option.ProviderKind == "local_models" && option.DisabledReason != nil && *option.DisabledReason != "Provider is unavailable on this platform." {
-				t.Fatalf("local model disabled reason = %q", *option.DisabledReason)
-			}
-		}
 	}
 }
 
@@ -292,12 +389,28 @@ func rustAPIPortLocalArtifactQueries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	detail, err := resolver.artifactVersionDetail(ctx, second.ID)
-	if err != nil || detail == nil || len(detail.Versions) != 2 || detail.PreviewKind != model.ArtifactVersionPreviewKindMarkdown || detail.Markdown == nil || *detail.Markdown != "# second\n" || detail.PlainText != nil {
-		t.Fatalf("local Artifact detail = %#v, %v", detail, err)
+	response := rustAPIRawGraphQL(t, resolver, fmt.Sprintf(`query {
+  artifactVersionDetail(artifactVersionId: %q) {
+    previewKind markdown plainText downloadUrl mediaType
+    versions { artifactVersionId versionIndex }
+  }
+}`, second.ID), nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("local Artifact detail errors = %#v", response.Errors)
 	}
-	if detail.DownloadURL == nil || *detail.DownloadURL != artifact.DownloadURL(second.ID) {
-		t.Fatalf("local Artifact download URL = %#v", detail.DownloadURL)
+	detail, ok := response.Data["artifactVersionDetail"].(map[string]any)
+	if !ok {
+		t.Fatalf("local Artifact detail = %#v", response.Data)
+	}
+	versions, ok := detail["versions"].([]any)
+	if !ok || len(versions) != 2 {
+		t.Fatalf("local Artifact versions = %#v", detail["versions"])
+	}
+	if detail["previewKind"] != "MARKDOWN" || detail["markdown"] != "# second\n" || detail["plainText"] != nil {
+		t.Fatalf("local Artifact preview = %#v", detail)
+	}
+	if detail["downloadUrl"] != artifact.DownloadURL(second.ID) {
+		t.Fatalf("local Artifact download URL = %#v", detail["downloadUrl"])
 	}
 }
 
@@ -308,14 +421,24 @@ func localArtifactInput(conversationID, content, filename string, mediaType *str
 func rustAPIPortForeignArtifactOperations(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
-	ctx := context.Background()
-	listed, err := resolver.artifacts(ctx, "conversation", "conversation:foreign", nil)
-	if err != nil || len(listed) != 0 {
-		t.Fatalf("foreign Artifact list = %#v, %v", listed, err)
+	foreignConversation := rustAPIInsertForeignConversation(t, resolver)
+	response := rustAPIRawGraphQL(t, resolver, `query {
+  artifacts(ownerObjectType: "conversation", ownerObjectId: "`+foreignConversation+`") { artifactId }
+}`, nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("foreign Artifact list errors = %#v", response.Errors)
 	}
-	if _, err := resolver.createConversationExternalArtifact(ctx, model.CreateConversationExternalArtifactInput{ConversationID: "conversation:foreign", Title: "Injected", ArtifactKind: "document", ExternalURL: "https://example.com/injected"}); err == nil || !strings.Contains(err.Error(), "conversation is unavailable") {
-		t.Fatalf("foreign Artifact creation = %v", err)
+	artifacts, ok := response.Data["artifacts"].([]any)
+	if !ok || len(artifacts) != 0 {
+		t.Fatalf("foreign Artifact list = %#v", response.Data)
 	}
+	response = rustAPIRawGraphQL(t, resolver, `mutation {
+  createConversationExternalArtifact(input: {
+    conversationId: "`+foreignConversation+`" title: "Injected"
+    artifactKind: "document" externalUrl: "https://example.com/injected"
+  }) { artifactId }
+}`, nil)
+	rustAPIAssertGraphQLError(t, response, "conversation is unavailable", "")
 }
 
 func rustAPIPortInboxArtifactUpload(t *testing.T) {
@@ -327,14 +450,26 @@ func rustAPIPortInboxArtifactUpload(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := []byte("item,amount\nTransit,12.50\n")
-	created, err := resolver.createTaskLocalArtifact(ctx, model.CreateTaskLocalArtifactInput{TaskID: captured.Task.TaskID, ExpectedRevision: captured.Task.Revision, ExpectedGeneration: captured.Task.Generation, Title: "August statement", Filename: "statement.csv", MediaType: "text/csv", ContentBase64: base64.StdEncoding.EncodeToString(content)})
-	if err != nil {
-		t.Fatal(err)
+	response := rustAPIRawGraphQL(t, resolver, fmt.Sprintf(`mutation {
+  createTaskLocalArtifact(input: {
+    taskId: %q expectedRevision: %d expectedGeneration: %d
+    title: "August statement" filename: "statement.csv" mediaType: "text/csv"
+    contentBase64: %q
+  }) { artifactId ownerObjectType ownerObjectId currentVersion { artifactVersionId byteSize } }
+}`, captured.Task.TaskID, captured.Task.Revision, captured.Task.Generation,
+		base64.StdEncoding.EncodeToString(content)), nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("Task Artifact upload errors = %#v", response.Errors)
 	}
-	if created.OwnerObjectType != "task" || created.OwnerObjectID != captured.Task.TaskID || created.CurrentVersion.ByteSize == nil || *created.CurrentVersion.ByteSize != len(content) {
-		t.Fatalf("Task-owned Artifact = %#v", created)
+	created, ok := response.Data["createTaskLocalArtifact"].(map[string]any)
+	if !ok || created["ownerObjectType"] != "task" || created["ownerObjectId"] != captured.Task.TaskID {
+		t.Fatalf("Task-owned Artifact = %#v", response.Data)
 	}
-	stored, err := resolver.Store.ArtifactWithVersionsByID(ctx, created.ArtifactID)
+	version, ok := created["currentVersion"].(map[string]any)
+	if !ok || version["byteSize"] != float64(len(content)) || version["artifactVersionId"] == "" {
+		t.Fatalf("Task Artifact version = %#v", created["currentVersion"])
+	}
+	stored, err := resolver.Store.ArtifactWithVersionsByID(ctx, created["artifactId"].(string))
 	if err != nil || stored.Artifact.Metadata["filename"] != "statement.csv" {
 		t.Fatalf("Task Artifact metadata = %#v, %v", stored.Artifact.Metadata, err)
 	}
@@ -343,27 +478,49 @@ func rustAPIPortInboxArtifactUpload(t *testing.T) {
 func rustAPIPortForeignConversationOperations(t *testing.T) {
 	t.Helper()
 	resolver := openChatTestResolver(t)
-	ctx := context.Background()
-	for _, operation := range []func() error{
-		func() error {
-			_, err := resolver.conversationTranscriptPage(ctx, model.ConversationTranscriptPageInput{ConversationID: "conversation:foreign"})
-			return err
-		},
-		func() error {
-			clientID := "client:foreign"
-			_, err := resolver.sendConversationTurn(ctx, model.SendConversationTurnInput{ConversationID: "conversation:foreign", Input: "private", ClientMessageID: &clientID})
-			return err
-		},
-		func() error {
-			clientID := "client:foreign"
-			_, err := resolver.sendMultipleChoiceSelection(ctx, model.SendMultipleChoiceSelectionInput{ConversationID: "conversation:foreign", PromptItemID: "item:foreign", SelectedOptionIds: []string{"option:foreign"}, ClientMessageID: &clientID})
-			return err
-		},
+	foreignConversation := rustAPIInsertForeignConversation(t, resolver)
+	response := rustAPIRawGraphQL(t, resolver, `query {
+  conversationTranscriptPage(input: { conversationId: "`+foreignConversation+`" }) {
+    pageInfo { hasMoreBefore }
+  }
+}`, nil)
+	rustAPIAssertGraphQLError(t, response, "conversation is unavailable", "")
+	for _, mutation := range []string{
+		`mutation { sendConversationTurn(input: {
+  conversationId: "` + foreignConversation + `" input: "private" clientMessageId: "client:foreign"
+}) { conversationId } }`,
+		`mutation { sendMultipleChoiceSelection(input: {
+  conversationId: "` + foreignConversation + `" promptItemId: "item:foreign"
+  selectedOptionIds: ["option:foreign"] clientMessageId: "client:foreign"
+}) { conversationId } }`,
 	} {
-		if err := operation(); err == nil || !strings.Contains(err.Error(), "conversation") {
-			t.Fatalf("foreign conversation operation = %v", err)
-		}
+		response = rustAPIRawGraphQL(t, resolver, mutation, nil)
+		rustAPIAssertGraphQLError(t, response, "conversation is unavailable", "")
 	}
+}
+
+func rustAPIInsertForeignConversation(t *testing.T, resolver *Resolver) string {
+	t.Helper()
+	paths, err := home.FromRoot(resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := sql.Open("sqlite3", paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec("PRAGMA ignore_check_constraints = ON"); err != nil {
+		t.Fatal(err)
+	}
+	const id = "conversation:ffffffffffffffffffffffffffffffff"
+	now := time.Now().UnixMilli()
+	if _, err := database.Exec(`INSERT INTO conversations
+ (conversation_id, owner_human_id, provider, cwd, created_at_ms, updated_at_ms)
+ VALUES (?, ?, ?, NULL, ?, ?)`, id, "human:other", "openrouter", now, now); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func rustAPIPortMCPRouteAndSetup(t *testing.T) {
@@ -619,17 +776,10 @@ func rustAPIPortACPSetup(t *testing.T) {
 func stringPtr(value string) *string { return &value }
 
 func rustAPIPortMemoryEvents(t *testing.T) {
+	t.Helper()
 	resolver := readyAgentTestResolver(t)
 	ctx := context.Background()
 	conversation, err := resolver.Store.EnsurePrimaryConversation(ctx, "openrouter", "", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	turn, human, err := resolver.Store.BeginConversationTurn(ctx, conversation.ID, "Alice likes tea.", nil, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	assistant, err := resolver.Store.CompleteConversationTurn(ctx, turn, "Noted.", "Noted.", nil, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -639,59 +789,57 @@ func rustAPIPortMemoryEvents(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = nativeMemory.Close() })
 	resolver.Memory = nativeMemory
-	root, err := nativeMemory.ReadRoot()
+	generator := memoryGeneratorFunc(func(_ context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		payload, _ := json.Marshal(map[string]any{
+			"upserts": []any{
+				map[string]any{"id": nil, "expected_hash": nil, "path": "career.md", "title": "Career", "icon": "briefcase-business", "body": "Engineering career.", "citations": []any{}},
+				map[string]any{"id": nil, "expected_hash": nil, "path": "career/learning.md", "title": "Learning", "icon": "graduation-cap", "body": "Technical learning.", "citations": []any{}},
+			},
+			"metadata_updates": []any{}, "deletes": []any{},
+		})
+		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: "noema.submit_memory_changes", Payload: payload}}}, nil
+	})
+	resolver.Chat, err = noemaruntime.NewChat(resolver.Store, generator, generator, generator, resolver.home, nativeMemory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := nativeMemory.Publish(noemamemory.ChangeSet{Upserts: []noemamemory.PageChange{
-		{ID: root.ID, ExpectedHash: root.Hash, Path: noemamemory.RootPagePath, Title: root.Title, Icon: root.Icon, Body: "People and preferences."},
-		{Path: "people.md", Title: "People", Icon: "users", Body: "Known people."},
-		{Path: "people/alice.md", Title: "Alice", Icon: "user", Body: "Alice likes tea.[^1]", Citations: []noemamemory.Citation{{Sources: []string{human.ID, assistant.ID}}}},
-	}}, noemamemory.State{}); err != nil {
-		t.Fatal(err)
-	}
-
-	server := httptest.NewServer(NewHandler(resolver))
-	t.Cleanup(server.Close)
-	response := postGraphQL(t, server.URL, `query MemoryRead($pageId: String!) {
-  memorySettings { modelPreference { providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } modelOptions { providerKind providerAccountId } }
-  memoryTree { root { id path title icon body hash citations { sources { source kind excerpt createdAt } } parent ancestors { id path title } children { id path title icon excerpt hash } } pages { id path title icon excerpt hash } pendingCount updateStatus { state active lastConsolidatedSequence lastConsolidatedItem error updatedAt } }
-  memoryPage(pageId: $pageId) { id path title icon body hash citations { sources { source kind excerpt createdAt } } parent ancestors { id path title icon excerpt hash } children { id path title icon excerpt hash } }
-}`, map[string]any{"pageId": "people/alice.md"})
-	if len(response.Errors) != 0 {
-		t.Fatalf("Memory GraphQL errors = %#v", response.Errors)
-	}
-	settings := response.Data["memorySettings"].(map[string]any)
-	preference := settings["modelPreference"].(map[string]any)
-	if preference["providerKind"] != "openrouter" || len(settings["modelOptions"].([]any)) == 0 {
-		t.Fatalf("Memory settings = %#v", settings)
-	}
-	tree := response.Data["memoryTree"].(map[string]any)
-	if tree["pendingCount"] != float64(2) || len(tree["pages"].([]any)) != 3 {
-		t.Fatalf("Memory tree = %#v", tree)
-	}
-	page := response.Data["memoryPage"].(map[string]any)
-	if page["parent"] != "people.md" || len(page["ancestors"].([]any)) != 1 {
-		t.Fatalf("Memory page = %#v", page)
-	}
-	citations := page["citations"].([]any)
-	source := citations[0].(map[string]any)["sources"].([]any)[0].(map[string]any)
-	if source["kind"] != "HUMAN_MESSAGE" || source["excerpt"] != "Alice likes tea." {
-		t.Fatalf("Memory citation source = %#v", source)
-	}
-	unavailable := citations[0].(map[string]any)["sources"].([]any)[1].(map[string]any)
-	if unavailable["kind"] != "UNAVAILABLE" || unavailable["createdAt"] == nil {
-		t.Fatalf("unavailable Memory citation = %#v", unavailable)
-	}
-
-	eventContext, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { _ = resolver.Chat.Close() })
+	eventContext, cancel := context.WithCancel(ctx)
+	defer cancel()
 	events, err := resolver.memoryEvents(eventContext)
 	if err != nil {
 		t.Fatal(err)
 	}
 	initial := <-events
-	if initial.Root == nil || initial.Root.Path != noemamemory.RootPagePath || initial.PendingCount != 2 {
+	if initial.Root == nil || initial.Root.Title != "Human memory" || initial.Root.Icon != "user" || initial.PendingCount != 0 || initial.UpdateStatus.State != "idle" {
 		t.Fatalf("initial Memory event = %#v", initial)
+	}
+	if _, _, err := resolver.Store.BeginConversationTurn(ctx, conversation.ID, "Engineering career.", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.updateMemory(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var changed *model.GraphqlNativeMemoryTree
+	deadline := time.After(5 * time.Second)
+	for changed == nil {
+		select {
+		case candidate, open := <-events:
+			if !open {
+				t.Fatal("Memory event stream closed before invalidation")
+			}
+			if candidate.Root != nil && len(candidate.Root.Children) == 1 {
+				changed = candidate
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for changed Memory event")
+		}
+	}
+	if changed.Root == nil || len(changed.Root.Children) != 1 || changed.Root.Children[0].Title != "Career" || changed.Root.Children[0].Icon != "briefcase-business" {
+		t.Fatalf("changed Memory root = %#v", changed.Root)
+	}
+	if len(changed.Pages) != 3 || changed.Pages[0].Path != "career.md" || changed.Pages[1].Path != "career/learning.md" || changed.Pages[2].Path != "root.md" {
+		t.Fatalf("changed Memory pages = %#v", changed.Pages)
 	}
 	cancel()
 	if _, open := <-events; open {
@@ -794,9 +942,10 @@ func rustAPIPortConversationLiveEvents(t *testing.T) {
 func rustAPIPortForeignConversationSubscription(t *testing.T) {
 	t.Helper()
 	resolver := openChatTestResolver(t)
+	foreignConversation := rustAPIInsertForeignConversation(t, resolver)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if _, err := resolver.conversationEvents(ctx, "conversation:foreign"); err == nil || !strings.Contains(err.Error(), "conversation") {
+	if _, err := resolver.conversationEvents(ctx, foreignConversation); err == nil || !strings.Contains(err.Error(), "conversation") {
 		t.Fatalf("foreign conversation subscription = %v", err)
 	}
 }
@@ -937,16 +1086,14 @@ func rustAPIPortTaskSchemaVocabulary(t *testing.T) {
 func rustAPIPortTaskReadsPrincipal(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
-	checks := []func() error{
-		func() error {
-			_, err := resolver.tasks(context.Background(), model.TaskListInput{WorkspaceID: personalWorkspaceID}, nil, nil)
-			return err
-		},
-		func() error { _, err := resolver.projectDocument(context.Background(), "project:missing"); return err },
-	}
-	for index, check := range checks {
-		if err := check(); err == nil || err.Error() != "request is unauthenticated" {
-			t.Fatalf("unauthenticated Task read %d = %v", index, err)
+	for index, query := range []string{
+		`query { tasks(input: { workspaceId: "workspace:personal" }) { edges { node { taskId } } } }`,
+		`query { projectDocument(projectId: "project:missing") { projectId } }`,
+	} {
+		response := rustAPIRawGraphQL(t, resolver, query, nil)
+		rustAPIAssertGraphQLError(t, response, "request is unauthenticated", "")
+		if len(response.Errors) != 1 {
+			t.Fatalf("unauthenticated Task read %d errors = %#v", index, response.Errors)
 		}
 	}
 }
@@ -954,49 +1101,53 @@ func rustAPIPortTaskReadsPrincipal(t *testing.T) {
 func rustAPIPortMalformedTaskCursor(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
-	if _, err := resolver.projects(context.Background(), personalWorkspaceID, nil, nil, stringPtr("malformed")); err == nil {
-		t.Fatal("malformed project cursor test setup unexpectedly succeeded")
-	}
-	if _, _, err := parseEventCursor(stringPtr("malformed")); err == nil {
-		t.Fatal("malformed Task cursor was accepted")
-	}
+	response := rustAPIRawGraphQL(t, resolver, `query {
+  projects(workspaceId: "workspace:personal", after: "malformed") {
+    edges { node { projectId } }
+  }
+}`, nil)
+	rustAPIAssertGraphQLError(t, response, "invalid task cursor", "invalid_cursor")
 }
 
 func rustAPIPortTaskPageBounds(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
 	for _, first := range []int{0, 101} {
-		value := first
-		_, err := resolver.projects(context.Background(), personalWorkspaceID, nil, &value, nil)
-		var graphQLError *gqlerror.Error
-		if !errors.As(err, &graphQLError) || graphQLError.Message != "invalid task cursor" || graphQLError.Extensions["code"] != "invalid_cursor" {
-			t.Fatalf("project page bound %d = %v", first, err)
-		}
+		response := rustAPIRawGraphQL(t, resolver, fmt.Sprintf(`query {
+  projects(workspaceId: "workspace:personal", first: %d) {
+    edges { node { projectId } }
+  }
+}`, first), nil)
+		rustAPIAssertGraphQLError(t, response, "invalid task cursor", "invalid_cursor")
 	}
 }
 
 func rustAPIPortTaskAuthorization(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
-	for _, value := range []string{"malformed", "task:missing"} {
-		if _, err := resolver.task(context.Background(), value); err == nil {
-			t.Fatalf("foreign Task %q was readable", value)
-		}
-	}
-	if _, err := resolver.queueTask(context.Background(), model.QueueTaskInput{TaskID: "malformed", ExpectedRevision: 1, ExpectedGeneration: 1, ClientMutationID: "foreign-queue"}); err == nil {
-		t.Fatal("foreign Task queue was accepted")
+	for _, query := range []string{
+		`query { task(taskId: "malformed") { taskId } }`,
+		`query { task(taskId: "task:missing") { taskId } }`,
+		`mutation { queueTask(input: {
+  taskId: "malformed" expectedRevision: 1 expectedGeneration: 1 clientMutationId: "foreign-queue"
+}) { eventCursor } }`,
+	} {
+		response := rustAPIRawGraphQL(t, resolver, query, nil)
+		rustAPIAssertGraphQLError(t, response, "task is unavailable", "task_unavailable")
 	}
 }
 
 func rustAPIPortTaskScopeConflicts(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
-	behavior := model.WorkflowStageBehaviorTerminalSuccess
-	_, err := resolver.tasks(context.Background(), model.TaskListInput{WorkspaceID: personalWorkspaceID, Scope: model.TaskScopeActive, StageBehaviors: []model.WorkflowStageBehavior{behavior}}, nil, nil)
-	var graphQLError *gqlerror.Error
-	if !errors.As(err, &graphQLError) || graphQLError.Message != "workflow filter is inconsistent" || graphQLError.Extensions["code"] != "workflow_mismatch" {
-		t.Fatalf("semantic stage conflict = %v", err)
-	}
+	response := rustAPIRawGraphQL(t, resolver, `query {
+  tasks(input: {
+    workspaceId: "workspace:personal"
+    scope: ACTIVE
+    stageBehaviors: [TERMINAL_SUCCESS]
+  }) { edges { node { taskId } } }
+}`, nil)
+	rustAPIAssertGraphQLError(t, response, "workflow filter is inconsistent", "workflow_mismatch")
 }
 
 func rustAPIPortTaskIdempotencyRequired(t *testing.T) {
@@ -1171,10 +1322,14 @@ func rustAPIPortWhitespaceIdempotency(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
 	for _, key := range []string{" leading", "trailing ", " surrounded "} {
-		_, err := resolver.captureTask(context.Background(), model.CaptureTaskInput{WorkspaceID: personalWorkspaceID, Title: "Whitespace key", ClientMutationID: key})
-		if err == nil || !strings.Contains(err.Error(), "invalid clientMutationId") {
-			t.Fatalf("whitespace Task key %q = %v", key, err)
-		}
+		response := rustAPIRawGraphQL(t, resolver, fmt.Sprintf(`mutation {
+  captureTask(input: {
+    workspaceId: "workspace:personal"
+    title: "Whitespace key"
+    clientMutationId: %q
+  }) { clientMutationId }
+}`, key), nil)
+		rustAPIAssertGraphQLError(t, response, "invalid clientMutationId", "")
 	}
 }
 
@@ -1466,11 +1621,11 @@ func rustAPIPortAuthoritativeU64(t *testing.T) {
 	if debugInt(math.MaxInt64) != int(math.MaxInt64) {
 		t.Fatalf("authoritative i64 maximum changed: %d", debugInt(math.MaxInt64))
 	}
-	// The Rust projection rejects i64::MAX+1 and u64::MAX. Go currently has no
-	// error-returning projection and saturates those values at the same maximum.
-	if debugInt(math.MaxInt64) == int(math.MaxInt64) {
-		t.Fatalf("authoritative u64 projection saturated instead of rejecting overflow")
-	}
+	// The Rust projection also calls an error-returning u64 boundary with
+	// i64::MAX+1 and u64::MAX. Go exposes only the saturating int64 helper, so
+	// keep this parity case red until the authoritative GraphQL projection has
+	// an equivalent boundary to exercise.
+	t.Fatalf("authoritative u64 projection boundary is not exposed")
 }
 
 func rustAPIPortStalePoolRoute(t *testing.T) {
@@ -1494,6 +1649,20 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 	}
 	if updated.Label == nil || *updated.Label != "Routine" {
 		t.Fatalf("updated pool entry = %#v", updated)
+	}
+	// Rust also edits the same stale route with enabled=false and verifies the
+	// persisted flag. Keep that request at the GraphQL boundary so a missing
+	// Go schema field is reported as a product divergence instead of being
+	// silently omitted from the port.
+	response := rustAPIRawGraphQL(t, resolver, `mutation {
+  updateTaskModelPoolEntry(poolEntryId: "task_pool:setting:simple", input: {
+    complexity: SIMPLE, label: "Routine", providerKind: "openrouter",
+    providerAccountId: "provider_account:openrouter:default",
+    selectionMode: NOEMA_RECOMMENDED, fastMode: false, sortOrder: 0, enabled: false
+  }) { enabled }
+}`, nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("disabling stale route failed: %#v", response.Errors)
 	}
 }
 
@@ -1687,15 +1856,41 @@ func rustAPIPortNotificationPreview(t *testing.T) {
 	t.Helper()
 	resolver, service := rustAPINotificationFixture(t, "http://localhost:3737")
 	rustAPIRegisterNativeNotificationClient(t, resolver, service)
-	if err := service.QueueTaskAttention(context.Background(), "preview:one", "## **Ready**", "> Use `cargo check`\n\n- first\n- second", "task:11111111111111111111111111111112", "/tasks/11111111111111111111111111111112"); err != nil {
+	cases := []struct {
+		title, body, wantTitle, wantBody string
+	}{
+		{"## **Ready** for [review](https://noema.example)", "", "Ready for review", ""},
+		{"Title", "> Use `cargo check`\n\n- first\n- second", "Title", "Use cargo check first second"},
+		{"Title", "![Build status](status.png) and ~~old text~~", "Title", "Build status and old text"},
+		{"Title", "<strong>Ready</strong> now", "Title", "Ready now"},
+		{"Title", `Keep \*literal\* but remove *emphasis*`, "Title", "Keep *literal* but remove emphasis"},
+	}
+	for index, test := range cases {
+		key := fmt.Sprintf("preview:%d", index)
+		if err := service.QueueTaskAttention(context.Background(), key, test.title, test.body, "task:11111111111111111111111111111112", "/tasks/11111111111111111111111111111112"); err != nil {
+			t.Fatal(err)
+		}
+		claimed, err := resolver.Store.ClaimDueAPNSDelivery(context.Background(), time.Now().Add(time.Minute))
+		if err != nil || claimed == nil {
+			t.Fatalf("notification preview %d = %#v, %v", index, claimed, err)
+		}
+		if claimed.Notification.Title != test.wantTitle || claimed.Notification.Body != test.wantBody {
+			t.Fatalf("notification preview %d = %#v", index, claimed.Notification)
+		}
+		if err := resolver.Store.FinishAPNSDelivery(context.Background(), *claimed, store.APNSDelivered, "", key, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	long := strings.Repeat("é", 601)
+	if err := service.QueueTaskAttention(context.Background(), "preview:bounded", "Title", long, "task:11111111111111111111111111111112", "/tasks/11111111111111111111111111111112"); err != nil {
 		t.Fatal(err)
 	}
 	claimed, err := resolver.Store.ClaimDueAPNSDelivery(context.Background(), time.Now().Add(time.Minute))
-	if err != nil || claimed == nil {
-		t.Fatalf("notification preview = %#v, %v", claimed, err)
+	if err != nil || claimed == nil || len([]rune(claimed.Notification.Body)) > 600 {
+		t.Fatalf("bounded notification preview = %#v, %v", claimed, err)
 	}
-	if claimed.Notification.Title != "Ready" || claimed.Notification.Body != "Use cargo check first second" {
-		t.Fatalf("notification preview text = %#v", claimed.Notification)
+	if err := resolver.Store.FinishAPNSDelivery(context.Background(), *claimed, store.APNSDelivered, "", "bounded", time.Now()); err != nil {
+		t.Fatal(err)
 	}
 }
 

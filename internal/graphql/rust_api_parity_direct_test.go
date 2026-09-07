@@ -171,8 +171,8 @@ func rustAPIPortArtifactPreviewKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.PreviewKind != model.ArtifactVersionPreviewKindUnsupported && detail.PreviewKind != model.ArtifactVersionPreviewKindMarkdown {
-		t.Fatalf("spreadsheet detail preview = %q", detail.PreviewKind)
+	if detail.PreviewKind != model.ArtifactVersionPreviewKindMarkdown || detail.Markdown == nil || !strings.Contains(*detail.Markdown, "| Name | Count |") {
+		t.Fatalf("spreadsheet detail preview = %#v", detail)
 	}
 	imageSVG := "image/svg+xml"
 	if got := localPreviewKind(&imageSVG); got != model.ArtifactVersionPreviewKindUnsupported {
@@ -406,8 +406,22 @@ func rustAPIPortClientRevokeAll(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	now := time.Now()
+	// Rust executes this operation with RequestPrincipal::local. The Go HTTP
+	// admission layer requires the equivalent authenticated setup before it
+	// will dispatch a browser-independent GraphQL request.
+	oldSession, newSession := sha256.Sum256([]byte("revoke-all-old")), sha256.Sum256([]byte("revoke-all-new"))
+	if err := database.CreateAnonymousSession(ctx, oldSession, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RegisterPasskey(ctx, store.HumanPasskey{CredentialID: "AQ", CredentialJSON: `{}`}, store.RegistrationInitial, oldSession, newSession, now); err != nil {
+		t.Fatal(err)
+	}
+	var firstAccess string
 	for index, clientID := range []string{"noema-ios:abcdefghijklmnop", "noema-desktop:qrstuvwxyzabcdef"} {
 		code, access, refresh := fmt.Sprintf("revoke-all-code-%d", index), fmt.Sprintf("revoke-all-access-%d", index), fmt.Sprintf("revoke-all-refresh-%d", index)
+		if index == 0 {
+			firstAccess = access
+		}
 		redirect := "http://127.0.0.1:49152/oauth/callback"
 		if index == 0 {
 			redirect = "noema://oauth/callback"
@@ -429,9 +443,11 @@ func rustAPIPortClientRevokeAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver := NewResolver(database, root, authentication, nil, nil, nil, nil, nil, nil, nil)
-	count, err := resolver.revokeAllClients(auth.WithDesktopAccess(ctx))
-	if err != nil || count != 2 {
-		t.Fatalf("revoke-all clients = %d, %v", count, err)
+	handler := authentication.Handler(NewHandler(resolver))
+	revoke := httptest.NewRecorder()
+	handler.ServeHTTP(revoke, nativeGraphQLRequest(t, firstAccess, `mutation { revokeAllClients }`))
+	if revoke.Code != http.StatusOK || !bytes.Contains(revoke.Body.Bytes(), []byte(`"revokeAllClients":2`)) {
+		t.Fatalf("revoke-all clients = %d %s", revoke.Code, revoke.Body.String())
 	}
 	clients, err := database.NativeOAuthClients(ctx)
 	if err != nil || len(clients) != 2 {
@@ -541,11 +557,24 @@ func rustAPIPortGovernedAction(t *testing.T) {
 	if !bytes.Contains(encoded, []byte("secret-marker")) || projected.Arguments["value"] != "secret-marker" {
 		t.Fatalf("reviewed arguments changed: %#v", projected.Arguments)
 	}
-	if target := projected.Target; target == nil || target.ServiceName == nil || *target.ServiceName != serviceName || target.ConnectionLabel == nil || *target.ConnectionLabel != connectionLabel || target.ConnectionID == nil || *target.ConnectionID != connectionID {
+	targetArguments, ok := projected.Arguments["target"].(map[string]any)
+	if !ok || targetArguments["name"] != "Name" {
+		t.Fatalf("reviewed browser target = %#v", projected.Arguments["target"])
+	}
+	if target := projected.Target; target == nil || target.ServiceName == nil || *target.ServiceName != serviceName || target.ConnectionLabel == nil || *target.ConnectionLabel != connectionLabel || target.ConnectionID == nil || *target.ConnectionID != connectionID || target.AccountID == nil || *target.AccountID != accountID {
 		t.Fatalf("action target = %#v", projected.Target)
+	}
+	if projected.BrowserSessionAvailable == nil || !*projected.BrowserSessionAvailable {
+		t.Fatalf("browser session availability = %#v", projected.BrowserSessionAvailable)
 	}
 	if projected.Destination["connection_id"] != connectionID {
 		t.Fatalf("action destination = %#v", projected.Destination)
+	}
+	if projected.Consequence != "This changes data outside Noema in Work account." {
+		t.Fatalf("action consequence = %q", projected.Consequence)
+	}
+	if projected.Disclosure == nil || projected.Disclosure.Recipient != "Work account" || projected.Disclosure.ContentSummary != "the reviewed request data" {
+		t.Fatalf("action disclosure = %#v", projected.Disclosure)
 	}
 	if projected.Assessment == nil || projected.Assessment.Risk == nil || *projected.Assessment.Risk != model.GovernedRiskHigh || len(projected.Assessment.ReasonCodes) != 1 || projected.Assessment.ReasonCodes[0] != "sensitive_data" {
 		t.Fatalf("action assessment = %#v", projected.Assessment)
@@ -910,21 +939,23 @@ func rustAPIPortAdapterConnectionActions(t *testing.T) {
 	if view.ConnectionActions[1].ApplicationID == nil || *view.ConnectionActions[1].ApplicationID != "application-a" || view.ConnectionActions[2].ApplicationID == nil || *view.ConnectionActions[2].ApplicationID != "application-b" {
 		t.Fatalf("application actions = %#v", view.ConnectionActions)
 	}
+	for _, action := range view.ConnectionActions {
+		if action.GrantID != nil && *action.GrantID == "grant-a" {
+			t.Fatalf("superseded grant remained selectable: %#v", view.ConnectionActions)
+		}
+	}
 }
 
 func rustAPIPortExistingGrant(t *testing.T) {
 	t.Helper()
 	definition := parityOAuthDefinition()
 	view := &model.AdapterDefinition{Scopes: []string{}, Connections: []*model.AdapterConnection{{ConnectionID: "connection-pending", Status: "authentication_required", OperationAccess: []*model.AdapterOperationAccess{{OperationID: "lookup", Status: "disabled"}}}}}
-	snapshot := adapter.ServiceSnapshot{Connections: []adapter.Connection{{ConnectionID: "connection-pending", SemanticDigest: definition.SemanticDigest, Status: "authentication_required", ConnectionRevision: 4, PolicyRevision: 2, AllowedOperations: []string{}, Authentication: adapter.ConnectionAuthentication{Kind: "pending"}}}}
-	oauth := adapter.OAuthSnapshot{Applications: []adapter.OAuthApplication{{ApplicationID: "application-current", ProfileDigest: "profile-current", Revision: 3, Status: "active"}}}
+	snapshot := adapter.ServiceSnapshot{Connections: []adapter.Connection{{ConnectionID: "connection-pending", SemanticDigest: definition.SemanticDigest, Status: "authentication_required", ConnectionRevision: 4, PolicyRevision: 2, AllowedOperations: []string{}, Authentication: adapter.ConnectionAuthentication{Kind: "oauth", GrantID: "grant-a"}}}}
+	oauth := adapter.OAuthSnapshot{Applications: []adapter.OAuthApplication{{ApplicationID: "application-current", ProfileDigest: "profile-current", Revision: 1, Status: "active"}}, Grants: []adapter.OAuthGrant{{GrantID: "grant-a", ApplicationID: "application-current", AuthorityRevision: 2, Status: "authentication_required", GrantedScopes: []string{"scope.read", "scope.write"}}}}
 	projectOAuthDefinition(view, definition, snapshot, oauth)
 	action := view.NextAction
-	if action == nil || action.Kind != "reconnect_account" || action.ApplicationID == nil || *action.ApplicationID != "application-current" || action.ConnectionID == nil || *action.ConnectionID != "connection-pending" || action.ExpectedConnectionRevision == nil || *action.ExpectedConnectionRevision != 4 || len(action.OperationIds) != 1 || action.OperationIds[0] != "lookup" {
+	if action == nil || action.Kind != "reconnect_account" || action.ApplicationID == nil || *action.ApplicationID != "application-current" || action.ExpectedApplicationRevision == nil || *action.ExpectedApplicationRevision != 1 {
 		t.Fatalf("pending grant action = %#v", action)
-	}
-	if action.GrantID != nil || len(action.MissingScopes) != 0 {
-		t.Fatalf("pending grant state = %#v", action)
 	}
 }
 
@@ -940,8 +971,12 @@ func openAdapterParityService(t *testing.T) (*Resolver, *adapter.Service) {
 }
 
 func installAdapterParityDefinition(t *testing.T, service *adapter.Service, revision, baseDigest string, authentication map[string]any, operationID string) adapter.Definition {
+	return installAdapterParityDefinitionNamed(t, service, "parity-service", revision, baseDigest, authentication, operationID)
+}
+
+func installAdapterParityDefinitionNamed(t *testing.T, service *adapter.Service, definitionID, revision, baseDigest string, authentication map[string]any, operationID string) adapter.Definition {
 	t.Helper()
-	definition := map[string]any{"definition_id": "parity-service", "adapter_id": "parity-service", "display_name": "Parity service", "definition_revision": revision, "origin": "https://api.example.com/", "authentication": authentication}
+	definition := map[string]any{"definition_id": definitionID, "adapter_id": definitionID, "display_name": "Parity service", "definition_revision": revision, "origin": "https://api.example.com/", "authentication": authentication}
 	authorization := map[string]any{"kind": "none"}
 	if authentication["kind"] == "oauth2_authorization_code_pkce" {
 		authorization = map[string]any{"kind": "oauth_scopes", "accepted_scope_sets": [][]string{{"scope.read", "scope.write"}}}
@@ -1247,7 +1282,7 @@ func rustAPIPortAdapterOAuthImport(t *testing.T) {
 
 func rustAPIPortAdapterOAuthSetup(t *testing.T) {
 	t.Helper()
-	_, service := openAdapterParityService(t)
+	resolver, service := openAdapterParityService(t)
 	if err := service.SetOAuthCallback("http://localhost:3737/adapter/oauth/callback"); err != nil {
 		t.Fatal(err)
 	}
@@ -1256,25 +1291,85 @@ func rustAPIPortAdapterOAuthSetup(t *testing.T) {
 		t.Fatalf("OAuth profiles = %#v, %v", oauth.Profiles, err)
 	}
 	profile := oauth.Profiles[0]
-	first := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "oauth2_authorization_code_pkce", "profile_digest": profile.ProfileDigest}, "lookup")
-	second := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "oauth2_authorization_code_pkce", "profile_digest": profile.ProfileDigest}, "lookup-second")
-	for _, definition := range []adapter.Definition{first, second} {
-		if _, err := service.Approve(context.Background(), definition.SemanticDigest); err != nil {
-			t.Fatal(err)
+	first := installAdapterParityDefinitionNamed(t, service, "oauth-service-one", "v1", "", map[string]any{"kind": "oauth2_authorization_code_pkce", "profile_digest": profile.ProfileDigest}, "lookup")
+	second := installAdapterParityDefinitionNamed(t, service, "oauth-service-two", "v1", "", map[string]any{"kind": "oauth2_authorization_code_pkce", "profile_digest": profile.ProfileDigest}, "lookup-second")
+	firstReviewed, err := service.Approve(context.Background(), first.SemanticDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	interventions := rustAPIAdapterInterventions(t, resolver, conversation.ID)
+	reviewPosition, setupPosition := -1, -1
+	for index, value := range interventions {
+		typeName, _ := value["__typename"].(string)
+		if typeName == "AdapterDefinition" && reviewPosition == -1 {
+			reviewPosition = index
+		}
+		if typeName == "AdapterOauthClientSetupIntervention" && setupPosition == -1 {
+			setupPosition = index
 		}
 	}
-	view := &model.AdapterDefinition{Scopes: []string{}, Connections: []*model.AdapterConnection{}}
-	snapshot := adapter.ServiceSnapshot{}
-	for _, definition := range []adapter.Definition{first, second} {
-		oauthView, err := service.OAuthSnapshot()
-		if err != nil {
-			t.Fatal(err)
+	if reviewPosition == -1 || setupPosition == -1 || reviewPosition >= setupPosition {
+		t.Fatalf("OAuth review/setup ordering = %#v", interventions)
+	}
+	secondReviewed, err := service.Approve(context.Background(), second.SemanticDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interventions = rustAPIAdapterInterventions(t, resolver, conversation.ID)
+	var setups []map[string]any
+	for _, value := range interventions {
+		if value["__typename"] == "AdapterOauthClientSetupIntervention" {
+			setups = append(setups, value)
 		}
-		projectOAuthDefinition(view, definition, snapshot, oauthView)
 	}
-	if view.NextAction == nil || view.NextAction.Kind != "import_application" {
-		t.Fatalf("OAuth setup action = %#v", view.NextAction)
+	if len(setups) != 1 {
+		t.Fatalf("shared OAuth setup interventions = %#v", interventions)
 	}
+	dependencies, ok := setups[0]["dependentDefinitions"].([]any)
+	if !ok || len(dependencies) != 2 {
+		t.Fatalf("shared OAuth setup dependencies = %#v", setups[0])
+	}
+	want := map[string]bool{firstReviewed.SemanticDigest: true, secondReviewed.SemanticDigest: true}
+	for _, value := range dependencies {
+		dependency, ok := value.(map[string]any)
+		if !ok || !want[dependency["semanticDigest"].(string)] {
+			t.Fatalf("shared OAuth setup dependency = %#v", value)
+		}
+	}
+}
+
+func rustAPIAdapterInterventions(t *testing.T, resolver *Resolver, conversationID string) []map[string]any {
+	t.Helper()
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query {
+  pendingHumanInterventions(conversationId: "`+conversationID+`", first: 50) {
+    __typename
+    ... on AdapterDefinition { semanticDigest }
+    ... on AdapterOauthClientSetupIntervention {
+      profileDigest
+      dependentDefinitions { semanticDigest }
+    }
+  }
+}`, nil)
+	if len(response.Errors) != 0 {
+		t.Fatalf("adapter interventions errors = %#v", response.Errors)
+	}
+	values, ok := response.Data["pendingHumanInterventions"].([]any)
+	if !ok {
+		t.Fatalf("adapter interventions data = %#v", response.Data)
+	}
+	result := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("adapter intervention = %#v", value)
+		}
+		result = append(result, entry)
+	}
+	return result
 }
 
 func rustAPIPortAdapterIntegration(t *testing.T) {
