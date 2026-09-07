@@ -102,17 +102,29 @@ func (s *Store) ConversationProviderContext(
 	if _, err := s.Conversation(ctx, conversationID); err != nil {
 		return ConversationContext{}, err
 	}
+	var resetSequence int64
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence_index), 0)
+FROM conversation_items
+WHERE conversation_id = ? AND deleted_at_ms IS NULL AND kind = 'activity'
+  AND status = 'completed'
+  AND json_extract(payload_json, '$.activity_kind') = 'context_reset'`, conversationID).Scan(&resetSequence); err != nil {
+		return ConversationContext{}, fmt.Errorf("query conversation context reset: %w", err)
+	}
 	var value ConversationContext
 	err := s.db.QueryRowContext(ctx, `SELECT
 COALESCE(json_extract(payload_json,'$.summary'),''),
 COALESCE(json_extract(payload_json,'$.recent_messages'),'[]'),
 COALESCE(json_extract(payload_json,'$.through_sequence'),0)
 FROM conversation_items WHERE conversation_id=? AND kind='model_context_update'
+AND sequence_index > ?
 AND json_extract(payload_json,'$.provider_kind')=? AND json_extract(payload_json,'$.model_profile')=?
-ORDER BY sequence_index DESC LIMIT 1`, conversationID, providerKind, modelProfile).
+ORDER BY sequence_index DESC LIMIT 1`, conversationID, resetSequence, providerKind, modelProfile).
 		Scan(&value.Summary, &value.RecentJSON, &value.ThroughSequence)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return ConversationContext{}, err
+	}
+	if value.ThroughSequence < resetSequence {
+		value.ThroughSequence = resetSequence
 	}
 	items, err := s.conversationProviderItemsAfter(ctx, conversationID, value.ThroughSequence)
 	value.Items = items
@@ -193,6 +205,59 @@ WHERE turn_id=? AND conversation_id=? AND status IN ('input_received','running')
 		return err
 	}
 	return tx.Commit()
+}
+
+// AppendConversationContextReset records the exact context reset command
+// without creating a provider turn. The item is the durable prompt boundary.
+func (s *Store) AppendConversationContextReset(
+	ctx context.Context, conversationID string, clientMessageID *string, now time.Time,
+) (ConversationItem, error) {
+	if clientMessageID != nil && (len(*clientMessageID) == 0 || len(*clientMessageID) > 256) {
+		return ConversationItem{}, errors.New("client message id is invalid")
+	}
+	activityID := "context_reset:" + conversationID
+	if clientMessageID != nil {
+		activityID = "context_reset:" + *clientMessageID
+	}
+	metadata := map[string]any{
+		"source":            "context_reset_command",
+		"client_message_id": clientMessageID,
+		"presentation":      map[string]any{"tone": "neutral"},
+	}
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireConversationTx(ctx, tx, conversationID); err != nil {
+		return ConversationItem{}, err
+	}
+	sequence, err := nextConversationSequenceTx(ctx, tx, conversationID)
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	itemID, err := newID("item")
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
+		ID: itemID, ConversationID: conversationID, Sequence: sequence,
+		Kind: ConversationActivity, Status: "completed", AuthorActorID: "system:context-runtime",
+		ContentText: "Context reset",
+		Payload: map[string]any{
+			"id": activityID, "activity_kind": "context_reset", "status": "completed",
+			"title": "Context reset", "summary": nil, "metadata": metadata,
+		},
+		Metadata: metadata, CreatedAt: now,
+	})
+	if err != nil {
+		return ConversationItem{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ConversationItem{}, err
+	}
+	return item, nil
 }
 
 // AppendConversationActivity saves one readable runtime activity under an active turn.

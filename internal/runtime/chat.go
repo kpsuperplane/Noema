@@ -460,6 +460,23 @@ func (c *Chat) run() {
 
 func (c *Chat) execute(request queuedTurn) {
 	now := time.Now()
+	if request.input.choice == nil && request.input.Input == "/reset" {
+		item, err := c.database.AppendConversationContextReset(c.ctx, request.input.ConversationID,
+			request.input.ClientMessageID, now)
+		if err != nil {
+			c.publishTransientFailure(request.input, err)
+			return
+		}
+		c.publish(Event{
+			Kind: EventConversationItem, ConversationID: request.input.ConversationID,
+			ClientMessageID: request.input.ClientMessageID, Item: &item,
+		})
+		c.publish(Event{
+			Kind: EventTurnCompleted, ConversationID: request.input.ConversationID,
+			ClientMessageID: request.input.ClientMessageID,
+		})
+		return
+	}
 	var turn store.ConversationTurn
 	var userItem store.ConversationItem
 	var err error

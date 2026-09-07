@@ -303,9 +303,22 @@ func TestRustRuntime_exact_reset_command_persists_notice_without_calling_provide
 	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "/reset"}); err != nil {
 		t.Fatal(err)
 	}
-	collectCompletedTurns(t, events, 1)
+	turnEvents := collectCompletedTurns(t, events, 1)
 	if calls != 0 {
 		t.Errorf("exact reset called provider %d times", calls)
+	}
+	var resetEvent bool
+	for _, event := range turnEvents {
+		if event.Kind != EventConversationItem || event.Item == nil || event.Item.Kind != store.ConversationActivity {
+			continue
+		}
+		if event.Item.Status != string(store.ConversationItemCompleted) || event.Item.Payload["activity_kind"] != "context_reset" || event.Item.Payload["title"] != "Context reset" {
+			t.Errorf("reset event = %#v", event.Item)
+		}
+		resetEvent = true
+	}
+	if !resetEvent {
+		t.Fatalf("reset activity event = %#v", turnEvents)
 	}
 	page, err := database.ConversationItemPage(context.Background(), conversation.ID, "", 20)
 	if err != nil {
