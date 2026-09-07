@@ -937,8 +937,8 @@ func rustAPIPortAgentPreference(t *testing.T) {
 	}
 	account, err := resolver.ProviderAccounts.PublishVerifiedSecret(ctx, "provider_account:openrouter:default", 0,
 		provider.AuthSecretInput, secret, []provider.ModelProfile{
-			{ID: "openai/gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
-			{ID: "openai/gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "high"},
+			{ID: "gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
+			{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
 		}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -951,7 +951,7 @@ func rustAPIPortAgentPreference(t *testing.T) {
 	if created, err := resolver.Store.ConfirmHostedModelAssignments(ctx, account.ID, assignments); err != nil || !created {
 		t.Fatalf("agent provider assignments = %t, %v", created, err)
 	}
-	profile := "openai/gpt-5.5"
+	profile := "gpt-5.5"
 	options := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query {
   agents { modelOptions { profiles { id reasoningEfforts defaultReasoningEffort } recommendations { useCase modelProfile reasoningEffort disabledReason } } }
 }`, nil)
@@ -2130,11 +2130,18 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 	if !ok {
 		t.Fatalf("stale route entries = %#v", readback.Data)
 	}
+	found := false
 	for _, raw := range entries {
 		entry := raw.(map[string]any)
-		if entry["poolEntryId"] == "task_pool:setting:simple" && entry["enabled"] != false {
-			t.Fatalf("stale route remained enabled: %#v", entry)
+		if entry["poolEntryId"] == "task_pool:setting:simple" {
+			found = true
+			if entry["enabled"] != false {
+				t.Fatalf("stale route remained enabled: %#v", entry)
+			}
 		}
+	}
+	if !found {
+		t.Fatal("stale route was not persisted")
 	}
 }
 
