@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +195,119 @@ func TestRustProviders_BrowserWorkersEnableObscuraStealth(t *testing.T) {
 	command := `--stealth`
 	if !strings.Contains(strings.Join(browserCommandArguments(1024, "3210"), " "), command) {
 		t.Fatalf("Obscura worker omitted stealth flag")
+	}
+}
+
+// Rust source: crates/noema-providers/src/adapters/web/browse/obscura.rs::embedded_obscura_snapshots_and_emits_trusted_interactions (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
+func TestRustProviders_EmbeddedObscuraSnapshotsAndEmitsTrustedInteractions(t *testing.T) {
+	fixture := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/confirmed" {
+			writer.WriteHeader(http.StatusBadGateway)
+			_, _ = io.WriteString(writer, "<!doctype html><title>Confirmed</title>")
+			return
+		}
+		_, _ = io.WriteString(writer, "<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>File<input type='file' aria-label='File'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><form action='/confirmed' method='post'><input name='amount' value='125.00'><input type='hidden' name='csrf' value='hidden-secret'><input type='password' name='pin' value='password-secret'><button name='confirm' value='yes'>Submit form</button></form></body>")
+	}))
+	defer fixture.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := startBrowserProcess(t.Context(), executable, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer process.close()
+	session := &browserSession{process: process}
+	response, failure := executeObscuraBrowser(t.Context(), session, BrowseOpenName, map[string]any{
+		"url": fixture.URL,
+	})
+	if failure != nil || response == nil {
+		t.Fatalf("embedded Obscura open = %#v/%#v", response, failure)
+	}
+	if response.Screenshot == nil || response.Screenshot.MediaType != "image/png" ||
+		response.Screenshot.Width != 1280 || response.Screenshot.Height != 720 {
+		t.Fatalf("rendered screenshot = %#v", response.Screenshot)
+	}
+	if response.Screenshot.Data == "" {
+		t.Fatal("rendered screenshot is empty")
+	}
+	snapshot := response.Snapshot
+	if snapshot == nil || strings.Contains(snapshot.Text, "JavaScript is disabled") {
+		t.Fatalf("open snapshot = %#v", snapshot)
+	}
+	find := func(name string) *browseElement {
+		if snapshot == nil {
+			return nil
+		}
+		for index := range snapshot.Elements {
+			if snapshot.Elements[index].Name == name {
+				return &snapshot.Elements[index]
+			}
+		}
+		return nil
+	}
+	input, button, file, roleSelect, activate := find("Name"), find("Save"), find("File"), find("Role"), find("Activate")
+	if input == nil || button == nil || file == nil || roleSelect == nil || activate == nil {
+		t.Fatalf("interactive snapshot elements = %#v", snapshot)
+	}
+	if button.Disabled {
+		t.Fatal("settled button remained disabled")
+	}
+	if button.Submission == nil || button.Submission.Method != "POST" || button.Submission.OmittedControlCount != 2 ||
+		len(button.Submission.Fields) == 0 || button.Submission.Fields[0].Value != "125.00" {
+		t.Fatalf("submission context = %#v", button.Submission)
+	}
+	encodedSubmission, err := json.Marshal(button.Submission)
+	if err != nil || strings.Contains(string(encodedSubmission), "secret") {
+		t.Fatalf("submission exposed secret fields = %s, %v", encodedSubmission, err)
+	}
+	session.elements = snapshot.Elements
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": input.Reference, "action": "fill", "value": "Ada",
+	}); failure != nil {
+		t.Fatalf("fill input = %#v", failure)
+	}
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": file.Reference, "action": "upload_file",
+	}); failure == nil || !strings.Contains(failure.message, "CDP") {
+		t.Fatalf("file upload failure = %#v", failure)
+	}
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": input.Reference, "action": "type", "value": "!",
+	}); failure != nil {
+		t.Fatalf("type input = %#v", failure)
+	}
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": input.Reference, "action": "press_key", "value": "Backspace",
+	}); failure != nil {
+		t.Fatalf("press input key = %#v", failure)
+	}
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": roleSelect.Reference, "action": "select_option", "value": "manager",
+	}); failure != nil {
+		t.Fatalf("select option = %#v", failure)
+	}
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": button.Reference, "action": "click",
+	}); failure != nil {
+		t.Fatalf("click button = %#v", failure)
+	}
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": activate.Reference, "action": "press_key", "value": "ARROWRIGHT",
+	}); failure != nil {
+		t.Fatalf("press named key = %#v", failure)
+	}
+	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
+		"ref": activate.Reference, "action": "press_key", "value": "ENTER",
+	}); failure != nil {
+		t.Fatalf("activate navigation = %#v", failure)
+	}
+	if _, err := netpolicy.CheckURLTarget("https://user@example.com"); err == nil {
+		t.Fatal("credentialed public URL accepted")
+	}
+	if _, err := netpolicy.CheckURLTarget("http://127.0.0.1"); err == nil {
+		t.Fatal("private URL accepted")
 	}
 }
 
