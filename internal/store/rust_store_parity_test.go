@@ -2,15 +2,82 @@ package store
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func openRustStoreMigrationFixture(t *testing.T, version int) *Store {
+	return openRustStoreMigrationFixtureWithSetup(t, version, nil)
+}
+
+func openRustStoreMigrationFixtureWithSetup(t *testing.T, version int, setup func(*sql.DB) error) *Store {
+	t.Helper()
+	if version < 0 || version > schemaVersion {
+		t.Fatalf("Rust migration fixture v%d cannot be constructed: Go migration authority ends at v%d", version, schemaVersion)
+	}
+	path := filepath.Join(t.TempDir(), "noema.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatalf("open Rust migration fixture v%d: %v", version, err)
+	}
+	if _, err := legacy.Exec(schemaAtVersion(version) + fmt.Sprintf("\nPRAGMA user_version = %d;", version)); err != nil {
+		_ = legacy.Close()
+		t.Fatalf("construct Rust migration fixture v%d: %v", version, err)
+	}
+	if setup != nil {
+		if err := setup(legacy); err != nil {
+			_ = legacy.Close()
+			t.Fatalf("seed Rust migration fixture v%d: %v", version, err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatalf("close Rust migration fixture v%d: %v", version, err)
+	}
+	database, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatalf("open upgraded Rust migration fixture v%d: %v", version, err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	return database
+}
+
+func rustStoreSchemaObject(t *testing.T, database *Store, objectType, name string) bool {
+	t.Helper()
+	var exists bool
+	if err := database.db.QueryRowContext(t.Context(),
+		"SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = ? AND name = ?)", objectType, name).Scan(&exists); err != nil {
+		t.Fatalf("inspect schema object %s %q: %v", objectType, name, err)
+	}
+	return exists
+}
+
+func rustStoreSchemaColumn(t *testing.T, database *Store, table, column string) bool {
+	t.Helper()
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM pragma_table_info('" + table + "') WHERE name = ?)"
+	if err := database.db.QueryRowContext(t.Context(), query, column).Scan(&exists); err != nil {
+		t.Fatalf("inspect schema column %s.%s: %v", table, column, err)
+	}
+	return exists
+}
+
+func rustStoreSchemaIndexSQL(t *testing.T, database *Store, name string) string {
+	t.Helper()
+	var sqlText string
+	if err := database.db.QueryRowContext(t.Context(),
+		"SELECT COALESCE(sql, '') FROM sqlite_schema WHERE type = 'index' AND name = ?", name).Scan(&sqlText); err != nil {
+		t.Fatalf("inspect schema index %q: %v", name, err)
+	}
+	return sqlText
+}
 
 // Rust source: crates/noema-store/src/adapters/tests.rs::fresh_sqlite_rebuilds_exact_definition_projection_from_files.
 func TestRustStore_fresh_sqlite_rebuilds_exact_definition_projection_from_files(t *testing.T) {
@@ -1878,8 +1945,11 @@ func TestRustStore_provider_child_spans_keep_exact_parent_offsets(t *testing.T) 
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v61_upgrade_recovers_complete_capability_authentication_identity.
 func TestRustStore_v61_upgrade_recovers_complete_capability_authentication_identity(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 61)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "capability_auth_requests") {
+		t.Fatalf("Rust schema object table 'capability_auth_requests' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -1898,8 +1968,11 @@ func TestRustStore_v61_upgrade_recovers_complete_capability_authentication_ident
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v58_upgrade_adds_optional_provider_conversation_text.
 func TestRustStore_v58_upgrade_adds_optional_provider_conversation_text(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 58)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "conversation_items", "provider_content_text") {
+		t.Fatalf("Rust schema column conversation_items.provider_content_text is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -1918,8 +1991,11 @@ func TestRustStore_v58_upgrade_adds_optional_provider_conversation_text(t *testi
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v50_task_file_conversion_preserves_existing_task_document_and_retries.
 func TestRustStore_v50_task_file_conversion_preserves_existing_task_document_and_retries(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 49)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "tasks") {
+		t.Fatalf("Rust schema object table 'tasks' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -1938,8 +2014,11 @@ func TestRustStore_v50_task_file_conversion_preserves_existing_task_document_and
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v56_result_migration_copies_only_submitted_tasks_and_preserves_results.
 func TestRustStore_v56_result_migration_copies_only_submitted_tasks_and_preserves_results(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 55)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "tasks") {
+		t.Fatalf("Rust schema object table 'tasks' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -1958,8 +2037,11 @@ func TestRustStore_v56_result_migration_copies_only_submitted_tasks_and_preserve
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v57_moves_recurrence_prose_preserves_documents_on_retry_and_converges.
 func TestRustStore_v57_moves_recurrence_prose_preserves_documents_on_retry_and_converges(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 56)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "task_recurrences", "task_document_markdown") {
+		t.Fatalf("Rust schema column task_recurrences.task_document_markdown is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -1980,6 +2062,9 @@ func TestRustStore_v57_moves_recurrence_prose_preserves_documents_on_retry_and_c
 func TestRustStore_fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "humans") {
+		t.Fatalf("Rust schema object table 'humans' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -1998,8 +2083,11 @@ func TestRustStore_fresh_migrations_are_exact_idempotent_and_enforce_foreign_key
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v31_upgrade_and_fresh_schema_converge_on_web_browse_contract.
 func TestRustStore_v31_upgrade_and_fresh_schema_converge_on_web_browse_contract(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 31)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "observed_urls") {
+		t.Fatalf("Rust schema object table 'observed_urls' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2018,8 +2106,11 @@ func TestRustStore_v31_upgrade_and_fresh_schema_converge_on_web_browse_contract(
 
 // Rust source: crates/noema-store/src/tests/schema.rs::browser_provider_route_migration_preserves_v59_assignment_at_position_zero.
 func TestRustStore_browser_provider_route_migration_preserves_v59_assignment_at_position_zero(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 59)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "provider_capability_bindings") {
+		t.Fatalf("Rust schema object table 'provider_capability_bindings' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2038,8 +2129,11 @@ func TestRustStore_browser_provider_route_migration_preserves_v59_assignment_at_
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v32_upgrade_persists_system_provider_accounts_and_matches_fresh_schema.
 func TestRustStore_v32_upgrade_persists_system_provider_accounts_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 32)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "provider_accounts") {
+		t.Fatalf("Rust schema object table 'provider_accounts' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2058,8 +2152,11 @@ func TestRustStore_v32_upgrade_persists_system_provider_accounts_and_matches_fre
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v58_upgrade_adds_kernel_provider_and_matches_fresh_schema.
 func TestRustStore_v58_upgrade_adds_kernel_provider_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 57)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "provider_accounts") {
+		t.Fatalf("Rust schema object table 'provider_accounts' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2078,8 +2175,11 @@ func TestRustStore_v58_upgrade_adds_kernel_provider_and_matches_fresh_schema(t *
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v34_upgrade_links_saved_action_request_items_and_matches_fresh_schema.
 func TestRustStore_v34_upgrade_links_saved_action_request_items_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 34)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "action_request_sources") {
+		t.Fatalf("Rust schema object table 'action_request_sources' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2098,8 +2198,11 @@ func TestRustStore_v34_upgrade_links_saved_action_request_items_and_matches_fres
 
 // Rust source: crates/noema-store/src/tests/schema.rs::clients_migration_upgrades_an_existing_v25_database.
 func TestRustStore_clients_migration_upgrades_an_existing_v25_database(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 25)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "clients") {
+		t.Fatalf("Rust schema object table 'clients' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2118,8 +2221,11 @@ func TestRustStore_clients_migration_upgrades_an_existing_v25_database(t *testin
 
 // Rust source: crates/noema-store/src/tests/schema.rs::notification_migration_upgrades_v33_projection_state_and_registrations.
 func TestRustStore_notification_migration_upgrades_v33_projection_state_and_registrations(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 33)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "notification_projection_state") {
+		t.Fatalf("Rust schema object table 'notification_projection_state' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2138,8 +2244,11 @@ func TestRustStore_notification_migration_upgrades_v33_projection_state_and_regi
 
 // Rust source: crates/noema-store/src/tests/schema.rs::live_activity_migration_upgrades_v35_and_converges_with_fresh_schema.
 func TestRustStore_live_activity_migration_upgrades_v35_and_converges_with_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 35)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "client_live_activity_registrations") {
+		t.Fatalf("Rust schema object table 'client_live_activity_registrations' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2158,8 +2267,11 @@ func TestRustStore_live_activity_migration_upgrades_v35_and_converges_with_fresh
 
 // Rust source: crates/noema-store/src/tests/schema.rs::live_activity_diagnostics_upgrade_v40_and_converge_with_fresh_schema.
 func TestRustStore_live_activity_diagnostics_upgrade_v40_and_converge_with_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 40)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "live_activity_deliveries", "apns_id") {
+		t.Fatalf("Rust schema column live_activity_deliveries.apns_id is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2178,8 +2290,11 @@ func TestRustStore_live_activity_diagnostics_upgrade_v40_and_converge_with_fresh
 
 // Rust source: crates/noema-store/src/tests/schema.rs::live_activity_observation_rename_preserves_v41_rows.
 func TestRustStore_live_activity_observation_rename_preserves_v41_rows(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 41)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "client_live_activity_observations") {
+		t.Fatalf("Rust schema object table 'client_live_activity_observations' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2198,8 +2313,11 @@ func TestRustStore_live_activity_observation_rename_preserves_v41_rows(t *testin
 
 // Rust source: crates/noema-store/src/tests/schema.rs::task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema.
 func TestRustStore_task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 27)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "task_recurrences") {
+		t.Fatalf("Rust schema object table 'task_recurrences' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2218,8 +2336,11 @@ func TestRustStore_task_schedules_upgrade_v27_without_losing_tasks_and_match_fre
 
 // Rust source: crates/noema-store/src/tests/schema.rs::recurrence_history_index_repairs_an_already_applied_v30.
 func TestRustStore_recurrence_history_index_repairs_an_already_applied_v30(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 30)
 	ctx := t.Context()
+	if rustStoreSchemaIndexSQL(t, database, "task_recurrence_occurrences_history") == "" {
+		t.Fatalf("Rust schema index task_recurrence_occurrences_history is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2238,8 +2359,11 @@ func TestRustStore_recurrence_history_index_repairs_an_already_applied_v30(t *te
 
 // Rust source: crates/noema-store/src/tests/schema.rs::acp_executors_upgrade_v28_preserves_provider_history_and_converges.
 func TestRustStore_acp_executors_upgrade_v28_preserves_provider_history_and_converges(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 28)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "acp_agents") {
+		t.Fatalf("Rust schema object table 'acp_agents' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2258,8 +2382,11 @@ func TestRustStore_acp_executors_upgrade_v28_preserves_provider_history_and_conv
 
 // Rust source: crates/noema-store/src/tests/schema.rs::task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schema.
 func TestRustStore_task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 24)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "task_gates", "suggested_answers_json") {
+		t.Fatalf("Rust schema column task_gates.suggested_answers_json is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2278,8 +2405,11 @@ func TestRustStore_task_gate_choices_upgrade_existing_schema_and_converge_with_f
 
 // Rust source: crates/noema-store/src/tests/schema.rs::interaction_transcript_repairs_upgrade_resolved_rows.
 func TestRustStore_interaction_transcript_repairs_upgrade_resolved_rows(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 21)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "conversation_interactions") {
+		t.Fatalf("Rust schema object table 'conversation_interactions' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2298,8 +2428,11 @@ func TestRustStore_interaction_transcript_repairs_upgrade_resolved_rows(t *testi
 
 // Rust source: crates/noema-store/src/tests/schema.rs::hosted_search_activity_migration_repairs_only_provider_hosted_rows.
 func TestRustStore_hosted_search_activity_migration_repairs_only_provider_hosted_rows(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 23)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "conversation_items") {
+		t.Fatalf("Rust schema object table 'conversation_items' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2318,8 +2451,11 @@ func TestRustStore_hosted_search_activity_migration_repairs_only_provider_hosted
 
 // Rust source: crates/noema-store/src/tests/schema.rs::version_66_upgrade_creates_project_documents.
 func TestRustStore_version_66_upgrade_creates_project_documents(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 66)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "projects") {
+		t.Fatalf("Rust schema object table 'projects' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2338,8 +2474,11 @@ func TestRustStore_version_66_upgrade_creates_project_documents(t *testing.T) {
 
 // Rust source: crates/noema-store/src/tests/schema.rs::versions_65_and_66_preserve_supported_rows_and_converge.
 func TestRustStore_versions_65_and_66_preserve_supported_rows_and_converge(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 64)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "clients") {
+		t.Fatalf("Rust schema object table 'clients' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2360,6 +2499,9 @@ func TestRustStore_versions_65_and_66_preserve_supported_rows_and_converge(t *te
 func TestRustStore_current_schema_enforces_projection_history_and_ledger_invariants(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "work_events") {
+		t.Fatalf("Rust schema object table 'work_events' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2378,8 +2520,11 @@ func TestRustStore_current_schema_enforces_projection_history_and_ledger_invaria
 
 // Rust source: crates/noema-store/src/tests/schema.rs::version_36_upgrade_removes_submission_citations.
 func TestRustStore_version_36_upgrade_removes_submission_citations(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 36)
 	ctx := t.Context()
+	if rustStoreSchemaObject(t, database, "table", "task_submission_citations") {
+		t.Fatalf("Rust schema object table 'task_submission_citations' must be absent")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2398,28 +2543,23 @@ func TestRustStore_version_36_upgrade_removes_submission_citations(t *testing.T)
 
 // Rust source: crates/noema-store/src/tests/schema.rs::migration_history_is_internally_valid.
 func TestRustStore_migration_history_is_internally_valid(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		t.Fatal(err)
+	if len(migrations) != 66 {
+		t.Fatalf("migration history length = %d, want Rust version 66", len(migrations))
 	}
-	if version != 66 {
-		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatal(err)
-	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	for version, migration := range migrations {
+		if strings.TrimSpace(migration) == "" {
+			t.Fatalf("migration %d is empty", version+1)
+		}
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::version_thirteen_adds_mcp_service_description_without_losing_connection.
 func TestRustStore_version_thirteen_adds_mcp_service_description_without_losing_connection(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 13)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "mcp_servers", "service_description") {
+		t.Fatalf("Rust schema column mcp_servers.service_description is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2438,8 +2578,11 @@ func TestRustStore_version_thirteen_adds_mcp_service_description_without_losing_
 
 // Rust source: crates/noema-store/src/tests/schema.rs::adapter_label_migrations_converge_before_projection_cutover.
 func TestRustStore_adapter_label_migrations_converge_before_projection_cutover(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 14)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "adapter_connections", "connection_label") {
+		t.Fatalf("Rust schema column adapter_connections.connection_label is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2458,8 +2601,11 @@ func TestRustStore_adapter_label_migrations_converge_before_projection_cutover(t
 
 // Rust source: crates/noema-store/src/tests/schema.rs::version_fifteen_account_label_shape_converges_before_projection_cutover.
 func TestRustStore_version_fifteen_account_label_shape_converges_before_projection_cutover(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 14)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "adapter_connections", "connection_label") {
+		t.Fatalf("Rust schema column adapter_connections.connection_label is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2478,8 +2624,11 @@ func TestRustStore_version_fifteen_account_label_shape_converges_before_projecti
 
 // Rust source: crates/noema-store/src/tests/schema.rs::legacy_v9_is_adopted_without_losing_rows.
 func TestRustStore_legacy_v9_is_adopted_without_losing_rows(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 9)
 	ctx := t.Context()
+	if rustStoreSchemaObject(t, database, "table", "schema_state") {
+		t.Fatalf("Rust schema object table 'schema_state' must be absent")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2498,8 +2647,11 @@ func TestRustStore_legacy_v9_is_adopted_without_losing_rows(t *testing.T) {
 
 // Rust source: crates/noema-store/src/tests/schema.rs::pending_versioned_migrations_run_without_losing_rows.
 func TestRustStore_pending_versioned_migrations_run_without_losing_rows(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 3)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "mcp_tool_policies") {
+		t.Fatalf("Rust schema object table 'mcp_tool_policies' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2518,8 +2670,11 @@ func TestRustStore_pending_versioned_migrations_run_without_losing_rows(t *testi
 
 // Rust source: crates/noema-store/src/tests/schema.rs::version_eighteen_preserves_accounts_and_expands_every_provider_constraint.
 func TestRustStore_version_eighteen_preserves_accounts_and_expands_every_provider_constraint(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 17)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "provider_accounts") {
+		t.Fatalf("Rust schema object table 'provider_accounts' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2538,8 +2693,11 @@ func TestRustStore_version_eighteen_preserves_accounts_and_expands_every_provide
 
 // Rust source: crates/noema-store/src/tests/schema.rs::model_preference_v19_upgrade_preserves_intent_and_enforces_selection_modes.
 func TestRustStore_model_preference_v19_upgrade_preserves_intent_and_enforces_selection_modes(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 19)
 	ctx := t.Context()
+	if !rustStoreSchemaColumn(t, database, "hosted_model_assignments", "selection_mode") {
+		t.Fatalf("Rust schema column hosted_model_assignments.selection_mode is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2558,8 +2716,11 @@ func TestRustStore_model_preference_v19_upgrade_preserves_intent_and_enforces_se
 
 // Rust source: crates/noema-store/src/tests/schema.rs::version_twenty_repairs_the_delegated_task_pool_index.
 func TestRustStore_version_twenty_repairs_the_delegated_task_pool_index(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 20)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "index", "task_model_pool_settings_pool_entry") {
+		t.Fatalf("Rust schema object index 'task_model_pool_settings_pool_entry' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2578,8 +2739,11 @@ func TestRustStore_version_twenty_repairs_the_delegated_task_pool_index(t *testi
 
 // Rust source: crates/noema-store/src/tests/schema.rs::conversation_interaction_v18_upgrade_and_fresh_schema_converge.
 func TestRustStore_conversation_interaction_v18_upgrade_and_fresh_schema_converge(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 18)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "conversation_interactions") {
+		t.Fatalf("Rust schema object table 'conversation_interactions' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2598,8 +2762,11 @@ func TestRustStore_conversation_interaction_v18_upgrade_and_fresh_schema_converg
 
 // Rust source: crates/noema-store/src/tests/schema.rs::reviewed_action_policy_migration_preserves_history_without_inventing_hints.
 func TestRustStore_reviewed_action_policy_migration_preserves_history_without_inventing_hints(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 11)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "action_request_assessments") {
+		t.Fatalf("Rust schema object table 'action_request_assessments' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2618,8 +2785,11 @@ func TestRustStore_reviewed_action_policy_migration_preserves_history_without_in
 
 // Rust source: crates/noema-store/src/tests/schema.rs::known_v8_capability_auth_drift_is_repaired_without_losing_rows.
 func TestRustStore_known_v8_capability_auth_drift_is_repaired_without_losing_rows(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 8)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "capability_auth_requests") {
+		t.Fatalf("Rust schema object table 'capability_auth_requests' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2638,8 +2808,11 @@ func TestRustStore_known_v8_capability_auth_drift_is_repaired_without_losing_row
 
 // Rust source: crates/noema-store/src/tests/schema.rs::transitional_mcp_auth_schema_drops_raw_pending_arguments.
 func TestRustStore_transitional_mcp_auth_schema_drops_raw_pending_arguments(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 5)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "capability_auth_requests") {
+		t.Fatalf("Rust schema object table 'capability_auth_requests' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2658,228 +2831,244 @@ func TestRustStore_transitional_mcp_auth_schema_drops_raw_pending_arguments(t *t
 
 // Rust source: crates/noema-store/src/tests/schema.rs::unknown_unversioned_schema_is_rejected_without_mutation.
 func TestRustStore_unknown_unversioned_schema_is_rejected_without_mutation(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	path := filepath.Join(t.TempDir(), "noema.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 66 {
-		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+	if _, err = legacy.Exec("CREATE TABLE unknown_marker (value TEXT); PRAGMA user_version = 0;"); err != nil {
+		_ = legacy.Close()
 		t.Fatal(err)
 	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if err = legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Open(t.Context(), path); err == nil {
+		t.Fatal("unknown unversioned schema was accepted")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("rejected schema was mutated")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::zero_byte_database_runs_all_migrations.
 func TestRustStore_zero_byte_database_runs_all_migrations(t *testing.T) {
 	database := openTestStore(t)
-	ctx := t.Context()
 	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	if err := database.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 66 {
 		t.Fatalf("schema version = %d, want Rust version 66", version)
 	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatal(err)
-	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if !rustStoreSchemaObject(t, database, "table", "humans") {
+		t.Fatal("fresh Rust humans table is missing")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::opening_partial_schema_is_rejected_without_mutation.
 func TestRustStore_opening_partial_schema_is_rejected_without_mutation(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	path := filepath.Join(t.TempDir(), "noema.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 66 {
-		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+	if _, err = legacy.Exec("CREATE TABLE tasks (task_id TEXT PRIMARY KEY); PRAGMA user_version = 1;"); err != nil {
+		_ = legacy.Close()
 		t.Fatal(err)
 	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if err = legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Open(t.Context(), path); err == nil {
+		t.Fatal("partial schema was accepted")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("rejected partial schema was mutated")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::opening_future_schema_version_is_rejected_without_mutation.
 func TestRustStore_opening_future_schema_version_is_rejected_without_mutation(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	path := filepath.Join(t.TempDir(), "noema.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 66 {
-		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+	if _, err = legacy.Exec("PRAGMA user_version = 67;"); err != nil {
+		_ = legacy.Close()
 		t.Fatal(err)
 	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if err = legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Open(t.Context(), path); err == nil {
+		t.Fatal("future schema version was accepted")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("future schema rejection mutated database")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::opening_invalid_legacy_marker_is_rejected_without_mutation.
 func TestRustStore_opening_invalid_legacy_marker_is_rejected_without_mutation(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	path := filepath.Join(t.TempDir(), "noema.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 66 {
-		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+	if _, err = legacy.Exec("CREATE TABLE schema_state (state TEXT); INSERT INTO schema_state(state) VALUES ('legacy');"); err != nil {
+		_ = legacy.Close()
 		t.Fatal(err)
 	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if err = legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Open(t.Context(), path); err == nil {
+		t.Fatal("invalid legacy marker was accepted")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::rejected_pending_wal_schema_preserves_main_wal_and_shm_bytes.
 func TestRustStore_rejected_pending_wal_schema_preserves_main_wal_and_shm_bytes(t *testing.T) {
 	database := openTestStore(t)
-	ctx := t.Context()
 	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	if err := database.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 66 {
 		t.Fatalf("schema version = %d, want Rust version 66", version)
 	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatal(err)
-	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if !rustStoreSchemaObject(t, database, "table", "schema_state") {
+		t.Fatal("Rust pending WAL fixture marker is missing")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::current_schema_with_pending_wal_rows_opens_and_preserves_data.
 func TestRustStore_current_schema_with_pending_wal_rows_opens_and_preserves_data(t *testing.T) {
 	database := openTestStore(t)
-	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "provider_accounts") {
+		t.Fatal("provider_accounts table is missing")
+	}
 	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	if err := database.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 66 {
 		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatal(err)
-	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::hot_rollback_journal_is_recovered_only_in_private_inspection_copy.
 func TestRustStore_hot_rollback_journal_is_recovered_only_in_private_inspection_copy(t *testing.T) {
 	database := openTestStore(t)
-	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "tasks") {
+		t.Fatal("tasks table is missing after journal recovery")
+	}
 	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	if err := database.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 66 {
 		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatal(err)
-	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::non_sqlite_file_is_typed_incompatible_and_unchanged.
 func TestRustStore_non_sqlite_file_is_typed_incompatible_and_unchanged(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	path := filepath.Join(t.TempDir(), "noema.sqlite3")
+	want := []byte("not sqlite")
+	if err := os.WriteFile(path, want, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if version != 66 {
-		t.Fatalf("schema version = %d, want Rust version 66", version)
+	if _, err := Open(t.Context(), path); err == nil {
+		t.Fatal("non-SQLite file was accepted")
 	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+	got, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if string(got) != string(want) {
+		t.Fatalf("non-SQLite file changed to %q", got)
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::injected_mid_migration_failure_rolls_back_every_schema_object.
 func TestRustStore_injected_mid_migration_failure_rolls_back_every_schema_object(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
-	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	if len(migrations) != 66 {
+		t.Fatalf("migration history length = %d, want Rust version 66", len(migrations))
+	}
+	path := filepath.Join(t.TempDir(), "noema.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 66 {
-		t.Fatalf("schema version = %d, want Rust version 66", version)
-	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+	if _, err = legacy.Exec("CREATE TABLE migration_failure (id INTEGER); PRAGMA user_version = 0;"); err != nil {
+		_ = legacy.Close()
 		t.Fatal(err)
 	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
+	if err = legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Open(t.Context(), path); err == nil {
+		t.Fatal("injected migration failure fixture was accepted")
 	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::immutable_schema_inspection_handles_uri_reserved_path_characters.
 func TestRustStore_immutable_schema_inspection_handles_uri_reserved_path_characters(t *testing.T) {
-	database := openTestStore(t)
-	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "home?variant#one", "noema.sqlite3")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	database, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if !rustStoreSchemaObject(t, database, "table", "tasks") {
+		t.Fatal("tasks table missing at reserved path")
+	}
 	var version int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	if err := database.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 66 {
 		t.Fatalf("schema version = %d, want Rust version 66", version)
 	}
-	var fk int
-	if err := database.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatal(err)
-	}
-	if fk != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", fk)
-	}
 }
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v44_upgrade_preserves_passkeys_repairs_terminal_records_and_matches_fresh_schema.
 func TestRustStore_v44_upgrade_preserves_passkeys_repairs_terminal_records_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 42)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "human_passkeys") {
+		t.Fatalf("Rust schema object table 'human_passkeys' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2898,8 +3087,11 @@ func TestRustStore_v44_upgrade_preserves_passkeys_repairs_terminal_records_and_m
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v46_upgrade_removes_legacy_clients_and_matches_fresh_schema.
 func TestRustStore_v46_upgrade_removes_legacy_clients_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 45)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "clients") {
+		t.Fatalf("Rust schema object table 'clients' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2918,8 +3110,11 @@ func TestRustStore_v46_upgrade_removes_legacy_clients_and_matches_fresh_schema(t
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v47_upgrade_invalidates_unbound_web_push_and_matches_fresh_schema.
 func TestRustStore_v47_upgrade_invalidates_unbound_web_push_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 46)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "web_push_subscriptions") {
+		t.Fatalf("Rust schema object table 'web_push_subscriptions' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2938,8 +3133,11 @@ func TestRustStore_v47_upgrade_invalidates_unbound_web_push_and_matches_fresh_sc
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v48_model_preference_speed_upgrade_defaults_to_standard_and_matches_fresh_schema.
 func TestRustStore_v48_model_preference_speed_upgrade_defaults_to_standard_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 47)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "task_model_pool_settings") {
+		t.Fatalf("Rust schema object table 'task_model_pool_settings' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
@@ -2958,8 +3156,11 @@ func TestRustStore_v48_model_preference_speed_upgrade_defaults_to_standard_and_m
 
 // Rust source: crates/noema-store/src/tests/schema.rs::v37_oauth_authority_upgrade_terminalizes_old_requests_and_matches_fresh_schema.
 func TestRustStore_v37_oauth_authority_upgrade_terminalizes_old_requests_and_matches_fresh_schema(t *testing.T) {
-	database := openTestStore(t)
+	database := openRustStoreMigrationFixture(t, 37)
 	ctx := t.Context()
+	if !rustStoreSchemaObject(t, database, "table", "mcp_oauth_attempts") {
+		t.Fatalf("Rust schema object table 'mcp_oauth_attempts' is missing")
+	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
