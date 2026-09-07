@@ -1,4 +1,4 @@
-//go:build !noema_release || !unix
+//go:build !unix
 
 package main
 

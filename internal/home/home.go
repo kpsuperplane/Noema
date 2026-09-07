@@ -175,6 +175,11 @@ func (p Paths) NativeOAuthRetries() string {
 	return filepath.Join(p.root, "run", "native-oauth-retries.json")
 }
 
+// FaviconCacheDir returns the rebuildable public-site favicon cache.
+func (p Paths) FaviconCacheDir() string {
+	return filepath.Join(p.root, "system", "cache", "favicons")
+}
+
 // WebPushVAPID returns the protected browser Push signing-key path.
 func (p Paths) WebPushVAPID() string {
 	return filepath.Join(p.root, "notifications", "web-push-vapid.json")

@@ -2,20 +2,26 @@ package web
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
-	"testing/fstest"
 	"time"
 )
 
 // Rust source: crates/noema-server/src/web/assets.rs::assets_preserve_safe_paths_content_types_dynamic_chunks_and_spa_boundaries.
 func TestRustServer_assets_preserve_safe_paths_content_types_dynamic_chunks_and_spa_boundaries(t *testing.T) {
-	handler := assetHandler{assets: fstest.MapFS{
-		"__noema_asset_test_chunk.js": {Data: []byte("export {};")},
-	}}
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "__noema_asset_test_chunk.js"), []byte("export {};"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NOEMA_DEV_ASSET_DIR", directory)
+	handler := NewAssetHandler()
 	response := requestAsset(handler, http.MethodGet, "/assets/__noema_asset_test_chunk.js")
 	if response.Code != http.StatusOK {
 		t.Fatalf("dynamic chunk status = %d", response.Code)
@@ -94,7 +100,7 @@ func TestRustServer_hostname_normalization_keeps_exact_hosts_distinct(t *testing
 	if got, err := normalizeFaviconHostname("www.example.com"); err != nil || got != "www.example.com" {
 		t.Fatalf("normalized www hostname = %q, %v", got, err)
 	}
-	handler := NewFaviconHandler()
+	handler := NewFaviconHandler(t.TempDir())
 	handler.write("example.com", []byte("root"))
 	handler.write("www.example.com", []byte("www"))
 	if bytes.Equal(handler.read("example.com"), handler.read("www.example.com")) {
@@ -105,8 +111,8 @@ func TestRustServer_hostname_normalization_keeps_exact_hosts_distinct(t *testing
 // Rust source: crates/noema-server/src/web/favicons.rs::hostname_normalization_rejects_ip_and_authority_values.
 func TestRustServer_hostname_normalization_rejects_ip_and_authority_values(t *testing.T) {
 	for _, hostname := range []string{"127.0.0.1", "[::1]", "example.com:443", "user@example.com", ""} {
-		if _, err := normalizeFaviconHostname(hostname); err == nil {
-			t.Fatalf("normalizeFaviconHostname(%q) accepted invalid hostname", hostname)
+		if _, err := normalizeFaviconHostname(hostname); !errors.Is(err, errInvalidFaviconHostname) {
+			t.Fatalf("normalizeFaviconHostname(%q) error = %v, want invalid hostname", hostname, err)
 		}
 	}
 }
@@ -140,8 +146,15 @@ func TestRustServer_image_normalization_bounds_and_converts_raster_input(t *test
 
 // Rust source: crates/noema-server/src/web/favicons.rs::cache_preserves_positive_and_negative_outcomes.
 func TestRustServer_cache_preserves_positive_and_negative_outcomes(t *testing.T) {
-	handler := NewFaviconHandler()
+	directory := t.TempDir()
+	handler := NewFaviconHandler(directory)
 	handler.write("example.com", []byte("png"))
+	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("example.com")+".json")); err != nil {
+		t.Fatalf("positive cache metadata was not durable: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("example.com")+".png")); err != nil {
+		t.Fatalf("positive cache body was not durable: %v", err)
+	}
 	if got := handler.read("example.com"); !bytes.Equal(got, []byte("png")) {
 		t.Fatalf("positive cache = %q", got)
 	}
@@ -162,24 +175,33 @@ func TestRustServer_cache_preserves_positive_and_negative_outcomes(t *testing.T)
 
 // Rust source: crates/noema-server/src/web/favicons.rs::concurrent_requests_share_one_hostname_fetch_lock.
 func TestRustServer_concurrent_requests_share_one_hostname_fetch_lock(t *testing.T) {
-	handler := NewFaviconHandler()
-	first := handler.hostMutex("example.com")
-	second := handler.hostMutex("example.com")
+	handler := NewFaviconHandler(t.TempDir())
+	results := make(chan *sync.Mutex, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			results <- handler.hostMutex("example.com")
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
 	if first != second {
-		t.Fatal("favicon requests for one hostname did not share a lock")
+		t.Fatal("concurrent favicon requests for one hostname did not share a lock")
 	}
 }
 
 // Rust source: crates/noema-server/src/web/favicons.rs::cache_write_evicts_the_oldest_hostname.
 func TestRustServer_cache_write_evicts_the_oldest_hostname(t *testing.T) {
-	handler := NewFaviconHandler()
+	directory := t.TempDir()
+	handler := NewFaviconHandler(directory)
 	for index := 0; index <= faviconCacheLimit; index++ {
 		handler.writeOutcome(fmt.Sprintf("%d.example", index), faviconCachedMissing, nil, time.Unix(int64(index+1), 0))
 	}
-	if _, ok := handler.cache["0.example"]; ok {
+	if _, err := os.Stat(filepath.Join(directory, faviconCacheKey("0.example")+".json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("oldest favicon cache entry was retained")
 	}
-	if entry, ok := handler.cache["1024.example"]; !ok || entry.outcome != faviconCachedMissing {
+	if entry, fresh := handler.cacheEntry("1024.example", time.Unix(1025, 0)); !fresh || entry.outcome != faviconCachedMissing {
 		t.Fatal("newest favicon cache entry was evicted")
 	}
 }

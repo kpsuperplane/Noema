@@ -389,7 +389,7 @@ func runWithLoadedProviderConfig(
 	mux.Handle("GET /mcp/oauth/callback", mcpService.CallbackHandler())
 	mux.Handle("GET /adapter/oauth/callback", adapterService.OAuthCallbackHandler())
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
-	mux.Handle("GET /favicons/{hostname}", web.NewFaviconHandler())
+	mux.Handle("GET /favicons/{hostname}", web.NewFaviconHandler(paths.FaviconCacheDir()))
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{
 		Handler:           browserAuth.Handler(mux),

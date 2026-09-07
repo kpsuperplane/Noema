@@ -257,6 +257,9 @@ func taskLifecycleError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, errNoemaStoreUnavailable) {
+		return err
+	}
 	code, message := "work_unavailable", "Task authority is unavailable"
 	switch {
 	case errors.Is(err, store.ErrStaleRevision):

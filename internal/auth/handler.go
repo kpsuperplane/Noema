@@ -79,6 +79,13 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 			writeAuthError(w, http.StatusBadRequest, "invalid_authority")
 			return
 		}
+		if (r.URL.Path == "/graphql" && r.Method != http.MethodGet && r.Method != http.MethodPost) ||
+			(r.URL.Path == "/graphql/ws" && r.Method != http.MethodGet) ||
+			(r.URL.Path == "/graphql/schema.graphql" && r.Method != http.MethodGet) ||
+			(strings.HasPrefix(r.URL.Path, "/artifacts/versions/") && r.Method != http.MethodGet) {
+			http.NotFound(w, r)
+			return
+		}
 		if !s.config.DevNoAuth {
 			hasPasskey, err := s.sessions.store.HasPasskey(r.Context())
 			if err != nil {
@@ -579,6 +586,10 @@ func (s *Server) requireAuthenticated(
 		return browserSession{}, false
 	}
 	if !exists || browser.record.State != "authenticated" {
+		if strings.HasPrefix(r.URL.Path, "/artifacts/versions/") || strings.HasPrefix(r.URL.Path, "/favicons/") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return browserSession{}, false
+		}
 		writeAuthError(w, http.StatusUnauthorized, "authentication_required")
 		return browserSession{}, false
 	}

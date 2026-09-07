@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -120,23 +123,66 @@ func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
 func TestRustServer_websocket_capacity_rejects_excess_work(t *testing.T) {
 	server, _, _ := newAuthTest(t, false)
 	token, _, _ := seedPasskey(t, server, 30)
-	application := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	handler := server.Handler(application)
-	for range cap(server.wsSlots) {
-		server.wsSlots <- struct{}{}
+	server.wsSlots = make(chan struct{}, 1)
+	started := make(chan struct{})
+	released := make(chan struct{}, 2)
+	var accepted atomic.Int32
+	var startedOnce sync.Once
+	application := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		accepted.Add(1)
+		connection, err := websocket.Accept(w, request, &websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws"}})
+		if err != nil {
+			t.Errorf("WebSocket handshake: %v", err)
+			return
+		}
+		defer connection.CloseNow()
+		startedOnce.Do(func() { close(started) })
+		_, _, _ = connection.Read(context.Background())
+	})
+	network := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		before := accepted.Load()
+		server.Handler(application).ServeHTTP(w, request)
+		if accepted.Load() > before {
+			released <- struct{}{}
+		}
+	}))
+	t.Cleanup(network.Close)
+	server.config.Authority = strings.TrimPrefix(network.URL, "http://")
+	server.config.Origin = network.URL
+	cookie := server.sessions.cookieName + "=" + token
+	first, response, err := websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(network.URL, "http")+"/graphql/ws", &websocket.DialOptions{
+		Subprotocols: []string{"graphql-transport-ws"}, HTTPHeader: http.Header{"Cookie": []string{cookie}, "Origin": []string{server.config.Origin}},
+	})
+	if err != nil {
+		t.Fatalf("first WebSocket handshake: %v (%v)", err, response)
 	}
-	request := authRequest(http.MethodGet, "/graphql/ws", nil)
-	request.Header.Set("Upgrade", "websocket")
-	request.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: token})
-	if response := serve(handler, request); response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("full WebSocket capacity = %d", response.Code)
+	t.Cleanup(func() { _ = first.CloseNow() })
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first WebSocket did not start")
 	}
-	for range cap(server.wsSlots) {
-		<-server.wsSlots
+	_, response, err = websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(network.URL, "http")+"/graphql/ws", &websocket.DialOptions{
+		Subprotocols: []string{"graphql-transport-ws"}, HTTPHeader: http.Header{"Cookie": []string{cookie}, "Origin": []string{server.config.Origin}},
+	})
+	if err == nil || response == nil || response.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("full WebSocket capacity = %v (%v)", response, err)
 	}
-	if response := serve(handler, request); response.Code != http.StatusNoContent {
-		t.Fatalf("released WebSocket capacity = %d", response.Code)
+	_ = first.CloseNow()
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("released WebSocket did not finish")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	third, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(network.URL, "http")+"/graphql/ws", &websocket.DialOptions{
+		Subprotocols: []string{"graphql-transport-ws"}, HTTPHeader: http.Header{"Cookie": []string{cookie}, "Origin": []string{server.config.Origin}},
+	})
+	if err != nil {
+		t.Fatalf("released WebSocket capacity = %v (%v)", response, err)
+	}
+	_ = third.CloseNow()
 }
 
 // Rust source: crates/noema-server/src/web/native_oauth.rs::authorization_requires_s256_pkce_and_client_state.
@@ -296,7 +342,11 @@ func TestRustServer_browser_cookie_key_survives_session_security_reconstruction(
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstStore, err := store.Open(context.Background(), paths.Database())
+	databasePath := filepath.Join(paths.Root(), "db", "noema.sqlite3")
+	if err := os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	firstStore, err := store.Open(context.Background(), databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +359,7 @@ func TestRustServer_browser_cookie_key_survives_session_security_reconstruction(
 	if err := firstStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	restartedStore, err := store.Open(context.Background(), paths.Database())
+	restartedStore, err := store.Open(context.Background(), databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,16 +376,13 @@ func TestRustServer_browser_cookie_key_survives_session_security_reconstruction(
 // Rust source: crates/noema-server/src/web/session_store/tests.rs::capacity_rejects_new_sessions_without_evicting_active_sessions.
 func TestRustServer_capacity_rejects_new_sessions_without_evicting_active_sessions(t *testing.T) {
 	_, taskStore, _ := newAuthTest(t, false)
+	if err := taskStore.SetBrowserSessionCapacityForTesting(1); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	first := testAuthDigest("first-session")
 	if err := taskStore.CreateAnonymousSession(context.Background(), first, now); err != nil {
 		t.Fatal(err)
-	}
-	for index := 0; index < 1024-1; index++ {
-		digest := testAuthDigest(fmt.Sprintf("session-%d", index))
-		if err := taskStore.CreateAnonymousSession(context.Background(), digest, now); err != nil {
-			t.Fatalf("session %d: %v", index, err)
-		}
 	}
 	if err := taskStore.CreateAnonymousSession(context.Background(), testAuthDigest("overflow-session"), now); !errors.Is(err, store.ErrSessionFull) {
 		t.Fatalf("overflow session error = %v", err)
@@ -348,6 +395,9 @@ func TestRustServer_capacity_rejects_new_sessions_without_evicting_active_sessio
 // Rust source: crates/noema-server/src/web/session_store/tests.rs::expiry_cleanup_removes_sessions_and_announces_revocation.
 func TestRustServer_expiry_cleanup_removes_sessions_and_announces_revocation(t *testing.T) {
 	server, taskStore, _ := newAuthTest(t, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	revocations := taskStore.SubscribeBrowserSessionRevocations(ctx)
 	now := time.Now().UTC()
 	digest := testAuthDigest("expired-session")
 	if err := taskStore.CreateAnonymousSession(context.Background(), digest, now); err != nil {
@@ -365,7 +415,15 @@ func TestRustServer_expiry_cleanup_removes_sessions_and_announces_revocation(t *
 	}
 	revoked := make(chan struct{})
 	server.sessions.registerConnection(digest, func() { close(revoked) })
-	server.sessions.revokeAll(digests)
+	select {
+	case event := <-revocations:
+		if event != digest {
+			t.Fatalf("expired session revocation = %x, want %x", event, digest)
+		}
+		server.sessions.revoke(event)
+	case <-time.After(time.Second):
+		t.Fatal("store did not announce expired session revocation")
+	}
 	select {
 	case <-revoked:
 	default:
@@ -376,6 +434,9 @@ func TestRustServer_expiry_cleanup_removes_sessions_and_announces_revocation(t *
 // Rust source: crates/noema-server/src/web/session_store/tests.rs::deletion_is_targeted_and_announces_revocation.
 func TestRustServer_deletion_is_targeted_and_announces_revocation(t *testing.T) {
 	server, taskStore, _ := newAuthTest(t, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	revocations := taskStore.SubscribeBrowserSessionRevocations(ctx)
 	now := time.Now().UTC()
 	first, second := testAuthDigest("first-session"), testAuthDigest("second-session")
 	for _, digest := range [][32]byte{first, second} {
@@ -395,7 +456,15 @@ func TestRustServer_deletion_is_targeted_and_announces_revocation(t *testing.T) 
 	firstRevoked, secondRevoked := make(chan struct{}), make(chan struct{})
 	server.sessions.registerConnection(first, func() { close(firstRevoked) })
 	server.sessions.registerConnection(second, func() { close(secondRevoked) })
-	server.sessions.revoke(first)
+	select {
+	case event := <-revocations:
+		if event != first {
+			t.Fatalf("deleted session revocation = %x, want %x", event, first)
+		}
+		server.sessions.revoke(event)
+	case <-time.After(time.Second):
+		t.Fatal("store did not announce deleted session revocation")
+	}
 	select {
 	case <-firstRevoked:
 	default:
@@ -415,20 +484,30 @@ func TestRustServer_persistent_store_loads_the_same_session_after_reconstruction
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstStore, err := store.Open(context.Background(), paths.Database())
+	databasePath := filepath.Join(paths.Root(), "db", "noema.sqlite3")
+	if err := os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	firstStore, err := store.Open(context.Background(), databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
+	oldDigest := testAuthDigest("persistent-old-session")
 	digest := testAuthDigest("persistent-session")
-	if err := firstStore.CreateAnonymousSession(context.Background(), digest, now); err != nil {
+	if err := firstStore.CreateAnonymousSession(context.Background(), oldDigest, now); err != nil {
+		_ = firstStore.Close()
+		t.Fatal(err)
+	}
+	credential := authCredential(t, 52)
+	if err := firstStore.RegisterPasskey(context.Background(), credential, store.RegistrationInitial, oldDigest, digest, now); err != nil {
 		_ = firstStore.Close()
 		t.Fatal(err)
 	}
 	if err := firstStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := store.Open(context.Background(), paths.Database())
+	restarted, err := store.Open(context.Background(), databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +516,7 @@ func TestRustServer_persistent_store_loads_the_same_session_after_reconstruction
 	if err != nil || !exists {
 		t.Fatalf("reconstructed session = %#v, %v, %v", loaded, exists, err)
 	}
-	if loaded.State != "anonymous" || loaded.CreatedAt.IsZero() || !loaded.ExpiresAt.After(now) {
+	if loaded.State != "authenticated" || loaded.PasskeyID != credential.CredentialID || loaded.CreatedAt.IsZero() || !loaded.ExpiresAt.After(now) {
 		t.Fatalf("reconstructed record = %#v", loaded)
 	}
 }
@@ -446,7 +525,7 @@ func TestRustServer_persistent_store_loads_the_same_session_after_reconstruction
 func TestRustServer_favicon_route_requires_authentication_and_serves_cached_images(t *testing.T) {
 	server, _, _ := newAuthTest(t, false)
 	token, _, _ := seedPasskey(t, server, 31)
-	faviconHandler := webserver.NewFaviconHandler()
+	faviconHandler := webserver.NewFaviconHandler(t.TempDir())
 	faviconHandler.Seed("example.com", []byte("png"))
 	applicationMux := http.NewServeMux()
 	applicationMux.Handle("GET /favicons/{hostname}", faviconHandler)
@@ -763,41 +842,98 @@ func TestRustServer_recovery_keeps_origin_checks_and_rotates_rejected_candidates
 func TestRustServer_passkey_management_requires_auth_and_revokes_affected_sessions(t *testing.T) {
 	server, taskStore, _ := newAuthTest(t, false)
 	firstToken, firstDigest, first := seedPasskey(t, server, 38)
+	_, oldSecondDigest, err := server.sessions.newToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := taskStore.CreateAnonymousSession(context.Background(), oldSecondDigest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	secondToken, secondDigest, err := server.sessions.newToken()
 	if err != nil {
 		t.Fatal(err)
 	}
 	second := authCredential(t, 39)
-	if err := taskStore.RegisterPasskey(context.Background(), second, store.RegistrationCurrent, firstDigest, secondDigest, time.Now()); err != nil {
+	if err := taskStore.RegisterPasskey(context.Background(), second, store.RegistrationBypass, oldSecondDigest, secondDigest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	_ = firstToken
-	cookie := &http.Cookie{Name: server.sessions.cookieName, Value: secondToken}
+	firstCookie := &http.Cookie{Name: server.sessions.cookieName, Value: firstToken}
+	secondCookie := &http.Cookie{Name: server.sessions.cookieName, Value: secondToken}
+	started, returned := make(chan struct{}), make(chan struct{})
 	application := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if _, ok := BrowserSessionHash(request.Context()); !ok {
 			t.Error("authenticated request lost browser binding")
 		}
+		if isWebSocket(request) {
+			connection, err := websocket.Accept(w, request, &websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws"}})
+			if err != nil {
+				t.Errorf("passkey WebSocket handshake: %v", err)
+				return
+			}
+			defer connection.CloseNow()
+			close(started)
+			<-request.Context().Done()
+			close(returned)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	handler := server.Handler(application)
+	connection, stop := dialParityWebSocket(t, server, handler, firstCookie.String(), "")
+	defer stop()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("affected passkey session WebSocket did not start")
+	}
 	remove := authRequest(http.MethodPost, "/auth/passkey/remove", bytes.NewBufferString(fmt.Sprintf(`{"credentialId":%q}`, first.CredentialID)))
-	remove.AddCookie(cookie)
+	remove.Host = server.config.Authority
+	remove.Header.Set("Origin", server.config.Origin)
+	remove.AddCookie(firstCookie)
 	if response := serve(handler, remove); response.Code != http.StatusNoContent {
 		t.Fatalf("remove first passkey = %d %s", response.Code, response.Body.String())
 	}
+	_ = connection
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("removed passkey did not revoke its WebSocket session")
+	}
 	removeFinal := authRequest(http.MethodPost, "/auth/passkey/remove", bytes.NewBufferString(fmt.Sprintf(`{"credentialId":%q}`, second.CredentialID)))
-	removeFinal.AddCookie(cookie)
+	removeFinal.Host = server.config.Authority
+	removeFinal.Header.Set("Origin", server.config.Origin)
+	removeFinal.AddCookie(secondCookie)
 	if response := serve(handler, removeFinal); response.Code != http.StatusConflict {
 		t.Fatalf("remove final passkey = %d", response.Code)
 	}
-	if response := serve(handler, authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))); response.Code != http.StatusUnauthorized {
+	unauthenticated := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))
+	unauthenticated.Host = server.config.Authority
+	unauthenticated.Header.Set("Origin", server.config.Origin)
+	if response := serve(handler, unauthenticated); response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated GraphQL = %d", response.Code)
 	}
 	authenticated := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))
-	authenticated.AddCookie(cookie)
+	authenticated.Host = server.config.Authority
+	authenticated.Header.Set("Origin", server.config.Origin)
+	authenticated.AddCookie(secondCookie)
 	if response := serve(handler, authenticated); response.Code != http.StatusNoContent {
 		t.Fatalf("authenticated GraphQL = %d", response.Code)
 	}
+	logoutAll := authRequest(http.MethodPost, "/auth/logout/all", nil)
+	logoutAll.Host = server.config.Authority
+	logoutAll.Header.Set("Origin", server.config.Origin)
+	logoutAll.AddCookie(secondCookie)
+	if response := serve(handler, logoutAll); response.Code != http.StatusNoContent {
+		t.Fatalf("logout all = %d", response.Code)
+	}
+	authenticated = authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))
+	authenticated.Host = server.config.Authority
+	authenticated.Header.Set("Origin", server.config.Origin)
+	authenticated.AddCookie(secondCookie)
+	if response := serve(handler, authenticated); response.Code != http.StatusUnauthorized {
+		t.Fatalf("logout-all session = %d", response.Code)
+	}
+	_ = firstDigest
 }
 
 // Rust source: crates/noema-server/src/web/router/tests.rs::router_serves_schema_graphiql_and_spa_fallback.
@@ -840,7 +976,15 @@ func TestRustServer_router_serves_schema_graphiql_and_spa_fallback(t *testing.T)
 func TestRustServer_pwa_asset_responses_use_release_safe_headers(t *testing.T) {
 	directory := t.TempDir()
 	for _, name := range []string{"sw.js", "manifest.webmanifest", "pwa-192x192.png", "pwa-512x512.png", "apple-touch-icon.png"} {
-		if err := os.WriteFile(filepath.Join(directory, name), []byte("pwa asset"), 0o600); err != nil {
+		body := []byte("pwa asset")
+		if strings.HasSuffix(name, ".png") {
+			var encoded bytes.Buffer
+			if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+				t.Fatal(err)
+			}
+			body = encoded.Bytes()
+		}
+		if err := os.WriteFile(filepath.Join(directory, name), body, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -859,6 +1003,12 @@ func TestRustServer_pwa_asset_responses_use_release_safe_headers(t *testing.T) {
 		if response.Code != http.StatusOK || response.Header().Get("Content-Type") != test.contentType ||
 			response.Header().Get("Cache-Control") != "no-cache" || response.Header().Get("Service-Worker-Allowed") != test.worker {
 			t.Fatalf("%s response = %d %#v", test.name, response.Code, response.Header())
+		}
+		if strings.HasSuffix(test.name, ".png") {
+			decoded, format, err := image.Decode(bytes.NewReader(response.Body.Bytes()))
+			if err != nil || decoded == nil || format != "png" || decoded.Bounds().Dx() != 1 || decoded.Bounds().Dy() != 1 {
+				t.Fatalf("%s PNG = %v, %q, %v", test.name, decoded, format, err)
+			}
 		}
 	}
 }
@@ -901,6 +1051,28 @@ func TestRustServer_authenticated_http_and_websocket_ignore_client_identity_meta
 		}
 		defer connection.CloseNow()
 		close(started)
+		_, payload, err := connection.Read(request.Context())
+		if err != nil || !bytes.Contains(payload, []byte(`"connection_init"`)) {
+			t.Errorf("browser connection_init = %q, %v", payload, err)
+			return
+		}
+		if err := connection.Write(request.Context(), websocket.MessageText, []byte(`{"type":"connection_ack"}`)); err != nil {
+			t.Errorf("browser connection_ack: %v", err)
+			return
+		}
+		_, payload, err = connection.Read(request.Context())
+		if err != nil || !bytes.Contains(payload, []byte(`"subscribe"`)) {
+			t.Errorf("browser subscribe = %q, %v", payload, err)
+			return
+		}
+		if err := connection.Write(request.Context(), websocket.MessageText, []byte(`{"id":"principal","type":"next","payload":{"errors":[{"message":"Noema store is unavailable"}]}}`)); err != nil {
+			t.Errorf("browser subscription result: %v", err)
+			return
+		}
+		if err := connection.Write(request.Context(), websocket.MessageText, []byte(`{"id":"principal","type":"complete"}`)); err != nil {
+			t.Errorf("browser subscription complete: %v", err)
+			return
+		}
 		<-request.Context().Done()
 		close(returned)
 	})
@@ -910,12 +1082,27 @@ func TestRustServer_authenticated_http_and_websocket_ignore_client_identity_meta
 	if response := serve(handler, graphql); response.Code != http.StatusNoContent {
 		t.Fatalf("authenticated HTTP = %d", response.Code)
 	}
-	_, stop := dialParityWebSocket(t, server, handler, server.sessions.cookieName+"="+token, "")
+	connection, stop := dialParityWebSocket(t, server, handler, server.sessions.cookieName+"="+token, "")
 	defer stop()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("browser WebSocket did not start")
+	}
+	if err := connection.Write(context.Background(), websocket.MessageText, []byte(`{"type":"connection_init","payload":{"principal":{"subjectId":"attacker"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, payload, err := connection.Read(context.Background()); err != nil || string(payload) != `{"type":"connection_ack"}` {
+		t.Fatalf("browser connection ack = %q, %v", payload, err)
+	}
+	if err := connection.Write(context.Background(), websocket.MessageText, []byte(`{"id":"principal","type":"subscribe","payload":{"query":"subscription { tasksEvents(workspaceId: \"workspace:personal\") { cursor } }","extensions":{"principal":{"subjectId":"attacker"}}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, payload, err := connection.Read(context.Background()); err != nil || !bytes.Contains(payload, []byte("Noema store is unavailable")) {
+		t.Fatalf("browser subscription result = %q, %v", payload, err)
+	}
+	if _, payload, err := connection.Read(context.Background()); err != nil || !bytes.Contains(payload, []byte(`"complete"`)) {
+		t.Fatalf("browser subscription completion = %q, %v", payload, err)
 	}
 	server.sessions.revoke(digest)
 	select {
@@ -933,7 +1120,7 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	server, taskStore, _ := newAuthTest(t, false)
 	_, _, _ = seedPasskey(t, server, 40)
 	tokens := exchangeNativeTokens(t, server, taskStore, "rust-bearer")
-	faviconHandler := webserver.NewFaviconHandler()
+	faviconHandler := webserver.NewFaviconHandler(t.TempDir())
 	faviconHandler.Seed("example.com", []byte("png"))
 	started, returned := make(chan struct{}), make(chan struct{})
 	application := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -948,6 +1135,23 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 			}
 			defer connection.CloseNow()
 			close(started)
+			_, payload, err := connection.Read(request.Context())
+			if err != nil || !bytes.Contains(payload, []byte(`"connection_init"`)) {
+				t.Errorf("native connection_init = %q, %v", payload, err)
+				return
+			}
+			if err := connection.Write(request.Context(), websocket.MessageText, []byte(`{"type":"connection_ack"}`)); err != nil {
+				t.Errorf("native connection_ack: %v", err)
+				return
+			}
+			if _, payload, err = connection.Read(request.Context()); err != nil || !bytes.Contains(payload, []byte(`"subscribe"`)) {
+				t.Errorf("native subscribe = %q, %v", payload, err)
+				return
+			}
+			if err := connection.Write(request.Context(), websocket.MessageText, []byte(`{"id":"native","type":"next","payload":{"data":{"tasksEvents":{"cursor":"1"}}}}`)); err != nil {
+				t.Errorf("native subscription result: %v", err)
+				return
+			}
 			<-request.Context().Done()
 			close(returned)
 			return
@@ -981,12 +1185,24 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	if response := serve(handler, browser); response.Code != http.StatusForbidden {
 		t.Fatalf("browser request without Origin = %d", response.Code)
 	}
-	_, stop := dialParityWebSocket(t, server, handler, "", "Bearer "+tokens.AccessToken)
+	connection, stop := dialParityWebSocket(t, server, handler, "", "Bearer "+tokens.AccessToken)
 	defer stop()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("native WebSocket did not start")
+	}
+	if err := connection.Write(context.Background(), websocket.MessageText, []byte(`{"type":"connection_init"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, payload, err := connection.Read(context.Background()); err != nil || string(payload) != `{"type":"connection_ack"}` {
+		t.Fatalf("native connection ack = %q, %v", payload, err)
+	}
+	if err := connection.Write(context.Background(), websocket.MessageText, []byte(`{"id":"native","type":"subscribe","payload":{"query":"subscription { tasksEvents(workspaceId: \"workspace:personal\") { cursor } }"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, payload, err := connection.Read(context.Background()); err != nil || !bytes.Contains(payload, []byte(`"tasksEvents"`)) {
+		t.Fatalf("native subscription result = %q, %v", payload, err)
 	}
 	if _, err := server.RevokeClient(context.Background(), testDesktopClient); err != nil {
 		t.Fatal(err)
@@ -1000,7 +1216,8 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 
 // Rust source: crates/noema-server/src/web/router/tests.rs::router_preserves_oauth_and_plain_text_not_found_responses.
 func TestRustServer_router_preserves_oauth_and_plain_text_not_found_responses(t *testing.T) {
-	server, taskStore, paths := newAuthTest(t, true)
+	server, taskStore, paths := newAuthTest(t, false)
+	_, _, _ = seedPasskey(t, server, 53)
 	server.config.Authority = "localhost:3737"
 	server.config.Origin = "http://localhost:3737"
 	root, err := paths.Open()
@@ -1072,6 +1289,10 @@ func TestRustServer_router_preserves_oauth_and_plain_text_not_found_responses(t 
 		if test.method != http.MethodHead && response.Body.String() != "404 page not found\n" {
 			t.Fatalf("%s %s body = %q", test.method, test.path, response.Body.String())
 		}
+	}
+	artifactRequest := authRequest(http.MethodGet, "/artifacts/versions/missing/download", nil)
+	if response := serve(handler, artifactRequest); response.Code != http.StatusUnauthorized || response.Body.Len() != 0 {
+		t.Fatalf("unauthorized artifact download = %d %q", response.Code, response.Body.String())
 	}
 }
 

@@ -11,7 +11,31 @@ import (
 // Rust source: crates/noema-server/src/bin/noema_web.rs::application_runtime_supports_cold_iana_timezone_parsing.
 func TestRustServer_application_runtime_supports_cold_iana_timezone_parsing(t *testing.T) {
 	const timestamp = int64(1_786_472_647)
-	next, err := schedule.NextAtOrAfter("0 7 * * *", "America/Los_Angeles", time.Unix(timestamp, 0).UTC())
+	result := make(chan struct {
+		next time.Time
+		err  error
+	}, 1)
+	// The Go worker goroutine is the application-runtime equivalent of Rust's
+	// spawn_blocking call for this synchronous timezone parser.
+	go func() {
+		next, err := schedule.NextAtOrAfter("0 7 * * *", "America/Los_Angeles", time.Unix(timestamp, 0).UTC())
+		result <- struct {
+			next time.Time
+			err  error
+		}{next: next, err: err}
+	}()
+	var value struct {
+		next time.Time
+		err  error
+	}
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case value = <-result:
+	case <-timer.C:
+		t.Fatal("timezone parser task did not complete")
+	}
+	next, err := value.next, value.err
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -37,6 +37,16 @@ var (
 	ErrFinalPasskey = errors.New("final passkey cannot be removed")
 )
 
+// SetBrowserSessionCapacityForTesting bounds one store's browser authority.
+// It is used by parity tests that exercise the Rust capacity-one fixture.
+func (s *Store) SetBrowserSessionCapacityForTesting(capacity int) error {
+	if capacity < 1 {
+		return errors.New("browser session capacity must be positive")
+	}
+	s.sessionCapacity = capacity
+	return nil
+}
+
 // BrowserSession is one server-side browser authority record.
 type BrowserSession struct {
 	State           string
@@ -51,6 +61,36 @@ type HumanPasskey struct {
 	CredentialID   string
 	CredentialJSON string
 	CreatedAt      time.Time
+}
+
+// SubscribeBrowserSessionRevocations returns committed browser-session removals.
+// The channel is closed when ctx ends.
+func (s *Store) SubscribeBrowserSessionRevocations(ctx context.Context) <-chan [32]byte {
+	channel := make(chan [32]byte, 16)
+	s.sessionRevocationMu.Lock()
+	s.sessionRevocations[channel] = struct{}{}
+	s.sessionRevocationMu.Unlock()
+	go func() {
+		<-ctx.Done()
+		s.sessionRevocationMu.Lock()
+		delete(s.sessionRevocations, channel)
+		close(channel)
+		s.sessionRevocationMu.Unlock()
+	}()
+	return channel
+}
+
+func (s *Store) publishBrowserSessionRevocations(hashes [][32]byte) {
+	s.sessionRevocationMu.Lock()
+	defer s.sessionRevocationMu.Unlock()
+	for hash := range s.sessionRevocations {
+		for _, value := range hashes {
+			select {
+			case hash <- value:
+			default:
+			}
+		}
+	}
 }
 
 // RegistrationAuthority records the authority checked when registration starts.
@@ -109,7 +149,7 @@ func (s *Store) CreateAnonymousSession(ctx context.Context, digest [32]byte, now
 	if err := clearExpiredSessions(ctx, tx, now); err != nil {
 		return err
 	}
-	if err := requireSessionCapacity(ctx, tx); err != nil {
+	if err := s.requireSessionCapacity(ctx, tx); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -199,7 +239,7 @@ func (s *Store) RotateAnonymousSession(
 	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
 		return ErrSessionUnauthorized
 	}
-	if err := requireSessionCapacity(ctx, tx); err != nil {
+	if err := s.requireSessionCapacity(ctx, tx); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -256,7 +296,7 @@ ON CONFLICT(credential_id) DO NOTHING`, credential.CredentialID, credential.Cred
 	if _, err := tx.ExecContext(ctx, "DELETE FROM browser_sessions WHERE session_hash = ?", oldDigest[:]); err != nil {
 		return fmt.Errorf("rotate browser session: %w", err)
 	}
-	if err := insertAuthenticatedSession(ctx, tx, newDigest, credential.CredentialID, now); err != nil {
+	if err := insertAuthenticatedSession(ctx, tx, newDigest, credential.CredentialID, now, s.sessionCapacity); err != nil {
 		return err
 	}
 	if err := restoreNativeBrowserRequest(ctx, tx, newDigest, pending); err != nil {
@@ -310,7 +350,7 @@ WHERE credential_id = ? AND credential_json = ?`, replacementJSON, millis(now), 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM browser_sessions WHERE session_hash = ?", oldDigest[:]); err != nil {
 		return fmt.Errorf("rotate browser session: %w", err)
 	}
-	if err := insertAuthenticatedSession(ctx, tx, newDigest, credentialID, now); err != nil {
+	if err := insertAuthenticatedSession(ctx, tx, newDigest, credentialID, now, s.sessionCapacity); err != nil {
 		return err
 	}
 	if err := restoreNativeBrowserRequest(ctx, tx, newDigest, pending); err != nil {
@@ -364,13 +404,18 @@ func (s *Store) RemovePasskey(
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit passkey removal: %w", err)
 	}
+	s.publishBrowserSessionRevocations(hashes)
 	return hashes, nil
 }
 
 // DeleteBrowserSession revokes one browser authority.
 func (s *Store) DeleteBrowserSession(ctx context.Context, digest [32]byte) error {
-	if _, err := s.db.ExecContext(ctx, "DELETE FROM browser_sessions WHERE session_hash = ?", digest[:]); err != nil {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM browser_sessions WHERE session_hash = ?", digest[:])
+	if err != nil {
 		return fmt.Errorf("delete browser session: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected != 0 {
+		s.publishBrowserSessionRevocations([][32]byte{digest})
 	}
 	return nil
 }
@@ -392,6 +437,7 @@ func (s *Store) DeleteAllBrowserSessions(ctx context.Context) ([][32]byte, error
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit browser logout: %w", err)
 	}
+	s.publishBrowserSessionRevocations(hashes)
 	return hashes, nil
 }
 
@@ -412,6 +458,7 @@ func (s *Store) DeleteExpiredBrowserSessions(ctx context.Context, now time.Time)
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit session expiry: %w", err)
 	}
+	s.publishBrowserSessionRevocations(hashes)
 	return hashes, nil
 }
 
@@ -503,11 +550,12 @@ func insertAuthenticatedSession(
 	digest [32]byte,
 	credentialID string,
 	now time.Time,
+	capacity int,
 ) error {
 	if err := clearExpiredSessions(ctx, tx, now); err != nil {
 		return err
 	}
-	if err := requireSessionCapacity(ctx, tx); err != nil {
+	if err := requireSessionCapacity(ctx, tx, capacity); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -528,12 +576,16 @@ func clearExpiredSessions(ctx context.Context, tx bun.Tx, now time.Time) error {
 	return nil
 }
 
-func requireSessionCapacity(ctx context.Context, tx bun.Tx) error {
+func (s *Store) requireSessionCapacity(ctx context.Context, tx bun.Tx) error {
+	return requireSessionCapacity(ctx, tx, s.sessionCapacity)
+}
+
+func requireSessionCapacity(ctx context.Context, tx bun.Tx, capacity int) error {
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM browser_sessions").Scan(&count); err != nil {
 		return fmt.Errorf("count browser sessions: %w", err)
 	}
-	if count >= browserSessionCapacity {
+	if count >= capacity {
 		return ErrSessionFull
 	}
 	return nil

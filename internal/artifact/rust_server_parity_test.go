@@ -56,28 +56,17 @@ func TestRustServer_artifact_download_adapter_sanitizes_response_headers(t *test
 	service, database := newServerArtifactService(t)
 	defer database.Close()
 	unsafeFilename := "report\"\r\nx-injected: yes.md"
-	if err := SafeFilename(unsafeFilename); err == nil {
-		t.Fatal("unsafe filename was accepted by the artifact boundary")
-	}
-	if got := contentDisposition("attachment", unsafeFilename); got != `attachment; filename="report\"__x-injected: yes.md"` {
-		t.Fatalf("sanitized disposition = %q", got)
-	}
 	mediaType := "text/markdown\r\nx-injected: yes"
-	created, err := service.CreateLocal(context.Background(), LocalInput{
-		Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: serverArtifactTaskID},
-		Title: "Report", Kind: "source_file", Filename: "report.md",
-		Bytes: []byte("report"), MediaType: &mediaType, CreatedByActorID: "human:local",
-	})
-	if err != nil {
-		t.Fatal(err)
+	service.testAuthorizedFile = func(_ context.Context, _ string) (File, bool, error) {
+		return File{Filename: unsafeFilename, MediaType: mediaType, Bytes: []byte("report")}, true, nil
 	}
 	response := httptest.NewRecorder()
-	service.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, DownloadURL(created.CurrentVersion.ID), nil))
+	service.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, DownloadURL("artifact_version:server-parity"), nil))
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/octet-stream" ||
 		response.Body.String() != "report" {
 		t.Fatalf("download response = %d %q %#v", response.Code, response.Body.String(), response.Header())
 	}
-	if response.Header().Get("Content-Disposition") != `attachment; filename="report.md"` {
+	if response.Header().Get("Content-Disposition") != `attachment; filename="report\"__x-injected: yes.md"` {
 		t.Fatalf("download disposition = %q", response.Header().Get("Content-Disposition"))
 	}
 	if response.Header().Get("X-Injected") != "" {

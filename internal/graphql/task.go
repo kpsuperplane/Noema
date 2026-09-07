@@ -20,6 +20,8 @@ const personalWorkspaceID = "workspace:personal"
 
 const taskDocumentPreviewLimit = 280
 
+var errNoemaStoreUnavailable = errors.New("Noema store is unavailable")
+
 // exactU64 is the GraphQL integer boundary for persisted unsigned sequences.
 func exactU64(value uint64) (int64, error) {
 	const maxInt64 = uint64(^uint64(0) >> 1)
@@ -267,6 +269,9 @@ func taskResultUTF16Len(value string) int {
 }
 
 func (r *Resolver) task(ctx context.Context, taskID string) (*model.TaskDetail, error) {
+	if r.Store == nil {
+		return nil, errNoemaStoreUnavailable
+	}
 	task, err := r.Store.Task(ctx, taskID)
 	if err != nil {
 		return nil, err

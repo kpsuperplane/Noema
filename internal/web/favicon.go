@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -16,6 +18,9 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,16 +55,16 @@ func (failure faviconFailure) Error() string { return "favicon unavailable" }
 
 type faviconHandler struct {
 	mu       sync.Mutex
-	cache    map[string]faviconCacheEntry
+	cacheDir string
 	hostLock map[string]*sync.Mutex
 }
 
-type faviconCacheOutcome byte
+type faviconCacheOutcome string
 
 const (
-	faviconAvailable faviconCacheOutcome = iota + 1
-	faviconCachedMissing
-	faviconCachedTransient
+	faviconAvailable       faviconCacheOutcome = "available"
+	faviconCachedMissing   faviconCacheOutcome = "missing"
+	faviconCachedTransient faviconCacheOutcome = "transient"
 )
 
 type faviconCacheEntry struct {
@@ -76,8 +81,8 @@ type faviconResponse struct {
 }
 
 // NewFaviconHandler serves normalized public-site icons from one bounded cache.
-func NewFaviconHandler() *faviconHandler {
-	return &faviconHandler{cache: make(map[string]faviconCacheEntry), hostLock: make(map[string]*sync.Mutex)}
+func NewFaviconHandler(cacheDir string) *faviconHandler {
+	return &faviconHandler{cacheDir: cacheDir, hostLock: make(map[string]*sync.Mutex)}
 }
 
 // Seed primes one handler with an already normalized icon.
@@ -163,17 +168,19 @@ func (h *faviconHandler) writeResponse(w http.ResponseWriter, r *http.Request, b
 func normalizeFaviconHostname(raw string) (string, error) {
 	raw = strings.TrimSuffix(strings.TrimSpace(raw), ".")
 	if raw == "" || len(raw) > 253 || strings.ContainsAny(raw, "/\\:@") {
-		return "", errors.New("invalid hostname")
+		return "", errInvalidFaviconHostname
 	}
 	if _, err := netip.ParseAddr(raw); err == nil {
-		return "", errors.New("IP addresses are unavailable")
+		return "", errInvalidFaviconHostname
 	}
 	hostname, err := idna.Lookup.ToASCII(raw)
 	if err != nil || len(hostname) > 253 {
-		return "", errors.New("invalid hostname")
+		return "", errInvalidFaviconHostname
 	}
 	return strings.ToLower(hostname), nil
 }
+
+var errInvalidFaviconHostname = errors.New("invalid favicon hostname")
 
 func (h *faviconHandler) read(hostname string) []byte {
 	entry, _ := h.cacheEntry(hostname, time.Now())
@@ -190,17 +197,18 @@ func (h *faviconHandler) write(hostname string, body []byte) {
 func (h *faviconHandler) writeOutcome(hostname string, outcome faviconCacheOutcome, body []byte, now time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, exists := h.cache[hostname]; !exists && len(h.cache) >= faviconCacheLimit {
-		victim := ""
-		var oldest time.Time
-		for key, value := range h.cache {
-			if victim == "" || value.fetchedAt.Before(oldest) || value.fetchedAt.Equal(oldest) && key < victim {
-				victim, oldest = key, value.fetchedAt
-			}
+	if err := os.MkdirAll(h.cacheDir, 0o700); err != nil {
+		return
+	}
+	_ = os.Chmod(h.cacheDir, 0o700)
+	key := faviconCacheKey(hostname)
+	pngPath := filepath.Join(h.cacheDir, key+".png")
+	if outcome == faviconAvailable {
+		if err := writeFaviconCacheFile(pngPath, body); err != nil {
+			return
 		}
-		if victim != "" {
-			delete(h.cache, victim)
-		}
+	} else {
+		_ = os.Remove(pngPath)
 	}
 	ttl := faviconPositiveTTL
 	if outcome == faviconCachedMissing {
@@ -208,17 +216,35 @@ func (h *faviconHandler) writeOutcome(hostname string, outcome faviconCacheOutco
 	} else if outcome == faviconCachedTransient {
 		ttl = faviconTransientTTL
 	}
-	h.cache[hostname] = faviconCacheEntry{
-		outcome: outcome, body: append([]byte(nil), body...), fetchedAt: now, expiresAt: now.Add(ttl),
+	metadata := faviconCacheMetadata{
+		Hostname: hostname, Outcome: outcome, FetchedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix(),
 	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil || writeFaviconCacheFile(filepath.Join(h.cacheDir, key+".json"), encoded) != nil {
+		return
+	}
+	evictFaviconCache(h.cacheDir)
 }
 
 func (h *faviconHandler) cacheEntry(hostname string, now time.Time) (faviconCacheEntry, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	entry, ok := h.cache[hostname]
-	if !ok {
+	key := faviconCacheKey(hostname)
+	metadataBytes, err := os.ReadFile(filepath.Join(h.cacheDir, key+".json"))
+	if err != nil {
 		return faviconCacheEntry{}, false
+	}
+	var metadata faviconCacheMetadata
+	if err := json.Unmarshal(metadataBytes, &metadata); err != nil || metadata.Hostname != hostname {
+		return faviconCacheEntry{}, false
+	}
+	entry := faviconCacheEntry{
+		outcome: metadata.Outcome, fetchedAt: time.Unix(metadata.FetchedAt, 0), expiresAt: time.Unix(metadata.ExpiresAt, 0),
+	}
+	if metadata.Outcome == faviconAvailable {
+		body, err := os.ReadFile(filepath.Join(h.cacheDir, key+".png"))
+		if err != nil {
+			return faviconCacheEntry{}, false
+		}
+		entry.body = body
 	}
 	return entry, entry.expiresAt.After(now)
 }
@@ -232,6 +258,83 @@ func (h *faviconHandler) hostMutex(hostname string) *sync.Mutex {
 	lock := &sync.Mutex{}
 	h.hostLock[hostname] = lock
 	return lock
+}
+
+type faviconCacheMetadata struct {
+	Hostname  string              `json:"hostname"`
+	Outcome   faviconCacheOutcome `json:"outcome"`
+	FetchedAt int64               `json:"fetched_at"`
+	ExpiresAt int64               `json:"expires_at"`
+}
+
+func faviconCacheKey(hostname string) string {
+	digest := sha256.Sum256([]byte(hostname))
+	return hex.EncodeToString(digest[:])
+}
+
+func writeFaviconCacheFile(path string, body []byte) error {
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".favicon-*tmp")
+	if err != nil {
+		return err
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(body); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryName, path)
+}
+
+func evictFaviconCache(directory string) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return
+	}
+	type cachedMetadata struct {
+		fetchedAt int64
+		path      string
+	}
+	metadata := make([]cachedMetadata, 0)
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		body, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var value faviconCacheMetadata
+		if json.Unmarshal(body, &value) == nil {
+			metadata = append(metadata, cachedMetadata{fetchedAt: value.FetchedAt, path: path})
+		}
+	}
+	if len(metadata) <= faviconCacheLimit {
+		return
+	}
+	sort.Slice(metadata, func(i, j int) bool {
+		if metadata[i].fetchedAt != metadata[j].fetchedAt {
+			return metadata[i].fetchedAt < metadata[j].fetchedAt
+		}
+		return metadata[i].path < metadata[j].path
+	})
+	for _, value := range metadata[:len(metadata)-faviconCacheLimit] {
+		_ = os.Remove(value.path)
+		_ = os.Remove(strings.TrimSuffix(value.path, ".json") + ".png")
+	}
 }
 
 func fetchFavicon(ctx context.Context, hostname string) ([]byte, error) {
