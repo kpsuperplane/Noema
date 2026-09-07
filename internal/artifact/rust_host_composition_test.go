@@ -62,7 +62,8 @@ func (s *rustHostBarrierMetadataStore) AuthorizedLocalArtifactVersion(ctx contex
 
 func runRustHostAppendRace(t *testing.T, taskOwner bool) {
 	t.Helper()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
 	if err != nil {
 		t.Fatal(err)
@@ -148,9 +149,28 @@ func runRustHostAppendRace(t *testing.T, taskOwner bool) {
 			results <- appendResult{version: version, err: err, bytes: contender.bytes}
 		}()
 	}
-	loaded.Wait()
+	loadedDone := make(chan struct{})
+	go func() {
+		loaded.Wait()
+		close(loadedDone)
+	}()
+	select {
+	case <-loadedDone:
+	case <-ctx.Done():
+		close(release)
+		t.Fatalf("append race metadata barrier did not load both targets: %v", ctx.Err())
+	}
 	close(release)
-	group.Wait()
+	groupDone := make(chan struct{})
+	go func() {
+		group.Wait()
+		close(groupDone)
+	}()
+	select {
+	case <-groupDone:
+	case <-ctx.Done():
+		t.Fatalf("append race did not finish within five seconds: %v", ctx.Err())
+	}
 	close(results)
 
 	var winner appendResult

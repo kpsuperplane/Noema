@@ -54,7 +54,7 @@ func TestRustHost_fresh_unresolvable_local_default_starts_onboarding_without_an_
 	}
 	t.Setenv(home.EnvironmentName, paths.Root())
 	t.Setenv("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "false")
-	if err := runHostForRustTest(t); err != nil {
+	if err := runHostForRustTest(t, &providerConfig); err != nil {
 		t.Fatalf("startup = %v", err)
 	}
 	database, err := store.Open(context.Background(), paths.Database())
@@ -92,7 +92,7 @@ func TestRustHost_startup_entrypoint_child(t *testing.T) {
 	}
 	os.Setenv("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "false")
 	if mode == "process_env" {
-		if err := runHostForRustTest(t); err != nil {
+		if err := runHostForRustTest(t, nil); err != nil {
 			t.Fatalf("process environment startup = %v", err)
 		}
 		config, err := os.ReadFile(paths.Config())
@@ -170,7 +170,7 @@ func runStartupEntryPointChild(t *testing.T, mode string) {
 	}
 }
 
-func runHostForRustTest(t *testing.T) error {
+func runHostForRustTest(t *testing.T, configuredProvider *auth.ResolvedProviderConfig) error {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -184,7 +184,7 @@ func runHostForRustTest(t *testing.T) error {
 	defer cancel()
 	output := &rustHostReadyWriter{ready: make(chan struct{})}
 	result := make(chan error, 1)
-	go func() { result <- run(ctx, address, output, nil) }()
+	go func() { result <- runWithLoadedProviderConfig(ctx, address, output, nil, nil, configuredProvider) }()
 	select {
 	case <-output.ready:
 		cancel()
@@ -202,21 +202,29 @@ func runHostForRustTest(t *testing.T) error {
 
 func runLoadedHostForRustTest(t *testing.T, config auth.Config) error {
 	t.Helper()
-	if config.Authority != "localhost:4848" || config.Origin != "http://localhost:4848" ||
-		config.RPID != "localhost" || config.ListenAddress != "127.0.0.1:4848" ||
-		config.Secure || config.DevNoAuth || config.GraphiQL || config.LocalGraphQLSocket ||
-		config.BrowserMaxSessions != 2 || config.BrowserMaxOldSpaceMB != 1024 {
-		return fmt.Errorf("loaded web config = %#v", config)
-	}
-	output := &rustHostReadyWriter{ready: make(chan struct{})}
+	output := &rustHostReadyWriter{ready: make(chan struct{}), observed: make(chan auth.Config, 1)}
 	result := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { result <- runWithLoadedConfig(ctx, config.ListenAddress, output, nil, &config) }()
 	select {
 	case <-output.ready:
-		if !strings.Contains(output.String(), config.ListenAddress) {
-			return fmt.Errorf("loaded startup address = %q, want %q", output.String(), config.ListenAddress)
+		var observed auth.Config
+		select {
+		case observed = <-output.observed:
+		case <-time.After(10 * time.Second):
+			return fmt.Errorf("loaded host did not expose its assembled web config")
+		}
+		if observed.Authority != config.Authority || observed.Origin != config.Origin ||
+			observed.RPID != config.RPID || observed.ListenAddress != config.ListenAddress ||
+			observed.Secure != config.Secure || observed.DevNoAuth != config.DevNoAuth ||
+			observed.GraphiQL != config.GraphiQL || observed.LocalGraphQLSocket != config.LocalGraphQLSocket ||
+			observed.BrowserMaxSessions != config.BrowserMaxSessions ||
+			observed.BrowserMaxOldSpaceMB != config.BrowserMaxOldSpaceMB {
+			return fmt.Errorf("assembled loaded web config = %#v, want %#v", observed, config)
+		}
+		if !strings.Contains(output.String(), observed.ListenAddress) {
+			return fmt.Errorf("loaded startup address = %q, want %q", output.String(), observed.ListenAddress)
 		}
 		cancel()
 	case <-time.After(10 * time.Second):
@@ -232,9 +240,16 @@ func runLoadedHostForRustTest(t *testing.T, config auth.Config) error {
 }
 
 type rustHostReadyWriter struct {
-	ready  chan struct{}
-	once   sync.Once
-	buffer bytes.Buffer
+	ready    chan struct{}
+	observed chan auth.Config
+	once     sync.Once
+	buffer   bytes.Buffer
+}
+
+func (w *rustHostReadyWriter) ObserveAuthConfig(config auth.Config) {
+	if w.observed != nil {
+		w.observed <- config
+	}
 }
 
 func (w *rustHostReadyWriter) Write(value []byte) (int, error) {

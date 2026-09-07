@@ -4,12 +4,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/kpsuperplane/noema/internal/foundation"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
 // Rust source: crates/noema-host/src/composition/tests.rs:157::configured_foundation_bridge_establishes_default_readiness
@@ -27,24 +28,26 @@ done
 	if err := os.WriteFile(bridgePath, []byte(bridge), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := home.FromRoot(filepath.Join(root, "home"))
+	homeRoot := filepath.Join(root, "home")
+	paths, err := home.FromRoot(homeRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := home.Initialize(paths, []byte(home.DefaultConfigYAML)); err != nil {
+	config := fmt.Sprintf("provider: foundation_local\nfoundation_local:\n  default_profile: foundation-live\n  bridge_path: %s\nweb:\n  local_graphql_socket: false\n", bridgePath)
+	if err := home.AtomicWritePrivate(paths.Config(), []byte(config)); err != nil {
 		t.Fatal(err)
 	}
-	host, err := foundation.AssembleHost(context.Background(), paths, bridgePath, "foundation-live")
-	if err != nil {
+	t.Setenv(home.EnvironmentName, homeRoot)
+	t.Setenv("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "false")
+	if err := runHostForRustTest(t, nil); err != nil {
 		t.Fatalf("start configured Foundation host: %v", err)
 	}
-	shutdown := false
-	t.Cleanup(func() {
-		if !shutdown {
-			_ = host.Shutdown()
-		}
-	})
-	preference, err := host.Store.DefaultModelPreference(context.Background())
+	database, err := store.Open(context.Background(), paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	preference, err := database.DefaultModelPreference(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +60,4 @@ done
 	if preference.ModelProfile != "foundation-live" {
 		t.Fatalf("Foundation default profile = %q", preference.ModelProfile)
 	}
-	if err := host.Shutdown(); err != nil {
-		t.Fatal(err)
-	}
-	shutdown = true
 }

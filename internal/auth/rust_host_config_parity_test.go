@@ -451,7 +451,7 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 		{name: "top-level scalar", body: "null\n", want: "config.yaml must contain a mapping"},
 		{name: "invalid web host", body: "web:\n  host: example.com\n", want: "web.host must be a numeric IP address"},
 		{name: "zero port", body: "web:\n  port: 0\n", want: "config.yaml field web.port must be an integer from 1 through 65535"},
-		{name: "browser sessions too high", body: "browser:\n  max_sessions: 9\n", want: "config.yaml field browser.max_sessions is invalid"},
+		{name: "browser sessions too high", body: "browser:\n  max_sessions: 9\n", want: "invalid integer value for browser.max_sessions"},
 		{name: "invalid env boolean", body: "web: {}\n", env: map[string]string{"NOEMA_WEB__GRAPHIQL": "sometimes"}, want: "NOEMA_WEB__GRAPHIQL must be true or false"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -482,7 +482,9 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 		t.Fatal("missing explicit config was accepted")
 	}
 	var configErr *ProviderConfigError
-	if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigFileNotFound {
+	expectedMissingPath := filepath.Join(missingExplicit.Root(), "missing-config.yaml")
+	if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigFileNotFound ||
+		configErr.Path != expectedMissingPath || err.Error() != "config file not found: "+expectedMissingPath {
 		t.Fatalf("missing explicit config error = %v", err)
 	}
 
@@ -521,8 +523,14 @@ func TestRustHost_configuration_validation_contracts(t *testing.T) {
 		"NOEMA_BROWSER__MAX_OLD_SPACE_MB": "255",
 	} {
 		t.Setenv(name, value)
-		if _, _, err := LoadConfig(validPaths, "127.0.0.1:3737"); err == nil || !strings.Contains(err.Error(), name) {
+		if _, _, err := LoadConfig(validPaths, "127.0.0.1:3737"); err == nil {
 			t.Fatalf("invalid browser limit %s=%s error = %v", name, value, err)
+		} else {
+			var configErr *ProviderConfigError
+			if !errors.As(err, &configErr) || configErr.Kind != ProviderConfigInvalidNumber ||
+				configErr.Path != validPaths.Config() || configErr.Name != name || configErr.Value != value {
+				t.Fatalf("invalid browser limit %s=%s error = %v", name, value, err)
+			}
 		}
 		t.Setenv("NOEMA_BROWSER__MAX_SESSIONS", "4")
 		t.Setenv("NOEMA_BROWSER__MAX_OLD_SPACE_MB", "2048")

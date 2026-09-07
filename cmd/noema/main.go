@@ -21,6 +21,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/diagnostics"
+	"github.com/kpsuperplane/noema/internal/foundation"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/localmodel"
@@ -96,6 +97,19 @@ func run(ctx context.Context, address string, output io.Writer, desktop *desktop
 // runWithLoadedConfig starts the host with a caller-owned web configuration.
 // A nil configuration loads the process configuration after home setup.
 func runWithLoadedConfig(ctx context.Context, address string, output io.Writer, desktop *desktopOptions, loadedConfig *auth.Config) error {
+	return runWithLoadedProviderConfig(ctx, address, output, desktop, loadedConfig, nil)
+}
+
+// runWithLoadedProviderConfig starts the normal host composition path with an
+// optional provider resolution supplied by its caller.
+func runWithLoadedProviderConfig(
+	ctx context.Context,
+	address string,
+	output io.Writer,
+	desktop *desktopOptions,
+	loadedConfig *auth.Config,
+	configuredProvider *auth.ResolvedProviderConfig,
+) error {
 	environmentProvider, err := readOpenAIEnvironment()
 	if err != nil {
 		return err
@@ -113,6 +127,13 @@ func runWithLoadedConfig(ctx context.Context, address string, output io.Writer, 
 	}
 	if err := home.Initialize(paths, initialConfig); err != nil {
 		return err
+	}
+	if loadedConfig == nil && configuredProvider == nil {
+		resolved, resolveErr := auth.ResolveProviderConfig(paths, "")
+		if resolveErr != nil {
+			return resolveErr
+		}
+		configuredProvider = &resolved
 	}
 	root, err := paths.Open()
 	if err != nil {
@@ -220,6 +241,11 @@ func runWithLoadedConfig(ctx context.Context, address string, output io.Writer, 
 	}
 	if err := providerAccounts.Initialize(ctx, time.Now()); err != nil {
 		return fmt.Errorf("initialize provider accounts: %w", err)
+	}
+	if configuredProvider != nil {
+		if err := configureProviderComposition(ctx, taskStore, *configuredProvider, time.Now()); err != nil {
+			return fmt.Errorf("configure provider composition: %w", err)
+		}
 	}
 	if err := configureEnvironmentProvider(ctx, providerAccounts, taskStore, environmentProvider, time.Now()); err != nil {
 		return fmt.Errorf("configure environment provider: %w", err)
@@ -393,6 +419,7 @@ func runWithLoadedConfig(ctx context.Context, address string, output io.Writer, 
 	go func() {
 		serveResult <- server.Serve(listener)
 	}()
+	observeAuthConfig(output, authConfig)
 	if desktop == nil {
 		fmt.Fprintf(output, "Noema listening on %s\n", listener.Addr())
 	} else if err := json.NewEncoder(output).Encode(map[string]string{"type": "ready", "origin": authConfig.Origin}); err != nil {
@@ -431,6 +458,44 @@ func runWithLoadedConfig(ctx context.Context, address string, output io.Writer, 
 			return errors.New("local GraphQL server stopped")
 		}
 		return fmt.Errorf("serve local GraphQL: %w", err)
+	}
+}
+
+func configureProviderComposition(ctx context.Context, database *store.Store, configured auth.ResolvedProviderConfig, now time.Time) error {
+	switch configured.Provider {
+	case "foundation_local":
+		return foundation.ConfigureDefault(ctx, database, configured.FoundationLocal.BridgePath, configured.FoundationLocal.DefaultProfile, now)
+	case "local_models":
+		installations, err := database.LocalModelInstallations(ctx)
+		if err != nil {
+			return err
+		}
+		for _, installation := range installations {
+			if !installation.Active || installation.ModelID != configured.LocalModels.DefaultModel {
+				continue
+			}
+			if err := database.SetLocalModelAccountStatus(ctx, provider.StatusAuthenticated, "", "", now); err != nil {
+				return err
+			}
+			_, err := database.SaveDefaultModelPreference(ctx, store.ModelAssignment{
+				ProviderKind:      "local_models",
+				ProviderAccountID: "provider_account:local_models:default",
+				SelectionMode:     store.ModelSelectionExplicitProfile,
+				ModelProfile:      installation.ModelID,
+			}, now)
+			return err
+		}
+	}
+	return nil
+}
+
+type authConfigObserver interface {
+	ObserveAuthConfig(auth.Config)
+}
+
+func observeAuthConfig(output io.Writer, config auth.Config) {
+	if observer, ok := output.(authConfigObserver); ok {
+		observer.ObserveAuthConfig(config)
 	}
 }
 

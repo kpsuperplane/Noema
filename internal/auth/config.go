@@ -125,11 +125,11 @@ func loadConfig(paths home.Paths, listenAddress string, ensureRecovery bool) (Co
 			return Config{}, nil, errors.New("config.yaml field browser must be a mapping")
 		}
 	}
-	browserMaxSessions, err := configBoundedInt(browser, "max_sessions", 2, 1, 8, "browser.max_sessions")
+	browserMaxSessions, err := configBoundedInt(browser, "max_sessions", 2, 1, 8, "browser.max_sessions", paths.Config())
 	if err != nil {
 		return Config{}, nil, err
 	}
-	browserOldSpace, err := configBoundedInt(browser, "max_old_space_mb", 1024, 256, 4096, "browser.max_old_space_mb")
+	browserOldSpace, err := configBoundedInt(browser, "max_old_space_mb", 1024, 256, 4096, "browser.max_old_space_mb", paths.Config())
 	if err != nil {
 		return Config{}, nil, err
 	}
@@ -141,7 +141,7 @@ func loadConfig(paths home.Paths, listenAddress string, ensureRecovery bool) (Co
 				minimum, maximum = 256, 4096
 			}
 			if parseErr != nil || parsed < minimum || parsed > maximum {
-				return Config{}, nil, fmt.Errorf("%s is invalid", name)
+				return Config{}, nil, &ProviderConfigError{Kind: ProviderConfigInvalidNumber, Path: paths.Config(), Name: name, Value: raw}
 			}
 			*value = parsed
 		}
@@ -250,7 +250,7 @@ func loadConfig(paths home.Paths, listenAddress string, ensureRecovery bool) (Co
 	return config, &Recovery{path: paths.Config()}, nil
 }
 
-func configBoundedInt(values map[string]any, key string, fallback, minimum, maximum int, field string) (int, error) {
+func configBoundedInt(values map[string]any, key string, fallback, minimum, maximum int, field, path string) (int, error) {
 	raw, exists := values[key]
 	if !exists {
 		return fallback, nil
@@ -262,7 +262,7 @@ func configBoundedInt(values map[string]any, key string, fallback, minimum, maxi
 		}
 	}
 	if !ok || value < minimum || value > maximum {
-		return 0, fmt.Errorf("config.yaml field %s is invalid", field)
+		return 0, &ProviderConfigError{Kind: ProviderConfigInvalidNumber, Path: path, Name: field, Value: fmt.Sprint(raw)}
 	}
 	return value, nil
 }
