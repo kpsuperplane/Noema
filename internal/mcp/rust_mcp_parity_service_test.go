@@ -15,9 +15,11 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -29,20 +31,36 @@ func TestRustMCP_SetupSecretPersistenceAndCompensationContracts(t *testing.T) {
 	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "read", Description: "Read docs", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
 		return nil, map[string]any{"ok": true}, nil
 	})
-	server := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	streamable := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil)
+	var failureMode atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if failureMode.Load() == 1 {
+			http.Error(w, "credentials rejected", http.StatusUnauthorized)
+			return
+		}
+		streamable.ServeHTTP(w, request)
+	}))
 	t.Cleanup(server.Close)
-	paths, database, service := newMCPParityService(t, false)
+	paths, _, service := newMCPParityService(t, false)
 	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Remote", TransportKind: "streamable_http", URL: server.URL, AuthPreference: "USE_ANONYMOUS", Headers: map[string]string{}})
 	if err != nil || created.Server == nil || created.Status != "ready_for_policy" || created.Discovered != 1 {
 		t.Fatalf("initial setup = %#v, %v", created, err)
 	}
 	serverRecord := *created.Server
-	if serverRecord.ToolCount != 1 || serverRecord.SafeConfig == nil || strings.Contains(string(serverRecord.SafeConfig), "secret") {
+	if serverRecord.ToolCount != 1 || serverRecord.SafeConfig == nil || strings.Contains(string(serverRecord.SafeConfig), "Bearer") {
 		t.Fatalf("persisted setup = %#v", serverRecord)
 	}
-	added, err := service.AddConnection(t.Context(), SetupInput{DefinitionID: serverRecord.DefinitionID, DefinitionRevision: serverRecord.DefinitionRevision, ConnectionLabel: "Work", AuthPreference: "USE_ANONYMOUS"})
+	added, err := service.AddConnection(t.Context(), SetupInput{
+		DefinitionID: serverRecord.DefinitionID, DefinitionRevision: serverRecord.DefinitionRevision,
+		ConnectionLabel: "Work", AuthPreference: "USE_ANONYMOUS",
+		Secrets: SecretMaterial{Headers: map[string]string{"Authorization": "Bearer work-secret"}},
+	})
 	if err != nil || added.Server == nil || added.Server.ID == serverRecord.ID || added.Server.ConnectionLabel != "Work" {
 		t.Fatalf("independent connection = %#v, %v", added, err)
+	}
+	workSecret, err := service.secrets.loadConnection(added.Server.ID)
+	if err != nil || workSecret.Headers["Authorization"] != "Bearer work-secret" {
+		t.Fatalf("independent connection credentials = %#v, %v", workSecret, err)
 	}
 	secret := SecretMaterial{Headers: map[string]string{"Authorization": "Bearer initial"}, Revision: strings.Repeat("a", 32)}
 	createdWithSecret, err := service.Create(t.Context(), SetupInput{DisplayName: "Secret", TransportKind: "streamable_http", URL: server.URL, AuthPreference: "USE_ANONYMOUS", Secrets: secret})
@@ -59,13 +77,28 @@ func TestRustMCP_SetupSecretPersistenceAndCompensationContracts(t *testing.T) {
 		t.Fatalf("continued setup = %#v, %v", continued, err)
 	}
 	loaded, err = service.secrets.loadConnection(createdWithSecret.Server.ID)
-	if err != nil || loaded.Headers["Authorization"] != "Bearer replacement" || strings.Contains(string(serverRecord.SafeConfig), "Bearer") {
+	if err != nil || loaded.Headers["Authorization"] != "Bearer replacement" || strings.Contains(string(continued.Server.SafeConfig), "Bearer replacement") || strings.Contains(string(continued.Server.SafeConfig), "Bearer initial") {
 		t.Fatalf("replaced secret = %#v, %v", loaded, err)
 	}
 	if _, err := os.Stat(filepath.Join(paths.Root(), "mcp", createdWithSecret.Server.ID, "credentials.json")); err != nil {
 		t.Fatal(err)
 	}
-	_ = database
+
+	// Rust case: a failed replacement restores the active credential and fences
+	// the connection after discovery rejects the staged credential.
+	failureMode.Store(1)
+	rejected, err := service.Continue(t.Context(), createdWithSecret.Server.ID, SecretMaterial{Headers: map[string]string{"Authorization": "Bearer rejected"}})
+	if err != nil || rejected.Status != "needs_auth" || rejected.Server == nil {
+		t.Errorf("rejected replacement = %#v, %v", rejected, err)
+	}
+	restored, err := service.secrets.loadConnection(createdWithSecret.Server.ID)
+	if err != nil || restored.Headers["Authorization"] != "Bearer replacement" {
+		t.Errorf("failed replacement changed active credentials: replacement=%t rejected=%t, err=%v", restored.Headers["Authorization"] == "Bearer replacement", restored.Headers["Authorization"] == "Bearer rejected", err)
+	}
+	fenced, err := service.Server(t.Context(), createdWithSecret.Server.ID)
+	if err != nil || fenced.AuthStatus != "needs_auth" || fenced.HealthStatus != "unavailable" {
+		t.Errorf("failed replacement status = %#v, %v", fenced, err)
+	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/http.rs::http_configuration_validation_redaction_and_redirect_contracts (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
@@ -131,11 +164,25 @@ func TestRustMCP_HTTPConfigurationValidationRedactionAndRedirectContracts(t *tes
 
 // Rust source: crates/noema-capabilities/mcp/src/invocation/tests.rs::authority_policy_and_serialization_contracts (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_AuthorityPolicyAndSerializationContracts(t *testing.T) {
-	remote := parityMCPRemote(t, "read")
-	paths, database, service := newMCPParityService(t, false)
-	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: remote.URL, AuthPreference: "USE_ANONYMOUS"})
+	var calls atomic.Int32
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{
+		Name: "read", Description: "Read docs", InputSchema: map[string]any{"type": "object"},
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
+	}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		calls.Add(1)
+		return nil, map[string]any{"ok": true}, nil
+	})
+	remoteServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(remoteServer.Close)
+	_, database, service := newMCPParityService(t, false)
+	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
 	if err != nil || created.Server == nil {
 		t.Fatalf("create = %#v, %v", created, err)
+	}
+	createdServer, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+	if err != nil {
+		t.Fatal(err)
 	}
 	binding, err := service.Binding(t.Context(), "mcp."+created.Server.ID+".read")
 	if err != nil {
@@ -144,34 +191,141 @@ func TestRustMCP_AuthorityPolicyAndSerializationContracts(t *testing.T) {
 	forged := binding
 	forged.OperationToken = "forged-authority"
 	if _, _, err := service.Call(t.Context(), forged, json.RawMessage(`{}`)); !errors.Is(err, ErrAuthorityChanged) {
-		t.Fatalf("forged authority error = %v", err)
+		t.Errorf("forged authority error = %v", err)
 	}
 	result, success, err := service.Call(t.Context(), binding, json.RawMessage(`{}`))
 	if err != nil || !success || !json.Valid(result) {
 		t.Fatalf("safe call = %s, %t, %v", result, success, err)
 	}
-	if _, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask"); err != nil {
+	tools, err := service.Tools(t.Context(), created.Server.ID)
+	if err != nil || len(tools) != 1 {
+		t.Fatalf("stored tool = %#v, %v", tools, err)
+	}
+	changedTool, err := service.SaveToolBehavior(t.Context(), created.Server.ID, created.Server.ConnectionRevision, tools[0].ID, tools[0].SourceRevision, tools[0].PolicyRevision, [4]bool{false, false, true, true})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := service.Call(t.Context(), binding, json.RawMessage(`{}`)); !errors.Is(err, ErrDenied) {
-		t.Fatalf("risky call without review = %v", err)
+	if _, _, err := service.Call(t.Context(), binding, json.RawMessage(`{}`)); !errors.Is(err, ErrAuthorityChanged) {
+		t.Errorf("stale tool authority error = %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("stale tool authority reached transport: calls=%d", calls.Load())
+	}
+	if changedTool.PolicyRevision != tools[0].PolicyRevision+1 {
+		t.Errorf("tool policy revision = %d, want %d", changedTool.PolicyRevision, tools[0].PolicyRevision+1)
+	}
+	if _, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, createdServer.PolicyRevision, "review_every_call", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.Call(t.Context(), binding, json.RawMessage(`{}`)); !errors.Is(err, ErrAuthorityChanged) {
+		t.Errorf("stale server authority error = %v", err)
+	}
+	current, err := service.Binding(t.Context(), binding.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ReviewRoute != store.ActionHumanReview {
+		t.Errorf("risky review route = %q", current.ReviewRoute)
+	}
+	if _, _, err := service.Call(t.Context(), current, json.RawMessage(`{}`)); !errors.Is(err, ErrDenied) {
+		t.Errorf("risky call without review = %v", err)
 	}
 	sha := sha256JSON(json.RawMessage(`{}`))
-	if _, _, err := service.CallReviewed(t.Context(), binding, json.RawMessage(`{}`), ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: sha}); err != nil {
+	reviewed, success, err := service.CallReviewed(t.Context(), current, json.RawMessage(`{}`), ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: sha})
+	if err != nil || !success || !json.Valid(reviewed) {
 		t.Fatalf("reviewed call = %v", err)
 	}
-	_ = paths
-	_ = database
+	if calls.Load() != 2 {
+		t.Errorf("invocation count = %d, want 2", calls.Load())
+	}
+	snapshot, err := database.MCPInvocationSnapshot(t.Context(), created.Server.ID, tools[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ConnectionRevision != snapshot.Server.ConnectionRevision || current.ServerPolicyRevision != snapshot.Server.PolicyRevision || current.ToolPolicyRevision != snapshot.Tool.PolicyRevision {
+		t.Errorf("binding did not round trip the live authority: binding=%#v snapshot=%#v", current, snapshot)
+	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/invocation/tests.rs::transport_failure_status_and_diagnostic_contracts (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_TransportFailureStatusAndDiagnosticContracts(t *testing.T) {
-	for _, status := range []string{"none", "needs_auth", "authenticated", "unavailable"} {
-		server := store.MCPServer{AuthStatus: status, HealthStatus: "healthy"}
-		if server.AuthStatus != status {
-			t.Fatalf("auth status changed: %q", status)
+	newRemote := func(t *testing.T) (*httptest.Server, *atomic.Int32) {
+		t.Helper()
+		mode := new(atomic.Int32)
+		remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+		mcpsdk.AddTool(remote, &mcpsdk.Tool{
+			Name: "read", Description: "Read docs", InputSchema: map[string]any{"type": "object"},
+			Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
+		}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+			if mode.Load() == 3 {
+				return nil, nil, errors.New("private backend socket and credential detail")
+			}
+			return nil, map[string]any{"ok": true}, nil
+		})
+		streamable := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			switch mode.Load() {
+			case 1:
+				http.Error(w, "credentials expired", http.StatusUnauthorized)
+			case 2:
+				http.Error(w, "backend socket closed", http.StatusServiceUnavailable)
+			default:
+				streamable.ServeHTTP(w, request)
+			}
+		}))
+		t.Cleanup(server.Close)
+		return server, mode
+	}
+
+	runFailure := func(modeValue int32, wantAuth string, wantError error) {
+		server, mode := newRemote(t)
+		paths, _, service := newMCPParityService(t, false)
+		writer, err := diagnostics.Open(paths.ErrorsLog())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = writer.Close() })
+		service.errors = writer
+		created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: server.URL, AuthPreference: "USE_ANONYMOUS"})
+		if err != nil || created.Server == nil {
+			t.Fatalf("create = %#v, %v", created, err)
+		}
+		if _, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask"); err != nil {
+			t.Fatal(err)
+		}
+		binding, err := service.Binding(t.Context(), "mcp."+created.Server.ID+".read")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mode.Store(modeValue)
+		_, _, callErr := service.Call(t.Context(), binding, json.RawMessage(`{"document":"private user payload"}`))
+		if !errors.Is(callErr, wantError) {
+			t.Errorf("mode %d call error = %v, want %v", modeValue, callErr, wantError)
+		}
+		current, err := service.Server(t.Context(), created.Server.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.HealthStatus != "unavailable" || current.AuthStatus != wantAuth {
+			t.Errorf("mode %d server status = %#v, want health=unavailable auth=%s", modeValue, current, wantAuth)
+		}
+		if modeValue == 3 {
+			contents, readErr := os.ReadFile(paths.ErrorsLog())
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if !strings.Contains(string(contents), "private backend socket and credential detail") {
+				t.Errorf("diagnostic omitted raw transport detail: %q", contents)
+			}
+			if strings.Contains(string(contents), "private user payload") {
+				t.Errorf("diagnostic leaked invocation arguments: %q", contents)
+			}
 		}
 	}
+
+	runFailure(3, "none", ErrCapabilityUnavailable)
+	runFailure(1, "needs_auth", ErrAuthenticationRequired)
+	runFailure(2, "none", ErrCapabilityUnavailable)
 	err := safeTransportError("tools/call", errors.New("private backend socket and credential detail"))
 	if err.Error() != "tools/call failed" || strings.Contains(err.Error(), "private backend") {
 		t.Fatalf("safe transport error = %v", err)
@@ -183,14 +337,43 @@ func TestRustMCP_TransportFailureStatusAndDiagnosticContracts(t *testing.T) {
 
 // Rust source: crates/noema-capabilities/mcp/src/invocation/tests.rs::connection_result_redacts_secret_fields_without_scanning_text (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_ConnectionResultRedactsSecretFieldsWithoutScanningText(t *testing.T) {
-	binding := Binding{PersistencePolicy: BindingPersistenceRedacted}
-	views := binding.PersistedViews(map[string]any{"access_token": "private", "nested": map[string]any{"password": "private", "description": "contains access_token text"}}, nil)
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{
+		Name: "read", Description: "Read docs", InputSchema: map[string]any{"type": "object"},
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
+	}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"access_token": "private", "nested": map[string]any{"password": "private", "description": "contains access_token text"}}, nil
+	})
+	remoteServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(remoteServer.Close)
+	_, _, service := newMCPParityService(t, false)
+	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || created.Server == nil {
+		t.Fatalf("create = %#v, %v", created, err)
+	}
+	server, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := service.Binding(t.Context(), "mcp."+server.ID+".read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments := json.RawMessage(`{"access_token":"private","nested":{"password":"private","description":"contains access_token text"}}`)
+	dispatch, failure := service.dispatch(t.Context(), binding, arguments, nil)
+	if failure.Error != nil {
+		t.Fatalf("live redacting dispatch = %#v", failure.Error)
+	}
+	views := dispatch.Persisted
 	want := map[string]any{"access_token": "[REDACTED]", "nested": map[string]any{"password": "[REDACTED]", "description": "contains access_token text"}}
 	if !reflect.DeepEqual(views.Arguments, want) {
 		t.Fatalf("redacted arguments = %#v", views.Arguments)
 	}
 	if strings.Contains(fmt.Sprintf("%#v", views), "private") {
-		t.Fatalf("redacted view exposed secret: %#v", views)
+		t.Errorf("redacted view exposed secret: %#v", views)
+	}
+	if !strings.Contains(fmt.Sprintf("%#v", views.Output), "contains access_token text") {
+		t.Errorf("redacted output lost ordinary text: %#v", views.Output)
 	}
 }
 
@@ -371,33 +554,53 @@ func TestRustMCP_FilesystemSecretStoreSymlinkAndRootIdentityContracts(t *testing
 
 // Rust source: crates/noema-capabilities/mcp/src/service/tests.rs::reviewed_enablement_restores_one_disabled_mcp_tool (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_ReviewedEnablementRestoresOneDisabledMCPTool(t *testing.T) {
-	remote := parityMCPRemote(t, "read")
-	_, database, service := newMCPParityService(t, false)
-	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: remote.URL, AuthPreference: "USE_ANONYMOUS"})
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{
+		Name: "read", Description: "Read docs", InputSchema: map[string]any{"type": "object"},
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
+	}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"ok": true}, nil
+	})
+	remoteServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(remoteServer.Close)
+	_, _, service := newMCPParityService(t, false)
+	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
 	if err != nil || created.Server == nil {
 		t.Fatalf("create = %#v, %v", created, err)
+	}
+	if _, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
 	}
 	tools, err := service.Tools(t.Context(), created.Server.ID)
 	if err != nil || len(tools) != 1 {
 		t.Fatalf("tools = %#v, %v", tools, err)
 	}
-	_, err = service.SetToolEnabled(t.Context(), created.Server.ID, created.Server.ConnectionRevision, tools[0].ID, tools[0].SourceRevision, tools[0].PolicyRevision, false)
+	disabled, err := service.SetToolEnabled(t.Context(), created.Server.ID, created.Server.ConnectionRevision, tools[0].ID, tools[0].SourceRevision, tools[0].PolicyRevision, false)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if disabled.Status != "disabled" {
+		t.Errorf("disabled tool status = %q", disabled.Status)
 	}
 	catalog, err := service.Catalog(t.Context())
 	if err != nil || len(catalog.Bindings) != 0 {
 		t.Fatalf("disabled catalog = %#v, %v", catalog, err)
 	}
-	_, err = service.SetToolEnabled(t.Context(), created.Server.ID, created.Server.ConnectionRevision, tools[0].ID, tools[0].SourceRevision, tools[0].PolicyRevision+1, true)
+	restored, err := service.SetToolEnabled(t.Context(), created.Server.ID, created.Server.ConnectionRevision, tools[0].ID, tools[0].SourceRevision, disabled.PolicyRevision, true)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if restored.Status != "ready" || restored.PolicyRevision != disabled.PolicyRevision+1 {
+		t.Errorf("restored tool = %#v", restored)
 	}
 	catalog, err = service.Catalog(t.Context())
 	if err != nil || len(catalog.Bindings) != 1 {
 		t.Fatalf("restored catalog = %#v, %v", catalog, err)
 	}
-	_ = database
+	binding, err := service.Binding(t.Context(), "mcp."+created.Server.ID+".read")
+	if err != nil || binding.ToolPolicyRevision != restored.PolicyRevision {
+		t.Errorf("restored live binding = %#v, %v", binding, err)
+	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/service/tests.rs::shutdown_cancels_admitted_transport_work_and_rejects_new_work (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
