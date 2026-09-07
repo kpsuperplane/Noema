@@ -166,6 +166,9 @@ func TestRustAdapters_reviewed_descriptions_are_model_facing_authority_but_sourc
 	if err != nil {
 		t.Fatal(err)
 	}
+	if change := (OpenAPIActivation{Compiled: documentation}).SemanticChangeFrom(OpenAPIActivation{Compiled: baseline}); change != OpenAPIDocumentationOnly {
+		t.Fatalf("source prose classification = %q, want DocumentationOnly", change)
+	}
 	if documentation.SemanticDigest != baseline.SemanticDigest {
 		t.Fatalf("documentation changed semantic digest: %q != %q", documentation.SemanticDigest, baseline.SemanticDigest)
 	}
@@ -181,6 +184,9 @@ func TestRustAdapters_reviewed_descriptions_are_model_facing_authority_but_sourc
 	reviewedDefinition, err := Compile(reviewed)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if change := (OpenAPIActivation{Compiled: reviewedDefinition}).SemanticChangeFrom(OpenAPIActivation{Compiled: baseline}); change != OpenAPIRequiresReview {
+		t.Fatalf("reviewed guidance classification = %q, want RequiresReview", change)
 	}
 	if reviewedDefinition.SemanticDigest == baseline.SemanticDigest || reviewedDefinition.Operations[0].Digest == baseline.Operations[0].Digest {
 		t.Fatal("reviewed guidance did not change the compiled authority")
@@ -1085,7 +1091,7 @@ func TestRustAdapters_encodes_path_query_and_body_only_from_the_reviewed_plan(t 
 	if request.headers["accept"] != "application/json" {
 		t.Fatalf("headers = %#v", request.headers)
 	}
-	if request.headers["authorization"] != "" {
+	if _, ok := request.headers["authorization"]; ok {
 		t.Fatal("authorization was added without a reviewed auth plan")
 	}
 	alternate := definition
