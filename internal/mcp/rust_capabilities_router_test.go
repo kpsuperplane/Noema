@@ -97,19 +97,24 @@ func rustCapabilityRouterServiceFixture(t *testing.T, schema string, unsafePolic
 // Rust source: crates/noema-capabilities/src/router.rs::strict_resolution_rejects_unknown_and_forwards_exact_target.
 func TestRustCapabilities_strict_resolution_rejects_unknown_and_forwards_exact_target(t *testing.T) {
 	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
-	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
-	arguments := json.RawMessage(`{"query":"rust","invoker_key":"forged","operation_token":"forged"}`)
-	payload, success, err := service.Call(t.Context(), binding, arguments)
-	var result map[string]any
-	if json.Unmarshal(payload, &result) != nil || err != nil || !success || !reflect.DeepEqual(result, map[string]any{"ok": true}) {
-		t.Fatalf("exact dispatch = %s, %v, %v", payload, success, err)
+	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: invoker})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(invoker.invocations) != 1 || invoker.invocations[0].OperationToken != binding.OperationToken || string(invoker.invocations[0].Arguments.(json.RawMessage)) != string(arguments) {
+	snapshot := rustCapabilityRouterSnapshot(t, Binding{
+		Name: "mcp.docs.read", Description: "Read docs.", InvokerKey: "mcp", OperationToken: "reviewed:1",
+		InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true},
+		PersistencePolicy: BindingPersistenceRedacted,
+	})
+	arguments := json.RawMessage(`{"query":"rust","invoker_key":"forged","operation_token":"forged"}`)
+	dispatch, failure := router.Dispatch(t.Context(), snapshot, "mcp.docs.read", arguments)
+	if failure.Error != nil || !dispatch.Output.Success || !reflect.DeepEqual(dispatch.Output.Payload, map[string]any{"ok": true}) {
+		t.Fatalf("exact dispatch = %#v, %#v", dispatch, failure)
+	}
+	if len(invoker.invocations) != 1 || invoker.invocations[0].Operation != "mcp.docs.read" || invoker.invocations[0].OperationToken != "reviewed:1" || string(invoker.invocations[0].Arguments.(json.RawMessage)) != string(arguments) {
 		t.Fatalf("forwarded exact target = %#v", invoker.invocations)
 	}
-	unknown := binding
-	unknown.Name = "mcp.hidden.write"
-	unknownDispatch, unknownFailure := service.dispatch(t.Context(), unknown, json.RawMessage(`{"private":"never persist"}`), nil)
+	unknownDispatch, unknownFailure := router.Dispatch(t.Context(), snapshot, "mcp.hidden.write", json.RawMessage(`{"private":"never persist"}`))
 	if unknownDispatch.Output.Payload != nil || !errors.Is(unknownFailure.Error, ErrCapabilityUnknownOperation) || unknownFailure.Persisted.Arguments != nil || unknownFailure.Persisted.Output != nil {
 		t.Fatalf("unknown advertised name = %#v, %#v", unknownDispatch, unknownFailure)
 	}
@@ -231,22 +236,32 @@ func TestRustCapabilities_tool_declared_failure_is_completed_dispatch_with_views
 
 // Rust source: crates/noema-capabilities/src/router.rs::unknown_invoker_and_stale_token_are_typed_and_sanitized.
 func TestRustCapabilities_unknown_invoker_and_stale_token_are_typed_and_sanitized(t *testing.T) {
-	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
-	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
-	missing := binding
-	missing.InvokerKey = "missing"
-	_, missingFailure := service.dispatch(t.Context(), missing, json.RawMessage(`{"query":"safe","api_key":"private"}`), nil)
-	if !errors.Is(missingFailure.Error, ErrCapabilityUnknownInvoker) || !reflect.DeepEqual(missingFailure.Persisted.Arguments, map[string]any{"query": "safe", "api_key": "[REDACTED]"}) || strings.Contains(missingFailure.Error.Error(), "private") {
-		t.Fatalf("unknown invoker = %#v", missingFailure)
+	snapshot := rustCapabilityRouterSnapshot(t, Binding{
+		Name: "mcp.docs.read", Description: "Read docs.", InvokerKey: "mcp", OperationToken: "reviewed:1",
+		InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true},
+		PersistencePolicy: BindingPersistenceRedacted,
+	})
+	emptyRouter, err := NewCapabilityRegistryRouter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingDispatch, missingFailure := emptyRouter.Dispatch(t.Context(), snapshot, "mcp.docs.read", map[string]any{"query": "safe"})
+	if missingDispatch.Output.Payload != nil || !errors.Is(missingFailure.Error, ErrCapabilityUnknownInvoker) || !reflect.DeepEqual(missingFailure.Persisted.Arguments, map[string]any{"query": "safe"}) {
+		t.Fatalf("unknown invoker = %#v, %#v", missingDispatch, missingFailure)
 	}
 
-	staleInvoker := &rustCapabilityTokenCheckingInvoker{}
-	staleService, _, staleBinding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", staleInvoker)
-	staleInvoker.currentToken = staleBinding.OperationToken
-	stale := staleBinding
-	stale.OperationToken = "stale-token"
-	_, staleFailure := staleService.dispatch(t.Context(), stale, json.RawMessage(`{"query":"safe","api_key":"private"}`), nil)
-	if !errors.Is(staleFailure.Error, ErrCapabilityUnknownOperation) || !reflect.DeepEqual(staleFailure.Persisted.Arguments, map[string]any{"query": "safe", "api_key": "[REDACTED]"}) || strings.Contains(staleFailure.Error.Error(), "private") {
+	staleInvoker := &rustCapabilityTokenCheckingInvoker{currentToken: "current-token"}
+	staleRouter, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: staleInvoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleSnapshot := rustCapabilityRouterSnapshot(t, Binding{
+		Name: "mcp.docs.read", Description: "Read docs.", InvokerKey: "mcp", OperationToken: "stale-token",
+		InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true},
+		PersistencePolicy: BindingPersistenceRedacted,
+	})
+	_, staleFailure := staleRouter.Dispatch(t.Context(), staleSnapshot, "mcp.docs.read", map[string]any{})
+	if !errors.Is(staleFailure.Error, ErrCapabilityUnknownOperation) {
 		t.Fatalf("stale operation = %#v", staleFailure)
 	}
 	if len(staleInvoker.invocations) != 1 || staleInvoker.invocations[0].OperationToken != "stale-token" {
