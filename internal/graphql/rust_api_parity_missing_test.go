@@ -788,6 +788,10 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	completion := make(chan error, 1)
+	service.SetOAuthCompletionHandler(func(attemptID string) {
+		completion <- resolver.Chat.ResumeMCPAuthentication(context.Background(), attemptID)
+	})
 	setup, err := service.Create(context.Background(), mcp.SetupInput{DisplayName: "Docs", TransportKind: "streamable_http",
 		URL: remoteServer.URL + "/mcp", AuthPreference: "USE_ANONYMOUS", Secrets: mcp.SecretMaterial{Client: &mcp.OAuthClient{ClientID: "mcp-client", ClientSecret: "mcp-secret"}}})
 	if err != nil || setup.Server == nil {
@@ -845,6 +849,9 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if err := service.CompleteOAuth(context.Background(), attempt.ID, callback); err != nil {
 		t.Fatalf("MCP OAuth callback completion = %v", err)
 	}
+	if err := <-completion; err != nil {
+		t.Fatalf("MCP OAuth runtime completion = %v", err)
+	}
 	// The callback validator is the durable route boundary used before an
 	// attempt can bind to a runtime authentication request.
 	if err := requireMCPCallback(service, "http://127.0.0.1:4444/mcp/oauth/callback"); err == nil {
@@ -860,15 +867,15 @@ func rustAPIPortMCPOAuthCompletion(t *testing.T) {
 	if err != nil || completed.ID != attempt.ID || completed.Status != "completed" {
 		t.Fatalf("MCP OAuth durable completion = %#v, %v", completed, err)
 	}
-	if _, err := resolver.Store.FinishMCPAuthRequest(ctx, request.ID, request.Revision, "superseded", "oauth_attempt_superseded", time.Now()); err != nil {
-		t.Fatal(err)
-	}
 	stored, err := resolver.Store.MCPAuthRequest(context.Background(), request.ID, request.Revision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.State != "superseded" {
-		t.Fatalf("completed OAuth request state = %q, want superseded", stored.State)
+	// The Rust fixture has no live MCP runtime and ends its bound request as
+	// superseded. Go's production callback drains the live MCP call and ends it
+	// as completed, so this assertion records the concrete route result.
+	if stored.State != "completed" {
+		t.Fatalf("completed OAuth request state = %q, want completed", stored.State)
 	}
 }
 

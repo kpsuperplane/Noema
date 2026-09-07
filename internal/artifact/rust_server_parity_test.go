@@ -56,15 +56,15 @@ func TestRustServer_artifact_preview_adapter_allows_only_inert_browser_formats(t
 func TestRustServer_artifact_download_adapter_sanitizes_response_headers(t *testing.T) {
 	service, database := newServerArtifactService(t)
 	defer database.Close()
-	// Go's live authorized Artifact authority derives the display filename from
-	// a filesystem-safe persisted path. The Rust adapter accepts an independent
-	// hostile display filename, so this fixture preserves the hostile media type
-	// while asserting the safe filename produced by the live Go path.
+	// Keep the safe path used for storage separate from the hostile logical
+	// filename carried to the live download response.
+	hostileFilename := "report\"\r\nx-injected: yes.md"
 	mediaType := "text/markdown\r\nx-injected: yes"
 	created, err := service.CreateLocal(context.Background(), LocalInput{
 		Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: serverArtifactTaskID},
 		Title: "Report", Kind: "source_file", Filename: "report.md",
 		Bytes: []byte("report"), MediaType: &mediaType, CreatedByActorID: "human:local",
+		Metadata: map[string]any{"filename": hostileFilename},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestRustServer_artifact_download_adapter_sanitizes_response_headers(t *test
 		response.Body.String() != "report" {
 		t.Fatalf("download response = %d %q %#v", response.Code, response.Body.String(), response.Header())
 	}
-	if response.Header().Get("Content-Disposition") != `attachment; filename="report.md"` {
+	if response.Header().Get("Content-Disposition") != `attachment; filename="report\"__x-injected: yes.md"` {
 		t.Fatalf("download disposition = %q", response.Header().Get("Content-Disposition"))
 	}
 	if response.Header().Get("X-Injected") != "" {

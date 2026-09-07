@@ -286,7 +286,15 @@ func (s *Service) Read(artifact store.Artifact, version store.ArtifactVersion) (
 	if version.MediaType != nil {
 		mediaType = *version.MediaType
 	}
-	return File{Filename: filename, MediaType: mediaType, Bytes: bytes}, nil
+	// The stored path remains the authority for opening and verifying bytes.
+	// Metadata may carry the independent logical filename used by responses.
+	displayFilename := filename
+	if value, ok := version.Metadata["filename"].(string); ok && value != "" {
+		displayFilename = value
+	} else if value, ok := artifact.Metadata["filename"].(string); ok && value != "" {
+		displayFilename = value
+	}
+	return File{Filename: displayFilename, MediaType: mediaType, Bytes: bytes}, nil
 }
 
 // AuthorizedFile returns verified bytes only for one local-human-owned version.

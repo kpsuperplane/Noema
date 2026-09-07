@@ -118,14 +118,18 @@ func TestRustServer_public_origin_is_exact_https_domain_or_localhost(t *testing.
 
 // Rust source: crates/noema-server/src/web/authority.rs::only_oauth_approval_allows_an_opaque_origin.
 func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
+	// The Rust authority test uses a no-op fallback and returns 204 after
+	// admission. Go's live OAuth handler completes approval and returns its
+	// concrete redirect, so the test asserts that route result explicitly.
 	for _, test := range []struct {
-		path   string
-		origin string
-		status int
+		path     string
+		origin   string
+		status   int
+		redirect bool
 	}{
-		{path: "/oauth/authorize", status: http.StatusFound},
-		{path: "/oauth/authorize", origin: "http://localhost:3737", status: http.StatusFound},
-		{path: "/oauth/authorize", origin: "null", status: http.StatusFound},
+		{path: "/oauth/authorize", status: http.StatusFound, redirect: true},
+		{path: "/oauth/authorize", origin: "http://localhost:3737", status: http.StatusFound, redirect: true},
+		{path: "/oauth/authorize", origin: "null", status: http.StatusFound, redirect: true},
 		{path: "/oauth/authorize", origin: "https://attacker.example", status: http.StatusForbidden},
 		{path: "/auth/logout", status: http.StatusForbidden},
 		{path: "/auth/logout", origin: "null", status: http.StatusForbidden},
@@ -160,9 +164,9 @@ func TestRustServer_only_oauth_approval_allows_an_opaque_origin(t *testing.T) {
 		if response.Code != test.status {
 			t.Fatalf("%s origin %q response = %d, want %d", test.path, test.origin, response.Code, test.status)
 		}
-		if test.status == http.StatusFound {
+		if test.redirect {
 			location, err := url.Parse(response.Header().Get("Location"))
-			if err != nil || location.Query().Get("code") == "" {
+			if err != nil || location.Query().Get("code") == "" || location.Query().Get("state") != strings.Repeat("o", 32) {
 				t.Fatalf("approved OAuth redirect = %q, %v", response.Header().Get("Location"), err)
 			}
 		}
