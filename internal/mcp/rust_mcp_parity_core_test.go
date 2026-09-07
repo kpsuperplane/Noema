@@ -282,30 +282,46 @@ func TestRustMCP_SafeRiskySharingAndApprovalMatrixSelectsTheExecutionDecision(t 
 // Rust source: crates/noema-capabilities/mcp/src/catalog.rs::safe_additive_closed_world_mutation_reaches_the_invoker (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_SafeAdditiveClosedWorldMutationReachesTheInvoker(t *testing.T) {
 	var calls atomic.Int32
-	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: CapabilityInvokerFunc(func(context.Context, CapabilityInvocation) (CapabilityOutput, error) {
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "write", Description: "Add one document", InputSchema: map[string]any{"type": "object"}, Annotations: &mcpsdk.ToolAnnotations{
+		ReadOnlyHint: false, IdempotentHint: true, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false),
+	}}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
 		calls.Add(1)
-		return CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}, nil
-	})})
+		return nil, map[string]any{"ok": true}, nil
+	})
+	remoteServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(remoteServer.Close)
+	_, _, service := newMCPParityService(t, false)
+	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: remoteServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || created.Server == nil {
+		t.Fatalf("create = %#v, %v", created, err)
+	}
+	server, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask")
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := Binding{Name: "mcp.mcp:docs.read", InvokerKey: "mcp", OperationToken: "read", InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: false, Destructive: false, OpenWorld: false}, PersistencePolicy: BindingPersistenceOmitted}
-	builder := NewBindingCatalogBuilder()
-	if err := builder.Add(binding); err != nil {
+	binding, err := service.Binding(t.Context(), "mcp."+server.ID+".write")
+	if err != nil {
 		t.Fatal(err)
 	}
-	dispatch, failure := router.Dispatch(t.Context(), builder.BuildSnapshot(), binding.Name, map[string]any{})
-	if failure.Error != nil || !dispatch.Output.Success || calls.Load() != 1 {
-		t.Fatalf("safe mutation dispatch = %#v, %#v, calls=%d", dispatch, failure, calls.Load())
+	if binding.Behavior.ReadOnly || binding.Behavior.Destructive || binding.Behavior.OpenWorld || binding.ReviewRoute != "" {
+		t.Fatalf("safe mutation authority = %#v", binding)
+	}
+	result, success, err := service.Call(t.Context(), binding, json.RawMessage(`{}`))
+	var output map[string]any
+	if err == nil {
+		err = json.Unmarshal(result, &output)
+	}
+	if err != nil || !success || !reflect.DeepEqual(output["structuredContent"], map[string]any{"ok": true}) || calls.Load() != 1 {
+		t.Fatalf("safe mutation call = %s, %t, %v, calls=%d", result, success, err, calls.Load())
 	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/chat_setup.rs::unavailable_card_discovery_preserves_the_public_api_fallback (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_UnavailableCardDiscoveryPreservesThePublicAPIFallback(t *testing.T) {
-	_, database, service := newMCPParityService(t, false)
-	_ = database
-	result := service.ConnectService(t.Context(), "https://mcp.invalid.example/")
-	if result.Status != "unavailable" && result.Status != "not_found" {
+	_, _, service := newMCPParityService(t, false)
+	result := service.ConnectService(t.Context(), "https://calendar.example.test/")
+	if result.Status != "unavailable" {
 		t.Fatalf("unavailable card status = %#v", result)
 	}
 	if result.EndpointURL != "" || result.Setup.Server != nil {
@@ -315,32 +331,108 @@ func TestRustMCP_UnavailableCardDiscoveryPreservesThePublicAPIFallback(t *testin
 
 // Rust source: crates/noema-capabilities/mcp/src/client/tests.rs::request_context_transport_and_redaction_contracts (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_RequestContextTransportAndRedactionContracts(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	var mode atomic.Int32
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	remote.AddTool(&mcpsdk.Tool{Name: "read", Description: "Read docs", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+		if mode.Load() == 1 {
+			return &mcpsdk.CallToolResult{IsError: true, StructuredContent: map[string]any{"reason": "denied"}}, nil
+		}
+		return &mcpsdk.CallToolResult{StructuredContent: map[string]any{"ok": true}}, nil
+	})
+	server := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(server.Close)
+	config := Config{TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"` + server.URL + `"}`)}
+	discovery, err := Discover(t.Context(), config)
+	if err != nil || len(discovery.Tools) != 1 {
+		t.Fatalf("discovery = %#v, %v", discovery, err)
+	}
+	revision := discovery.Tools[0].SourceRevision
+	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
-	if !errors.Is(ctx.Err(), context.Canceled) {
-		t.Fatal("cancelled request context did not remain cancelled")
+	if _, _, err := CallExact(cancelled, config, "read", revision, map[string]any{}); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled call error = %v", err)
 	}
-	if _, _, err := CallExact(ctx, Config{TransportKind: "unsupported"}, "read", "revision", map[string]any{}); err == nil {
-		t.Fatal("cancelled unsupported transport was accepted")
+	expired, expire := context.WithDeadline(t.Context(), time.Now().Add(-time.Millisecond))
+	defer expire()
+	if _, _, err := CallExact(expired, config, "read", revision, map[string]any{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("timed out call error = %v", err)
 	}
-	if _, _, err := CallExact(context.Background(), Config{TransportKind: "unsupported"}, "read", "revision", map[string]any{}); err == nil || !strings.Contains(err.Error(), "unsupported") {
-		t.Fatalf("unsupported transport error = %v", err)
+	mode.Store(1)
+	raw, success, err := CallExact(t.Context(), config, "read", revision, map[string]any{})
+	if err != nil || success {
+		t.Fatalf("tool-declared error transport = %s, %t, %v", raw, success, err)
 	}
-	result := SecretMaterial{Headers: map[string]string{"Authorization": "secret-token"}, Revision: strings.Repeat("a", 32)}
-	debug := fmt.Sprintf("%v %#v", result, result)
-	if strings.Contains(debug, "secret-token") || !strings.Contains(debug, "REDACTED") {
-		t.Fatalf("secret debug = %s", debug)
+	var output map[string]any
+	if err := json.Unmarshal(raw, &output); err != nil {
+		t.Fatal(err)
 	}
-	tooLarge := strings.Repeat("x", maxToolResult+1)
-	if len(tooLarge) <= maxToolResult {
-		t.Fatal("oversized result fixture was not oversized")
+	if output["isError"] != true || !reflect.DeepEqual(output["structuredContent"], map[string]any{"reason": "denied"}) {
+		t.Fatalf("tool-declared error output = %#v", output)
+	}
+	if _, _, err := CallExact(t.Context(), config, "read", revision, []string{"not", "an", "object"}); err == nil {
+		t.Fatal("non-object arguments reached the MCP call without an error")
+	}
+	largeRemote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "large", Version: "1"}, nil)
+	mcpsdk.AddTool(largeRemote, &mcpsdk.Tool{Name: "large", Description: "Large result", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return &mcpsdk.CallToolResult{StructuredContent: map[string]any{"content": strings.Repeat("x", maxToolResult)}}, nil, nil
+	})
+	largeServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return largeRemote }, nil))
+	t.Cleanup(largeServer.Close)
+	largeConfig := Config{TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"` + largeServer.URL + `"}`)}
+	largeDiscovery, err := Discover(t.Context(), largeConfig)
+	if err != nil || len(largeDiscovery.Tools) != 1 {
+		t.Fatalf("large discovery = %#v, %v", largeDiscovery, err)
+	}
+	if _, _, err := CallExact(t.Context(), largeConfig, "large", largeDiscovery.Tools[0].SourceRevision, map[string]any{}); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversized tool result error = %v", err)
+	}
+	unauthorized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
+	t.Cleanup(unauthorized.Close)
+	_, err = Discover(t.Context(), Config{TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"` + unauthorized.URL + `"}`)})
+	if !errors.Is(err, ErrAuthenticationRequired) {
+		t.Fatalf("authentication error = %v", err)
+	}
+	material := SecretMaterial{OAuth: &OAuthCredentials{ClientID: "secret-client", AccessToken: "secret-token"}}
+	debug := fmt.Sprintf("%v %#v", material, material)
+	if strings.Contains(debug, "secret-client") || strings.Contains(debug, "secret-token") || !strings.Contains(debug, "REDACTED") {
+		t.Fatalf("preparation debug = %s", debug)
 	}
 }
 
 // Rust source: crates/noema-capabilities/mcp/src/client/tests.rs::schema_limit_is_unsupported_not_malformed_and_identifies_the_bound (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_SchemaLimitIsUnsupportedNotMalformedAndIdentifiesTheBound(t *testing.T) {
-	tool := &mcpsdk.Tool{Name: "notion-update-page", InputSchema: map[string]any{"enum": make([]any, 1025)}}
-	if _, err := normalizeTool(tool); err == nil || !strings.Contains(err.Error(), "structural") {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var message struct {
+			ID     any    `json:"id"`
+			Method string `json:"method"`
+			Params struct {
+				ProtocolVersion string `json:"protocolVersion"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&message); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if message.Method == "notifications/initialized" {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		result := map[string]any{"capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "notion", "version": "1"}}
+		if message.Method == "initialize" {
+			result["protocolVersion"] = message.Params.ProtocolVersion
+		} else if message.Method == "tools/list" {
+			result = map[string]any{"tools": []any{map[string]any{"name": "notion-update-page", "inputSchema": map[string]any{"enum": make([]any, 1025)}}}}
+		} else {
+			http.Error(w, "unknown method", http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": message.ID, "result": result})
+	}))
+	t.Cleanup(server.Close)
+	_, err := Discover(t.Context(), Config{TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"` + server.URL + `"}`)})
+	want := "MCP metadata is unsupported: MCP tool `notion-update-page` input schema exceeded the supported collection item limit"
+	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("oversized schema error = %v", err)
 	}
 }
@@ -426,10 +518,11 @@ func TestRustMCP_FingerprintIsVersionedSHA256AndCanonicalizesObjectOrder(t *test
 	if a.SourceRevision != b.SourceRevision {
 		t.Fatalf("reordered schema changed fingerprint: %q != %q", a.SourceRevision, b.SourceRevision)
 	}
-	digest := a.SourceRevision
-	if strings.HasPrefix(digest, "mcp-tool-metadata:v2:") {
-		digest = strings.TrimPrefix(digest, "mcp-tool-metadata:v2:")
+	const prefix = "mcp-tool-metadata:v2:"
+	if !strings.HasPrefix(a.SourceRevision, prefix) {
+		t.Fatalf("fingerprint version prefix = %q", a.SourceRevision)
 	}
+	digest := strings.TrimPrefix(a.SourceRevision, prefix)
 	if len(digest) != 64 || !isHex(digest) {
 		t.Fatalf("fingerprint = %q", a.SourceRevision)
 	}
