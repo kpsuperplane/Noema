@@ -5037,25 +5037,101 @@ func TestRustStore_project_document_updates_fence_digest_and_folder_conflicts(t 
 func TestRustStore_acp_executor_resolves_launch_at_start_and_uses_task_directory_precedence(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
-	id, err := NewTaskID()
+	now := time.Unix(1700000000, 0).UTC()
+	homeRoot := t.TempDir()
+	agent, err := database.CreateAcpAgent(ctx, "Fake ACP", "/bin/false", []string{"--safe"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	projectFolder := filepath.Join(t.TempDir(), "acp-worktree")
+	if err := os.MkdirAll(projectFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectID, err := NewProjectID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	project, err := database.CreateProject(ctx, projectID, "workspace:personal", "ACP project", "", &projectFolder,
+		testProjectDigest("# ACP project\n"), false, testProjectCommand("project.create", "acp-project", "acp-project"), now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	createDelegated := func(key, title string, options TaskCreateOptions, at time.Time) Task {
+		t.Helper()
+		id, idErr := NewTaskID()
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		options.ExecutorAgentID = agent.AgentID
+		options.InitialRunKind = "executor"
+		options.ExecutionComplexity = "simple"
+		result, createErr := database.CreateTaskWithOptions(ctx, id, title, testTaskLifecycleCommand("delegate_task", key), options, at)
+		if createErr != nil {
+			t.Fatalf("create delegated Task %s: %v", key, createErr)
+		}
+		return result.Task
+	}
+	projectTask := createDelegated("acp-project-task", "Delegated acp-project-task", TaskCreateOptions{ProjectID: project.Project.ID}, now)
+	overrideTask := createDelegated("acp-override-task", "Delegated acp-override-task", TaskCreateOptions{ProjectID: project.Project.ID, CwdOverride: stringAddressStore("/task/override")}, now.Add(time.Second))
+	defaultTask := createDelegated("acp-default-task", "Delegated acp-default-task", TaskCreateOptions{}, now.Add(2*time.Second))
+	projectRuns, err := database.TaskRuns(ctx, projectTask.ID, 10)
+	if err != nil || len(projectRuns) != 1 {
+		t.Fatalf("project Task runs = %#v, %v", projectRuns, err)
+	}
+	projectRun := projectRuns[0]
+	if projectRun.ExecutorAgentID != agent.AgentID || projectRun.AcpLaunch == nil {
+		t.Fatalf("project Executor = %#v", projectRun)
+	}
+	expectedProjectCWD := filepath.Join(projectFolder, "delegated-acp-project-task")
+	if projectRun.EffectiveCwd == nil || *projectRun.EffectiveCwd != expectedProjectCWD {
+		got := "<nil>"
+		if projectRun.EffectiveCwd != nil {
+			got = *projectRun.EffectiveCwd
+		}
+		t.Errorf("project working directory = %q, want %q", got, expectedProjectCWD)
+	}
+	if projectRun.AcpLaunch.ConnectionRevision != 1 || projectRun.AcpLaunch.Command != "/bin/false" || !reflect.DeepEqual(projectRun.AcpLaunch.Arguments, []string{"--safe"}) {
+		t.Errorf("project ACP launch = %#v, want revision 1 /bin/false [--safe]", projectRun.AcpLaunch)
+	}
+	overrideRuns, err := database.TaskRuns(ctx, overrideTask.ID, 10)
+	if err != nil || len(overrideRuns) != 1 || overrideRuns[0].EffectiveCwd == nil || *overrideRuns[0].EffectiveCwd != "/task/override/delegated-acp-override-task" {
+		t.Errorf("override working directory = %#v, %v", overrideRuns, err)
+	}
+	defaultRuns, err := database.TaskRuns(ctx, defaultTask.ID, 10)
+	if err != nil || len(defaultRuns) != 1 || defaultRuns[0].EffectiveCwd == nil {
+		t.Errorf("default working directory = %#v, %v", defaultRuns, err)
+	} else {
+		expectedDefault := filepath.Join(homeRoot, "tasks", "delegated-acp-default-task")
+		if *defaultRuns[0].EffectiveCwd != expectedDefault {
+			t.Errorf("default working directory = %q, want %q", *defaultRuns[0].EffectiveCwd, expectedDefault)
+		}
+		if _, statErr := os.Stat(expectedDefault); statErr != nil {
+			t.Errorf("default working directory is not a directory: %v", statErr)
+		}
+	}
+	updated, err := database.UpdateAcpAgent(ctx, agent.AgentID, 1, "Fake ACP", "/bin/true", []string{}, true, now.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ConnectionRevision != 2 {
+		t.Errorf("updated ACP revision = %d, want 2", updated.ConnectionRevision)
+	}
+	if projectRun.AcpLaunch.Command != "/bin/false" {
+		t.Errorf("queued project launch changed after agent update: %#v", projectRun.AcpLaunch)
+	}
+	_, claimed, found, err := database.ClaimTaskExecution(ctx, now.Add(4*time.Second))
+	if err != nil || !found || claimed.ID != projectRun.ID {
+		t.Fatalf("claim project Task = %#v, %t, %v", claimed, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, claimed.ID, claimed.Generation, now.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	startedRuns, err := database.TaskRuns(ctx, projectTask.ID, 10)
+	if err != nil || len(startedRuns) != 1 || startedRuns[0].AcpLaunch == nil {
+		t.Fatalf("started project Task = %#v, %v", startedRuns, err)
+	}
+	if startedRuns[0].AcpLaunch.ConnectionRevision != 2 || startedRuns[0].AcpLaunch.Command != "/bin/true" {
+		t.Errorf("started ACP launch = %#v, want revision 2 /bin/true", startedRuns[0].AcpLaunch)
 	}
 }
 
@@ -5063,103 +5139,329 @@ func TestRustStore_acp_executor_resolves_launch_at_start_and_uses_task_directory
 func TestRustStore_missing_or_disabled_acp_executors_are_rejected_before_capture(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
-	id, err := NewTaskID()
+	now := time.Unix(1700000000, 0).UTC()
+	disabled, err := database.CreateAcpAgent(ctx, "Disabled", "/bin/false", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
-	if err != nil {
+	if _, err := database.UpdateAcpAgent(ctx, disabled.AgentID, 1, "Disabled", "/bin/false", nil, false, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
-	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	for _, test := range []struct {
+		name, agentID string
+		want          error
+	}{
+		{name: "missing", agentID: "agent:missing", want: ErrAgentNotFound},
+		{name: "disabled", agentID: disabled.AgentID, want: ErrInvalidAcpAgent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id, err := NewTaskID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = database.CreateTaskWithOptions(ctx, id, "Delegated "+test.name,
+				testTaskLifecycleCommand("delegate_task", "acp:"+test.name), TaskCreateOptions{
+					ExecutorAgentID: test.agentID, InitialRunKind: "executor", ExecutionComplexity: "simple",
+				}, now.Add(2*time.Second))
+			if !errors.Is(err, test.want) {
+				t.Errorf("missing or disabled ACP error = %v, want %v", err, test.want)
+			}
+			exists, existsErr := database.TaskExists(ctx, id)
+			if existsErr != nil || exists {
+				t.Errorf("rejected %s task persisted = %t, %v", test.name, exists, existsErr)
+			}
+		})
 	}
 }
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::acp_permission_decisions_match_exactly_and_approvals_are_consumed_once.
 func TestRustStore_acp_permission_decisions_match_exactly_and_approvals_are_consumed_once(t *testing.T) {
-	database := openTestStore(t)
+	database, task, run, now := rustStoreExecutorFixture(t, "ACP permission task")
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	exact := map[string]any{
+		"agent_id":             "agent:acp:test",
+		"task_generation":      task.Generation,
+		"tool_call":            map[string]any{"toolCallId": "tool:exact", "rawInput": map[string]any{"path": "/tmp/exact"}},
+		"options":              []any{map[string]any{"optionId": "allow", "kind": "allow_once"}},
+		"allow_once_option_id": "allow",
+	}
+	if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{
+		Kind: "tool_call", Status: "running", CorrelationID: "call:acp-permission", Content: "acp.permission",
+		Payload: map[string]any{"name": "acp.permission", "arguments": exact},
+	}}, TaskRunUsage{}, now); err != nil {
 		t.Fatal(err)
 	}
-	id, err := NewTaskID()
+	items, err := database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("ACP permission call = %#v, %v", items, err)
+	}
+	call := items[0]
+	arguments, err := json.Marshal(exact)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{
+		TaskID: task.ID, RunID: run.ID, RunItemID: call.ID, TaskGeneration: task.Generation,
+		OwnerHumanID: "human:local", RequestingAgentID: "agent:acp:test", CapabilityName: "acp.permission",
+		OperationToken: "acp.permission", ReviewRoute: ActionHumanReview,
+		Behavior: ActionBehavior{OpenWorld: true}, Arguments: arguments,
+		InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"origin": "acp"},
+		SafeSummary: "exact ACP request",
+	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	if action.State != ActionAwaitingApproval {
+		t.Errorf("ACP permission initial state = %q, want %q", action.State, ActionAwaitingApproval)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	action, err = database.DecideActionRequest(ctx, action.ID, action.Revision, "human:local", "approve", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action.State != ActionExecutable {
+		t.Errorf("approved ACP permission state = %q, want %q", action.State, ActionExecutable)
+	}
+	if action, err = database.ClaimActionRequest(ctx, action.ID, action.Revision, now); err != nil {
+		t.Fatal(err)
+	}
+	finished, err := database.FinishActionRequest(ctx, action.ID, action.Revision, ActionSucceeded,
+		json.RawMessage(`{"option_id":"allow"}`), "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.State != ActionSucceeded || !reflect.DeepEqual(finished.Output, map[string]any{"option_id": "allow"}) {
+		t.Errorf("ACP permission result = %#v, want succeeded option_id allow", finished)
+	}
+	digest := sha256.Sum256(arguments)
+	fingerprint := hex.EncodeToString(digest[:])
+	if err := database.RecordAcpPermissionUse(ctx, run.ID, run.Generation, fingerprint, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RecordAcpPermissionUse(ctx, run.ID, run.Generation, fingerprint, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := 0
+	for _, item := range replay {
+		if item.CorrelationID != nil && *item.CorrelationID == "acp:permission-used:"+fingerprint {
+			used++
+		}
+	}
+	if used != 1 {
+		t.Errorf("exact ACP approval consumption count = %d, want 1", used)
+	}
+	changed := map[string]any{
+		"agent_id":             "agent:acp:test",
+		"task_generation":      task.Generation,
+		"tool_call":            map[string]any{"toolCallId": "tool:exact", "rawInput": map[string]any{"path": "/tmp/changed"}},
+		"options":              []any{map[string]any{"optionId": "allow", "kind": "allow_once"}},
+		"allow_once_option_id": "allow",
+	}
+	changedArguments, err := json.Marshal(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedDigest := sha256.Sum256(changedArguments)
+	changedFingerprint := hex.EncodeToString(changedDigest[:])
+	for _, item := range replay {
+		if item.CorrelationID != nil && *item.CorrelationID == "acp:permission-used:"+changedFingerprint {
+			t.Errorf("changed ACP permission was consumed")
+		}
+	}
+	if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{
+		Kind: "tool_call", Status: "running", CorrelationID: "call:acp-denied", Content: "acp.permission",
+		Payload: map[string]any{"name": "acp.permission", "arguments": changed},
+	}}, TaskRunUsage{}, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	replay, err = database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deniedCall := replay[len(replay)-1]
+	denied, err := database.CreateActionRequest(ctx, NewActionRequest{
+		TaskID: task.ID, RunID: run.ID, RunItemID: deniedCall.ID, TaskGeneration: task.Generation,
+		OwnerHumanID: "human:local", RequestingAgentID: "agent:acp:test", CapabilityName: "acp.permission",
+		OperationToken: "acp.permission", ReviewRoute: ActionHumanReview,
+		Behavior: ActionBehavior{OpenWorld: true}, Arguments: changedArguments,
+		InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"origin": "acp"},
+		SafeSummary: "exact ACP request",
+	}, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, err = database.DecideActionRequest(ctx, denied.ID, denied.Revision, "human:local", "decline", now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denied.State != ActionDeclined {
+		t.Errorf("changed ACP permission state = %q, want %q", denied.State, ActionDeclined)
 	}
 }
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::inline_governed_action_cannot_resume_a_later_task_gate.
 func TestRustStore_inline_governed_action_cannot_resume_a_later_task_gate(t *testing.T) {
-	database := openTestStore(t)
+	database, task, run, now := rustStoreExecutorFixture(t, "Inline action gate")
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	arguments := json.RawMessage(`{"url":"https://example.com"}`)
+	if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{
+		Kind: "tool_call", Status: "running", CorrelationID: "call:inline", Content: "web.browse.open",
+		Payload: map[string]any{"name": "web.browse.open", "arguments": map[string]any{"url": "https://example.com"}},
+	}}, TaskRunUsage{}, now); err != nil {
 		t.Fatal(err)
 	}
-	id, err := NewTaskID()
+	items, err := database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("inline action call = %#v, %v", items, err)
+	}
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{
+		TaskID: task.ID, RunID: run.ID, RunItemID: items[0].ID, TaskGeneration: task.Generation,
+		OwnerHumanID: "human:local", RequestingAgentID: "agent:task-executor", CapabilityName: "web.browse.open",
+		OperationToken: "web.browse.open", ReviewRoute: ActionLLMReview,
+		Behavior: ActionBehavior{ReadOnly: true, RepeatSafe: true, OpenWorld: true}, Arguments: arguments,
+		InputSchema: json.RawMessage(`{"type":"object"}`), AuthorizationContext: map[string]any{"origin": "task"},
+		SafeSummary: "open the requested page",
+	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	if action, _, err = database.RecordActionAssessment(ctx, action.ID, action.Revision, ActionAssessment{
+		Status: "completed", Authorization: "explicit", Risk: "low", ReviewerSelection: map[string]any{"model_profile": "reviewer"},
+		ReasonCodes: []string{"action_matches_request"}, Explanation: "the requested read is authorized",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if action.State != ActionExecutable {
+		t.Errorf("inline action state after review = %q, want %q", action.State, ActionExecutable)
+	}
+	if _, err := database.ClaimActionRequest(ctx, action.ID, action.Revision, now); err != nil {
+		t.Fatal(err)
+	}
+	if action, err = database.FinishActionRequest(ctx, action.ID, action.Revision, ActionSucceeded, json.RawMessage(`{"opened":true}`), "", now); err != nil {
+		t.Fatal(err)
+	}
+	if action.State != ActionSucceeded || !reflect.DeepEqual(action.Output, map[string]any{"opened": true}) {
+		t.Errorf("inline action result = %#v, want succeeded opened true", action)
+	}
+	if err := database.BlockTaskExecution(ctx, run.ID, run.Generation, "clarification", "What value should I use?", "", nil, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	current, err := database.Task(ctx, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	gate, err := database.TaskGate(ctx, current.ActiveGateID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	if gate.Kind != "clarification" || gate.Prompt != "What value should I use?" {
+		t.Errorf("inline action gate = %#v, task = %#v", gate, current)
+	}
+	runs, err := database.TaskRuns(ctx, task.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var originating *TaskRun
+	for index := range runs {
+		if runs[index].ID == run.ID {
+			originating = &runs[index]
+			break
+		}
+	}
+	if originating == nil || originating.Status != "waiting_for_approval" {
+		t.Errorf("inline action originating run = %#v, want waiting_for_approval", originating)
+	}
+	if _, err := database.db.ExecContext(ctx, "UPDATE task_runs SET status = 'queued' WHERE run_id = ?", run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RecoverTaskExecutions(ctx, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := database.TaskRuns(ctx, task.ID, 10)
+	if err != nil || len(recovered) == 0 {
+		t.Fatalf("reconciled inline action run = %#v, %v", recovered, err)
+	}
+	var reconciled *TaskRun
+	for index := range recovered {
+		if recovered[index].ID == run.ID {
+			reconciled = &recovered[index]
+			break
+		}
+	}
+	if reconciled == nil || reconciled.Status != "cancelled" {
+		t.Errorf("reconciled inline action run = %#v, want cancelled", reconciled)
 	}
 }
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::executor_continuation_receives_actions_after_latest_task_save.
 func TestRustStore_executor_continuation_receives_actions_after_latest_task_save(t *testing.T) {
-	database := openTestStore(t)
+	database, task, first, now := rustStoreExecutorFixture(t, "Unsaved actions")
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	appendCall := func(round int64, correlation, name string, status string, payload map[string]any) TaskRunItem {
+		t.Helper()
+		if err := database.AppendTaskRunItems(ctx, first.ID, first.Generation, []TaskRunItemInput{{
+			Kind: "tool_call", Status: status, Round: round, CorrelationID: correlation, Content: name, Payload: payload,
+		}}, TaskRunUsage{}, now); err != nil {
+			t.Fatal(err)
+		}
+		items, err := database.TaskRunReplayItems(ctx, first.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return items[len(items)-1]
+	}
+	appendResult := func(round int64, correlation, name, status, parent string, payload map[string]any) {
+		t.Helper()
+		if err := database.AppendTaskRunItems(ctx, first.ID, first.Generation, []TaskRunItemInput{{
+			Kind: "tool_result", Status: status, Round: round, CorrelationID: correlation, ParentID: parent, Content: name, Payload: payload,
+		}}, TaskRunUsage{}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldCall := appendCall(0, "call:old", "web.browse.interact", "completed", map[string]any{"arguments": map[string]any{"ref": "old"}})
+	appendResult(0, "call:old", "web.browse.interact", "completed", oldCall.ID, map[string]any{"success": true, "payload": map[string]any{"state": "old"}})
+	saveCall := appendCall(1, "call:save", "task.files.write", "completed", map[string]any{"arguments": map[string]any{"path": "TASK.md", "content": "Saved progress."}})
+	appendResult(1, "call:save", "task.files.write", "completed", saveCall.ID, map[string]any{"success": true, "payload": map[string]any{"path": "TASK.md"}})
+	newCall := appendCall(2, "call:new", "web.browse.interact", "failed", map[string]any{"arguments": map[string]any{"ref": "e3", "action": "click"}})
+	appendResult(2, "call:new", "web.browse.interact", "failed", newCall.ID, map[string]any{"success": false, "payload": map[string]any{"code": "outcome_uncertain"}})
+	if err := database.FinishTaskExecution(ctx, first.ID, first.Generation, true, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := NewTaskID()
+	_, second, found, err := database.ClaimTaskExecution(ctx, now.Add(2*time.Second))
+	if err != nil || !found {
+		t.Fatalf("claim continuation Executor = %#v, %t, %v", second, found, err)
+	}
+	if err := database.StartTaskExecution(ctx, second.ID, second.Generation, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := database.TaskRunReplayItems(ctx, first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
-	if err != nil {
-		t.Fatal(err)
+	if len(admitted) != 2 {
+		t.Errorf("admitted continuation lineage length = %d, want 2", len(admitted))
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	for _, item := range admitted {
+		if item.CorrelationID == nil || *item.CorrelationID != "call:new" {
+			t.Errorf("admitted continuation item correlation = %v, want call:new", item.CorrelationID)
+		}
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	if len(admitted) >= 1 {
+		if value, ok := admitted[0].Payload["payload"].(map[string]any); !ok || value["code"] != "outcome_uncertain" {
+			t.Errorf("admitted first payload = %#v, want outcome_uncertain", admitted[0].Payload)
+		}
+	}
+	if len(admitted) >= 2 {
+		args, ok := admitted[1].Payload["arguments"].(map[string]any)
+		if !ok || args["ref"] != "e3" {
+			t.Errorf("admitted second arguments = %#v, want ref e3", admitted[1].Payload)
+		}
+	}
+	if second.TaskID != task.ID {
+		t.Errorf("continuation task = %q, want %q", second.TaskID, task.ID)
 	}
 }
 
