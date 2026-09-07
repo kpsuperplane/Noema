@@ -783,6 +783,18 @@ type fileSnapshot struct {
 	data   []byte
 }
 
+// String prevents a temporary credential snapshot from exposing its bytes in
+// diagnostics while retaining whether a prior file existed.
+func (s fileSnapshot) String() string {
+	if !s.exists {
+		return "provider.fileSnapshot{exists:false}"
+	}
+	return "provider.fileSnapshot{exists:true,data:[REDACTED]}"
+}
+
+// GoString prevents %#v diagnostics from exposing temporary credential bytes.
+func (s fileSnapshot) GoString() string { return s.String() }
+
 func snapshotPrivateFile(path string) (fileSnapshot, error) {
 	data, err := home.ReadPrivateFile(path, credentialFileLimit)
 	if errors.Is(err, os.ErrNotExist) {

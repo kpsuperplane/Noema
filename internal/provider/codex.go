@@ -58,6 +58,15 @@ type codexTokenFile struct {
 	LastRefresh  uint64 `json:"last_refresh"`
 }
 
+// String prevents a decoded token file from exposing OAuth credentials in
+// diagnostics while retaining its non-secret refresh timestamp.
+func (f codexTokenFile) String() string {
+	return fmt.Sprintf("provider.codexTokenFile{access_token:[REDACTED],refresh_token:[REDACTED],last_refresh:%d}", f.LastRefresh)
+}
+
+// GoString prevents %#v diagnostics from exposing OAuth credentials.
+func (f codexTokenFile) GoString() string { return f.String() }
+
 func (f codexTokenFile) tokens() CodexTokens {
 	return CodexTokens{
 		accessToken: strings.TrimSpace(f.AccessToken), refreshToken: strings.TrimSpace(f.RefreshToken),
@@ -453,6 +462,15 @@ type codexDeviceCode struct {
 	HasInterval  bool
 }
 
+// String prevents a device authorization response from exposing its secrets
+// while retaining the ordinary polling configuration.
+func (d codexDeviceCode) String() string {
+	return fmt.Sprintf("provider.codexDeviceCode{device_auth_id:[REDACTED],user_code:[REDACTED],interval:%d,has_interval:%t}", d.Interval, d.HasInterval)
+}
+
+// GoString prevents %#v diagnostics from exposing device authorization data.
+func (d codexDeviceCode) GoString() string { return d.String() }
+
 func (d codexDeviceCode) pollInterval(floor time.Duration) time.Duration {
 	requested := time.Duration(d.Interval) * time.Second
 	if !d.HasInterval || requested < floor {
@@ -465,6 +483,14 @@ type codexAuthorization struct {
 	AuthorizationCode string `json:"authorization_code"`
 	CodeVerifier      string `json:"code_verifier"`
 }
+
+// String prevents a token exchange response from exposing its secrets.
+func (a codexAuthorization) String() string {
+	return "provider.codexAuthorization{authorization_code:[REDACTED],code_verifier:[REDACTED]}"
+}
+
+// GoString prevents %#v diagnostics from exposing token exchange data.
+func (a codexAuthorization) GoString() string { return a.String() }
 
 func (s *CodexService) requestDeviceCode(ctx context.Context) (codexDeviceCode, error) {
 	var response struct {
