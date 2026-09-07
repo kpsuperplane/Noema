@@ -88,8 +88,9 @@ func TestRustCapabilities_tool_schema_serializes_as_raw_json_schema(t *testing.T
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewInputToolSchema("web.search", json.RawMessage(`{"type":"array"}`)); !errors.Is(err, ErrGenerationToolSchemaInvalid) {
-		t.Fatalf("array schema error = %v", err)
+	var invalid ToolSchema
+	if err := json.Unmarshal([]byte(`{"type":"array"}`), &invalid); !errors.Is(err, ErrGenerationToolSchemaInvalid) {
+		t.Fatalf("array schema unmarshal error = %v", err)
 	}
 	if err := json.Unmarshal([]byte(`{"type":"object"}`), &decoded); err != nil {
 		t.Fatalf("object schema unmarshal: %v", err)

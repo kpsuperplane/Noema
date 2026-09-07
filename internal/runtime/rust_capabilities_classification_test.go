@@ -17,6 +17,48 @@ func rustBoolPointer(value bool) *bool { return &value }
 
 // Rust source: crates/noema-capabilities/src/integration.rs::classification_fills_only_missing_hints_and_defaults_fail_closed.
 func TestRustCapabilities_classification_fills_only_missing_hints_and_defaults_fail_closed(t *testing.T) {
+	policyReadOnly, policyDestructive, policyIdempotent, policyOpenWorld := true, false, false, true
+	policy := store.MCPTool{
+		ID:          "tool",
+		ReadOnly:    store.MCPHint{Value: &policyReadOnly, Source: "annotation"},
+		Idempotent:  store.MCPHint{Value: &policyIdempotent, Source: "safe_default"},
+		Destructive: store.MCPHint{Value: &policyDestructive, Source: "annotation"},
+		OpenWorld:   store.MCPHint{Value: &policyOpenWorld, Source: "safe_default"},
+		Status:      "defaulted", PolicyRevision: 1, SourceRevision: "revision",
+	}
+	completion, completionErr := noemamcp.ParseToolClassificationResponse(
+		`{"idempotent":true,"openWorld":false}`,
+		policy,
+	)
+	if completionErr != nil {
+		t.Fatalf("completion: %v", completionErr)
+	}
+	mergedPolicy := noemamcp.ApplyToolClassification(policy, completion)
+	if mergedPolicy.ReadOnly.Source != "annotation" {
+		t.Fatalf("read-only source = %q", mergedPolicy.ReadOnly.Source)
+	}
+	if mergedPolicy.Idempotent.Source != "model" {
+		t.Fatalf("idempotent source = %q", mergedPolicy.Idempotent.Source)
+	}
+	if mergedPolicy.Status != "ready" || mergedPolicy.ReadOnly.Value == nil || mergedPolicy.Idempotent.Value == nil ||
+		mergedPolicy.Destructive.Value == nil || mergedPolicy.OpenWorld.Value == nil {
+		t.Fatalf("merged tool is not callable = %#v", mergedPolicy)
+	}
+
+	defaultPending := mergedPolicy
+	defaultPending.Idempotent = store.MCPHint{}
+	defaultPending.OpenWorld = store.MCPHint{}
+	defaultedPolicy := noemamcp.ApplyToolSafeDefaults(defaultPending)
+	if defaultedPolicy.Status != "defaulted" {
+		t.Fatalf("defaulted status = %q", defaultedPolicy.Status)
+	}
+	if defaultedPolicy.Idempotent.Value == nil || *defaultedPolicy.Idempotent.Value {
+		t.Fatalf("idempotent default = %#v", defaultedPolicy.Idempotent)
+	}
+	if defaultedPolicy.OpenWorld.Value == nil || !*defaultedPolicy.OpenWorld.Value {
+		t.Fatalf("open-world default = %#v", defaultedPolicy.OpenWorld)
+	}
+
 	chat, database, _ := chatFixture(t)
 	paths, err := home.FromRoot(chat.home.Name())
 	if err != nil {
