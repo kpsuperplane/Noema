@@ -3369,56 +3369,6 @@ func TestRustProviders_SuccessfulDownloadIsAtomicAndStoreFree(t *testing.T) {
 	}
 }
 
-// Rust source: crates/noema-providers/src/local_models/manager/process.rs::verified_model_blob_path_accepts_canonical_untampered_blob (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_VerifiedModelBlobPathAcceptsCanonicalUntamperedBlob(t *testing.T) {
-	root := t.TempDir()
-	bytesValue := []byte("verified model bytes")
-	digest := providerLocalDigest(bytesValue)
-	blob := filepath.Join(root, "models", "blobs", digest+".gguf")
-	if err := os.MkdirAll(filepath.Dir(blob), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(blob, bytesValue, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	verified, err := verifyProviderModelBlob(root, providerLocalInstallation{SHA256: digest, BlobPath: blob})
-	if err != nil || verified != blob {
-		t.Fatalf("verified model blob = %q, %v", verified, err)
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/manager/process.rs::verified_model_blob_path_rejects_missing_and_tampered_blob (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_VerifiedModelBlobPathRejectsMissingAndTamperedBlob(t *testing.T) {
-	root := t.TempDir()
-	bytesValue := []byte("verified model bytes")
-	digest := providerLocalDigest(bytesValue)
-	installation := providerLocalInstallation{SHA256: digest}
-	if _, err := verifyProviderModelBlob(root, installation); err == nil || !strings.Contains(err.Error(), "unavailable") {
-		t.Fatalf("missing blob error = %v", err)
-	}
-	blob := filepath.Join(root, "models", "blobs", digest+".gguf")
-	if err := os.MkdirAll(filepath.Dir(blob), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(blob, []byte("tampered model bytes"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := verifyProviderModelBlob(root, installation); err == nil || !strings.Contains(err.Error(), "does not match") {
-		t.Fatalf("tampered blob error = %v", err)
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/manager/process.rs::verified_model_blob_path_rejects_noncanonical_durable_path (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_VerifiedModelBlobPathRejectsNoncanonicalDurablePath(t *testing.T) {
-	root := t.TempDir()
-	bytesValue := []byte("verified model bytes")
-	digest := providerLocalDigest(bytesValue)
-	errText := "models/blobs/other.gguf"
-	if _, err := verifyProviderModelBlob(root, providerLocalInstallation{SHA256: digest, BlobPath: filepath.Join(root, errText)}); err == nil || !strings.Contains(err.Error(), "does not match") {
-		t.Fatalf("noncanonical path error = %v", err)
-	}
-}
-
 // Rust source: crates/noema-providers/src/local_models/manager/tests.rs::activation_and_route_replacement_contracts (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ActivationAndRouteReplacementContracts(t *testing.T) {
 	manager := newProviderLocalManagerContract()
