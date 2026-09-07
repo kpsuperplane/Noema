@@ -14,10 +14,26 @@ func TestRustCapabilities_canonical_tool_spec_requires_object_input_schema(t *te
 	}).Validate(); err == nil || !errors.Is(err, ErrGenerationToolSchemaInvalid) {
 		t.Error("non-object input schema was accepted")
 	}
-	if err := (GenerationTool{
+	tool := GenerationTool{
 		Name: "web.search", Description: "Search.", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-	}).Validate(); err != nil {
+	}
+	if err := tool.Validate(); err != nil {
 		t.Fatalf("object input schema: %v", err)
+	}
+	schema, err := NewInputToolSchema(tool.Name, tool.InputSchema)
+	if err != nil {
+		t.Fatalf("object input schema returned an error: %v", err)
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("object input schema serialization: %v", err)
+	}
+	var returned map[string]any
+	if err := json.Unmarshal(raw, &returned); err != nil {
+		t.Fatalf("object input schema JSON: %v", err)
+	}
+	if returned["type"] != "object" {
+		t.Fatalf("object input schema type = %#v", returned["type"])
 	}
 	if err := (GenerationTool{
 		Name: "web.search", Description: "  ", InputSchema: json.RawMessage(`{"type":"object"}`),
