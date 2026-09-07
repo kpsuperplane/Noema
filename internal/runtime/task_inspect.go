@@ -1101,11 +1101,14 @@ func (c *Chat) generateChatToolContinuation(
 			ExpectedCredentialRevision: expectedCredentialRevision,
 			FastMode:                   assignment.FastMode,
 		}, func(event provider.StreamEvent) {
-			if event.Kind == provider.TextDelta {
+			switch event.Kind {
+			case provider.TextDelta:
 				c.publish(Event{
 					Kind: EventAssistantDelta, ConversationID: turn.ConversationID,
 					TurnID: turn.ID, StreamID: streamID, ResponseIndex: 0, Delta: event.Delta,
 				})
+			case provider.ToolCallStarted:
+				c.publishProviderToolCallStarted(request, turn, event)
 			}
 		})
 		status := "completed"

@@ -436,7 +436,11 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 	callID := stableConversationOutputID(
 		turn.ID, "tool_call", round.Call.ProviderRound, round.Call.OutputIndex,
 	)
-	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ID, round.Call.ProviderRound, round.Call.OutputIndex)
+	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ConversationID, turn.TurnIndex, round.Call.OutputIndex)
+	display := map[string]any{}
+	if strings.TrimSpace(round.Commentary) != "" {
+		display["description"] = round.Commentary
+	}
 	item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 		ID: callID, ConversationID: turn.ConversationID, TurnID: turn.ID,
 		ParentItemID: parentID, Sequence: sequence, Kind: ConversationToolCall,
@@ -446,7 +450,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 			"title": "Tool call: " + round.Call.Name, "summary": round.Call.Name,
 			"metadata": map[string]any{
 				"turn_index": turn.TurnIndex, "output_index": round.Call.OutputIndex,
-				"provider": round.Provider, "display": map[string]any{},
+				"provider": round.Provider, "display": display,
 				"action": map[string]any{
 					"id": activityID, "provider_item_id": round.Call.ProviderItemID,
 					"provider_call_id": round.Call.ProviderCallID,
@@ -583,8 +587,8 @@ func (s *Store) FinishConversationToolCall(
 	}
 	now = now.UTC()
 	resultID := stableConversationOutputID(turn.ID, "tool_result", result.ProviderRound, result.OutputIndex)
-	activityID := fmt.Sprintf("tool_result:%s:%d:%d", turn.ID, result.ProviderRound, result.OutputIndex)
-	callActivityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ID, result.ProviderRound, result.OutputIndex)
+	activityID := fmt.Sprintf("tool_result:%s:%d:%d", turn.ConversationID, turn.TurnIndex, result.OutputIndex)
+	callActivityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ConversationID, turn.TurnIndex, result.OutputIndex)
 	payload := map[string]any{
 		"id": activityID, "activity_kind": "tool_result", "status": status,
 		"title": "Tool result: " + result.Name, "summary": result.Name,

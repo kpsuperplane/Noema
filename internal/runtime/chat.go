@@ -591,11 +591,14 @@ func (c *Chat) execute(request queuedTurn) {
 		StoreResponse:   responseIDContinuationProvider(assignment.ProviderKind),
 		FastMode:        assignment.FastMode,
 	}, func(event provider.StreamEvent) {
-		if event.Kind == provider.TextDelta {
+		switch event.Kind {
+		case provider.TextDelta:
 			c.publish(Event{
 				Kind: EventAssistantDelta, ConversationID: turn.ConversationID,
 				TurnID: turn.ID, StreamID: streamID, ResponseIndex: 0, Delta: event.Delta,
 			})
+		case provider.ToolCallStarted:
+			c.publishProviderToolCallStarted(request, turn, event)
 		}
 	})
 	providerStatus := "completed"
@@ -620,6 +623,54 @@ func (c *Chat) execute(request queuedTurn) {
 func hostedWebSearchEnabled(providerKind string, transport provider.ToolTransport) bool {
 	return transport == provider.ToolTransportNative &&
 		(providerKind == "codex" || providerKind == "openai" || providerKind == "openrouter")
+}
+
+// publishProviderToolCallStarted publishes the transient activity that lets a
+// subscriber see a native tool call while the provider response is still
+// streaming. The durable call is persisted after Generate returns.
+func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.ConversationTurn, event provider.StreamEvent) {
+	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ConversationID, turn.TurnIndex, event.Index)
+	displayName, access := event.Name, "Uses a connected tool"
+	switch event.Name {
+	case noemamemory.SearchToolName:
+		displayName, access = "Search memory", "Reads memory"
+	case updateOwnNameToolName:
+		displayName, access = "Save name", "Updates agent profile"
+	case webtool.SearchName:
+		displayName, access = "Web Search", "Searches public web"
+	case webtool.FetchName:
+		displayName, access = "Fetched Web Page", "Fetches public web pages"
+	case fileParseName:
+		displayName, access = "Parsed File", "Reads a working-directory file"
+	case fileDownloadName:
+		displayName, access = "Downloaded File", "Downloads a public file into the working directory"
+	}
+	display := map[string]any{"name": displayName, "access": access}
+	item := store.ConversationItem{
+		ID:             "transient:" + activityID,
+		ConversationID: turn.ConversationID,
+		TurnID:         turn.ID,
+		Kind:           store.ConversationActivity,
+		Status:         "running",
+		AuthorActorID:  "agent:primary",
+		Payload: map[string]any{
+			"id": activityID, "activity_kind": "tool_call", "status": "started",
+			"title": "Tool call: " + event.Name,
+			"metadata": map[string]any{
+				"turn_index": turn.TurnIndex, "output_index": event.Index,
+				"source": "provider_stream", "provider": "provider_stream",
+				"action":  map[string]any{"id": event.ID, "name": event.Name},
+				"display": display,
+			},
+		},
+		Metadata: map[string]any{
+			"turn_index": turn.TurnIndex, "runtime_item_id": activityID, "transient": true,
+		},
+	}
+	c.publish(Event{
+		Kind: EventConversationItem, ConversationID: turn.ConversationID,
+		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &item,
+	})
 }
 
 func responseIDContinuationProvider(providerKind string) bool {

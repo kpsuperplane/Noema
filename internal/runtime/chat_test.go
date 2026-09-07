@@ -192,7 +192,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	all := eventsForClient(collectCompletedTurns(t, events, 1), clientID)
 	var visibleKinds []store.ConversationItemKind
 	for _, event := range all {
-		if event.Item != nil {
+		if event.Item != nil && !strings.HasPrefix(event.Item.ID, "transient:") {
 			visibleKinds = append(visibleKinds, event.Item.Kind)
 		}
 	}

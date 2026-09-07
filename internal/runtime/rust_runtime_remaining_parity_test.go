@@ -1267,27 +1267,100 @@ func TestRustRuntime_runtime_turn_rehydrates_recorded_failure_conversation_for_r
 
 func TestRustRuntime_runtime_turn_streams_tool_call_started_before_durable_response_items(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/compaction_routing.rs::runtime_turn_streams_tool_call_started_before_durable_response_items.
-	chat, _, conversation := chatFixture(t)
+	chat, database, conversation := chatFixture(t)
 	events, err := chat.Subscribe(context.Background(), conversation.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	<-events
+	requestCount := 0
 	chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest, onEvent func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		onEvent(provider.StreamEvent{Kind: provider.TextDelta, Delta: "Checking."})
-		onEvent(provider.StreamEvent{Kind: provider.ToolCallStarted, Index: 0, ID: "call:search", Name: webtool.SearchName})
-		return provider.GenerationResult{Text: "Done."}, nil
+		requestCount++
+		if requestCount == 1 {
+			onEvent(provider.StreamEvent{Kind: provider.TextDelta, Delta: "Searching memory."})
+			onEvent(provider.StreamEvent{Kind: provider.ToolCallStarted, Index: 0, ID: "call_1", Name: noemamemory.SearchToolName})
+			return provider.GenerationResult{
+				Text: "Searching memory.",
+				ToolCalls: []provider.GenerationToolCall{{
+					Index: 0, ProviderCallID: "call_1", ProviderName: noemamemory.SearchToolName,
+					Name: noemamemory.SearchToolName, Payload: json.RawMessage(`{"query":"trains"}`),
+				}},
+			}, nil
+		}
+		onEvent(provider.StreamEvent{Kind: provider.TextDelta, Delta: "I found your train memory."})
+		return provider.GenerationResult{Text: "I found your train memory."}, nil
 	})
-	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "Search"}); err != nil {
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "What do you remember about trains?"}); err != nil {
 		t.Fatal(err)
 	}
 	collected := collectCompletedTurns(t, events, 1)
-	toolStarted := false
-	for _, event := range collected {
-		toolStarted = toolStarted || event.Kind == EventConversationItem && event.Item != nil && event.Item.Kind == store.ConversationToolCall
+	streamedText := -1
+	streamedToolStarted := -1
+	durableCommentary := -1
+	var transientActivity, durableTool *store.ConversationItem
+	for index, event := range collected {
+		if event.Kind == EventAssistantDelta && event.Delta == "Searching memory." {
+			streamedText = index
+		}
+		if event.Kind != EventConversationItem || event.Item == nil {
+			continue
+		}
+		if event.Item.Kind == store.ConversationAssistantText && event.Item.ContentText == "Searching memory." {
+			durableCommentary = index
+		}
+		if event.Item.Kind == store.ConversationActivity {
+			id, _ := event.Item.Payload["id"].(string)
+			activityKind, _ := event.Item.Payload["activity_kind"].(string)
+			status, _ := event.Item.Payload["status"].(string)
+			title, _ := event.Item.Payload["title"].(string)
+			if strings.HasPrefix(event.Item.ID, "transient:tool_call:") &&
+				activityKind == "tool_call" && status == "started" &&
+				title == "Tool call: search_memory" {
+				streamedToolStarted = index
+				copy := *event.Item
+				transientActivity = &copy
+				if id == "" || id != strings.TrimPrefix(event.Item.ID, "transient:") {
+					t.Fatalf("transient tool activity identity = %#v", event.Item)
+				}
+			}
+		}
+		if event.Item.Kind == store.ConversationToolCall {
+			copy := *event.Item
+			durableTool = &copy
+		}
 	}
-	if !toolStarted {
-		t.Errorf("provider tool start was not streamed as a durable or transient tool item: %#v", collected)
+	if streamedText < 0 || streamedToolStarted < 0 || durableCommentary < 0 ||
+		!(streamedText < streamedToolStarted && streamedToolStarted < durableCommentary) {
+		t.Fatalf("tool marker ordering = text %d, marker %d, commentary %d; events=%#v", streamedText, streamedToolStarted, durableCommentary, collected)
+	}
+	if transientActivity == nil || durableTool == nil {
+		t.Fatalf("tool lifecycle items = transient=%#v durable=%#v events=%#v", transientActivity, durableTool, collected)
+	}
+	page, err := database.ConversationItemPage(context.Background(), conversation.ID, "", 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	durableAssistantIndex, durableToolIndex := -1, -1
+	var replayedTool store.ConversationItem
+	for index, item := range page.Items {
+		if item.Kind == store.ConversationAssistantText && item.ContentText == "Searching memory." {
+			durableAssistantIndex = index
+		}
+		if item.Kind == store.ConversationToolCall {
+			durableToolIndex = index
+			replayedTool = item
+		}
+	}
+	if durableAssistantIndex < 0 || durableToolIndex < 0 || durableAssistantIndex >= durableToolIndex {
+		t.Fatalf("durable replay order = assistant %d, tool %d, items=%#v", durableAssistantIndex, durableToolIndex, page.Items)
+	}
+	if replayedID, _ := replayedTool.Payload["id"].(string); replayedID != transientActivity.Payload["id"] {
+		t.Fatalf("durable call did not replace transient activity: durable=%q transient=%#v", replayedID, transientActivity.Payload)
+	}
+	metadata, _ := replayedTool.Payload["metadata"].(map[string]any)
+	display, _ := metadata["display"].(map[string]any)
+	if display["description"] != "Searching memory." {
+		t.Fatalf("durable tool display = %#v", display)
 	}
 }
 
