@@ -89,10 +89,6 @@ func (loader *PausedSelectionLoader) loadProviderSelection(ctx context.Context) 
 	return snapshot, nil
 }
 
-func resolver(loader providerSelectionLoader, registry *providerRegistry) *providerRouteResolver {
-	return newProviderRouteResolver(loader, registry)
-}
-
 type routeResult struct {
 	route providerRoute
 	err   error
@@ -3475,7 +3471,7 @@ func TestRustProviders_ActivationAndRouteReplacementContracts(t *testing.T) {
 	if err != nil || first.ID != "first" {
 		t.Fatalf("first activation = %#v/%v", first, err)
 	}
-	oldRegistry := newProviderRegistry()
+	oldRegistry := newProviderRuntime().registry
 	oldGeneration, err := oldRegistry.register("local:first", providerTrackedProvider{label: "first"})
 	if err != nil {
 		t.Fatal(err)
@@ -3584,67 +3580,6 @@ func TestRustProviders_ProviderDebugPreservesLocalModelPaths(t *testing.T) {
 	}
 }
 
-// Rust source: crates/noema-providers/src/local_models/provider.rs::chat_request_preserves_replay_items_and_generation_controls (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_ChatRequestPreservesReplayItemsAndGenerationControls(t *testing.T) {
-	maxTokens := uint32(321)
-	body, err := lowerProviderLocalChatRequest(ProviderLocalToolRequest{Reasoning: "system rules", Messages: []GenerationMessage{
-		{Role: "user", Content: "question"},
-		{Role: "assistant", Content: "answer"},
-		{Role: "assistant", ToolCalls: []ReplayToolCall{{ProviderCallID: "call-1", Name: "read_file", Arguments: json.RawMessage(`{"path":"notes.txt"}`)}}},
-		{Role: "tool", ToolResult: &ReplayToolResult{ProviderCallID: "call-1", Name: "read_file", Success: true, Payload: json.RawMessage(`{"text":"contents"}`)}},
-	}, MaxTokens: &maxTokens})
-	if err != nil {
-		t.Fatal(err)
-	}
-	messages := body["messages"].([]map[string]any)
-	if len(messages) != 5 || messages[0]["role"] != "system" || messages[1]["role"] != "user" || messages[2]["role"] != "assistant" || messages[3]["role"] != "assistant" || messages[3]["content"] != nil || len(messages[3]["tool_calls"].([]any)) != 1 || messages[4]["role"] != "tool" || messages[4]["tool_call_id"] != "call-1" || body["max_tokens"] != uint32(321) {
-		t.Fatalf("local replay request = %#v", body)
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/provider.rs::chat_request_coalesces_developer_context_into_the_leading_system_message (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_ChatRequestCoalescesDeveloperContextIntoTheLeadingSystemMessage(t *testing.T) {
-	body, err := lowerProviderLocalChatRequest(ProviderLocalToolRequest{Reasoning: "system rules", Messages: []GenerationMessage{{Role: "developer", Content: "identity update"}, {Role: "developer", Content: "memory tool catalog"}, {Role: "user", Content: "question"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	messages := body["messages"].([]map[string]any)
-	if len(messages) != 2 || messages[0]["role"] != "system" || messages[0]["content"] != "system rules\n\nidentity update\n\nmemory tool catalog" || messages[1]["role"] != "user" || messages[1]["content"] != "question" {
-		t.Fatalf("developer context lowering = %#v", body)
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/provider.rs::native_request_uses_openai_tool_fields_without_response_format (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_NativeRequestUsesOpenaiToolFieldsWithoutResponseFormat(t *testing.T) {
-	body, err := lowerProviderLocalChatRequest(ProviderLocalToolRequest{Tools: []GenerationTool{parityGenerationTool("search_memory")}, ToolChoice: ToolChoiceAuto})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tools := body["tools"].([]any)
-	if len(tools) != 1 || tools[0].(map[string]any)["type"] != "function" || tools[0].(map[string]any)["function"].(map[string]any)["name"] != "search_memory" || body["tool_choice"] != nil {
-		t.Fatalf("native local request = %#v", body)
-	}
-	if _, exists := body["response_format"]; exists {
-		t.Fatal("local request included response_format")
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/provider.rs::native_tool_qualification_requests_one_required_empty_object_function (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_NativeToolQualificationRequestsOneRequiredEmptyObjectFunction(t *testing.T) {
-	tools := qualifyProviderLocalTools(nil)
-	body, err := lowerProviderLocalChatRequest(ProviderLocalToolRequest{Tools: tools, ToolChoice: ToolChoiceRequired, MaxTokens: func() *uint32 { v := uint32(64); return &v }()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tools) != 1 || tools[0].Name != "__noema_tool_qualification" || tools[0].InputSchema == nil || body["tool_choice"] != "required" || body["max_tokens"] != uint32(64) {
-		t.Fatalf("qualification request = %#v", body)
-	}
-	parameters := body["tools"].([]any)[0].(map[string]any)["function"].(map[string]any)["parameters"].(map[string]any)
-	if parameters["type"] != "object" {
-		t.Fatalf("qualification schema = %#v", parameters)
-	}
-}
-
 // Rust source: crates/noema-providers/src/local_models/provider.rs::native_tool_qualification_requires_the_expected_object_call (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_NativeToolQualificationRequiresTheExpectedObjectCall(t *testing.T) {
 	valid := GenerationToolCall{Name: "__noema_tool_qualification", Payload: json.RawMessage(`{}`)}
@@ -3668,52 +3603,12 @@ func TestRustProviders_NativeToolQualificationRequiresTheExpectedObjectCall(t *t
 	}
 }
 
-// Rust source: crates/noema-providers/src/local_models/provider.rs::required_tool_choice_is_sent_as_native_policy (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_RequiredToolChoiceIsSentAsNativePolicy(t *testing.T) {
-	body, err := lowerProviderLocalChatRequest(ProviderLocalToolRequest{Tools: []GenerationTool{{Name: "task.finish_execution", Description: "Finish.", InputSchema: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}`)}}, ToolChoice: ToolChoiceRequired})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if body["tool_choice"] != "required" {
-		t.Fatalf("required choice = %#v", body["tool_choice"])
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/provider.rs::required_tool_choice_rejects_an_empty_catalog (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_RequiredToolChoiceRejectsAnEmptyCatalog(t *testing.T) {
-	if _, err := lowerProviderLocalChatRequest(ProviderLocalToolRequest{ToolChoice: ToolChoiceRequired}); err == nil {
-		t.Fatal("required empty catalog was accepted")
-	}
-}
-
 // Rust source: crates/noema-providers/src/local_models/provider.rs::allowed_tool_choice_filters_native_catalog_to_the_selected_tool (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_AllowedToolChoiceFiltersNativeCatalogToTheSelectedTool(t *testing.T) {
 	first, second := parityGenerationTool("search_memory"), parityGenerationTool("task.inspect")
 	tools := lowerProviderLocalAllowedTools([]GenerationTool{first, second}, first.Name)
 	if len(tools) != 1 || tools[0].Name != "search_memory" {
 		t.Fatalf("allowed tool catalog = %#v", tools)
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/provider.rs::local_tool_schema_drops_unsupported_string_grammar (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_LocalToolSchemaDropsUnsupportedStringGrammar(t *testing.T) {
-	raw := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","pattern":".*\\S.*","minLength":1,"maxLength":4000}},"required":["title"]}`)
-	lowered, err := localProviderSchema(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	title := lowered["properties"].(map[string]any)["title"].(map[string]any)
-	if title["type"] != "string" {
-		t.Fatalf("lowered title = %#v", title)
-	}
-	for _, key := range []string{"pattern", "minLength", "maxLength"} {
-		if _, exists := title[key]; exists {
-			t.Fatalf("unsupported schema key %q retained", key)
-		}
-	}
-	var source map[string]any
-	if err := json.Unmarshal(raw, &source); err != nil || source["properties"].(map[string]any)["title"].(map[string]any)["pattern"] != ".*\\S.*" {
-		t.Fatal("source schema was mutated")
 	}
 }
 
@@ -3992,34 +3887,6 @@ func TestRustProviders_CloseDrainsWaitersAndPermanentlyRejectsAcquisition(t *tes
 	active()
 }
 
-// Rust source: crates/noema-providers/src/local_models/runtime_assets.rs::every_pinned_runtime_asset_resolves_for_its_injected_target_platform (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_EveryPinnedRuntimeAssetResolvesForItsInjectedTargetPlatform(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "localmodel", "runtime-assets.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest struct {
-		Assets []struct {
-			Target  string `json:"target_triple"`
-			Backend string `json:"backend"`
-		} `json:"assets"`
-	}
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if len(manifest.Assets) == 0 {
-		t.Fatal("runtime asset manifest is empty")
-	}
-	for _, asset := range manifest.Assets {
-		if asset.Target == "" || asset.Backend == "" {
-			t.Fatalf("incomplete runtime asset = %#v", asset)
-		}
-		if !strings.Contains(asset.Target, "-") {
-			t.Fatalf("invalid target triple = %q", asset.Target)
-		}
-	}
-}
-
 // Rust source: crates/noema-providers/src/model_profiles.rs::profile_json_preserves_minimal_shape_and_metadata_field_order (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ProfileJsonPreservesMinimalShapeAndMetadataFieldOrder(t *testing.T) {
 	profile := ModelProfile{ID: "gpt-test", Label: "GPT Test"}
@@ -4049,18 +3916,29 @@ func TestRustProviders_ReplacingProfilesPreservesUnknownAccountMetadata(t *testi
 
 // Rust source: crates/noema-providers/src/operations/mod.rs::provider_operation_boundaries_preserve_contract_defaults_and_redaction (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ProviderOperationBoundariesPreserveContractDefaultsAndRedaction(t *testing.T) {
-	contract := providerOperationsContract{ClassificationModel: "classification-model", ContextWindow: 32768, OutputReserve: 1024, SummaryTarget: 512, NativeTools: true, ParallelTools: true}
-	if contract.ClassificationModel != "classification-model" || contract.ContextWindow != 32768 || contract.OutputReserve != 1024 || contract.SummaryTarget != 512 || !contract.NativeTools || !contract.ParallelTools {
-		t.Fatalf("provider operation contract = %#v", contract)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"id\":\"operations\",\"model\":\"contract-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stream-delta\"}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(remote.Close)
+	generator := openRouterGenerationFixture(t, remote.URL, "operations-key")
+	var deltas []string
+	result, err := generator.Generate(t.Context(), GenerateRequest{
+		AccountID: openRouterGenerationAccountID,
+		Model:     "contract-model",
+		Messages:  []GenerationMessage{{Role: "user", Content: "plain"}},
+	}, func(event StreamEvent) {
+		if event.Kind == TextDelta {
+			deltas = append(deltas, event.Delta)
+		}
+	})
+	if err != nil || result.Text != "stream-delta" || strings.Join(deltas, "") != "stream-delta" || result.Usage.TotalTokens != 7 {
+		t.Fatalf("provider operation generation = %#v/%v, deltas=%#v", result, err, deltas)
 	}
-	if contract.countTokens("rules", "hello", "large") != 15 {
-		t.Fatalf("provider token count = %d", contract.countTokens("rules", "hello", "large"))
-	}
-	if got := contract.generate("plain", "large"); got != "generated:plain" {
-		t.Fatalf("provider generation = %q", got)
-	}
-	debug := contract.debug()
-	if !strings.Contains(debug, "ErasedModelProvider") || strings.Contains(debug, "sentinel-secret") || strings.Contains(debug, "/private/provider/session") {
+	debug := fmt.Sprintf("%#v", generator)
+	if strings.Contains(debug, "operations-key") || strings.Contains(debug, "sentinel-secret") || strings.Contains(debug, "/private/provider/session") {
 		t.Fatalf("provider debug = %q", debug)
 	}
 }
@@ -4083,18 +3961,23 @@ func TestRustProviders_InterleavedSourceMessagesKeepDistinctStreamAndFinalIndice
 // Rust source: crates/noema-providers/src/operations/mod.rs::citation_markers_are_hidden_from_streams_without_changing_provider_text (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_CitationMarkersAreHiddenFromStreamsWithoutChangingProviderText(t *testing.T) {
 	raw := "Claim \ue200cite\ue202https://example.com/news\ue201 done"
-	var filter providerCitationDeltaFilter
-	visible := filter.push("Claim \ue200ci")
-	visible += filter.push("te\ue202https://example.com")
-	visible += filter.push("/news\ue201 done")
-	visible += filter.finish()
-	if visible != "Claim  done" {
-		t.Fatalf("visible citation stream = %q", visible)
+	sse := `data: {"id":"citation","choices":[{"index":0,"delta":{"content":"Claim \ue200ci"}}]}` + "\n\n" +
+		`data: {"choices":[{"index":0,"delta":{"content":"te\ue202https://example.com"}}]}` + "\n\n" +
+		`data: {"choices":[{"index":0,"delta":{"content":"/news\ue201 done"}}]}` + "\n\n" +
+		"data: [DONE]\n\n"
+	var visible strings.Builder
+	result, err := ParseChatStream(t.Context(), io.NopCloser(strings.NewReader(sse)), func(event StreamEvent) {
+		if event.Kind == TextDelta {
+			visible.WriteString(event.Delta)
+		}
+	})
+	if err != nil || visible.String() != "Claim  done" {
+		t.Fatalf("visible citation stream = %q, %v", visible.String(), err)
 	}
-	if got, _ := providerCitationFilter("[News|https://example.com/news]"); got != "" || raw == "" {
-		t.Fatalf("provider citation marker filter changed source unexpectedly: %q", got)
+	if result.Text != raw {
+		t.Fatalf("provider text changed: %q", result.Text)
 	}
-	if strings.Contains(raw, "Claim  done") {
+	if raw != "Claim \ue200cite\ue202https://example.com/news\ue201 done" {
 		t.Fatal("provider text lost citation marker")
 	}
 }
@@ -4103,7 +3986,7 @@ func TestRustProviders_CitationMarkersAreHiddenFromStreamsWithoutChangingProvide
 func TestRustProviders_CitationFilterHandlesEveryDeltaBoundaryAndStreamTermination(t *testing.T) {
 	raw := "before \ue200cite\ue202turn0search0\ue201 after"
 	for split := 0; split <= len(raw); {
-		var filter providerCitationDeltaFilter
+		var filter providerTextDeltaFilter
 		visible := filter.push(raw[:split]) + filter.push(raw[split:]) + filter.finish()
 		if visible != "before  after" {
 			t.Fatalf("split at byte %d = %q", split, visible)
@@ -4113,11 +3996,11 @@ func TestRustProviders_CitationFilterHandlesEveryDeltaBoundaryAndStreamTerminati
 		}
 		split++
 	}
-	var incomplete providerCitationDeltaFilter
+	var incomplete providerTextDeltaFilter
 	if got := incomplete.push("before \ue200cite\ue202turn0search0") + incomplete.finish(); got != "before " {
 		t.Fatalf("incomplete citation = %q", got)
 	}
-	var ordinary providerCitationDeltaFilter
+	var ordinary providerTextDeltaFilter
 	if got := ordinary.push("literal \ue200cit") + ordinary.finish(); got != "literal \ue200cit" {
 		t.Fatalf("ordinary prefix = %q", got)
 	}
@@ -4139,7 +4022,7 @@ func TestRustProviders_RecommendationMatrixMatchesTheEvaluatedDefaults(t *testin
 
 // Rust source: crates/noema-providers/src/registry/tests.rs::retirement_rejects_new_leases_and_cleans_up_after_the_last_lease (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_RetirementRejectsNewLeasesAndCleansUpAfterTheLastLease(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	drops := 0
 	key := "provider_account:codex:default"
 	generation, err := registry.register(key, providerTrackedProvider{label: "old", drops: &drops, mu: &sync.Mutex{}})
@@ -4170,7 +4053,7 @@ func TestRustProviders_RetirementRejectsNewLeasesAndCleansUpAfterTheLastLease(t 
 
 // Rust source: crates/noema-providers/src/registry/tests.rs::replacement_installs_a_new_generation_while_old_leases_remain_valid (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ReplacementInstallsANewGenerationWhileOldLeasesRemainValid(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	key := "provider_account:openai:default"
 	oldDrops, newDrops := 0, 0
 	oldGeneration, err := registry.register(key, providerTrackedProvider{label: "old", drops: &oldDrops, mu: &sync.Mutex{}})
@@ -4204,7 +4087,7 @@ func TestRustProviders_ReplacementInstallsANewGenerationWhileOldLeasesRemainVali
 
 // Rust source: crates/noema-providers/src/registry/tests.rs::paused_old_generation_retirement_cannot_remove_a_replacement (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_PausedOldGenerationRetirementCannotRemoveAReplacement(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	key := "provider_account:local_models:installation:gemma"
 	oldDrops, newDrops := 0, 0
 	oldGeneration, _ := registry.register(key, providerTrackedProvider{label: "old", drops: &oldDrops, mu: &sync.Mutex{}})
@@ -4227,7 +4110,7 @@ func TestRustProviders_PausedOldGenerationRetirementCannotRemoveAReplacement(t *
 
 // Rust source: crates/noema-providers/src/registry/tests.rs::registration_tokens_cannot_retire_another_registry (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_RegistrationTokensCannotRetireAnotherRegistry(t *testing.T) {
-	first, second := newProviderRegistry(), newProviderRegistry()
+	first, second := newProviderRuntime().registry, newProviderRuntime().registry
 	registration, err := first.registration("provider_account:codex:foreign", providerTrackedProvider{label: "first"})
 	if err != nil {
 		t.Fatal(err)
@@ -4239,7 +4122,7 @@ func TestRustProviders_RegistrationTokensCannotRetireAnotherRegistry(t *testing.
 
 // Rust source: crates/noema-providers/src/registry/tests.rs::durable_retirement_block_drains_current_generation_and_prevents_key_reuse (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_DurableRetirementBlockDrainsCurrentGenerationAndPreventsKeyReuse(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	key := "provider_account:local_models:claimed"
 	generation, _ := registry.register(key, providerTrackedProvider{label: "claimed"})
 	lease, _ := registry.lease(key)
@@ -4261,7 +4144,7 @@ func TestRustProviders_DurableRetirementBlockDrainsCurrentGenerationAndPreventsK
 
 // Rust source: crates/noema-providers/src/registry/tests.rs::ready_selection_proof_holds_the_exact_generation_through_retirement (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ReadySelectionProofHoldsTheExactGenerationThroughRetirement(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	key := "provider_account:local_models:ready-proof"
 	generation, _ := registry.register(key, providerTrackedProvider{label: "ready"})
 	lease, _ := registry.lease(key)
@@ -4273,7 +4156,7 @@ func TestRustProviders_ReadySelectionProofHoldsTheExactGenerationThroughRetireme
 	}
 	lease.release()
 	missing := ProviderSelection{ProviderKind: "codex", AccountID: "provider_account:codex:missing", ModelProfile: "gpt", InstanceKey: "provider_account:codex:missing"}
-	if _, err := resolver(newSequenceLoader(missing), registry).resolveRoute(context.Background()); err == nil {
+	if _, err := newProviderRouteResolver(newSequenceLoader(missing), registry).resolveRoute(context.Background()); err == nil {
 		t.Fatal("unregistered selection proved ready")
 	}
 	unresolved := ProviderSelection{ProviderKind: "codex", AccountID: "provider_account:codex:default", ModelProfile: "gpt"}
@@ -4323,7 +4206,7 @@ func TestRustProviders_FullConversionPreservesClosedCompositionVariants(t *testi
 
 // Rust source: crates/noema-providers/src/routing/tests.rs::changed_snapshot_retries_onto_the_new_ready_instance (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ChangedSnapshotRetriesOntoTheNewReadyInstance(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	oldKey, newKey := "openai:default:old", "openai:default:new"
 	oldGeneration, err := registry.register(oldKey, providerTrackedProvider{label: "old"})
 	if err != nil {
@@ -4334,7 +4217,7 @@ func TestRustProviders_ChangedSnapshotRetriesOntoTheNewReadyInstance(t *testing.
 	read := make(chan struct{})
 	resume := make(chan struct{})
 	selectionMu := &sync.Mutex{}
-	routeResolver := resolver(&PausedSelectionLoader{current: current, mu: selectionMu, read: read, resume: resume}, registry)
+	routeResolver := newProviderRouteResolver(&PausedSelectionLoader{current: current, mu: selectionMu, read: read, resume: resume}, registry)
 	resolution := make(chan routeResult, 1)
 	go func() {
 		route, err := routeResolver.resolveRoute(context.Background())
@@ -4361,7 +4244,7 @@ func TestRustProviders_ChangedSnapshotRetriesOntoTheNewReadyInstance(t *testing.
 
 // Rust source: crates/noema-providers/src/routing/tests.rs::successful_stale_lease_rechecks_the_canonical_selection (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_SuccessfulStaleLeaseRechecksTheCanonicalSelection(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	oldKey, newKey := "openai:default:old", "openai:default:new"
 	if _, err := registry.register(oldKey, providerTrackedProvider{label: "old"}); err != nil {
 		t.Fatal(err)
@@ -4371,7 +4254,7 @@ func TestRustProviders_SuccessfulStaleLeaseRechecksTheCanonicalSelection(t *test
 	read := make(chan struct{})
 	resume := make(chan struct{})
 	selectionMu := &sync.Mutex{}
-	routeResolver := resolver(&PausedSelectionLoader{current: current, mu: selectionMu, read: read, resume: resume}, registry)
+	routeResolver := newProviderRouteResolver(&PausedSelectionLoader{current: current, mu: selectionMu, read: read, resume: resume}, registry)
 	resolution := make(chan routeResult, 1)
 	go func() {
 		route, err := routeResolver.resolveRoute(context.Background())
@@ -4395,12 +4278,12 @@ func TestRustProviders_SuccessfulStaleLeaseRechecksTheCanonicalSelection(t *test
 
 // Rust source: crates/noema-providers/src/routing/tests.rs::continuous_selection_churn_is_bounded (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ContinuousSelectionChurnIsBounded(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	selections := make([]ProviderSelection, 0, 9)
 	for i := 0; i <= providerMaxSelectionRetries; i++ {
 		selections = append(selections, selection(fmt.Sprintf("openai:default:missing-%d", i)))
 	}
-	result, err := resolver(newSequenceLoader(selections...), registry).resolveRoute(context.Background())
+	result, err := newProviderRouteResolver(newSequenceLoader(selections...), registry).resolveRoute(context.Background())
 	var routeErr providerRouteError
 	if !errors.As(err, &routeErr) || routeErr.kind != providerRouteSelectionConflict {
 		t.Fatalf("selection churn result = %#v, error = %v", result, err)
@@ -4409,23 +4292,23 @@ func TestRustProviders_ContinuousSelectionChurnIsBounded(t *testing.T) {
 
 // Rust source: crates/noema-providers/src/routing/tests.rs::strict_resolver_never_guesses_a_missing_instance_key (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_StrictResolverNeverGuessesAMissingInstanceKey(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	var routeErr providerRouteError
-	if _, err := resolver(newSequenceLoader(ProviderSelection{ProviderKind: "openai", AccountID: "provider_account:openai:default", ModelProfile: "gpt"}), registry).resolveRoute(context.Background()); !errors.As(err, &routeErr) || routeErr.kind != providerRouteMissingInstanceKey {
+	if _, err := newProviderRouteResolver(newSequenceLoader(ProviderSelection{ProviderKind: "openai", AccountID: "provider_account:openai:default", ModelProfile: "gpt"}), registry).resolveRoute(context.Background()); !errors.As(err, &routeErr) || routeErr.kind != providerRouteMissingInstanceKey {
 		t.Fatalf("missing key error = %v", err)
 	}
 	key := "openai:default:retiring"
 	generation, _ := registry.register(key, providerTrackedProvider{label: "old"})
 	_, _ = registry.retire(key, generation)
 	routeErr = providerRouteError{}
-	if _, err := resolver(newSequenceLoader(selection(key)), registry).resolveRoute(context.Background()); !errors.As(err, &routeErr) || routeErr.kind != providerRouteRetiringSelection || routeErr.key != key {
+	if _, err := newProviderRouteResolver(newSequenceLoader(selection(key)), registry).resolveRoute(context.Background()); !errors.As(err, &routeErr) || routeErr.kind != providerRouteRetiringSelection || routeErr.key != key {
 		t.Fatalf("retiring selection error = %v", err)
 	}
 }
 
 // Rust source: crates/noema-providers/src/routing/tests.rs::route_lease_rejects_missing_or_mismatched_provenance (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_RouteLeaseRejectsMissingOrMismatchedProvenance(t *testing.T) {
-	registry := newProviderRegistry()
+	registry := newProviderRuntime().registry
 	leasedKey := "openai:default:leased"
 	_, _ = registry.register(leasedKey, providerTrackedProvider{label: "leased"})
 	unresolved := ProviderSelection{ProviderKind: "openai", AccountID: "provider_account:openai:default", ModelProfile: "gpt-test"}

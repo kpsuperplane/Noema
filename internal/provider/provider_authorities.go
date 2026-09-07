@@ -1300,27 +1300,6 @@ func (r *providerLocalRuntime) shutdown() {
 	r.arbiter.close()
 }
 
-type providerOperationsContract struct {
-	ClassificationModel string
-	ContextWindow       int
-	OutputReserve       int
-	SummaryTarget       int
-	NativeTools         bool
-	ParallelTools       bool
-}
-
-func (c providerOperationsContract) countTokens(instructions, input, model string) int {
-	return len(instructions) + len(input) + len(model)
-}
-
-func (c providerOperationsContract) generate(input, model string) string {
-	return "generated:" + input
-}
-
-func (c providerOperationsContract) debug() string {
-	return "ErasedModelProvider{configuration:[REDACTED]}"
-}
-
 // ProviderSelection is the durable selection projection.
 type ProviderSelection struct {
 	ProviderKind string `json:"provider_kind"`
@@ -1741,78 +1720,4 @@ func materializeProviderModelAtomically(ctx context.Context, root string, expect
 		return "", err
 	}
 	return destination, nil
-}
-
-// providerCitationFilter hides marker syntax from streamed text while
-// preserving the provider text and final citation metadata.
-func providerCitationFilter(input string) (string, []Citation) {
-	var citations []Citation
-	var output strings.Builder
-	for i := 0; i < len(input); {
-		if input[i] == '[' {
-			end := strings.IndexByte(input[i:], ']')
-			if end > 0 {
-				marker := input[i+1 : i+end]
-				parts := strings.SplitN(marker, "|", 2)
-				if len(parts) == 2 && strings.HasPrefix(parts[1], "http") {
-					citations = append(citations, Citation{Title: parts[0], URL: parts[1]})
-					i += end + 1
-					continue
-				}
-			}
-		}
-		output.WriteByte(input[i])
-		i++
-	}
-	return output.String(), citations
-}
-
-type providerCitationDeltaFilter struct {
-	pending  string
-	inMarker bool
-}
-
-func (f *providerCitationDeltaFilter) push(delta string) string {
-	f.pending += delta
-	const start = "\ue200cite\ue202"
-	const end = "\ue201"
-	var visible strings.Builder
-	for {
-		if f.inMarker {
-			index := strings.Index(f.pending, end)
-			if index < 0 {
-				return visible.String()
-			}
-			f.pending = f.pending[index+len(end):]
-			f.inMarker = false
-			continue
-		}
-		index := strings.Index(f.pending, start)
-		if index < 0 {
-			// Keep a possible partial marker prefix for the next delta.
-			keep := 0
-			for size := 1; size < len(start) && size <= len(f.pending); size++ {
-				if strings.HasSuffix(f.pending, start[:size]) {
-					keep = size
-				}
-			}
-			flush := len(f.pending) - keep
-			visible.WriteString(f.pending[:flush])
-			f.pending = f.pending[flush:]
-			return visible.String()
-		}
-		visible.WriteString(f.pending[:index])
-		f.pending = f.pending[index+len(start):]
-		f.inMarker = true
-	}
-}
-
-func (f *providerCitationDeltaFilter) finish() string {
-	if f.inMarker {
-		f.pending = ""
-		return ""
-	}
-	value := f.pending
-	f.pending = ""
-	return value
 }

@@ -23,6 +23,76 @@ const (
 	maxHostedSearches = 64
 )
 
+const (
+	providerCitationMarkerStart = "\ue200cite\ue202"
+	providerCitationMarkerEnd   = '\ue201'
+)
+
+// providerTextDeltaFilter removes private citation markers from live text
+// events while leaving the completed provider response unchanged.
+//
+// A marker may be split at any byte boundary. Whitespace terminates a
+// malformed marker so the visible stream cannot be held open indefinitely.
+type providerTextDeltaFilter struct {
+	pending      string
+	insideMarker bool
+	lastEvent    StreamEvent
+	hasLastEvent bool
+}
+
+func (filter *providerTextDeltaFilter) push(delta string) string {
+	filter.pending += delta
+	var visible strings.Builder
+	for {
+		if filter.insideMarker {
+			boundary := strings.IndexRune(filter.pending, providerCitationMarkerEnd)
+			whitespace := strings.IndexFunc(filter.pending, func(r rune) bool { return r == ' ' || r == '\t' || r == '\n' || r == '\r' })
+			if boundary < 0 || (whitespace >= 0 && whitespace < boundary) {
+				if whitespace < 0 {
+					filter.pending = ""
+					break
+				}
+				filter.pending = filter.pending[whitespace:]
+				filter.insideMarker = false
+				continue
+			}
+			filter.pending = filter.pending[boundary+len(string(providerCitationMarkerEnd)):]
+			filter.insideMarker = false
+			continue
+		}
+
+		index := strings.Index(filter.pending, providerCitationMarkerStart)
+		if index >= 0 {
+			visible.WriteString(filter.pending[:index])
+			filter.pending = filter.pending[index+len(providerCitationMarkerStart):]
+			filter.insideMarker = true
+			continue
+		}
+
+		keep := 0
+		for size := 1; size < len(providerCitationMarkerStart) && size <= len(filter.pending); size++ {
+			if strings.HasSuffix(filter.pending, providerCitationMarkerStart[:size]) {
+				keep = size
+			}
+		}
+		flush := len(filter.pending) - keep
+		visible.WriteString(filter.pending[:flush])
+		filter.pending = filter.pending[flush:]
+		break
+	}
+	return visible.String()
+}
+
+func (filter *providerTextDeltaFilter) finish() string {
+	if filter.insideMarker {
+		filter.pending = ""
+		return ""
+	}
+	value := filter.pending
+	filter.pending = ""
+	return value
+}
+
 var errStreamDone = errors.New("provider stream completed")
 
 // StreamEventKind identifies one live provider event.
@@ -118,6 +188,26 @@ func ParseChatStream(
 		tools: make(map[int]*toolAccumulator), searchIndex: make(map[string]int),
 		citationKeys: make(map[string]struct{}),
 	}
+	var deltaFilter providerTextDeltaFilter
+	emit := func(event StreamEvent) {
+		if event.Kind != TextDelta {
+			onEvent(event)
+			return
+		}
+		deltaFilter.lastEvent = event
+		deltaFilter.hasLastEvent = true
+		event.Delta = deltaFilter.push(event.Delta)
+		if event.Delta != "" {
+			onEvent(event)
+		}
+	}
+	finishDeltas := func() {
+		if delta := deltaFilter.finish(); delta != "" && deltaFilter.hasLastEvent {
+			event := deltaFilter.lastEvent
+			event.Delta = delta
+			onEvent(event)
+		}
+	}
 	scanner := bufio.NewScanner(&contextReader{ctx: ctx, reader: reader})
 	scanner.Buffer(make([]byte, 4096), maxSSELine)
 
@@ -138,7 +228,7 @@ func ParseChatStream(
 		if len(payload) > maxSSEEvent {
 			return errors.New("provider SSE event is too large")
 		}
-		return accumulator.consume(eventType, []byte(payload), onEvent)
+		return accumulator.consume(eventType, []byte(payload), emit)
 	}
 
 	for scanner.Scan() {
@@ -149,6 +239,7 @@ func ParseChatStream(
 		if line == "" {
 			if err := dispatch(); err != nil {
 				if errors.Is(err, errStreamDone) {
+					finishDeltas()
 					return accumulator.result(), nil
 				}
 				return ChatStreamResult{}, err
@@ -179,10 +270,12 @@ func ParseChatStream(
 	}
 	if err := dispatch(); err != nil {
 		if errors.Is(err, errStreamDone) {
+			finishDeltas()
 			return accumulator.result(), nil
 		}
 		return ChatStreamResult{}, err
 	}
+	finishDeltas()
 	return accumulator.result(), nil
 }
 
