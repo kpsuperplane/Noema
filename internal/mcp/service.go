@@ -75,10 +75,25 @@ type Binding struct {
 	ServerPolicyRevision, ToolPolicyRevision            int
 	InvokerKey, OperationToken                          string
 	InputSchema                                         json.RawMessage
-	Behavior                                            store.ActionBehavior
-	ReviewRoute                                         store.ActionReviewRoute
-	Destination                                         *store.CapabilityDestination `json:",omitempty"`
-	PersistencePolicy                                   BindingPersistencePolicy     `json:"persistence_policy,omitempty"`
+	// InputCheck is the source-owned executable-input rule. The remote schema
+	// describes the provider contract, while this closure preserves any
+	// source-specific admission rule before the invoker is reached.
+	InputCheck        ToolInputCheck `json:"-"`
+	Behavior          store.ActionBehavior
+	ReviewRoute       store.ActionReviewRoute
+	Destination       *store.CapabilityDestination `json:",omitempty"`
+	PersistencePolicy BindingPersistencePolicy     `json:"persistence_policy,omitempty"`
+}
+
+// ToolInputCheck is the source-owned check for one binding's executable
+// arguments. It is intentionally a closure because the source may enforce
+// rules that are stricter than its provider-visible JSON schema.
+type ToolInputCheck func(any) bool
+
+// Accepts applies the source check. A binding without a source-specific rule
+// remains governed by its provider-visible schema.
+func (check ToolInputCheck) Accepts(arguments any) bool {
+	return check == nil || check(arguments)
 }
 
 // GoString preserves the Rust authority names in diagnostic formatting used

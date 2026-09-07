@@ -165,6 +165,10 @@ func (router *CapabilityRegistryRouter) dispatch(ctx context.Context, snapshot B
 	if err != nil {
 		return CapabilityDispatch{}, capabilityFailure(ErrCapabilityInvalidArguments, binding, arguments)
 	}
+	var argumentValue any
+	if err := json.Unmarshal(argumentBytes, &argumentValue); err != nil || !binding.InputCheck.Accepts(argumentValue) {
+		return CapabilityDispatch{}, capabilityFailure(ErrCapabilityInvalidArguments, binding, arguments)
+	}
 	if err := ValidateArguments(binding.InputSchema, argumentBytes); err != nil {
 		return CapabilityDispatch{}, capabilityFailure(ErrCapabilityInvalidArguments, binding, arguments)
 	}

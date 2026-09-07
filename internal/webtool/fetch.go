@@ -49,7 +49,7 @@ type fetchResponse struct {
 }
 
 const (
-	redactedSensitiveURL = "[REDACTED_SENSITIVE_URL]"
+	redactedSensitiveURL = "[redacted sensitive web.fetch URL]"
 	rawMarkdownLimit     = 8_000
 	singlePassLimit      = 250_000
 	chunkedSummaryLimit  = 1_000_000

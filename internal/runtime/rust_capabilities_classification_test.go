@@ -44,14 +44,15 @@ func TestRustCapabilities_classification_fills_only_missing_hints_and_defaults_f
 	defaultPending := mergedPolicy
 	defaultPending.Idempotent = store.MCPHint{}
 	defaultPending.OpenWorld = store.MCPHint{}
+	defaultPending.Status = "pending"
 	defaultedPolicy := noemamcp.ApplyToolSafeDefaults(defaultPending)
 	if defaultedPolicy.Status != "defaulted" {
 		t.Fatalf("defaulted status = %q", defaultedPolicy.Status)
 	}
-	if defaultedPolicy.Idempotent.Value == nil || *defaultedPolicy.Idempotent.Value {
+	if defaultedPolicy.Idempotent.Source != "safe_default" || defaultedPolicy.Idempotent.Value == nil || *defaultedPolicy.Idempotent.Value {
 		t.Fatalf("idempotent default = %#v", defaultedPolicy.Idempotent)
 	}
-	if defaultedPolicy.OpenWorld.Value == nil || !*defaultedPolicy.OpenWorld.Value {
+	if defaultedPolicy.OpenWorld.Source != "safe_default" || defaultedPolicy.OpenWorld.Value == nil || !*defaultedPolicy.OpenWorld.Value {
 		t.Fatalf("open-world default = %#v", defaultedPolicy.OpenWorld)
 	}
 

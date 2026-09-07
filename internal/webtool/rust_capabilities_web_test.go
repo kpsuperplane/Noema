@@ -123,7 +123,7 @@ func TestRustCapabilities_parser_normalizes_nested_arguments_and_enforces_bounds
 	}
 	for _, raw := range []string{
 		`{"url":"  "}`,
-		`{"url":"[REDACTED_SENSITIVE_URL]","__noema_rejected_sensitive_url":true}`,
+		`{"url":"[redacted sensitive web.fetch URL]","__noema_rejected_sensitive_url":true}`,
 	} {
 		if _, err := parseFetch(json.RawMessage(raw)); err == nil {
 			t.Errorf("invalid fetch arguments were accepted: %s", raw)

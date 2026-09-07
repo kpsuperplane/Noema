@@ -25,8 +25,8 @@ func TestRustCapabilities_credential_url_components_are_removed_at_every_persist
 		result["__noema_rejected_sensitive_url"] != true {
 		t.Fatalf("nested sanitized URLs = %#v", nested)
 	}
-	if sanitizedDisplayURL("malformed secret-value") != redactedSensitiveURL {
-		t.Fatal("malformed URL was not replaced")
+	if got := sanitizedDisplayURL("malformed secret-value"); got != "[redacted sensitive web.fetch URL]" {
+		t.Fatalf("malformed URL marker = %q", got)
 	}
 }
 

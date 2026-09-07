@@ -171,7 +171,15 @@ func TestRustCapabilities_source_input_check_protects_immediate_and_reviewed_dis
 			binding := Binding{
 				Name: "checked.call", Description: "Checked call.", InvokerKey: "checked", OperationToken: "checked",
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`),
-				Behavior:    store.ActionBehavior{ReadOnly: true, RepeatSafe: true}, PersistencePolicy: BindingPersistenceRedacted,
+				InputCheck: ToolInputCheck(func(arguments any) bool {
+					object, ok := arguments.(map[string]any)
+					if !ok {
+						return false
+					}
+					_, ok = object["value"].(string)
+					return ok
+				}),
+				Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true}, PersistencePolicy: BindingPersistenceRedacted,
 			}
 			if test.reviewed {
 				destination, destinationErr := store.NewCapabilityDestination("test", "checked", nil, "1")
@@ -184,6 +192,9 @@ func TestRustCapabilities_source_input_check_protects_immediate_and_reviewed_dis
 			snapshot := rustCapabilityRouterSnapshot(t, binding)
 			valid := map[string]any{"value": "ok"}
 			invalid := map[string]any{"value": 7}
+			if !binding.InputCheck.Accepts(valid) || binding.InputCheck.Accepts(invalid) {
+				t.Fatalf("source input check accepted the wrong values: valid=%v invalid=%v", binding.InputCheck.Accepts(valid), binding.InputCheck.Accepts(invalid))
+			}
 			var validDispatch, invalidDispatch CapabilityDispatch
 			var validFailure, invalidFailure CapabilityDispatchFailure
 			if test.reviewed {
