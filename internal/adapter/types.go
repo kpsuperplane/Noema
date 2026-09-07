@@ -369,25 +369,6 @@ type SetupBinding struct {
 	InvokerKey        string
 	OperationToken    string
 	ExecutionDecision string
-	// SensitiveFields and SensitiveQueryNames are the connection-declared
-	// persistence policy for this binding. They stay outside the model tool
-	// shape and apply only at the retained argument/output boundary.
-	SensitiveFields     map[string]bool `json:"-"`
-	SensitiveQueryNames map[string]bool `json:"-"`
-	SecretValues        []string        `json:"-"`
-}
-
-// PersistArguments and PersistOutput apply the setup binding's ordinary
-// persistence boundary. They preserve schema metadata while removing secret
-// values before proposal material is retained or logged.
-func (b SetupBinding) PersistArguments(value any) any { return b.persist(value) }
-func (b SetupBinding) PersistOutput(value any) any    { return b.persist(value) }
-
-func (b SetupBinding) persist(value any) any {
-	if len(b.SensitiveFields) == 0 && len(b.SensitiveQueryNames) == 0 && len(b.SecretValues) == 0 {
-		return sanitizeProposalPayload(value)
-	}
-	return sanitizeSensitiveOutputWithQueryNames(value, b.SensitiveFields, b.SensitiveQueryNames, b.SecretValues)
 }
 
 func GenerationTools(bindings []Binding) []provider.GenerationTool {

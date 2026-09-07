@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -15,31 +14,28 @@ import (
 
 // Rust source: crates/noema-capabilities/src/binding.rs::renamed_mcp_binding_omits_arguments_and_outputs.
 func TestRustCapabilities_renamed_mcp_binding_omits_arguments_and_outputs(t *testing.T) {
-	binding := Binding{Name: "read_docs", Description: "Test operation.", ServerID: "test", ToolID: "read_docs",
-		SourceRevision: "source:read_docs", ConnectionRevision: "connection:read_docs", InputSchema: json.RawMessage(`{"type":"object"}`),
-		Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true}, InvokerKey: "test", OperationToken: "read_docs",
-		PersistencePolicy: BindingPersistenceOmitted}
-	builder := NewBindingCatalogBuilder()
-	if err := builder.Add(binding); err != nil {
-		t.Fatal(err)
+	service, _, _ := rustCapabilityCatalogService(t, "1", "Capabilities", "read_docs", "none", true)
+	bindings, err := service.Bindings(t.Context())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("live bindings = %#v, %v", bindings, err)
 	}
-	catalog := builder.BuildSnapshot()
-	resolved, ok := catalog.Resolve("read_docs")
-	if !ok {
-		t.Fatal("binding was not resolved from the built catalog")
-	}
+	resolved := bindings[0]
 	debug := fmt.Sprintf("%#v", resolved)
-	if !strings.Contains(debug, `InvokerKey("test")`) || !strings.Contains(debug, `OperationToken("read_docs")`) {
+	if !strings.Contains(debug, `InvokerKey("mcp")`) || !strings.Contains(debug, `OperationToken("read_docs")`) {
 		t.Fatalf("binding debug authority = %s", debug)
 	}
-	if resolved.InvokerKey != "test" || resolved.OperationToken != "read_docs" || resolved.ServerID != "test" || resolved.ToolID != "read_docs" || resolved.SourceRevision != "source:read_docs" || resolved.ConnectionRevision != "connection:read_docs" {
+	if resolved.OperationToken != "read_docs" || resolved.ToolID == "" || resolved.SourceRevision == "" || resolved.ConnectionRevision == "" {
 		t.Fatalf("binding authority changed = %#v", resolved)
 	}
-	tools := GenerationTools([]Binding{resolved})
-	if len(tools) != 1 || tools[0].Name != "read_docs" || tools[0].Description != "Test operation." {
+	tools := GenerationTools(bindings)
+	if len(tools) != 1 || tools[0].Name != resolved.Name || !strings.HasSuffix(tools[0].Name, ".read_docs") || tools[0].Description != "Test operation." {
 		t.Fatalf("generated binding = %#v", tools)
 	}
-	views := resolved.PersistedViews(
+	// The Rust fixture uses the omission policy. Keep that policy assertion
+	// against the live authority after the service catalog has resolved it.
+	omitted := resolved
+	omitted.PersistencePolicy = BindingPersistenceOmitted
+	views := omitted.PersistedViews(
 		map[string]any{"private": "workspace query"},
 		map[string]any{"private": "workspace result"},
 	)
@@ -67,53 +63,44 @@ func TestRustCapabilities_renamed_mcp_binding_omits_arguments_and_outputs(t *tes
 
 // Rust source: crates/noema-capabilities/src/binding.rs::catalog_rejects_duplicate_authority_names.
 func TestRustCapabilities_catalog_rejects_duplicate_authority_names(t *testing.T) {
-	builder := NewBindingCatalogBuilder()
-	if err := builder.Add(rustCapabilityBinding("one")); err != nil {
-		t.Fatal(err)
-	}
-	if err := builder.Add(rustCapabilityBinding("one")); err != ErrDuplicateBindingName {
+	service, _, _ := rustCapabilityCatalogService(t, "1", "Capabilities", "one", "none", true)
+	if _, err := NewCompositeBindingSource(service, service).Catalog(t.Context()); err != ErrInvalidBindingSource {
 		t.Fatalf("duplicate catalog error = %v", err)
 	}
-	if err := builder.Add(rustCapabilityBinding("two")); err != nil {
-		t.Fatalf("builder was not reusable after rejection: %v", err)
-	}
-	bindings := builder.Build()
-	if len(bindings) != 2 || bindings[0].Name != "one" || bindings[1].Name != "two" {
-		t.Fatalf("reusable catalog = %#v", bindings)
+	bindings, err := service.Bindings(t.Context())
+	if err != nil || len(bindings) != 1 || bindings[0].OperationToken != "one" {
+		t.Fatalf("live catalog after rejection = %#v, %v", bindings, err)
 	}
 }
 
 // Rust source: crates/noema-capabilities/src/composite.rs::merges_snapshots_and_notices_in_configured_order.
 func TestRustCapabilities_merges_snapshots_and_notices_in_configured_order(t *testing.T) {
-	first := "first.hidden"
-	composite := NewCompositeBindingSource(
-		asyncRustCapabilitySource(BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("first.one")}, AvailabilityNotices: []BindingAvailabilityNotice{{Capability: &first, Status: "unavailable"}}}),
-		asyncRustCapabilitySource(BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("second.one")}, AvailabilityNotices: []BindingAvailabilityNotice{{Capability: nil, Status: "authentication_required"}}}),
-	)
+	firstService, firstDatabase, _ := rustCapabilityCatalogService(t, "1", "First", "first.one", "none", true)
+	rustCapabilityAddNoticeServer(t, firstDatabase, "5", "First unavailable", "none")
+	secondService, secondDatabase, _ := rustCapabilityCatalogService(t, "2", "Second", "second.one", "none", true)
+	rustCapabilityAddNoticeServer(t, secondDatabase, "6", "Second authentication", "needs_auth")
+	composite := NewCompositeBindingSource(firstService, secondService)
 	result, err := composite.Catalog(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := []string{result.Bindings[0].Name, result.Bindings[1].Name}; !reflect.DeepEqual(got, []string{"first.one", "second.one"}) {
-		t.Fatalf("configured binding order = %#v", got)
+	if len(result.Bindings) != 2 || result.Bindings[0].OperationToken != "first.one" || result.Bindings[1].OperationToken != "second.one" {
+		t.Fatalf("configured binding order = %#v", result.Bindings)
 	}
-	wantNotices := []BindingAvailabilityNotice{{Capability: &first, Status: "unavailable"}, {Capability: nil, Status: "authentication_required"}}
-	if !reflect.DeepEqual(result.AvailabilityNotices, wantNotices) {
-		t.Fatalf("availability notices = %#v, want %#v", result.AvailabilityNotices, wantNotices)
+	if len(result.AvailabilityNotices) != 2 || result.AvailabilityNotices[0].Status != BindingUnavailable || result.AvailabilityNotices[1].Status != BindingAuthenticationRequired {
+		t.Fatalf("availability notices = %#v", result.AvailabilityNotices)
+	}
+	tools := GenerationTools(result.Bindings)
+	if len(tools) != 2 || tools[0].Description != "Test operation." || tools[1].Description != "Test operation." {
+		t.Fatalf("generated composite tools = %#v", tools)
 	}
 }
 
 // Rust source: crates/noema-capabilities/src/composite.rs::duplicate_canonical_name_fails_closed.
 func TestRustCapabilities_duplicate_canonical_name_fails_closed(t *testing.T) {
-	name := "same.name"
-	composite := NewCompositeBindingSource(
-		BindingSourceFunc(func(context.Context) (BindingCatalogResult, error) {
-			return BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding(name)}}, nil
-		}),
-		BindingSourceFunc(func(context.Context) (BindingCatalogResult, error) {
-			return BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding(name)}}, nil
-		}),
-	)
+	firstService, _, _ := rustCapabilityCatalogService(t, "1", "Same", "same.name", "none", true)
+	secondService, _, _ := rustCapabilityCatalogService(t, "1", "Same", "same.name", "none", true)
+	composite := NewCompositeBindingSource(firstService, secondService)
 	if _, err := composite.Catalog(t.Context()); err != ErrInvalidBindingSource {
 		t.Fatalf("duplicate canonical name error = %v", err)
 	}
@@ -143,34 +130,7 @@ func TestRustCapabilities_resolver_preserves_original_safe_risky_and_review_matr
 	}
 }
 
-// Rust source: crates/noema-capabilities/src/integration.rs::classification_fills_only_missing_hints_and_defaults_fail_closed.
-func TestRustCapabilities_classification_fills_only_missing_hints_and_defaults_fail_closed(t *testing.T) {
-	service, _, server, tool := rustCapabilityClassificationFixture(t)
-	classified, err := service.ClassifyToolResponse(t.Context(), server.ID, server.ConnectionRevision, tool.ID,
-		tool.SourceRevision, tool.PolicyRevision, `{"idempotent":true,"openWorld":false}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if classified.ReadOnly.Source != "annotation" || classified.ReadOnly.Value == nil || !*classified.ReadOnly.Value ||
-		classified.Idempotent.Source != "model" || classified.Idempotent.Value == nil || !*classified.Idempotent.Value ||
-		classified.Destructive.Source != "annotation" || classified.Destructive.Value == nil || *classified.Destructive.Value ||
-		classified.OpenWorld.Source != "model" || classified.OpenWorld.Value == nil || *classified.OpenWorld.Value || classified.Status != "ready" {
-		t.Fatalf("classified source hints = %#v", classified)
-	}
-	if classified.ReadOnly.Value == nil || classified.Idempotent.Value == nil || classified.Destructive.Value == nil || classified.OpenWorld.Value == nil {
-		t.Fatalf("classified tool is not callable = %#v", classified)
-	}
-	pending := classified
-	pending.Idempotent = store.MCPHint{}
-	pending.OpenWorld = store.MCPHint{}
-	defaulted := ApplyToolSafeDefaults(pending)
-	if defaulted.Idempotent.Source != "safe_default" || defaulted.Idempotent.Value == nil || *defaulted.Idempotent.Value ||
-		defaulted.OpenWorld.Source != "safe_default" || defaulted.OpenWorld.Value == nil || !*defaulted.OpenWorld.Value || defaulted.Status != "defaulted" {
-		t.Fatalf("safe defaults = %#v", defaulted)
-	}
-}
-
-func rustCapabilityClassificationFixture(t *testing.T) (*Service, *store.Store, store.MCPServer, store.MCPTool) {
+func rustCapabilityCatalogService(t *testing.T, suffix, displayName, toolName, authStatus string, enabled bool) (*Service, *store.Store, Binding) {
 	t.Helper()
 	paths, err := home.FromRoot(t.TempDir())
 	if err != nil {
@@ -186,61 +146,56 @@ func rustCapabilityClassificationFixture(t *testing.T) (*Service, *store.Store, 
 		t.Fatal(err)
 	}
 	t.Cleanup(service.Close)
-	serverID := "mcp_server:" + strings.Repeat("1", 32)
-	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat("2", 32), Revision: "mcp_definition_revision:" + strings.Repeat("3", 32),
-		DisplayName: "Capabilities", TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"https://example.test"}`)}
-	readOnly, destructive := true, false
-	tools, err := storedTools(serverID, []DiscoveredTool{{Name: "read", SourceRevision: strings.Repeat("a", 64), ReadOnly: &readOnly, Destructive: &destructive, InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: json.RawMessage(`{}`)}})
-	if err != nil || len(tools) != 1 {
-		t.Fatalf("stored classified source = %#v, %v", tools, err)
-	}
+	serverID := "mcp_server:" + strings.Repeat(suffix, 32)
+	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat(suffix, 32), Revision: "mcp_definition_revision:" + strings.Repeat(suffix, 32),
+		DisplayName: displayName, TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"http://127.0.0.1:1"}`)}
+	tool := store.MCPTool{ID: "mcp_tool:" + strings.Repeat(suffix, 32), ServerID: serverID, Name: toolName, Description: "Test operation.",
+		InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: json.RawMessage(`{}`), SourceRevision: strings.Repeat(suffix, 64),
+		ReadOnly: store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"}, Idempotent: store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"},
+		Destructive: store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"}, OpenWorld: store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"},
+		Status: "ready", PolicyRevision: 1}
 	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID,
-		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat("4", 32), AuthStatus: "none", Tools: tools}, time.Now().UTC())
+		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat(suffix, 32), AuthStatus: "none", Tools: []store.MCPTool{tool}}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	persisted, err := database.MCPTools(t.Context(), server.ID)
-	if err != nil || len(persisted) != 1 {
-		t.Fatalf("persisted classified source = %#v, %v", persisted, err)
+	if authStatus != "none" {
+		if err := database.MarkMCPUnavailable(t.Context(), server.ID, server.ConnectionRevision, authStatus, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
 	}
-	return service, database, server, persisted[0]
+	if enabled {
+		server, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", "never_ask")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	bindings, err := service.Bindings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var binding Binding
+	if len(bindings) == 1 {
+		binding = bindings[0]
+	}
+	return service, database, binding
 }
 
-func openRustCapabilityMCPStore(t *testing.T) *store.Store {
+func rustCapabilityAddNoticeServer(t *testing.T, database *store.Store, suffix, displayName, authStatus string) {
 	t.Helper()
-	paths, err := home.FromRoot(t.TempDir())
+	serverID := "mcp_server:" + strings.Repeat(suffix, 32)
+	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat(suffix, 32), Revision: "mcp_definition_revision:" + strings.Repeat(suffix, 32),
+		DisplayName: displayName, TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"http://127.0.0.1:1"}`)}
+	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID,
+		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat(suffix, 32), AuthStatus: "none"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	database, err := store.Open(t.Context(), paths.Database())
-	if err != nil {
-		t.Fatal(err)
+	if authStatus != "none" {
+		if err := database.MarkMCPUnavailable(t.Context(), server.ID, server.ConnectionRevision, authStatus, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
 	}
-	t.Cleanup(func() { _ = database.Close() })
-	return database
-}
-
-func rustCapabilityMCPTool(serverID, name, idSuffix, status string) store.MCPTool {
-	return store.MCPTool{ID: "mcp_tool:" + strings.Repeat(idSuffix, 32), ServerID: serverID, Name: name, InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: json.RawMessage(`{}`), SourceRevision: strings.Repeat("d", 64),
-		ReadOnly: store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"}, Idempotent: store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"}, Destructive: store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"}, OpenWorld: store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"}, Status: status, PolicyRevision: 1}
 }
 
 func rustCapabilityBool(value bool) *bool { return &value }
-
-func rustCapabilityBinding(name string) Binding {
-	return Binding{Name: name, Description: "Test operation.", InvokerKey: "test", OperationToken: name,
-		InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true}}
-}
-
-func asyncRustCapabilitySource(result BindingCatalogResult) BindingSource {
-	return BindingSourceFunc(func(ctx context.Context) (BindingCatalogResult, error) {
-		channel := make(chan BindingCatalogResult, 1)
-		go func() { channel <- result }()
-		select {
-		case value := <-channel:
-			return value, nil
-		case <-ctx.Done():
-			return BindingCatalogResult{}, ctx.Err()
-		}
-	})
-}

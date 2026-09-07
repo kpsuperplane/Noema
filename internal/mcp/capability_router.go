@@ -26,8 +26,16 @@ type CapabilityInvocation struct {
 type CapabilityOutput struct {
 	Success            bool
 	Payload            any
+	Failure            *CapabilityFailure
 	PersistedOutput    any
 	PersistedOutputSet bool
+}
+
+// CapabilityFailure carries the server-owned recovery fields for a completed
+// tool-declared failure. Transport and control-plane failures use an error.
+type CapabilityFailure struct {
+	Kind     string
+	Recovery string
 }
 
 // WithPersistedOutputSource supplies a durable output view without changing
@@ -35,6 +43,21 @@ type CapabilityOutput struct {
 func (output CapabilityOutput) WithPersistedOutputSource(value any) CapabilityOutput {
 	output.PersistedOutput = value
 	output.PersistedOutputSet = true
+	return output
+}
+
+func (output CapabilityOutput) materializeFailure() CapabilityOutput {
+	if output.Failure == nil {
+		return output
+	}
+	output.Payload = cloneCapabilityValue(output.Payload)
+	fields, ok := output.Payload.(map[string]any)
+	if !ok {
+		output.Payload = map[string]any{"result": output.Payload}
+		fields = output.Payload.(map[string]any)
+	}
+	fields["failure_kind"] = output.Failure.Kind
+	fields["recovery"] = output.Failure.Recovery
 	return output
 }
 
@@ -63,13 +86,14 @@ var ErrDuplicateCapabilityInvoker = errors.New("duplicate capability invoker reg
 // The router errors are stable control-plane categories. Their messages are
 // safe to expose in the model payload and contain no provider diagnostics.
 var (
-	ErrCapabilityUnknownInvoker   = errors.New("capability invoker is unavailable")
-	ErrCapabilityUnknownOperation = errors.New("capability operation is unavailable")
-	ErrCapabilityInvalidArguments = errors.New("capability arguments are invalid")
-	ErrCapabilityDenied           = errors.New("capability invocation was denied")
-	ErrCapabilityUnavailable      = errors.New("capability is unavailable")
-	ErrCapabilityFailed           = errors.New("capability invocation failed")
-	ErrCapabilityOutcomeUncertain = errors.New("capability outcome is uncertain")
+	ErrCapabilityUnknownInvoker         = errors.New("capability invoker is unavailable")
+	ErrCapabilityUnknownOperation       = errors.New("capability operation is unavailable")
+	ErrCapabilityInvalidArguments       = errors.New("capability arguments are invalid")
+	ErrCapabilityDenied                 = errors.New("capability invocation was denied")
+	ErrCapabilityUnavailable            = errors.New("capability is unavailable")
+	ErrCapabilityAuthenticationRequired = errors.New("capability authentication is required")
+	ErrCapabilityFailed                 = errors.New("capability invocation failed")
+	ErrCapabilityOutcomeUncertain       = errors.New("capability outcome is uncertain")
 )
 
 // CapabilityDispatch is a completed invocation with model and durable views.
@@ -154,11 +178,24 @@ func (router *CapabilityRegistryRouter) dispatch(ctx context.Context, snapshot B
 		safeError := capabilityError(err)
 		return CapabilityDispatch{}, capabilityFailure(safeError, binding, arguments)
 	}
+	output = output.materializeFailure()
 	persistedOutput := output.Payload
 	if output.PersistedOutputSet {
 		persistedOutput = output.PersistedOutput
 	}
 	return CapabilityDispatch{Output: output, Persisted: binding.PersistedViews(arguments, persistedOutput)}, CapabilityDispatchFailure{}
+}
+
+func cloneCapabilityValue(value any) any {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var clone any
+	if err := json.Unmarshal(raw, &clone); err != nil {
+		return value
+	}
+	return clone
 }
 
 func capabilityFailure(err error, binding Binding, arguments any) CapabilityDispatchFailure {
@@ -180,6 +217,8 @@ func capabilityError(err error) error {
 		return ErrCapabilityDenied
 	case errors.Is(err, ErrCapabilityUnavailable):
 		return ErrCapabilityUnavailable
+	case errors.Is(err, ErrCapabilityAuthenticationRequired):
+		return ErrCapabilityAuthenticationRequired
 	case errors.Is(err, ErrCapabilityOutcomeUncertain):
 		return ErrCapabilityOutcomeUncertain
 	default:
@@ -200,6 +239,8 @@ func capabilityErrorPayload(err error) map[string]any {
 		code, recovery = "denied", "stop"
 	case errors.Is(err, ErrCapabilityUnavailable):
 		code = "unavailable"
+	case errors.Is(err, ErrCapabilityAuthenticationRequired):
+		code, recovery = "authentication_required", "stop"
 	case errors.Is(err, ErrCapabilityOutcomeUncertain):
 		code, recovery = "outcome_uncertain", "stop"
 	}

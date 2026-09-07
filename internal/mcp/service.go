@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -103,6 +102,7 @@ type Service struct {
 	classifyStop  context.CancelFunc
 	classifying   map[string]bool
 	classifyWG    sync.WaitGroup
+	router        *CapabilityRegistryRouter
 }
 
 // SetOAuthCompletionHandler binds completed call authentication attempts.
@@ -170,9 +170,18 @@ func NewService(paths home.Paths, database *store.Store, stdioEnabled bool, erro
 		oauthCallback = parsed.String()
 	}
 	classifyCtx, classifyStop := context.WithCancel(context.Background())
-	return &Service{database: database, errors: errorLog, secrets: secrets, stdioEnabled: stdioEnabled, oauthCallback: oauthCallback,
+	service := &Service{database: database, errors: errorLog, secrets: secrets, stdioEnabled: stdioEnabled, oauthCallback: oauthCallback,
 		attempts: make(map[string]*oauthAttempt), classifyCtx: classifyCtx, classifyStop: classifyStop,
-		classifying: make(map[string]bool)}, nil
+		classifying: make(map[string]bool)}
+	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{
+		Key: "mcp", Invoker: serviceCapabilityInvoker{service: service},
+	})
+	if err != nil {
+		classifyStop()
+		return nil, fmt.Errorf("configure MCP capability router: %w", err)
+	}
+	service.router = router
+	return service, nil
 }
 
 // StdioEnabled reads the startup double-opt-in setting. It defaults to false.
@@ -494,18 +503,35 @@ func (s *Service) ResetToolPolicy(ctx context.Context, serverID, revision, toolI
 
 // Bindings returns only tools callable by primary Chat now.
 func (s *Service) Bindings(ctx context.Context) ([]Binding, error) {
-	servers, err := s.database.MCPServers(ctx)
+	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Binding, 0)
+	return catalog.Bindings, nil
+}
+
+// Catalog returns the live model-visible MCP catalog and the availability
+// notices for configured connections that cannot publish bindings yet.
+func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
+	servers, err := s.database.MCPServers(ctx)
+	if err != nil {
+		return BindingCatalogResult{}, err
+	}
+	builder := NewBindingCatalogBuilder()
+	result := BindingCatalogResult{}
 	for _, server := range servers {
 		if !server.Enabled || server.HealthStatus != "healthy" || (server.AuthStatus != "none" && server.AuthStatus != "authenticated") {
+			capability := "mcp." + server.ID
+			status := BindingUnavailable
+			if server.AuthStatus != "none" && server.AuthStatus != "authenticated" {
+				status = BindingAuthenticationRequired
+			}
+			result.AvailabilityNotices = append(result.AvailabilityNotices, BindingAvailabilityNotice{Capability: &capability, Status: status})
 			continue
 		}
 		tools, err := s.database.MCPTools(ctx, server.ID)
 		if err != nil {
-			return nil, err
+			return BindingCatalogResult{}, err
 		}
 		for _, tool := range tools {
 			if tool.Status == "disabled" || tool.ReadOnly.Value == nil || tool.Idempotent.Value == nil || tool.Destructive.Value == nil || tool.OpenWorld.Value == nil {
@@ -518,15 +544,19 @@ func (s *Service) Bindings(ctx context.Context) ([]Binding, error) {
 			if description == "" {
 				description = "MCP tool"
 			}
-			result = append(result, Binding{Name: "mcp." + server.ID + "." + tool.Name, Description: description,
+			binding := Binding{Name: "mcp." + server.ID + "." + tool.Name, Description: description,
 				ServerID: server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
 				ConnectionRevision: server.ConnectionRevision, ServerPolicyRevision: server.PolicyRevision,
 				ToolPolicyRevision: tool.PolicyRevision, InputSchema: append(json.RawMessage(nil), tool.InputSchema...),
 				Behavior: behavior, ReviewRoute: route, InvokerKey: "mcp", OperationToken: tool.Name,
-				PersistencePolicy: BindingPersistenceRedacted})
+				PersistencePolicy: BindingPersistenceRedacted}
+			if err := builder.Add(binding); err != nil {
+				return BindingCatalogResult{}, ErrInvalidBindingSource
+			}
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	result.Bindings = builder.Build()
+	sort.SliceStable(result.Bindings, func(i, j int) bool { return result.Bindings[i].Name < result.Bindings[j].Name })
 	return result, nil
 }
 
@@ -566,10 +596,15 @@ func ValidateArguments(schemaBytes, arguments json.RawMessage) error {
 
 // Call executes one binding after every durable and remote revision check.
 func (s *Service) Call(ctx context.Context, authority Binding, arguments json.RawMessage) (json.RawMessage, bool, error) {
-	if authority.ReviewRoute != "" {
-		return nil, false, ErrDenied
+	dispatch, failure := s.dispatch(ctx, authority, arguments, nil)
+	if failure.Error != nil {
+		return nil, false, mapCapabilityCallError(failure.Error)
 	}
-	return s.call(ctx, authority, arguments, nil)
+	payload, err := json.Marshal(dispatch.Output.Payload)
+	if err != nil {
+		return nil, false, errors.New("MCP tool result is invalid")
+	}
+	return payload, dispatch.Output.Success, nil
 }
 
 // CallReviewed executes one reviewed binding only when its exact durable
@@ -578,32 +613,131 @@ func (s *Service) CallReviewed(ctx context.Context, authority Binding, arguments
 	if authority.ReviewRoute == "" || authorization.ActionID == "" || authorization.Revision != 1 || authorization.ArgumentsSHA256 == "" {
 		return nil, false, ErrDenied
 	}
-	digest := sha256.Sum256(arguments)
-	if hex.EncodeToString(digest[:]) != authorization.ArgumentsSHA256 {
-		return nil, false, ErrInvalidArguments
+	dispatch, failure := s.dispatch(ctx, authority, arguments, &authorization)
+	if failure.Error != nil {
+		return nil, false, mapCapabilityCallError(failure.Error)
 	}
-	return s.call(ctx, authority, arguments, &authorization)
+	payload, err := json.Marshal(dispatch.Output.Payload)
+	if err != nil {
+		return nil, false, errors.New("MCP tool result is invalid")
+	}
+	return payload, dispatch.Output.Success, nil
 }
 
-func (s *Service) call(ctx context.Context, authority Binding, arguments json.RawMessage, reviewed *ReviewedAuthorization) (json.RawMessage, bool, error) {
-	if authority.InvokerKey != "" && authority.InvokerKey != "mcp" {
-		return nil, false, ErrUnknownInvoker
-	}
-	current, err := s.Binding(ctx, authority.Name)
+// dispatch is the production MCP capability boundary. It captures the live
+// catalog, fences the caller's durable authority, then routes the call through
+// the same registry used by capability families outside MCP.
+func (s *Service) dispatch(ctx context.Context, authority Binding, arguments json.RawMessage, reviewed *ReviewedAuthorization) (CapabilityDispatch, CapabilityDispatchFailure) {
+	bindings, err := s.Bindings(ctx)
 	if err != nil {
-		return nil, false, ErrUnknownOperation
+		return CapabilityDispatch{}, CapabilityDispatchFailure{Error: err}
 	}
-	if authority.OperationToken != "" && current.OperationToken != authority.OperationToken &&
-		current.Name == authority.Name && current.ServerID == authority.ServerID && current.ToolID == authority.ToolID &&
-		current.SourceRevision == authority.SourceRevision && current.ConnectionRevision == authority.ConnectionRevision {
-		return nil, false, ErrUnknownOperation
+	builder := NewBindingCatalogBuilder()
+	for _, binding := range bindings {
+		if err := builder.Add(binding); err != nil {
+			return CapabilityDispatch{}, CapabilityDispatchFailure{Error: ErrInvalidBindingSource}
+		}
 	}
-	if !sameBindingAuthority(current, authority) {
-		return nil, false, ErrAuthorityChanged
+	snapshot := builder.BuildSnapshot()
+	current, exists := snapshot.Resolve(authority.Name)
+	if !exists {
+		if s.router == nil {
+			return CapabilityDispatch{}, CapabilityDispatchFailure{Error: ErrCapabilityUnknownInvoker}
+		}
+		return s.router.Dispatch(ctx, snapshot, authority.Name, json.RawMessage(append([]byte(nil), arguments...)))
 	}
-	if err := ValidateArguments(current.InputSchema, arguments); err != nil {
-		return nil, false, err
+	target := current
+	if authority.InvokerKey != "" {
+		target.InvokerKey = authority.InvokerKey
+	} else {
+		authority.InvokerKey = current.InvokerKey
 	}
+	if authority.OperationToken != "" {
+		target.OperationToken = authority.OperationToken
+	} else {
+		authority.OperationToken = current.OperationToken
+	}
+	if !sameBindingAuthority(target, authority) {
+		return CapabilityDispatch{}, capabilityFailure(ErrAuthorityChanged, current, json.RawMessage(append([]byte(nil), arguments...)))
+	}
+	if s.router == nil {
+		return CapabilityDispatch{}, capabilityFailure(ErrCapabilityUnknownInvoker, current, json.RawMessage(append([]byte(nil), arguments...)))
+	}
+	if target.InvokerKey != current.InvokerKey || target.OperationToken != current.OperationToken {
+		entries := snapshot.Bindings()
+		for index := range entries {
+			if entries[index].Name == target.Name {
+				entries[index] = target
+				break
+			}
+		}
+		builder = NewBindingCatalogBuilder()
+		for _, binding := range entries {
+			if err := builder.Add(binding); err != nil {
+				return CapabilityDispatch{}, CapabilityDispatchFailure{Error: ErrInvalidBindingSource}
+			}
+		}
+		snapshot = builder.BuildSnapshot()
+	}
+	value := json.RawMessage(append([]byte(nil), arguments...))
+	if reviewed == nil {
+		return s.router.Dispatch(ctx, snapshot, authority.Name, value)
+	}
+	return s.router.DispatchReviewed(ctx, snapshot, authority.Name, value, *reviewed)
+}
+
+func mapCapabilityCallError(err error) error {
+	switch {
+	case errors.Is(err, ErrCapabilityUnknownInvoker):
+		return ErrUnknownInvoker
+	case errors.Is(err, ErrCapabilityUnknownOperation):
+		return ErrUnknownOperation
+	case errors.Is(err, ErrCapabilityInvalidArguments):
+		return ErrInvalidArguments
+	case errors.Is(err, ErrCapabilityDenied):
+		return ErrDenied
+	case errors.Is(err, ErrCapabilityAuthenticationRequired):
+		return ErrAuthenticationRequired
+	default:
+		return err
+	}
+}
+
+type serviceCapabilityInvoker struct {
+	service *Service
+}
+
+func (invoker serviceCapabilityInvoker) Invoke(ctx context.Context, invocation CapabilityInvocation) (CapabilityOutput, error) {
+	current, err := invoker.service.Binding(ctx, invocation.Operation)
+	if err != nil {
+		return CapabilityOutput{}, ErrCapabilityUnknownOperation
+	}
+	if current.OperationToken != invocation.OperationToken {
+		return CapabilityOutput{}, ErrCapabilityUnknownOperation
+	}
+	arguments, err := json.Marshal(invocation.Arguments)
+	if err != nil {
+		return CapabilityOutput{}, ErrCapabilityInvalidArguments
+	}
+	result, success, err := invoker.service.executeBinding(ctx, current, arguments)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrAuthenticationRequired):
+			return CapabilityOutput{}, ErrCapabilityAuthenticationRequired
+		case strings.Contains(err.Error(), "source revision changed"):
+			return CapabilityOutput{}, ErrCapabilityUnknownOperation
+		default:
+			return CapabilityOutput{}, ErrCapabilityUnavailable
+		}
+	}
+	var payload any
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return CapabilityOutput{}, ErrCapabilityFailed
+	}
+	return CapabilityOutput{Success: success, Payload: payload}, nil
+}
+
+func (s *Service) executeBinding(ctx context.Context, current Binding, arguments json.RawMessage) (json.RawMessage, bool, error) {
 	server, err := s.database.MCPServer(ctx, current.ServerID)
 	if err != nil {
 		return nil, false, err
@@ -633,8 +767,10 @@ func (s *Service) call(ctx context.Context, authority Binding, arguments json.Ra
 	result, success, err := CallExact(callContext, Config{TransportKind: server.TransportKind, SafeConfig: server.SafeConfig, Secrets: secrets},
 		operation, current.SourceRevision, object)
 	if err != nil {
-		_ = s.errors.Write("mcp.call_failed", diagnostics.Text("server_id", server.ID),
-			diagnostics.Text("tool_name", current.Name), diagnostics.Text("detail", err.Error()))
+		if s.errors != nil {
+			_ = s.errors.Write("mcp.call_failed", diagnostics.Text("server_id", server.ID),
+				diagnostics.Text("tool_name", current.Name), diagnostics.Text("detail", err.Error()))
+		}
 		authStatus := server.AuthStatus
 		if errors.Is(err, ErrAuthenticationRequired) {
 			authStatus = "needs_auth"

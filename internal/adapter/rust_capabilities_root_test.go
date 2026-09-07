@@ -8,8 +8,10 @@ import (
 
 // Rust source: crates/noema-capabilities/src/binding.rs::url_policy_composes_url_and_exact_standard_credential_cleanup.
 func TestRustCapabilities_url_policy_composes_url_and_exact_standard_credential_cleanup(t *testing.T) {
-	binding := SetupBinding{}
-	arguments := binding.PersistArguments(map[string]any{
+	sanitize := func(value any) any {
+		return sanitizeSensitiveOutputWithQueryNames(value, nil, nil, nil)
+	}
+	arguments := sanitize(map[string]any{
 		"url": "https://user:secret@example.com/path?view=full#section",
 		"headers": map[string]any{
 			"Authorization": "Bearer private",
@@ -30,7 +32,7 @@ func TestRustCapabilities_url_policy_composes_url_and_exact_standard_credential_
 		t.Fatal("URL credentials entered the persisted argument view")
 	}
 
-	output := binding.PersistOutput(map[string]any{
+	output := sanitize(map[string]any{
 		"access_token": "private",
 		"snapshot":     map[string]any{"text": "authorized private page"},
 	}).(map[string]any)
@@ -41,8 +43,10 @@ func TestRustCapabilities_url_policy_composes_url_and_exact_standard_credential_
 
 // Rust source: crates/noema-capabilities/src/binding.rs::artifact_policy_preserves_content_and_redacts_secrets_on_both_paths.
 func TestRustCapabilities_artifact_policy_preserves_content_and_redacts_secrets_on_both_paths(t *testing.T) {
-	binding := SetupBinding{}
-	arguments := binding.PersistArguments(map[string]any{
+	sanitize := func(value any) any {
+		return sanitizeSensitiveOutputWithQueryNames(value, nil, nil, nil)
+	}
+	arguments := sanitize(map[string]any{
 		"filename": "draft.md",
 		"api_key":  "private-argument",
 		"versions": []any{map[string]any{"title": "Draft", "content": "argument body"}},
@@ -52,7 +56,7 @@ func TestRustCapabilities_artifact_policy_preserves_content_and_redacts_secrets_
 		t.Fatalf("artifact arguments = %#v", arguments)
 	}
 
-	output := binding.PersistOutput(map[string]any{
+	output := sanitize(map[string]any{
 		"artifact_id":  "artifact:1",
 		"access_token": "private-output",
 		"versions":     []any{map[string]any{"title": "Saved", "content": "output body"}},
@@ -62,7 +66,7 @@ func TestRustCapabilities_artifact_policy_preserves_content_and_redacts_secrets_
 		t.Fatalf("artifact output = %#v", output)
 	}
 
-	nestedArguments := binding.PersistArguments(map[string]any{
+	nestedArguments := sanitize(map[string]any{
 		"arguments": map[string]any{
 			"filename": "nested.md",
 			"password": "private-nested-argument",
@@ -74,7 +78,7 @@ func TestRustCapabilities_artifact_policy_preserves_content_and_redacts_secrets_
 		t.Fatalf("nested artifact arguments = %#v", nestedArgument)
 	}
 
-	nestedOutput := binding.PersistOutput(map[string]any{
+	nestedOutput := sanitize(map[string]any{
 		"result": map[string]any{
 			"artifact_id": "artifact:2",
 			"cookie":      "private-nested-output",

@@ -1,0 +1,286 @@
+package mcp
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/store"
+)
+
+type rustCapabilityRecordingInvoker struct {
+	invocations []CapabilityInvocation
+	output      CapabilityOutput
+	err         error
+}
+
+func (invoker *rustCapabilityRecordingInvoker) Invoke(_ context.Context, invocation CapabilityInvocation) (CapabilityOutput, error) {
+	invoker.invocations = append(invoker.invocations, invocation)
+	if invoker.err != nil {
+		return CapabilityOutput{}, invoker.err
+	}
+	return invoker.output, nil
+}
+
+type rustCapabilityTokenCheckingInvoker struct {
+	currentToken string
+	invocations  []CapabilityInvocation
+}
+
+func (invoker *rustCapabilityTokenCheckingInvoker) Invoke(_ context.Context, invocation CapabilityInvocation) (CapabilityOutput, error) {
+	invoker.invocations = append(invoker.invocations, invocation)
+	if invocation.OperationToken != invoker.currentToken {
+		return CapabilityOutput{}, ErrCapabilityUnknownOperation
+	}
+	return CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}, nil
+}
+
+func rustCapabilityRawDigest(raw json.RawMessage) string {
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:])
+}
+
+func rustCapabilityRouterServiceFixture(t *testing.T, schema string, unsafePolicy string, invoker CapabilityInvoker) (*Service, *store.Store, Binding) {
+	t.Helper()
+	paths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.Open(t.Context(), paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	service, err := NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(service.Close)
+	serverID := "mcp_server:" + strings.Repeat("1", 32)
+	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat("2", 32), Revision: "mcp_definition_revision:" + strings.Repeat("3", 32),
+		DisplayName: "Capabilities", TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"http://127.0.0.1:1"}`)}
+	toolID := "mcp_tool:" + strings.Repeat("4", 32)
+	tool := store.MCPTool{ID: toolID, ServerID: serverID, Name: "read", Description: "Test operation.",
+		InputSchema: json.RawMessage(schema), Annotations: json.RawMessage(`{}`), SourceRevision: strings.Repeat("a", 64),
+		ReadOnly:    store.MCPHint{Value: rustCapabilityBool(unsafePolicy == "never_ask"), Source: "annotation"},
+		Idempotent:  store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"},
+		Destructive: store.MCPHint{Value: rustCapabilityBool(unsafePolicy != "" && unsafePolicy != "never_ask"), Source: "annotation"},
+		OpenWorld:   store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"}, Status: "ready", PolicyRevision: 1}
+	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID,
+		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat("4", 32), AuthStatus: "none", Tools: []store.MCPTool{tool}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", unsafePolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := service.Bindings(t.Context())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("live MCP bindings = %#v, %v", bindings, err)
+	}
+	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: invoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.router = router
+	return service, database, bindings[0]
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::strict_resolution_rejects_unknown_and_forwards_exact_target.
+func TestRustCapabilities_strict_resolution_rejects_unknown_and_forwards_exact_target(t *testing.T) {
+	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
+	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
+	arguments := json.RawMessage(`{"query":"rust","invoker_key":"forged","operation_token":"forged"}`)
+	payload, success, err := service.Call(t.Context(), binding, arguments)
+	var result map[string]any
+	if json.Unmarshal(payload, &result) != nil || err != nil || !success || !reflect.DeepEqual(result, map[string]any{"ok": true}) {
+		t.Fatalf("exact dispatch = %s, %v, %v", payload, success, err)
+	}
+	if len(invoker.invocations) != 1 || invoker.invocations[0].OperationToken != binding.OperationToken || string(invoker.invocations[0].Arguments.(json.RawMessage)) != string(arguments) {
+		t.Fatalf("forwarded exact target = %#v", invoker.invocations)
+	}
+	unknown := binding
+	unknown.Name = "mcp.hidden.write"
+	unknownDispatch, unknownFailure := service.dispatch(t.Context(), unknown, json.RawMessage(`{"private":"never persist"}`), nil)
+	if unknownDispatch.Output.Payload != nil || !errors.Is(unknownFailure.Error, ErrCapabilityUnknownOperation) || unknownFailure.Persisted.Arguments != nil || unknownFailure.Persisted.Output != nil {
+		t.Fatalf("unknown advertised name = %#v, %#v", unknownDispatch, unknownFailure)
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::reviewed_decision_requires_explicit_reviewed_dispatch.
+func TestRustCapabilities_reviewed_decision_requires_explicit_reviewed_dispatch(t *testing.T) {
+	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
+	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "reviewer_may_approve", invoker)
+	arguments := json.RawMessage(`{"body":"exact"}`)
+	if _, _, err := service.Call(t.Context(), binding, arguments); !errors.Is(err, ErrDenied) || len(invoker.invocations) != 0 {
+		t.Fatalf("ordinary reviewed dispatch = %v, invocations=%d", err, len(invoker.invocations))
+	}
+	wrong := ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(json.RawMessage(`{"body":"forged"}`))}
+	if _, _, err := service.CallReviewed(t.Context(), binding, arguments, wrong); !errors.Is(err, ErrDenied) || len(invoker.invocations) != 0 {
+		t.Fatalf("forged reviewed authorization = %v, invocations=%d", err, len(invoker.invocations))
+	}
+	authorization := ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(arguments)}
+	payload, success, err := service.CallReviewed(t.Context(), binding, arguments, authorization)
+	if err != nil || !success || len(invoker.invocations) != 1 {
+		t.Fatalf("reviewed dispatch = %s, %v, %v", payload, success, err)
+	}
+	received := invoker.invocations[0]
+	if received.ReviewedAuthorization == nil || received.ReviewedAuthorization.ActionID != "action:test" || received.ReviewedAuthorization.Revision != 1 || received.ReviewedAuthorization.ArgumentsSHA256 != authorization.ArgumentsSHA256 {
+		t.Fatalf("reviewed authorization lost at invoker boundary = %#v", received.ReviewedAuthorization)
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::immediate_external_tool_reaches_the_invoker.
+func TestRustCapabilities_immediate_external_tool_reaches_the_invoker(t *testing.T) {
+	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
+	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
+	payload, success, err := service.Call(t.Context(), binding, json.RawMessage(`{"body":"exact"}`))
+	if err != nil || !success || string(payload) != `{"ok":true}` || len(invoker.invocations) != 1 {
+		t.Fatalf("safe external tool dispatch = %s, %v, %v", payload, success, err)
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::source_input_check_protects_immediate_and_reviewed_dispatch.
+func TestRustCapabilities_source_input_check_protects_immediate_and_reviewed_dispatch(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		unsafePolicy string
+		reviewed     bool
+	}{
+		{"immediate", "never_ask", false},
+		{"reviewed", "reviewer_may_approve", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
+			service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`, test.unsafePolicy, invoker)
+			valid := json.RawMessage(`{"value":"ok"}`)
+			invalid := json.RawMessage(`{"value":7}`)
+			var validPayload, invalidPayload json.RawMessage
+			var validSuccess, invalidSuccess bool
+			var validErr, invalidErr error
+			if test.reviewed {
+				validPayload, validSuccess, validErr = service.CallReviewed(t.Context(), binding, valid, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(valid)})
+				invalidPayload, invalidSuccess, invalidErr = service.CallReviewed(t.Context(), binding, invalid, ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: rustCapabilityRawDigest(invalid)})
+			} else {
+				validPayload, validSuccess, validErr = service.Call(t.Context(), binding, valid)
+				invalidPayload, invalidSuccess, invalidErr = service.Call(t.Context(), binding, invalid)
+			}
+			if validErr != nil || !validSuccess || len(validPayload) == 0 {
+				t.Fatalf("valid source dispatch = %s, %t, %v", validPayload, validSuccess, validErr)
+			}
+			if invalidPayload != nil || invalidSuccess || !errors.Is(invalidErr, ErrInvalidArguments) || len(invoker.invocations) != 1 {
+				t.Fatalf("invalid source dispatch = %s, %t, %v, invocations=%d", invalidPayload, invalidSuccess, invalidErr, len(invoker.invocations))
+			}
+		})
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::binding_policy_applies_to_every_control_plane_failure_view.
+func TestRustCapabilities_binding_policy_applies_to_every_control_plane_failure_view(t *testing.T) {
+	redactedInvoker := &rustCapabilityRecordingInvoker{err: ErrCapabilityUnavailable}
+	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", redactedInvoker)
+	_, redactedFailure := service.dispatch(t.Context(), binding, json.RawMessage(`{"api_key":"private","query":"safe"}`), nil)
+	if !errors.Is(redactedFailure.Error, ErrCapabilityUnavailable) || !reflect.DeepEqual(redactedFailure.Persisted.Arguments, map[string]any{"api_key": "[REDACTED]", "query": "safe"}) || !reflect.DeepEqual(redactedFailure.Persisted.Output, map[string]any{"error": "unavailable", "message": "capability is unavailable", "recovery": "retry_later"}) {
+		t.Fatalf("redacted control-plane failure = %#v", redactedFailure)
+	}
+
+	omittedBinding := binding
+	omittedBinding.PersistencePolicy = BindingPersistenceOmitted
+	omittedInvoker := &rustCapabilityRecordingInvoker{err: ErrCapabilityUnavailable}
+	omittedRouter, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: omittedInvoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	omittedSnapshot := rustCapabilityRouterSnapshot(t, omittedBinding)
+	_, omittedFailure := omittedRouter.Dispatch(t.Context(), omittedSnapshot, omittedBinding.Name, map[string]any{"private": "workspace"})
+	if !errors.Is(omittedFailure.Error, ErrCapabilityUnavailable) || omittedFailure.Persisted.Arguments != nil || omittedFailure.Persisted.Output != nil {
+		t.Fatalf("omitted control-plane failure = %#v", omittedFailure)
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::persisted_output_source_stays_out_of_model_payload.
+func TestRustCapabilities_persisted_output_source_stays_out_of_model_payload(t *testing.T) {
+	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"page": "summary"}}.WithPersistedOutputSource(map[string]any{"screenshot": "png"})}
+	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
+	dispatch, failure := service.dispatch(t.Context(), binding, json.RawMessage(`{"query":"safe"}`), nil)
+	if failure.Error != nil || !dispatch.Output.Success || !reflect.DeepEqual(dispatch.Output.Payload, map[string]any{"page": "summary"}) {
+		t.Fatalf("dispatch output = %#v, %#v", dispatch, failure)
+	}
+	if strings.Contains(string(rustCapabilityJSON(dispatch.Output.Payload)), "screenshot") || !reflect.DeepEqual(dispatch.Persisted.Arguments, map[string]any{"query": "safe"}) || !reflect.DeepEqual(dispatch.Persisted.Output, map[string]any{"screenshot": "png"}) {
+		t.Fatalf("persisted output source entered model or changed views = %#v", dispatch)
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::tool_declared_failure_is_completed_dispatch_with_views.
+func TestRustCapabilities_tool_declared_failure_is_completed_dispatch_with_views(t *testing.T) {
+	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: false, Payload: map[string]any{"error": "tool_declared", "password": "private"}, Failure: &CapabilityFailure{Kind: "invalid_request", Recovery: "correct_arguments"}}}
+	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
+	dispatch, failure := service.dispatch(t.Context(), binding, json.RawMessage(`{"query":"safe"}`), nil)
+	if failure.Error != nil || dispatch.Output.Success || !reflect.DeepEqual(dispatch.Persisted.Output, map[string]any{"error": "tool_declared", "failure_kind": "invalid_request", "password": "[REDACTED]", "recovery": "correct_arguments"}) {
+		t.Fatalf("completed tool failure = %#v, %#v", dispatch, failure)
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::unknown_invoker_and_stale_token_are_typed_and_sanitized.
+func TestRustCapabilities_unknown_invoker_and_stale_token_are_typed_and_sanitized(t *testing.T) {
+	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"ok": true}}}
+	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
+	missing := binding
+	missing.InvokerKey = "missing"
+	_, missingFailure := service.dispatch(t.Context(), missing, json.RawMessage(`{"query":"safe","api_key":"private"}`), nil)
+	if !errors.Is(missingFailure.Error, ErrCapabilityUnknownInvoker) || !reflect.DeepEqual(missingFailure.Persisted.Arguments, map[string]any{"query": "safe", "api_key": "[REDACTED]"}) || strings.Contains(missingFailure.Error.Error(), "private") {
+		t.Fatalf("unknown invoker = %#v", missingFailure)
+	}
+
+	staleInvoker := &rustCapabilityTokenCheckingInvoker{}
+	staleService, _, staleBinding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", staleInvoker)
+	staleInvoker.currentToken = staleBinding.OperationToken
+	stale := staleBinding
+	stale.OperationToken = "stale-token"
+	_, staleFailure := staleService.dispatch(t.Context(), stale, json.RawMessage(`{"query":"safe","api_key":"private"}`), nil)
+	if !errors.Is(staleFailure.Error, ErrCapabilityUnknownOperation) || !reflect.DeepEqual(staleFailure.Persisted.Arguments, map[string]any{"query": "safe", "api_key": "[REDACTED]"}) || strings.Contains(staleFailure.Error.Error(), "private") {
+		t.Fatalf("stale operation = %#v", staleFailure)
+	}
+	if len(staleInvoker.invocations) != 1 || staleInvoker.invocations[0].OperationToken != "stale-token" {
+		t.Fatalf("stale token was not checked at invoker boundary = %#v", staleInvoker.invocations)
+	}
+}
+
+// Rust source: crates/noema-capabilities/src/router.rs::duplicate_invoker_registration_is_rejected.
+func TestRustCapabilities_duplicate_invoker_registration_is_rejected(t *testing.T) {
+	invoker := &rustCapabilityRecordingInvoker{}
+	_, err := NewCapabilityRegistryRouter(
+		CapabilityInvokerRegistration{Key: "runtime", Invoker: invoker},
+		CapabilityInvokerRegistration{Key: "runtime", Invoker: invoker},
+	)
+	if !errors.Is(err, ErrDuplicateCapabilityInvoker) {
+		t.Fatalf("duplicate invoker registration error = %v", err)
+	}
+}
+
+func rustCapabilityRouterSnapshot(t *testing.T, bindings ...Binding) BindingCatalogSnapshot {
+	t.Helper()
+	builder := NewBindingCatalogBuilder()
+	for _, binding := range bindings {
+		if err := builder.Add(binding); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return builder.BuildSnapshot()
+}
+
+func rustCapabilityJSON(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}

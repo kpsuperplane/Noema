@@ -2537,7 +2537,6 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if len(setupCatalog) != 2 || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
 		t.Fatalf("setup authority = %#v", setupCatalog)
 	}
-	proposalBinding := setupCatalog[1]
 	if !strings.Contains(tools[1].Description, "complete argument contract") {
 		t.Errorf("proposal tool description = %q", tools[1].Description)
 	}
@@ -2586,15 +2585,15 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if !reflect.DeepEqual(pagination, wantPagination) {
 		t.Errorf("pagination help = %#v, want %#v", pagination, wantPagination)
 	}
-	if persisted, ok := proposalBinding.PersistArguments(map[string]any{"marker": "draft", "api_key": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "draft", "api_key": "[REDACTED]"}) {
+	if persisted, ok := sanitizeProposalPayload(map[string]any{"marker": "draft", "api_key": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "draft", "api_key": "[REDACTED]"}) {
 		t.Errorf("proposal arguments were not redacted: %#v", persisted)
 	}
 	nested := map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": float64(32)}}, "required": []any{}, "additionalProperties": false}}, "api_key": "private"}}}
 	wantNested := map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": float64(32)}}, "required": []any{}, "additionalProperties": false}}, "api_key": "[REDACTED]"}}}
-	if persisted := proposalBinding.PersistArguments(nested); !reflect.DeepEqual(persisted, wantNested) {
+	if persisted := sanitizeProposalPayload(nested); !reflect.DeepEqual(persisted, wantNested) {
 		t.Errorf("nested proposal arguments were not redacted: %#v", persisted)
 	}
-	if persisted, ok := proposalBinding.PersistOutput(map[string]any{"marker": "result", "access_token": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "result", "access_token": "[REDACTED]"}) {
+	if persisted, ok := sanitizeProposalPayload(map[string]any{"marker": "result", "access_token": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "result", "access_token": "[REDACTED]"}) {
 		t.Errorf("proposal output was not redacted: %#v", persisted)
 	}
 }

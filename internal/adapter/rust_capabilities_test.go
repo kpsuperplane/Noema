@@ -6,19 +6,18 @@ import (
 
 // Rust source: crates/noema-capabilities/src/credential_sanitization.rs::exact_standard_fields_are_removed_without_damaging_lookalikes.
 func TestRustCapabilities_exact_standard_fields_are_removed_without_damaging_lookalikes(t *testing.T) {
-	binding := SetupBinding{}
-	sanitized, ok := binding.PersistOutput(map[string]any{
+	sanitized, ok := sanitizeSensitiveOutputWithQueryNames(map[string]any{
 		"Authorization":                 "Bearer private",
 		"access_token":                  "private",
 		"nested":                        map[string]any{"PASSWORD": "private"},
 		"oauth_authorization_supported": true,
 		"authorization_url":             "https://example.com/authorize",
-		"token_count":                   12,
+		"token_count":                   float64(12),
 		"cookie_policy":                 "strict",
 		"secret_rotation_status":        "current",
 		"client_id":                     "ordinary-client",
 		"opaque_id":                     "p8xQ2zL7wN4vR9mK",
-	}).(map[string]any)
+	}, nil, nil, nil).(map[string]any)
 	if !ok {
 		t.Fatal("sanitized payload is not an object")
 	}
@@ -55,10 +54,9 @@ func TestRustCapabilities_exact_standard_fields_are_removed_without_damaging_loo
 
 // Rust source: crates/noema-capabilities/src/credential_sanitization.rs::urls_lose_only_standard_credentials.
 func TestRustCapabilities_urls_lose_only_standard_credentials(t *testing.T) {
-	binding := SetupBinding{}
 	check := func(raw, want string, removed bool) {
 		t.Helper()
-		value := binding.PersistOutput(map[string]any{"url": raw}).(map[string]any)
+		value := sanitizeSensitiveOutputWithQueryNames(map[string]any{"url": raw}, nil, nil, nil).(map[string]any)
 		clean, _ := value["url"].(string)
 		if clean != want {
 			t.Errorf("clean URL = %q, want %q", clean, want)
@@ -74,14 +72,11 @@ func TestRustCapabilities_urls_lose_only_standard_credentials(t *testing.T) {
 
 // Rust source: crates/noema-capabilities/src/credential_sanitization.rs::connection_declared_names_extend_exact_field_and_url_cleanup.
 func TestRustCapabilities_connection_declared_names_extend_exact_field_and_url_cleanup(t *testing.T) {
-	binding := SetupBinding{SensitiveFields: map[string]bool{
-		"authz": true, "x-custom-credential": true,
-	}, SensitiveQueryNames: map[string]bool{"authz": true}}
-	sanitized, ok := binding.PersistOutput(map[string]any{
+	sanitized, ok := sanitizeSensitiveOutputWithQueryNames(map[string]any{
 		"X-Custom-Credential":       "private",
 		"x_custom_credential_count": 2,
 		"url":                       "https://example.com/path?view=full&x-custom-credential=ordinary&authz=private#section",
-	}).(map[string]any)
+	}, map[string]bool{"authz": true, "x-custom-credential": true}, map[string]bool{"authz": true}, nil).(map[string]any)
 	if !ok {
 		t.Fatal("sanitized payload is not an object")
 	}
