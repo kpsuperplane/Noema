@@ -20,6 +20,7 @@ import (
 
 const (
 	manifestLimit              = 1 << 20
+	sourceLimit                = 8 << 20
 	modelResultLimit           = 32 << 10
 	argumentLimit              = 256 << 10
 	maximumOperations          = 256
@@ -89,8 +90,20 @@ func classifyCompileError(manifest Manifest, cause error) error {
 		field = "fixed_query"
 	case strings.Contains(message, "ambiguous"):
 		field = "ambiguous_operation_scope_set"
+	case strings.Contains(message, "path placeholder"):
+		field = "path_arguments"
+	case strings.Contains(message, "operation path"):
+		field = "operation_path"
+	case strings.Contains(message, "operation retry"):
+		field = "unsafe_retry"
+	case strings.Contains(message, "pagination argument") || strings.Contains(message, "pagination page"):
+		field = "pagination"
 	case manifest.Authentication.Kind == "credential" && manifest.Authentication.Setup != nil && manifest.Authentication.Setup.Input.Kind == "document" && manifest.Authentication.Setup.Input.MediaType != "application/json":
 		kind, field = "unsupported", "credential_document_media_type"
+	case strings.Contains(message, "response.output_schema permits"):
+		field = "response_size"
+	case strings.Contains(message, "reserved response field"):
+		field = "reserved_response_field"
 	case strings.Contains(message, "response schema"):
 		field = "response_schema"
 	case strings.Contains(message, "response content type"):
@@ -373,8 +386,14 @@ func validateOperation(operation *Operation) error {
 	} else if operation.Authorization.Kind != "none" || len(operation.Authorization.AcceptedScopeSets) != 0 {
 		return errors.New("operation authorization is invalid")
 	}
-	if len(operation.Arguments) > maximumArguments || validateArguments(operation) != nil || validateFixedValues(operation) != nil {
+	if len(operation.Arguments) > maximumArguments {
 		return errors.New("operation arguments are invalid")
+	}
+	if err := validateArguments(operation); err != nil {
+		return err
+	}
+	if err := validateFixedValues(operation); err != nil {
+		return err
 	}
 	values := []*Hint{&operation.Behavior.ReadOnly, &operation.Behavior.Idempotent, &operation.Behavior.Destructive, &operation.Behavior.OpenWorld}
 	for _, hint := range values {
@@ -602,7 +621,10 @@ func validateResponse(response *Response, paginated bool) error {
 		return fmt.Errorf("response.output_schema permits %d bytes; limit is %d bytes (finite bound: %t). Reduce maxItems or maxBytes and enforce the same bounds in the transform", maximum, modelResultLimit, ok)
 	}
 	_, reserved := response.OutputSchema.Properties["continuation"]
-	if reserved || paginated && (response.Transform == nil || response.OutputSchema.Type != "object" || maximum > modelResultLimit-320) {
+	if reserved {
+		return errors.New("reserved response field is invalid")
+	}
+	if paginated && (response.Transform == nil || response.OutputSchema.Type != "object" || maximum > modelResultLimit-320) {
 		return errors.New("paginated response is invalid")
 	}
 	return nil

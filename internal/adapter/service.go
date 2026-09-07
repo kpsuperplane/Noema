@@ -1159,7 +1159,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			return nil, false, errors.New("adapter pagination result is invalid")
 		}
 		if nextToken != "" {
-			next := Cursor{Reference: randomHex(), ConnectionID: current.ConnectionID, GrantID: current.GrantID, AccountID: current.AccountID, ConnectionRevision: current.ConnectionRevision, SemanticDigest: current.SemanticDigest, OperationID: current.OperationID, OperationDigest: current.OperationDigest, ArgumentsDigest: digest, Token: nextToken, ExpiresAt: time.Now().Add(time.Hour)}
+			next := Cursor{Reference: randomHex(), ConnectionID: current.ConnectionID, GrantID: current.GrantID, AccountID: current.AccountID, ConnectionRevision: current.ConnectionRevision, GrantRevision: current.CredentialRevision, SemanticDigest: current.SemanticDigest, OperationID: current.OperationID, OperationDigest: current.OperationDigest, ArgumentsDigest: digest, Token: nextToken, ExpiresAt: time.Now().Add(time.Hour)}
 			if err = s.putCursor(next); err != nil {
 				return nil, false, err
 			}
@@ -1176,13 +1176,26 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 }
 
 func validateCursorBinding(cursor Cursor, binding Binding, argumentsDigest string, now time.Time) error {
-	if cursor.ConnectionID != binding.ConnectionID || cursor.ConnectionRevision != binding.ConnectionRevision || cursor.GrantID != binding.GrantID || cursor.AccountID != binding.AccountID || cursor.SemanticDigest != binding.SemanticDigest || cursor.OperationID != binding.OperationID || cursor.OperationDigest != binding.OperationDigest || cursor.ArgumentsDigest != argumentsDigest {
+	if cursor.ConnectionID != binding.ConnectionID || cursor.ConnectionRevision != binding.ConnectionRevision || cursor.GrantID != binding.GrantID || cursor.AccountID != binding.AccountID || cursor.GrantRevision != binding.CredentialRevision || cursor.SemanticDigest != binding.SemanticDigest || cursor.OperationID != binding.OperationID || cursor.OperationDigest != binding.OperationDigest || cursor.ArgumentsDigest != argumentsDigest {
 		return errCursorBindingMismatch
 	}
 	if !cursor.ExpiresAt.After(now) {
 		return errCursorExpired
 	}
 	return nil
+}
+
+// resolveCursor is the durable store boundary. It preserves the Rust store's
+// typed binding and expiry failures for callers that need to distinguish them.
+func (s *Service) resolveCursor(reference string, binding Binding, argumentsDigest string, now time.Time) (Cursor, error) {
+	cursor, err := s.loadCursor(reference)
+	if err != nil {
+		return Cursor{}, err
+	}
+	if err := validateCursorBinding(cursor, binding, argumentsDigest, now); err != nil {
+		return Cursor{}, err
+	}
+	return cursor, nil
 }
 
 func classifyHTTPOutcome(err error, behavior store.ActionBehavior) error {

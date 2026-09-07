@@ -32,7 +32,17 @@ const (
 var (
 	errOAuthRejected      = errors.New("adapter OAuth grant was rejected")
 	errOAuthScopeMismatch = errors.New("adapter OAuth response scopes are invalid")
+	errOAuthUnsupported   = errors.New("adapter OAuth capability is unsupported")
+	errOAuthInvalidInput  = errors.New("adapter OAuth input is invalid")
 )
+
+type oauthCategorizedError struct {
+	message  string
+	category error
+}
+
+func (e *oauthCategorizedError) Error() string { return e.message }
+func (e *oauthCategorizedError) Unwrap() error { return e.category }
 
 // OAuthClientDocumentError is the safe recovery category returned when a
 // transient provider client document cannot be imported.
@@ -126,6 +136,38 @@ type oauthAttemptReservation struct {
 }
 
 func (r *oauthAttemptReservation) stateKey() string { return r.state }
+
+// complete validates the callback captured by a registry reservation. Token
+// exchange and grant publication happen in CompleteOAuth; this method keeps
+// the registry's one-use completion boundary independently testable.
+func (r *oauthAttemptReservation) complete(callback string, now time.Time, authority OAuthStart) error {
+	if r == nil || r.service == nil || r.attempt == nil {
+		return errOAuthCallbackMismatch
+	}
+	if authority.ApplicationID != r.attempt.ApplicationID || authority.ExpectedApplicationRevision != r.attempt.ApplicationRevision || authority.GrantID != r.attempt.GrantID || authority.ExpectedGrantRevision != r.attempt.GrantRevision || authority.SemanticDigest != r.attempt.SemanticDigest || !slices.Equal(authority.OperationIDs, r.attempt.Operations) || !equalOAuthSelections(authority.Additional, r.attempt.Additional) {
+		return errOAuthCallbackMismatch
+	}
+	state, code, providerError, err := parseOAuthCallback(callback, r.service.oauthCallback)
+	if err != nil || state != r.state || code != r.code || providerError != r.denied {
+		return errOAuthCallbackMismatch
+	}
+	if !now.Before(r.attempt.expires) {
+		return errOAuthAttemptExpired
+	}
+	return nil
+}
+
+func equalOAuthSelections(left, right []OAuthServiceSelection) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].SemanticDigest != right[index].SemanticDigest || !slices.Equal(left[index].OperationIDs, right[index].OperationIDs) {
+			return false
+		}
+	}
+	return true
+}
 
 func (r *oauthAttemptReservation) finish() {
 	if r == nil || r.service == nil {
@@ -467,11 +509,19 @@ func (s *Service) StartOAuth(start OAuthStart) (OAuthAttempt, error) {
 	}
 	callback, _ := url.Parse(s.oauthCallback)
 	if application.CallbackMode != oauthCallbackMode(callback) {
-		return OAuthAttempt{}, errors.New("adapter OAuth application callback changed")
+		return OAuthAttempt{}, &oauthCategorizedError{message: "adapter OAuth application callback changed", category: errOAuthInvalidInput}
 	}
 	definitions, err := s.files.definitions()
+	if err != nil {
+		return OAuthAttempt{}, errors.New("adapter OAuth definition changed")
+	}
+	for _, candidate := range definitions {
+		if candidate.SemanticDigest == start.SemanticDigest && (!candidate.Manifest.Reviewed || candidate.Superseded) {
+			return OAuthAttempt{}, errOAuthUnsupported
+		}
+	}
 	definition, found := currentReviewedDefinition(definitions, start.SemanticDigest)
-	if err != nil || !found || definition.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
+	if !found || definition.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
 		return OAuthAttempt{}, errors.New("adapter OAuth definition changed")
 	}
 	var grant OAuthGrant

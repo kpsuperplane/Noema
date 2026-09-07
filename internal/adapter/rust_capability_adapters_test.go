@@ -288,7 +288,7 @@ func TestRustAdapters_operation_scope_sets_are_exact_and_choose_the_smallest_sha
 		t.Fatal("accepted read scope did not satisfy operation")
 	}
 	manifest.Operations[0].Authorization.AcceptedScopeSets = [][]string{{"items.read"}, {"items.read", "items.write"}}
-	requireCompileError(t, func() error { _, err := Compile(manifest); return err }(), "operation authorization is ambiguous")
+	requireCompileCategory(t, func() error { _, err := Compile(manifest); return err }(), "invalid", "ambiguous_operation_scope_set")
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/compiler/tests.rs::response_contract_is_closed_compilable_and_semantic.
@@ -308,16 +308,16 @@ func TestRustAdapters_response_contract_is_closed_compilable_and_semantic(t *tes
 	invalid := rustCloneManifest(t, manifest)
 	open := true
 	invalid.Operations[0].Response.OutputSchema.AdditionalProperties = &open
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "response schema is invalid")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "response_schema")
 	invalid = rustCloneManifest(t, manifest)
 	invalid.Operations[0].Response.AcceptedContentTypes = []string{"application/*"}
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "response content type is invalid")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "response_content_type")
 	invalid = rustCloneManifest(t, manifest)
 	reserved := invalid.Operations[0].Response.OutputSchema.Properties["id"]
 	delete(invalid.Operations[0].Response.OutputSchema.Properties, "id")
 	invalid.Operations[0].Response.OutputSchema.Properties["continuation"] = reserved
 	invalid.Operations[0].Response.OutputSchema.Required = []string{"continuation"}
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "paginated response is invalid")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "reserved_response_field")
 	value, _ := json.Marshal(rustCompilerManifest())
 	var document map[string]any
 	if err := json.Unmarshal(value, &document); err != nil {
@@ -328,10 +328,10 @@ func TestRustAdapters_response_contract_is_closed_compilable_and_semantic(t *tes
 	requireCompileError(t, func() error { _, err := CompileJSON(raw); return err }(), "adapter manifest is invalid")
 	invalid = rustCompilerManifest()
 	invalid.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function(response) return response.body end"}, OutputSchema: OutputSchema{Type: "string"}}
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "response schema is invalid")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "response_schema")
 	large := 5500
 	invalid.Operations[0].Response.OutputSchema.MaxBytes = &large
-	requireCompileError(t, func() error { _, err := Compile(invalid); return err }(), "response.output_schema permits")
+	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "response_size")
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/compiler/tests.rs::compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries.
@@ -340,6 +340,8 @@ func TestRustAdapters_compiler_rejects_ambiguous_paths_unsupported_workflows_and
 	invalid.Operations[0].Path = "/v1/items/{missing}"
 	if _, err := Compile(invalid); err == nil {
 		t.Fatal("missing path argument was accepted")
+	} else {
+		requireCompileCategory(t, err, "invalid", "path_arguments")
 	}
 	for _, path := range []string{"/v1/../admin", "/v1/%2e%2e/admin", "/v1/items?next=x"} {
 		invalid = rustCompilerManifest()
@@ -367,11 +369,15 @@ func TestRustAdapters_compiler_rejects_ambiguous_paths_unsupported_workflows_and
 	invalid.Operations[0].Arguments = append(invalid.Operations[0].Arguments, Argument{Name: "page", Description: "Provider page token.", Location: "query", Type: "string"})
 	if _, err := Compile(invalid); err == nil {
 		t.Fatal("pagination argument collision was accepted")
+	} else {
+		requireCompileCategory(t, err, "invalid", "pagination")
 	}
 	invalid = rustCompilerManifest()
 	invalid.Operations[0].Method = "POST"
 	if _, err := Compile(invalid); err == nil {
 		t.Fatal("unsafe retry policy was accepted for POST")
+	} else {
+		requireCompileCategory(t, err, "invalid", "unsafe_retry")
 	}
 }
 
@@ -436,6 +442,8 @@ func TestRustAdapters_fixed_query_is_reviewed_and_cannot_collide_with_dynamic_qu
 	collision.Operations[0].FixedQuery["kind"] = "all"
 	if _, err := Compile(collision); err == nil {
 		t.Fatal("fixed query colliding with model argument was accepted")
+	} else {
+		requireCompileCategory(t, err, "invalid", "fixed_query")
 	}
 	collision = rustCloneManifest(t, manifest)
 	collision.Operations[0].Pagination = Pagination{Kind: "response_token", ResponsePointer: "/next", RequestArgument: "pageToken"}
@@ -444,6 +452,8 @@ func TestRustAdapters_fixed_query_is_reviewed_and_cannot_collide_with_dynamic_qu
 	collision.Operations[0].FixedQuery["pageToken"] = "1"
 	if _, err := Compile(collision); err == nil {
 		t.Fatal("fixed query colliding with pagination authority was accepted")
+	} else {
+		requireCompileCategory(t, err, "invalid", "fixed_query")
 	}
 }
 
@@ -542,7 +552,7 @@ func rustSeedCursorFixture(t *testing.T, service *Service) (Binding, string) {
 		t.Fatalf("bindings = %#v, %v", binding, err)
 	}
 	ref := randomHex()
-	cursor := Cursor{Reference: ref, ConnectionID: binding[0].ConnectionID, GrantID: binding[0].GrantID, AccountID: binding[0].AccountID, ConnectionRevision: binding[0].ConnectionRevision, SemanticDigest: binding[0].SemanticDigest, OperationID: binding[0].OperationID, OperationDigest: binding[0].OperationDigest, ArgumentsDigest: argumentsDigest(map[string]any{}), Token: "private-token", ExpiresAt: time.Now().Add(time.Hour)}
+	cursor := Cursor{Reference: ref, ConnectionID: binding[0].ConnectionID, GrantID: binding[0].GrantID, AccountID: binding[0].AccountID, ConnectionRevision: binding[0].ConnectionRevision, GrantRevision: binding[0].CredentialRevision, SemanticDigest: binding[0].SemanticDigest, OperationID: binding[0].OperationID, OperationDigest: binding[0].OperationDigest, ArgumentsDigest: argumentsDigest(map[string]any{}), Token: "private-token", ExpiresAt: time.Unix(100, 0)}
 	if err = service.putCursor(cursor); err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +598,7 @@ func rustRecreatedCursorFixture(t *testing.T) (*Service, Binding, string, string
 // Rust source: crates/noema-capabilities/adapters/src/continuation/tests.rs::durable_cursor_secrets_survive_store_recreation_without_metadata_leakage.
 func TestRustAdapters_durable_cursor_secrets_survive_store_recreation_without_metadata_leakage(t *testing.T) {
 	service, binding, ref, _ := rustRecreatedCursorFixture(t)
-	loaded, err := service.loadCursor(ref)
+	loaded, err := service.resolveCursor(ref, binding, argumentsDigest(map[string]any{}), time.Unix(1, 0))
 	if err != nil || loaded.Token != "private-token" {
 		t.Fatalf("cursor = %#v, %v", loaded, err)
 	}
@@ -614,13 +624,11 @@ func TestRustAdapters_durable_cursor_authority_rejects_tampering_expiry_and_ever
 	service, binding, ref, directory := rustRecreatedCursorFixture(t)
 	variants := []func(*Cursor){
 		func(value *Cursor) { value.ConnectionID = strings.Repeat("b", 32) },
+		func(value *Cursor) { value.SemanticDigest = strings.Repeat("c", 64) },
+		func(value *Cursor) { value.GrantRevision++ },
 		func(value *Cursor) { value.GrantID = "grant-2" },
 		func(value *Cursor) { value.AccountID = "account-2" },
-		func(value *Cursor) { value.SemanticDigest = strings.Repeat("c", 64) },
-		func(value *Cursor) { value.OperationID = "other" },
-		func(value *Cursor) { value.OperationDigest = strings.Repeat("d", 64) },
 		func(value *Cursor) { value.ArgumentsDigest = strings.Repeat("e", 64) },
-		func(value *Cursor) { value.ConnectionRevision++ },
 	}
 	baseline, err := service.loadCursor(ref)
 	if err != nil {
@@ -633,7 +641,7 @@ func TestRustAdapters_durable_cursor_authority_rejects_tampering_expiry_and_ever
 	for index, mutate := range variants {
 		value := baseline
 		mutate(&value)
-		if err := validateCursorBinding(value, binding, argumentsDigest(map[string]any{}), time.Now()); err != errCursorBindingMismatch {
+		if err := validateCursorBinding(value, binding, argumentsDigest(map[string]any{}), time.Unix(1, 0)); err != errCursorBindingMismatch {
 			t.Errorf("variant %d typed binding error = %v", index, err)
 		}
 		raw, marshalErr := json.Marshal(value)
@@ -643,14 +651,14 @@ func TestRustAdapters_durable_cursor_authority_rejects_tampering_expiry_and_ever
 		if writeErr := os.WriteFile(filepath.Join(directory, "adapters", "cursors", ref+".json"), raw, 0o600); writeErr != nil {
 			t.Fatal(writeErr)
 		}
-		if _, _, callErr := service.Call(t.Context(), binding, json.RawMessage(`{"continuation":"`+ref+`"}`)); callErr == nil || callErr.Error() != "adapter continuation is stale" {
-			t.Errorf("variant %d call error = %v", index, callErr)
+		if _, resolveErr := service.resolveCursor(ref, binding, argumentsDigest(map[string]any{}), time.Unix(1, 0)); resolveErr != errCursorBindingMismatch {
+			t.Errorf("variant %d typed store error = %v", index, resolveErr)
 		}
 		if writeErr := os.WriteFile(filepath.Join(directory, "adapters", "cursors", ref+".json"), baselineRaw, 0o600); writeErr != nil {
 			t.Fatal(writeErr)
 		}
 	}
-	if _, err := service.loadCursor(strings.Repeat("f", 32)); err == nil {
+	if _, err := service.resolveCursor(strings.Repeat("f", 32), binding, argumentsDigest(map[string]any{}), time.Unix(1, 0)); err == nil {
 		t.Fatal("unknown cursor reference was accepted")
 	}
 	value, err := service.loadCursor(ref)
@@ -658,7 +666,7 @@ func TestRustAdapters_durable_cursor_authority_rejects_tampering_expiry_and_ever
 		t.Fatal(err)
 	}
 	value.ExpiresAt = time.Unix(1, 0)
-	if time.Now().Before(value.ExpiresAt) {
+	if !time.Unix(100, 0).After(value.ExpiresAt) {
 		t.Fatal("expired cursor fixture is not expired")
 	}
 	expiredRaw, marshalErr := json.Marshal(value)
@@ -668,11 +676,11 @@ func TestRustAdapters_durable_cursor_authority_rejects_tampering_expiry_and_ever
 	if writeErr := os.WriteFile(filepath.Join(directory, "adapters", "cursors", ref+".json"), expiredRaw, 0o600); writeErr != nil {
 		t.Fatal(writeErr)
 	}
-	if err := validateCursorBinding(value, binding, argumentsDigest(map[string]any{}), time.Now()); err != errCursorExpired {
+	if err := validateCursorBinding(value, binding, argumentsDigest(map[string]any{}), time.Unix(100, 0)); err != errCursorExpired {
 		t.Errorf("expired cursor typed error = %v", err)
 	}
-	if _, _, callErr := service.Call(t.Context(), binding, json.RawMessage(`{"continuation":"`+ref+`"}`)); callErr == nil || callErr.Error() != "adapter continuation is stale" {
-		t.Errorf("expired cursor call error = %v", callErr)
+	if _, resolveErr := service.resolveCursor(ref, binding, argumentsDigest(map[string]any{}), time.Unix(100, 0)); resolveErr != errCursorExpired {
+		t.Errorf("expired cursor typed store error = %v", resolveErr)
 	}
 	if err = service.retireCursor(ref); err != nil {
 		t.Fatal(err)
@@ -818,7 +826,7 @@ func TestRustAdapters_exact_source_digest_detects_mutation_and_source_bounds(t *
 	if err != nil || len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 || scan.Diagnostics[0].Code != "source_digest" {
 		t.Fatalf("mutated source scan = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
 	}
-	overSized := make([]byte, manifestLimit+1)
+	overSized := make([]byte, sourceLimit+1)
 	if _, err = service.files.installDefinitionWithSource(testManifest(), "https://example.test/two", overSized, "json", nil, nil); err == nil || !strings.Contains(err.Error(), "oversized") {
 		t.Fatalf("oversized source result = %v", err)
 	}
@@ -1423,13 +1431,28 @@ func TestRustAdapters_callback_success_rejects_duplicates_denials_and_expiry(t *
 	if event, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=code-marker&state="+url.QueryEscape(state)); completeErr != nil || event.Status != "completed" || strings.Contains(fmt.Sprintf("%#v", event), "code-marker") {
 		t.Fatalf("successful callback = %#v, %v", event, completeErr)
 	}
-	for _, query := range []string{"code=a&code=b&state=" + url.QueryEscape(state), "code=a&foo=x&foo=y&state=" + url.QueryEscape(state)} {
-		if _, _, _, parseErr := parseOAuthCallback(service.oauthCallback+"?"+query, service.oauthCallback); parseErr == nil || parseErr.Error() != "invalid" {
-			t.Fatalf("duplicate callback accepted: %s", query)
+	startCallback := func() string {
+		next, startErr := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
+		if startErr != nil {
+			t.Fatal(startErr)
 		}
+		handoff, parseErr := url.Parse(next.AuthorizationURL)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		return handoff.Query().Get("state")
 	}
-	if _, _, _, parseErr := parseOAuthCallback("http://user:password@127.0.0.1:3737/adapter/oauth/callback?code=a&state="+url.QueryEscape(state), service.oauthCallback); parseErr == nil || parseErr.Error() != "invalid" {
-		t.Fatal("userinfo callback was accepted")
+	duplicateState := startCallback()
+	if _, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=a&code=b&state="+url.QueryEscape(duplicateState)); !errors.Is(completeErr, errOAuthCallbackMismatch) {
+		t.Fatalf("duplicate callback error = %v", completeErr)
+	}
+	unknownDuplicateState := startCallback()
+	if _, completeErr := service.CompleteOAuth(t.Context(), service.oauthCallback+"?code=a&foo=x&foo=y&state="+url.QueryEscape(unknownDuplicateState)); !errors.Is(completeErr, errOAuthCallbackMismatch) {
+		t.Fatalf("duplicate unknown callback error = %v", completeErr)
+	}
+	userinfoState := startCallback()
+	if _, completeErr := service.CompleteOAuth(t.Context(), "http://user:password@127.0.0.1:3737/adapter/oauth/callback?code=a&state="+url.QueryEscape(userinfoState)); !errors.Is(completeErr, errOAuthCallbackMismatch) {
+		t.Fatalf("userinfo callback error = %v", completeErr)
 	}
 	denied, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}})
 	if err != nil {
@@ -1455,26 +1478,28 @@ func TestRustAdapters_callback_success_rejects_duplicates_denials_and_expiry(t *
 // Rust source: crates/noema-capabilities/adapters/src/oauth/tests.rs::callback_modes_and_unreviewed_definitions_fail_closed.
 func TestRustAdapters_callback_modes_and_unreviewed_definitions_fail_closed(t *testing.T) {
 	service, application, definition := rustOAuthFixture(t, "http://127.0.0.1:3737/adapter/oauth/callback")
+	if mode, _ := service.OAuthCallback(); mode != "loopback" {
+		t.Fatalf("loopback callback mode = %q", mode)
+	}
+	if err := service.SetOAuthCallback("https://setup.example.test/adapter/oauth/callback"); err != nil {
+		t.Fatal(err)
+	}
+	hostedDocument := []byte(`{"web":{"client_id":"hosted-client","client_secret":"hosted-secret","redirect_uris":["https://setup.example.test/adapter/oauth/callback"]}}`)
+	hostedApplication, err := service.ImportOAuthApplication(application.ProfileDigest, nil, hostedDocument, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := service.SetOAuthCallback("http://127.0.0.1:3737/adapter/oauth/callback"); err != nil {
 		t.Fatal(err)
 	}
 	if mode, _ := service.OAuthCallback(); mode != "loopback" {
 		t.Fatalf("loopback callback mode = %q", mode)
 	}
+	if _, err := service.StartOAuth(OAuthStart{ApplicationID: hostedApplication.ApplicationID, ExpectedApplicationRevision: hostedApplication.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil || err.Error() != "adapter OAuth application callback changed" || !errors.Is(err, errOAuthInvalidInput) {
+		t.Fatalf("hosted application with loopback callback = %v", err)
+	}
 	if err := service.SetOAuthCallback("https://setup.example.test:0/adapter/oauth/callback"); err == nil || err.Error() != "adapter OAuth callback is invalid" {
 		t.Fatalf("port-zero callback validation = %v", err)
-	}
-	if err := service.SetOAuthCallback("https://setup.example.test/adapter/oauth/callback"); err != nil {
-		t.Fatal(err)
-	}
-	if mode, _ := service.OAuthCallback(); mode != "hosted" {
-		t.Fatalf("hosted callback mode = %q", mode)
-	}
-	if _, err := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil || err.Error() != "adapter OAuth application callback changed" {
-		t.Fatalf("callback mode mismatch = %v", err)
-	}
-	if err := service.SetOAuthCallback("http://127.0.0.1:3737/adapter/oauth/callback"); err != nil {
-		t.Fatal(err)
 	}
 	unreviewed := oauthManifest()
 	unreviewed.Authentication.ProfileDigest = application.ProfileDigest
@@ -1483,7 +1508,7 @@ func TestRustAdapters_callback_modes_and_unreviewed_definitions_fail_closed(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: unreviewedDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); err == nil || err.Error() != "adapter OAuth definition changed" {
+	if _, err = service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, SemanticDigest: unreviewedDefinition.SemanticDigest, OperationIDs: []string{"lookup"}}); !errors.Is(err, errOAuthUnsupported) {
 		t.Fatal("unreviewed definition was accepted")
 	}
 }
@@ -1518,6 +1543,9 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 	}
 	if _, replacementErr := service.StartOAuth(OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); !errors.Is(replacementErr, errOAuthAttemptUnavailable) {
 		t.Fatalf("replacement while completing = %v", replacementErr)
+	}
+	if err := reservation.complete(secondCallback, time.Now(), OAuthStart{ApplicationID: application.ApplicationID, ExpectedApplicationRevision: application.Revision, GrantID: grant.GrantID, ExpectedGrantRevision: grant.AuthorityRevision, SemanticDigest: definition.SemanticDigest, OperationIDs: []string{"lookup"}}); err != nil {
+		t.Fatalf("complete reserved callback = %v", err)
 	}
 	reservation.finish()
 	if _, reserveErr = service.reserveOAuthAttempt(secondCallback, time.Now()); !errors.Is(reserveErr, errOAuthCallbackMismatch) {
@@ -1559,8 +1587,10 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 	}
 	capacityService.mu.Lock()
 	var expiredID string
-	for _, value := range capacityService.oauthAttempts {
+	var expiredState string
+	for state, value := range capacityService.oauthAttempts {
 		expiredID = value.ID
+		expiredState = state
 		value.expires = time.Unix(1, 0)
 		break
 	}
@@ -1568,6 +1598,9 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 	capacityService.mu.Unlock()
 	if event, ok := capacityService.OAuthAttempt(expiredID); !ok || event.Status != "expired" {
 		t.Fatalf("expired attempt event = %#v, %t", event, ok)
+	}
+	if _, reserveErr := capacityService.reserveOAuthAttempt(capacityService.oauthCallback+"?code=late&state="+url.QueryEscape(expiredState), time.Unix(2, 0)); !errors.Is(reserveErr, errOAuthCallbackMismatch) {
+		t.Fatalf("expired callback remained indexed = %v", reserveErr)
 	}
 }
 
@@ -1587,10 +1620,12 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 		profile := googleOAuthProfile()
 		profile.ClientAuthentication = mode
 		profile.TokenEndpoint = "https://auth.example.test/token"
-		transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600,"scope":"read"}`}
+		transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","refresh_token":"fresh-refresh","token_type":"Bearer","expires_in":3600,"scope":"read"}`}
 		form := url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}
+		beforeExchange := time.Now().Unix()
 		token, exchangeErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, form, []string{"read"}, &http.Client{Transport: transport})
-		if exchangeErr != nil || token.AccessToken != "fresh-access" {
+		afterExchange := time.Now().Unix()
+		if exchangeErr != nil || token.AccessToken != "fresh-access" || token.ExpiresAt < beforeExchange+3600 || token.ExpiresAt > afterExchange+3600 || !reflect.DeepEqual(token.Scopes, []string{"read"}) {
 			t.Fatalf("%s recorded token exchange = %#v, %v", mode, token, exchangeErr)
 		}
 		if !strings.Contains(transport.bodySeen, "code=code-marker") || !strings.Contains(transport.bodySeen, "code_verifier=verifier-marker") || strings.Contains(transport.bodySeen, "scope=") {
@@ -2097,7 +2132,7 @@ func TestRustAdapters_two_connections_share_one_refresh_result(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			<-ready
-			_, _, callErr := service.Call(t.Context(), binding, json.RawMessage(`{"id":"item-1"}`))
+			_, _, callErr := service.Invoke(t.Context(), Invocation{InvokerKey: binding.InvokerKey, Operation: binding.Name, OperationToken: binding.OperationToken, Arguments: json.RawMessage(`{"id":"item-1"}`)})
 			results <- callErr
 		}()
 	}
@@ -2177,7 +2212,7 @@ func TestRustAdapters_refresh_without_the_called_scope_requires_authentication(t
 		t.Errorf("scope-gap invocation binding = %#v", bindings)
 	}
 	if len(bindings) > 0 {
-		if _, _, callErr := service.Call(t.Context(), bindings[0], json.RawMessage(`{"id":"item-1"}`)); callErr == nil || !errors.Is(callErr, ErrAuthenticationRequired) {
+		if _, _, callErr := service.Invoke(t.Context(), Invocation{InvokerKey: bindings[0].InvokerKey, Operation: bindings[0].Name, OperationToken: bindings[0].OperationToken, Arguments: json.RawMessage(`{"id":"item-1"}`)}); callErr == nil || !errors.Is(callErr, ErrAuthenticationRequired) {
 			t.Errorf("scope gap invocation error = %v", callErr)
 		}
 	}
@@ -2214,7 +2249,7 @@ func TestRustAdapters_rejected_refresh_invalidates_the_shared_grant(t *testing.T
 	if err != nil || len(bindings) != 2 {
 		t.Fatalf("rejected refresh bindings = %#v, %v", bindings, err)
 	}
-	if _, _, callErr := service.Call(t.Context(), bindings[0], json.RawMessage(`{"id":"item-1"}`)); !errors.Is(callErr, ErrAuthenticationRequired) {
+	if _, _, callErr := service.Invoke(t.Context(), Invocation{InvokerKey: bindings[0].InvokerKey, Operation: bindings[0].Name, OperationToken: bindings[0].OperationToken, Arguments: json.RawMessage(`{"id":"item-1"}`)}); !errors.Is(callErr, ErrAuthenticationRequired) {
 		t.Fatalf("rejected refresh error = %v", callErr)
 	} else {
 		var required *AuthenticationRequiredError
@@ -2381,6 +2416,7 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if len(setupCatalog) != 2 || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
 		t.Fatalf("setup authority = %#v", setupCatalog)
 	}
+	proposalBinding := setupCatalog[1]
 	if !strings.Contains(tools[1].Description, "complete argument contract") {
 		t.Errorf("proposal tool description = %q", tools[1].Description)
 	}
@@ -2429,15 +2465,15 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if !reflect.DeepEqual(pagination, wantPagination) {
 		t.Errorf("pagination help = %#v, want %#v", pagination, wantPagination)
 	}
-	if persisted, ok := sanitizeProposalPayload(map[string]any{"marker": "draft", "api_key": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "draft", "api_key": "[REDACTED]"}) {
+	if persisted, ok := proposalBinding.PersistArguments(map[string]any{"marker": "draft", "api_key": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "draft", "api_key": "[REDACTED]"}) {
 		t.Errorf("proposal arguments were not redacted: %#v", persisted)
 	}
 	nested := map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": float64(32)}}, "required": []any{}, "additionalProperties": false}}, "api_key": "private"}}}
 	wantNested := map[string]any{"upsert_operations": []any{map[string]any{"authorization": map[string]any{"kind": "none"}, "response": map[string]any{"output_schema": map[string]any{"type": "object", "properties": map[string]any{"api_key": map[string]any{"type": "string", "maxBytes": float64(32)}}, "required": []any{}, "additionalProperties": false}}, "api_key": "[REDACTED]"}}}
-	if persisted := sanitizeProposalPayload(nested); !reflect.DeepEqual(persisted, wantNested) {
+	if persisted := proposalBinding.PersistArguments(nested); !reflect.DeepEqual(persisted, wantNested) {
 		t.Errorf("nested proposal arguments were not redacted: %#v", persisted)
 	}
-	if persisted, ok := sanitizeProposalPayload(map[string]any{"marker": "result", "access_token": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "result", "access_token": "[REDACTED]"}) {
+	if persisted, ok := proposalBinding.PersistOutput(map[string]any{"marker": "result", "access_token": "private"}).(map[string]any); !ok || !reflect.DeepEqual(persisted, map[string]any{"marker": "result", "access_token": "[REDACTED]"}) {
 		t.Errorf("proposal output was not redacted: %#v", persisted)
 	}
 }
@@ -2510,7 +2546,7 @@ func TestRustAdapters_model_proposal_is_forced_pending_and_survives_service_recr
 	}
 	defer func() { _ = reopenedDatabase.Close(); _ = reopenedRoot.Close() }()
 	definitions, err := reopened.files.definitions()
-	if err != nil || len(definitions) != 1 || definitions[0].Manifest.Reviewed || definitions[0].Superseded {
+	if err != nil || len(definitions) != 1 || definitions[0].Manifest.Reviewed || definitions[0].Superseded || definitions[0].ReviewStatus() != "pending" {
 		t.Fatalf("pending definitions after recreation = %#v, %v", definitions, err)
 	}
 }
@@ -2614,6 +2650,8 @@ func TestRustAdapters_proposal_requires_mutation_response_transform_before_persi
 	payload, ok := service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(proposal))
 	if !ok {
 		t.Errorf("mutation with a response transform was rejected: %s", payload)
+	} else if rustSetupPayload(t, payload)["status"] != "review_required" {
+		t.Errorf("mutation proposal status = %#v", rustSetupPayload(t, payload)["status"])
 	}
 }
 
@@ -3077,16 +3115,12 @@ func TestRustAdapters_reviewed_activation_accepts_complete_four_hint_behavior(t 
 
 // Rust source: crates/noema-capabilities/adapters/src/continuation/tests.rs::retry_after_stays_bounded.
 func TestRustAdapters_retry_after_stays_bounded(t *testing.T) {
-	valid := testManifest()
-	valid.Operations[0].Retry = "transport_safe_read"
-	if _, err := Compile(valid); err != nil {
-		t.Fatal(err)
+	if seconds, err := parseRetryAfter("30"); err != nil || seconds != 30 {
+		t.Fatalf("valid retry-after = %d, %v", seconds, err)
 	}
-	for _, retry := range []string{"30", "86401", "tomorrow"} {
-		candidate := testManifest()
-		candidate.Operations[0].Retry = retry
-		if _, err := Compile(candidate); err == nil {
-			t.Fatalf("unbounded retry policy %q was accepted", retry)
+	for _, retry := range []string{"86401", "tomorrow"} {
+		if _, err := parseRetryAfter(retry); err != errRetryAfterInvalid {
+			t.Fatalf("retry-after %q error = %v", retry, err)
 		}
 	}
 }

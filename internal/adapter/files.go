@@ -143,7 +143,7 @@ func (f *fileAuthority) installDefinitionWithSource(manifest Manifest, sourceRef
 	if err != nil {
 		return Definition{}, err
 	}
-	if len(source) > manifestLimit {
+	if len(source) > sourceLimit {
 		return Definition{}, errors.New("adapter source is oversized")
 	}
 	if len(source) > 0 && sourceFormat != "json" && sourceFormat != "yaml" {
@@ -487,7 +487,7 @@ func (f *fileAuthority) loadDefinition(digest string) (Definition, error) {
 		return Definition{}, err
 	}
 	if metadata.SourceDigest != "" {
-		source, sourceErr := readRegular(directory, "source."+metadata.SourceFormat, manifestLimit)
+		source, sourceErr := readRegular(directory, "source."+metadata.SourceFormat, sourceLimit)
 		if sourceErr != nil || fmt.Sprintf("%x", sha256.Sum256(source)) != metadata.SourceDigest {
 			return Definition{}, errors.New("adapter definition source digest changed")
 		}

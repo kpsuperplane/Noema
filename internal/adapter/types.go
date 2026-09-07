@@ -215,6 +215,17 @@ type Definition struct {
 	Superseded          bool
 }
 
+// ReviewStatus is the projection-safe review state used by setup callers.
+func (d Definition) ReviewStatus() string {
+	if d.Superseded {
+		return "superseded"
+	}
+	if d.Manifest.Reviewed {
+		return "reviewed"
+	}
+	return "pending"
+}
+
 type CompiledOperation struct {
 	Operation
 	Digest string
@@ -360,6 +371,12 @@ type SetupBinding struct {
 	ExecutionDecision string
 }
 
+// PersistArguments and PersistOutput apply the setup binding's ordinary
+// persistence boundary. They preserve schema metadata while removing secret
+// values before proposal material is retained or logged.
+func (b SetupBinding) PersistArguments(value any) any { return sanitizeProposalPayload(value) }
+func (b SetupBinding) PersistOutput(value any) any    { return sanitizeProposalPayload(value) }
+
 func GenerationTools(bindings []Binding) []provider.GenerationTool {
 	result := make([]provider.GenerationTool, len(bindings))
 	for i, binding := range bindings {
@@ -386,11 +403,11 @@ type AvailabilityNotice struct {
 type Cursor struct {
 	Reference, ConnectionID, SemanticDigest, OperationID, OperationDigest, ArgumentsDigest, Token string
 	GrantID, AccountID                                                                            string
-	ConnectionRevision                                                                            int
+	ConnectionRevision, GrantRevision                                                             int
 	ExpiresAt                                                                                     time.Time
 }
 
 // GoString prevents the continuation token from entering diagnostics.
 func (c Cursor) GoString() string {
-	return fmt.Sprintf("adapter.Cursor{Reference:%q, ConnectionID:%q, GrantID:%q, AccountID:%q, ConnectionRevision:%d, SemanticDigest:%q, OperationID:%q, OperationDigest:%q, ArgumentsDigest:%q, Token:%q, ExpiresAt:%s}", c.Reference, c.ConnectionID, c.GrantID, c.AccountID, c.ConnectionRevision, c.SemanticDigest, c.OperationID, c.OperationDigest, c.ArgumentsDigest, "[REDACTED]", c.ExpiresAt.UTC().Format(time.RFC3339Nano))
+	return fmt.Sprintf("adapter.Cursor{Reference:%q, ConnectionID:%q, GrantID:%q, AccountID:%q, ConnectionRevision:%d, GrantRevision:%d, SemanticDigest:%q, OperationID:%q, OperationDigest:%q, ArgumentsDigest:%q, Token:%q, ExpiresAt:%s}", c.Reference, c.ConnectionID, c.GrantID, c.AccountID, c.ConnectionRevision, c.GrantRevision, c.SemanticDigest, c.OperationID, c.OperationDigest, c.ArgumentsDigest, "[REDACTED]", c.ExpiresAt.UTC().Format(time.RFC3339Nano))
 }
