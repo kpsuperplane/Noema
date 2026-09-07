@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -56,6 +58,72 @@ func TestAttachmentMessagePreservesTextAndAttachmentParts(t *testing.T) {
 	attachment := payload.Parts[1]
 	if attachment.Filename != "trip-checklist.txt" || attachment.Body.AttachmentID == "" || attachment.Body.Data != "" {
 		t.Fatal("attachment part did not preserve its filename and separate body reference")
+	}
+}
+
+func TestCalendarListPreservesGoogleShapeAndPagination(t *testing.T) {
+	f := &fixture{}
+	seen := map[string]bool{}
+	pageToken := ""
+	for page := 0; page < 2; page++ {
+		request := httptest.NewRequest("GET", "/calendar/v3/calendars/primary/events?maxResults=100&pageToken="+pageToken, nil)
+		request.Header.Set("Authorization", "Bearer "+accountAToken)
+		recorder := httptest.NewRecorder()
+		f.calendarAPI(recorder, request)
+		var result struct {
+			Items         []calendarEvent `json:"items"`
+			NextPageToken string          `json:"nextPageToken"`
+		}
+		if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &result) != nil || len(result.Items) == 0 {
+			t.Fatalf("calendar page %d: status %d, body %s", page, recorder.Code, recorder.Body)
+		}
+		for _, event := range result.Items {
+			if seen[event.ID] || strings.HasPrefix(event.ID, "cal-b-") {
+				t.Fatalf("unexpected or duplicate calendar event %s", event.ID)
+			}
+			seen[event.ID] = true
+		}
+		pageToken = result.NextPageToken
+	}
+	if len(seen) != 4 || pageToken != "" {
+		t.Fatalf("calendar records = %#v, next page = %q", seen, pageToken)
+	}
+}
+
+func TestCalendarWriteRoundTripStaysWithinAccount(t *testing.T) {
+	f := &fixture{}
+	body := `{"summary":"Synthetic planning hold","start":{"dateTime":"2026-09-10T09:00:00-07:00"},"end":{"dateTime":"2026-09-10T09:30:00-07:00"}}`
+	request := httptest.NewRequest("POST", "/calendar/v3/calendars/primary/events", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+accountAToken)
+	recorder := httptest.NewRecorder()
+	f.calendarAPI(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("insert status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	var created calendarEvent
+	if json.Unmarshal(recorder.Body.Bytes(), &created) != nil || created.ID == "" {
+		t.Fatal("insert did not return an event")
+	}
+	update := httptest.NewRequest("PATCH", "/calendar/v3/calendars/primary/events/"+created.ID, strings.NewReader(`{"summary":"Updated planning hold"}`))
+	update.Header.Set("Authorization", "Bearer "+accountAToken)
+	recorder = httptest.NewRecorder()
+	f.calendarAPI(recorder, update)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "Updated planning hold") {
+		t.Fatalf("update status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	other := httptest.NewRequest("GET", "/calendar/v3/calendars/primary/events/"+created.ID, nil)
+	other.Header.Set("Authorization", "Bearer "+accountBToken)
+	recorder = httptest.NewRecorder()
+	f.calendarAPI(recorder, other)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("account boundary status = %d", recorder.Code)
+	}
+	remove := httptest.NewRequest("DELETE", "/calendar/v3/calendars/primary/events/"+created.ID, nil)
+	remove.Header.Set("Authorization", "Bearer "+accountAToken)
+	recorder = httptest.NewRecorder()
+	f.calendarAPI(recorder, remove)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d", recorder.Code)
 	}
 }
 

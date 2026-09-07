@@ -44,6 +44,7 @@ type fixture struct {
 	requests           []requestTrace
 	oauth              fixtureOAuth
 	notionAuthRequired bool
+	calendar           map[string][]calendarEvent
 }
 
 func (f *fixture) trace(r *http.Request, status int) {
@@ -110,7 +111,7 @@ func (f *fixture) health(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.trace(r, http.StatusOK)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "fixture": fixtureVersion, "services": []string{"gmail", "notion"}})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "fixture": fixtureVersion, "services": []string{"gmail", "notion", "calendar"}})
 }
 
 func (f *fixture) operatorTrace(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +139,9 @@ func (f *fixture) docs(w http.ResponseWriter, r *http.Request) {
 	case "/notion/docs":
 		f.trace(r, http.StatusOK)
 		writeText(w, http.StatusOK, "text/markdown; charset=utf-8", notionDocs)
+	case "/calendar/docs":
+		f.trace(r, http.StatusOK)
+		writeText(w, http.StatusOK, "text/markdown; charset=utf-8", calendarDocs)
 	default:
 		return
 	}
@@ -738,12 +742,14 @@ func main() {
 	mux.HandleFunc("/oauth/token", f.token)
 	mux.HandleFunc("/oauth/register", f.notionOAuthRegister)
 	mux.HandleFunc("/notion/docs", f.docs)
+	mux.HandleFunc("/calendar/docs", f.docs)
 	mux.HandleFunc("/.well-known/mcp.json", f.notionCard)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", f.notionOAuthMetadata)
 	mux.HandleFunc("/.well-known/openid-configuration", f.notionOAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server/", f.notionOAuthServerMetadata)
 	mux.HandleFunc("/.well-known/openid-configuration/", f.notionOAuthServerMetadata)
 	mux.HandleFunc("/gmail/v1/", f.gmail)
+	mux.HandleFunc("/calendar/v3/", f.calendarAPI)
 	mux.Handle("/notion/mcp", f.notionHandler())
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
