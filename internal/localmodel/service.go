@@ -195,6 +195,7 @@ func (s *Service) Cancel(ctx context.Context, id string) (store.LocalModelInstal
 	s.jobsMu.Unlock()
 	if job.cancel != nil {
 		job.cancel()
+		<-job.done
 	}
 	value, err := s.database.CancelLocalModel(ctx, id, time.Now())
 	if err == nil {

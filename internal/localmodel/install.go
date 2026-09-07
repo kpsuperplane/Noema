@@ -203,8 +203,32 @@ func (s *Service) verifyAndPublish(ctx context.Context, value store.LocalModelIn
 	target := filepath.Join(directory, digest+".gguf")
 	if _, err = os.Stat(target); err == nil {
 		existing, _, hashErr := hashGGUF(ctx, target)
-		if hashErr != nil || existing != digest {
-			return errors.New("existing local model blob does not match its digest")
+		if hashErr == nil && existing == digest {
+			_ = os.Remove(partial)
+		} else {
+			if err = ctx.Err(); err != nil {
+				return err
+			}
+			installations, listErr := s.database.LocalModelInstallations(ctx)
+			if listErr != nil {
+				return listErr
+			}
+			referenced := false
+			for _, installation := range installations {
+				if installation.BlobPath == filepath.ToSlash(filepath.Join("models", "blobs", digest+".gguf")) {
+					referenced = true
+					break
+				}
+			}
+			if referenced {
+				return errors.New("blob digest conflict")
+			}
+			if removeErr := os.Remove(target); removeErr != nil {
+				return removeErr
+			}
+			if err = os.Rename(partial, target); err != nil {
+				return err
+			}
 		}
 		_ = os.Remove(partial)
 	} else if !errors.Is(err, os.ErrNotExist) {

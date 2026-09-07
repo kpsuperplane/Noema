@@ -5,7 +5,6 @@ package provider
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -873,11 +872,6 @@ func (p providerLocalProviderDebug) String() string {
 
 func (p providerLocalProviderDebug) GoString() string { return p.String() }
 
-type providerLocalFileImport struct {
-	Name, ModelID, Path string
-	Backend             ProviderLocalModelBackend
-}
-
 type providerLocalInstallation struct {
 	ID, ModelID, BlobPath, SHA256  string
 	Status                         ProviderLocalModelStatus
@@ -1000,22 +994,9 @@ func (m *providerLocalManagerContract) subscribe(from string) []providerLocalMan
 	return append([]providerLocalManagerEvent(nil), m.events...)
 }
 
-var providerLocalBlobReferences sync.Map
-
 func providerLocalDigest(bytesValue []byte) string {
 	digest := sha256.Sum256(bytesValue)
 	return hex.EncodeToString(digest[:])
-}
-
-func providerLocalInstallationID(input providerLocalFileImport, info os.FileInfo) string {
-	h := sha256.New()
-	_, _ = io.WriteString(h, input.Path)
-	var size [8]byte
-	for i := range size {
-		size[i] = byte(uint64(info.Size()) >> (8 * i))
-	}
-	_, _ = h.Write(size[:])
-	return "local_model_installation:local_file:" + hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 func providerHuggingFaceURL(repo, revision, file string) (string, error) {
@@ -1026,102 +1007,6 @@ func providerHuggingFaceURL(repo, revision, file string) (string, error) {
 		return "", errors.New("invalid Hugging Face repository")
 	}
 	return "https://huggingface.co/" + strings.Trim(repo, "/") + "/resolve/" + revision + "/" + file, nil
-}
-
-// importProviderLocalModel verifies a GGUF file, writes its content-addressed blob
-// atomically, and returns the durable installation projection.
-func importProviderLocalModel(ctx context.Context, input providerLocalFileImport, root string, onEvent func(ProviderLocalModelEvent, int64), cancel <-chan struct{}) (providerLocalInstallation, error) {
-	info, err := os.Stat(input.Path)
-	if err != nil {
-		return providerLocalInstallation{}, err
-	}
-	installation := providerLocalInstallation{ID: providerLocalInstallationID(input, info), ModelID: input.ModelID, Status: ProviderStatusDownloading, ExpectedBytes: info.Size()}
-	if onEvent != nil {
-		onEvent(ProviderEventQueued, 0)
-	}
-	select {
-	case <-ctx.Done():
-		installation.Status = ProviderStatusCancelled
-		if onEvent != nil {
-			onEvent(ProviderEventCancelled, 0)
-		}
-		return installation, ctx.Err()
-	case <-cancel:
-		installation.Status = ProviderStatusCancelled
-		if onEvent != nil {
-			onEvent(ProviderEventCancelled, 0)
-		}
-		return installation, context.Canceled
-	default:
-	}
-	in, err := os.Open(input.Path)
-	if err != nil {
-		return installation, err
-	}
-	defer in.Close()
-	data, err := io.ReadAll(in)
-	if err != nil {
-		return installation, err
-	}
-	if len(data) < 4 || string(data[:4]) != "GGUF" {
-		installation.Status = ProviderStatusFailed
-		return installation, errors.New("source does not have a GGUF header")
-	}
-	installation.DownloadedBytes = int64(len(data))
-	if onEvent != nil {
-		onEvent(ProviderEventProgress, installation.DownloadedBytes)
-	}
-	select {
-	case <-ctx.Done():
-		installation.Status = ProviderStatusCancelled
-		if onEvent != nil {
-			onEvent(ProviderEventCancelled, installation.DownloadedBytes)
-		}
-		return installation, ctx.Err()
-	default:
-	}
-	installation.Status = ProviderStatusVerifying
-	if onEvent != nil {
-		onEvent(ProviderEventVerifying, installation.DownloadedBytes)
-	}
-	installation.SHA256 = providerLocalDigest(data)
-	blobDir := filepath.Join(root, "models", "blobs")
-	if err := os.MkdirAll(blobDir, 0o700); err != nil {
-		return installation, err
-	}
-	blob := filepath.Join(blobDir, installation.SHA256+".gguf")
-	if existing, readErr := os.ReadFile(blob); readErr == nil {
-		if !bytes.Equal(existing, data) {
-			if _, referenced := providerLocalBlobReferences.Load(blob); referenced {
-				return installation, errors.New("blob digest conflict")
-			}
-			if err := os.WriteFile(blob+".partial", data, 0o600); err != nil {
-				return installation, err
-			}
-			if err := os.Rename(blob+".partial", blob); err != nil {
-				_ = os.Remove(blob + ".partial")
-				return installation, err
-			}
-		}
-	} else if errors.Is(readErr, os.ErrNotExist) {
-		partial := blob + ".partial"
-		if err := os.WriteFile(partial, data, 0o600); err != nil {
-			return installation, err
-		}
-		if err := os.Rename(partial, blob); err != nil {
-			_ = os.Remove(partial)
-			return installation, err
-		}
-	} else {
-		return installation, readErr
-	}
-	installation.BlobPath = blob
-	providerLocalBlobReferences.Store(blob, struct{}{})
-	installation.Status = ProviderStatusInstalled
-	if onEvent != nil {
-		onEvent(ProviderEventInstalled, installation.DownloadedBytes)
-	}
-	return installation, nil
 }
 
 func verifyProviderModelBlob(root string, installation providerLocalInstallation) (string, error) {
