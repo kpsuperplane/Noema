@@ -3805,25 +3805,34 @@ func TestRustStore_inbox_document_save_is_exact_and_a_stale_digest_changes_nothi
 func TestRustStore_agent_inbox_edit_preserves_existing_authorization_context(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
+	now := time.Unix(1700000000, 0).UTC()
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	source := ArtifactSource{ConversationID: "conversation:agent-edit", TurnID: "turn:agent-edit", ItemID: "item:agent-edit"}
+	created, err := database.CreateTaskWithOptions(ctx, id, "Human title", testTaskCommand("agent-edit:capture"), TaskCreateOptions{
+		Source: source, SourceToolCallID: "tool_call:agent-edit",
+	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	root := rustStoreTaskHome(t, created.Task.ID, "captured description")
+	original := created.Task
+	agentTitle := "Agent rewrite"
+	updated, err := database.UpdateInboxTask(ctx, original.ID, original.Revision, original.Generation,
+		TaskUpdate{Title: &agentTitle}, testTaskLifecycleCommand("update_task", "agent-edit:update"), now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	if updated.Task.Title != "Agent rewrite" {
+		t.Fatalf("agent edit title = %q", updated.Task.Title)
+	}
+	if updated.Task.Source != original.Source || updated.Task.SourceToolCallID != original.SourceToolCallID {
+		t.Fatalf("agent edit changed source context: before=%#v after=%#v", original, updated.Task)
+	}
+	if document, err := home.ReadTaskDocument(root, original.ID); err != nil || document.Content != "captured description" {
+		t.Fatalf("agent edit changed task document = %#v, %v", document, err)
 	}
 }
 
@@ -3831,25 +3840,32 @@ func TestRustStore_agent_inbox_edit_preserves_existing_authorization_context(t *
 func TestRustStore_committed_detail_replay_does_not_reread_later_task_state(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
+	now := time.Unix(1700000000, 0).UTC()
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	command := testTaskCommand("committed-detail")
+	first, err := database.CreateTaskWithOptions(ctx, id, "receipt title", command, TaskCreateOptions{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	firstTask := first.Task
+	if firstTask.StageKey != "inbox" || TaskStageID(firstTask.State) != "stage:personal:inbox" {
+		t.Fatalf("initial task stage = %#v", firstTask)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	laterTitle := "later title"
+	updated, err := database.UpdateInboxTask(ctx, firstTask.ID, firstTask.Revision, firstTask.Generation,
+		TaskUpdate{Title: &laterTitle}, testTaskLifecycleCommand("update_task", "committed-detail:update"), now.Add(time.Second))
+	if err != nil || updated.Task.Title != "later title" {
+		t.Fatalf("later Task update = %#v, %v", updated, err)
+	}
+	replay, found, err := database.LookupTaskCommandReceipt(ctx, command)
+	if err != nil || !found {
+		t.Fatalf("committed receipt lookup = %#v, found=%t, %v", replay, found, err)
+	}
+	if !replay.Replayed || replay.Event.ID != first.Event.ID || replay.Task != firstTask {
+		t.Fatalf("committed receipt replay = %#v; first=%#v", replay, first)
 	}
 }
 
@@ -3857,25 +3873,59 @@ func TestRustStore_committed_detail_replay_does_not_reread_later_task_state(t *t
 func TestRustStore_stale_revision_is_atomic_and_inbox_edits_stop_at_queue(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
+	now := time.Unix(1700000000, 0).UTC()
 	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
 		t.Fatal(err)
 	}
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	original, err := database.CreateTaskWithOptions(ctx, id, "captured", testTaskCommand("stale:capture"), TaskCreateOptions{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	editedTitle := "edited"
+	current, err := database.UpdateInboxTask(ctx, original.Task.ID, original.Task.Revision, original.Task.Generation,
+		TaskUpdate{Title: &editedTitle}, testTaskLifecycleCommand("update_task", "stale:update"), now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	beforeEvents, err := database.LatestWorkEventSequence(ctx, "workspace:personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleTitle := "must not write"
+	if _, err := database.UpdateInboxTask(ctx, original.Task.ID, original.Task.Revision, original.Task.Generation,
+		TaskUpdate{Title: &staleTitle}, testTaskLifecycleCommand("update_task", "stale:second"), now.Add(2*time.Second)); !errors.Is(err, ErrStaleRevision) {
+		t.Errorf("old revision error = %v, want %v", err, ErrStaleRevision)
+	}
+	afterEvents, err := database.LatestWorkEventSequence(ctx, "workspace:personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterEvents != beforeEvents {
+		t.Errorf("stale revision appended work event: before=%d after=%d", beforeEvents, afterEvents)
+	}
+	stored, err := database.Task(ctx, current.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "edited" {
+		t.Errorf("stale revision changed Task title to %q", stored.Title)
+	}
+	queued, err := database.QueueTask(ctx, current.Task.ID, current.Task.Revision, current.Task.Generation,
+		testTaskLifecycleCommand("queue_task", "queue"), now.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.Task.StageKey != "queue" || queued.Task.State != TaskRunning || queued.Task.CurrentRunID == "" {
+		t.Fatalf("queued task = %#v", queued.Task)
+	}
+	if _, err := database.UpdateInboxTask(ctx, queued.Task.ID, queued.Task.Revision, queued.Task.Generation,
+		TaskUpdate{Title: &staleTitle}, testTaskLifecycleCommand("update_task", "after-queue"), now.Add(4*time.Second)); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("Inbox update after queue error = %v, want %v", err, ErrInvalidTransition)
 	}
 }
 
@@ -3883,25 +3933,32 @@ func TestRustStore_stale_revision_is_atomic_and_inbox_edits_stop_at_queue(t *tes
 func TestRustStore_stale_generation_is_rejected_even_when_revision_matches(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
-		t.Fatal(err)
-	}
+	now := time.Unix(1700000000, 0).UTC()
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	captured, err := database.CreateTaskWithOptions(ctx, id, "captured", testTaskCommand("generation:capture"), TaskCreateOptions{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	if _, err := database.db.ExecContext(ctx, "UPDATE tasks SET generation = generation + 1 WHERE task_id = ?", captured.Task.ID); err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	staleTitle := "must fail"
+	_, err = database.UpdateInboxTask(ctx, captured.Task.ID, captured.Task.Revision, captured.Task.Generation,
+		TaskUpdate{Title: &staleTitle}, testTaskLifecycleCommand("update_task", "generation:stale"), now.Add(time.Second))
+	if err == nil {
+		t.Errorf("old generation was accepted")
+	} else if errors.Is(err, ErrStaleRevision) {
+		t.Errorf("generation mismatch was classified as %v; Rust reports a distinct stale-generation error", ErrStaleRevision)
+	}
+	stored, err := database.Task(ctx, captured.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "captured" || stored.Generation != captured.Task.Generation+1 {
+		t.Errorf("stale generation changed Task = %#v", stored)
 	}
 }
 
@@ -3909,25 +3966,36 @@ func TestRustStore_stale_generation_is_rejected_even_when_revision_matches(t *te
 func TestRustStore_inbox_project_update_distinguishes_omitted_replacement_and_explicit_clear(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	now := time.Unix(1700000000, 0).UTC()
+	projectID, err := NewProjectID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := database.CreateProject(ctx, projectID, "workspace:personal", "Project association", "", nil,
+		testProjectDigest(""), false, testProjectCommand("project.create", "project:association", "project association"), now)
+	if err != nil {
 		t.Fatal(err)
 	}
 	id, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	captured, err := database.CreateTaskWithOptions(ctx, id, "Associated task", testTaskCommand("project:capture"), TaskCreateOptions{
+		ProjectID: project.Project.ID,
+	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	preservedTitle := "Still associated"
+	preserved, err := database.UpdateInboxTask(ctx, captured.Task.ID, captured.Task.Revision, captured.Task.Generation,
+		TaskUpdate{Title: &preservedTitle}, testTaskLifecycleCommand("update_task", "project:preserve"), now.Add(time.Second))
+	if err != nil || preserved.Task.ProjectID != project.Project.ID {
+		t.Fatalf("omitted project replacement = %#v, %v", preserved.Task, err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	cleared, err := database.UpdateInboxTask(ctx, preserved.Task.ID, preserved.Task.Revision, preserved.Task.Generation,
+		TaskUpdate{SetProject: true}, testTaskLifecycleCommand("update_task", "project:clear"), now.Add(2*time.Second))
+	if err != nil || cleared.Task.ProjectID != "" {
+		t.Fatalf("explicit project clear = %#v, %v", cleared.Task, err)
 	}
 }
 
