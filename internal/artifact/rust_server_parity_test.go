@@ -21,17 +21,18 @@ func TestRustServer_artifact_preview_adapter_allows_only_inert_browser_formats(t
 	for _, fixture := range []struct {
 		filename  string
 		mediaType string
+		bytes     []byte
 		status    int
 	}{
-		{filename: "label.png", mediaType: "image/png", status: http.StatusOK},
-		{filename: "unsafe.svg", mediaType: "image/svg+xml", status: http.StatusUnsupportedMediaType},
-		{filename: "unsafe.html", mediaType: "text/html", status: http.StatusUnsupportedMediaType},
+		{filename: "label.png", mediaType: "image/png", bytes: []byte("png"), status: http.StatusOK},
+		{filename: "unsafe", mediaType: "image/svg+xml", bytes: nil, status: http.StatusUnsupportedMediaType},
+		{filename: "unsafe", mediaType: "text/html", bytes: nil, status: http.StatusUnsupportedMediaType},
 	} {
 		mediaType := fixture.mediaType
 		created, err := service.CreateLocal(context.Background(), LocalInput{
 			Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: serverArtifactTaskID},
 			Title: fixture.filename, Kind: "source_file", Filename: fixture.filename,
-			Bytes: []byte("fixture"), MediaType: &mediaType, CreatedByActorID: "human:local",
+			Bytes: fixture.bytes, MediaType: &mediaType, CreatedByActorID: "human:local",
 		})
 		if err != nil {
 			t.Fatalf("create %s Artifact: %v", fixture.mediaType, err)

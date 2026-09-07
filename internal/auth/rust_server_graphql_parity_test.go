@@ -252,6 +252,7 @@ func TestRustServer_authenticated_http_and_websocket_ignore_client_identity_meta
 	case <-time.After(time.Second):
 		t.Fatal("browser session revocation did not close WebSocket")
 	}
+	assertExternalWebSocketClosed(t, connection)
 	if !browserBinding.Load() {
 		t.Fatal("browser application request lost its session binding")
 	}
@@ -367,6 +368,9 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	if _, payload, err := connection.Read(context.Background()); err != nil || !bytes.Contains(payload, []byte(`"tasksEvents"`)) {
 		t.Fatalf("native subscription result = %q, %v", payload, err)
 	}
+	if _, payload, err := connection.Read(context.Background()); err != nil || string(payload) != `{"id":"native","type":"complete"}` {
+		t.Fatalf("native subscription completion = %q, %v", payload, err)
+	}
 	expiringAccess := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{16}, 32))
 	expiringNow := time.Now().Unix()
 	var expiringRefresh [32]byte
@@ -406,6 +410,16 @@ func TestRustServer_client_bearer_authorizes_http_and_ws_without_browser_origin_
 	case <-returned:
 	case <-time.After(time.Second):
 		t.Fatal("client revocation did not close WebSocket")
+	}
+	assertExternalWebSocketClosed(t, connection)
+}
+
+func assertExternalWebSocketClosed(t *testing.T, connection *websocket.Conn) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, _, err := connection.Read(ctx); err == nil || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WebSocket remained open: %v", err)
 	}
 }
 
