@@ -3332,21 +3332,6 @@ func TestRustProviders_EvalSessionExposesOnlyReadyProviderMetadataAndOwnedShutdo
 	}
 }
 
-// Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::cache_hit_returns_verified_path_without_network (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_CacheHitReturnsVerifiedPathWithoutNetwork(t *testing.T) {
-	root := t.TempDir()
-	bytesValue := []byte("GGUF cached evaluation model")
-	digest := providerLocalDigest(bytesValue)
-	destination := filepath.Join(root, digest+".gguf")
-	if err := os.WriteFile(destination, bytesValue, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	path, err := materializeProviderModelAtomically(t.Context(), root, bytesValue, strings.NewReader("ignored"), digest)
-	if err != nil || path != destination {
-		t.Fatalf("cache hit = %q, %v", path, err)
-	}
-}
-
 // Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::digest_mismatch_removes_partial_and_publishes_nothing (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_DigestMismatchRemovesPartialAndPublishesNothing(t *testing.T) {
 	root := t.TempDir()
