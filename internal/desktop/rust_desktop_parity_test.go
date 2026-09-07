@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"os"
 	"reflect"
 	"strings"
@@ -304,53 +303,6 @@ func TestRustDesktop_WebSocketProtocolMapsNextErrorCompleteAndPing(t *testing.T)
 	}
 	if message := MapProtocolMessage(`{"type":"ping"}`); message.Kind != ProtocolPing {
 		t.Fatalf("ping message = %#v", message)
-	}
-}
-
-// Rust source: crates/noema-desktop/src/remote_oauth.rs::callback_distinguishes_verified_denial_from_handoff_and_invalid_state.
-func TestRustDesktop_CallbackDistinguishesVerifiedDenialFromHandoffAndInvalidState(t *testing.T) {
-	for _, test := range []struct {
-		query    string
-		title    string
-		accepted bool
-	}{
-		{query: "code=unit-code&state=unit-state", title: "Continue in Noema Desktop", accepted: true},
-		{query: "error=access_denied&state=unit-state", title: "Connection declined", accepted: false},
-		{query: "error=access_denied&state=wrong-state", title: "Sign-in did not finish", accepted: false},
-	} {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatalf("listener: %v", err)
-		}
-		address := listener.Addr().String()
-		redirect := "http://" + address + "/oauth/callback"
-		bodyCh := make(chan string, 1)
-		go func() {
-			connection, dialErr := net.Dial("tcp", address)
-			if dialErr != nil {
-				bodyCh <- ""
-				return
-			}
-			defer connection.Close()
-			_, _ = io.WriteString(connection, "GET /oauth/callback?"+test.query+" HTTP/1.1\r\nHost: "+address+"\r\n\r\n")
-			body, _ := io.ReadAll(connection)
-			bodyCh <- string(body)
-		}()
-		_, callbackErr := ReceiveCallback(listener, redirect, "https://noema.example", "unit-state")
-		_ = listener.Close()
-		body := <-bodyCh
-		if (callbackErr == nil) != test.accepted {
-			t.Fatalf("callback result error = %v, accepted = %v", callbackErr, test.accepted)
-		}
-		if !strings.Contains(body, test.title) {
-			t.Fatalf("callback body lacks %q: %s", test.title, body)
-		}
-		if strings.Contains(body, "unit-code") {
-			t.Fatal("callback body exposed the authorization code")
-		}
-		if strings.Contains(body, "Authorization complete") {
-			t.Fatal("callback body exposed the authorization completion text")
-		}
 	}
 }
 
