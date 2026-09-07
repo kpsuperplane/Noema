@@ -196,6 +196,9 @@ func TestRustAdapters_reviewed_descriptions_are_model_facing_authority_but_sourc
 	if err != nil {
 		t.Fatal(err)
 	}
+	if change := (OpenAPIActivation{Compiled: changedScope}).SemanticChangeFrom(OpenAPIActivation{Compiled: baseline}); change != OpenAPIRequiresReview {
+		t.Fatalf("scope change classification = %q, want RequiresReview", change)
+	}
 	presentation.Operations[0].Authorization.AcceptedScopeSets = append([][]string(nil), presentation.Operations[0].Authorization.AcceptedScopeSets...)
 	for i, j := 0, len(presentation.Operations[0].Authorization.AcceptedScopeSets)-1; i < j; i, j = i+1, j-1 {
 		presentation.Operations[0].Authorization.AcceptedScopeSets[i], presentation.Operations[0].Authorization.AcceptedScopeSets[j] = presentation.Operations[0].Authorization.AcceptedScopeSets[j], presentation.Operations[0].Authorization.AcceptedScopeSets[i]
