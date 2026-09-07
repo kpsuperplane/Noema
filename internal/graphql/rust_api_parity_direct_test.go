@@ -549,6 +549,21 @@ func rustAPIPortRuntimeTurnErrorNoDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTurn, _, err := resolver.Store.BeginConversationTurn(context.Background(), conversation.ID,
+		"Persist one provider error.", nil, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedNotice, err := resolver.Store.FailConversationTurn(context.Background(), seedTurn, "provider failed", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := resolver.Store.VisibleConversationItem(context.Background(), seedNotice.ID)
+	if err != nil || persisted == nil || persisted.ID != seedNotice.ID ||
+		persisted.Kind != store.ConversationErrorNotice || persisted.Payload["message"] != "provider failed" ||
+		persisted.Payload["recoverable"] != false {
+		t.Fatalf("persisted error notice = %#v, %v", persisted, err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	stream, err := resolver.conversationEvents(ctx, conversation.ID)

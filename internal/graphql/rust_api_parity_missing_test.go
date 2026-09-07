@@ -37,7 +37,6 @@ import (
 	"github.com/kpsuperplane/noema/internal/webtool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	_ "github.com/ncruces/go-sqlite3/driver"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // rustAPIGraphQLResponse keeps GraphQL errors and extensions visible for
@@ -154,9 +153,15 @@ func rustAPIPortNotificationBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := authentication.Handler(NewHandler(NewResolver(taskStore, nil, authentication,
-		nil, nil, nil, nil, nil, nil, service)))
+	resolver := NewResolver(taskStore, nil, authentication,
+		nil, nil, nil, nil, nil, nil, service)
+	handler := authentication.Handler(NewHandler(resolver))
 	access := seedNotificationNativeClient(t, taskStore)
+	browserRegistration := rustAPIRawGraphQLContext(t, resolver,
+		auth.WithHumanPrincipal(ctx, "human:local"), `mutation {
+  registerClientNotifications(input: { deviceToken: "AQID", environment: DEVELOPMENT }) { enabled }
+}`, nil)
+	rustAPIAssertGraphQLError(t, browserRegistration, "paired client authentication required", "")
 	device := base64.RawURLEncoding.EncodeToString([]byte("device-token"))
 	register := nativeGraphQLRequest(t, access, `mutation { registerClientNotifications(input: {
 deviceToken: "`+device+`", environment: DEVELOPMENT}) { available enabled environment blocker } }`)
@@ -179,7 +184,7 @@ available enabled registered environment } }`)
 	nativeProviderWrite := nativeGraphQLRequest(t, access, `mutation { removeApnsProvider(expectedRevision: 0) { revision } }`)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, nativeProviderWrite)
-	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("browser session is unavailable")) {
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("browser session authentication required")) {
 		t.Fatalf("native provider write = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -1471,55 +1476,95 @@ func rustAPIPortTaskIdempotencyRequired(t *testing.T) {
 func rustAPIPortProjectExecutorCWD(t *testing.T) {
 	resolver := openTestResolver(t)
 	ctx := context.Background()
+	graphqlCtx := auth.WithDesktopAccess(ctx)
 	createInput := model.CreateProjectInput{
 		WorkspaceID: personalWorkspaceID, Name: "Plan", Description: "Exact",
 		ClientMutationID: "project-create",
 	}
-	created, err := resolver.createProject(ctx, createInput)
-	if err != nil || created.Project.Revision != 1 {
-		t.Fatalf("create Project = %#v, %v", created, err)
+	createdResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($input: CreateProjectInput!) {
+  createProject(input: $input) { project { projectId revision folder } eventCursor clientMutationId }
+}`, map[string]any{"input": map[string]any{
+		"workspaceId": createInput.WorkspaceID, "name": createInput.Name,
+		"description": createInput.Description, "clientMutationId": createInput.ClientMutationID,
+	}})
+	if len(createdResponse.Errors) != 0 {
+		t.Fatalf("create Project GraphQL errors = %#v", createdResponse.Errors)
+	}
+	createdPayload := createdResponse.Data["createProject"].(map[string]any)
+	createdProject := createdPayload["project"].(map[string]any)
+	projectID := createdProject["projectId"].(string)
+	if createdProject["revision"] != float64(1) {
+		t.Fatalf("create Project = %#v", createdProject)
 	}
 	assertProjectReceipt(t, resolver.Store, "project.create", createInput.ClientMutationID, createInput)
-	document, err := resolver.projectDocument(ctx, created.Project.ProjectID)
-	if err != nil || document.Content != "# Plan\n\nExact\n" {
-		t.Fatalf("Project document = %#v, %v", document, err)
+	documentResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `query($project:String!) {
+  projectDocument(projectId: $project) { projectId content digest }
+}`, map[string]any{"project": projectID})
+	if len(documentResponse.Errors) != 0 {
+		t.Fatalf("Project document GraphQL errors = %#v", documentResponse.Errors)
+	}
+	document := documentResponse.Data["projectDocument"].(map[string]any)
+	if document["content"] != "# Plan\n\nExact\n" {
+		t.Fatalf("Project document = %#v", document)
 	}
 	saveInput := model.UpdateProjectDocumentInput{
-		ProjectID: created.Project.ProjectID, ExpectedRevision: 1,
-		ExpectedDocumentDigest: document.Digest, Content: "# Current\n",
+		ProjectID: projectID, ExpectedRevision: 1,
+		ExpectedDocumentDigest: document["digest"].(string), Content: "# Current\n",
 		ClientMutationID: "project-document",
 	}
-	saved, err := resolver.updateProjectDocument(ctx, saveInput)
-	if err != nil || saved.Project.Revision != 2 || saved.Document.Content != "# Current\n" {
-		t.Fatalf("save Project document = %#v, %v", saved, err)
+	savedResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($input: UpdateProjectDocumentInput!) {
+  updateProjectDocument(input: $input) { project { revision } document { content digest } eventCursor }
+}`, map[string]any{"input": map[string]any{
+		"projectId": saveInput.ProjectID, "expectedRevision": saveInput.ExpectedRevision,
+		"expectedDocumentDigest": saveInput.ExpectedDocumentDigest, "content": saveInput.Content,
+		"clientMutationId": saveInput.ClientMutationID,
+	}})
+	if len(savedResponse.Errors) != 0 {
+		t.Fatalf("save Project document GraphQL errors = %#v", savedResponse.Errors)
+	}
+	savedPayload := savedResponse.Data["updateProjectDocument"].(map[string]any)
+	savedProject := savedPayload["project"].(map[string]any)
+	savedDocument := savedPayload["document"].(map[string]any)
+	if savedProject["revision"] != float64(2) || savedDocument["content"] != "# Current\n" {
+		t.Fatalf("save Project document = %#v", savedPayload)
 	}
 	assertProjectReceipt(t, resolver.Store, "project.update", saveInput.ClientMutationID, saveInput)
 	folder := t.TempDir()
-	updated, err := resolver.updateProject(ctx, model.UpdateProjectInput{
-		ProjectID: created.Project.ProjectID, ExpectedRevision: 2, Folder: &folder,
-		ClientMutationID: "project-folder",
-	})
-	if err != nil || updated.Project.Folder == nil {
-		t.Fatalf("move Project = %#v, %v", updated, err)
+	folderResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($input: UpdateProjectInput!) {
+  updateProject(input: $input) { project { projectId revision folder } }
+}`, map[string]any{"input": map[string]any{
+		"projectId": projectID, "expectedRevision": 2, "folder": folder,
+		"clientMutationId": "project-folder",
+	}})
+	if len(folderResponse.Errors) != 0 {
+		t.Fatalf("move Project GraphQL errors = %#v", folderResponse.Errors)
 	}
-	acp, err := resolver.createAcpAgent(ctx, model.CreateAcpAgentInput{DisplayName: "Fake ACP", Command: "/bin/false"})
-	if err != nil {
-		t.Fatal(err)
+	folderPayload := folderResponse.Data["updateProject"].(map[string]any)
+	folderProject := folderPayload["project"].(map[string]any)
+	if folderProject["folder"] != folder {
+		t.Fatalf("move Project = %#v", folderPayload)
 	}
-	cwdResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation($project:String!, $agent:String!) {
+	acpResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation {
+  createAcpAgent(input: { displayName: "Fake ACP", command: "/bin/false" }) { agentId }
+}`, nil)
+	if len(acpResponse.Errors) != 0 {
+		t.Fatalf("create ACP GraphQL errors = %#v", acpResponse.Errors)
+	}
+	acpID := acpResponse.Data["createAcpAgent"].(map[string]any)["agentId"].(string)
+	cwdResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($project:String!, $agent:String!) {
   captureTask(input: {
     workspaceId: "workspace:personal", projectId: $project, title: "Use ACP",
     executorAgentId: $agent, cwdOverride: "/tmp/task-work", clientMutationId: "acp-capture"
   }) { task { executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource project { folder } } }
-}`, map[string]any{"project": created.Project.ProjectID, "agent": acp.AgentID})
+}`, map[string]any{"project": projectID, "agent": acpID})
 	if len(cwdResponse.Errors) != 0 {
 		t.Fatalf("ACP CWD GraphQL errors = %#v", cwdResponse.Errors)
 	}
 	cwdTask := cwdResponse.Data["captureTask"].(map[string]any)["task"].(map[string]any)
-	if cwdTask["executorAgentId"] != acp.AgentID || cwdTask["executorBackend"] != "acp" || cwdTask["cwdOverride"] != "/tmp/task-work" || cwdTask["effectiveCwd"] != "/tmp/task-work" || cwdTask["effectiveCwdSource"] != "task" || cwdTask["project"].(map[string]any)["folder"] != folder {
+	if cwdTask["executorAgentId"] != acpID || cwdTask["executorBackend"] != "acp" || cwdTask["cwdOverride"] != "/tmp/task-work" || cwdTask["effectiveCwd"] != "/tmp/task-work/use-acp" || cwdTask["effectiveCwdSource"] != "task" || cwdTask["project"].(map[string]any)["folder"] != folder {
 		t.Fatalf("ACP CWD projection = %#v", cwdTask)
 	}
-	listedCWD := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query { tasks(input: { workspaceId: "workspace:personal" }) { edges { node { taskId executorBackend effectiveCwd effectiveCwdSource } } } }`, nil)
+	listedCWD := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `query { tasks(input: { workspaceId: "workspace:personal" }) { edges { node { taskId executorBackend effectiveCwd effectiveCwdSource } } } }`, nil)
 	if len(listedCWD.Errors) != 0 {
 		t.Fatalf("ACP CWD task list errors = %#v", listedCWD.Errors)
 	}
@@ -1531,40 +1576,59 @@ func rustAPIPortProjectExecutorCWD(t *testing.T) {
 	for _, edge := range edges {
 		node := edge.(map[string]any)["node"].(map[string]any)
 		if node["executorBackend"] == "acp" {
-			seenCWD = node["effectiveCwd"] == "/tmp/task-work" && node["effectiveCwdSource"] == "task"
+			seenCWD = node["effectiveCwd"] == "/tmp/task-work/use-acp" && node["effectiveCwdSource"] == "task"
 		}
 	}
 	if !seenCWD {
 		t.Fatalf("ACP CWD task list = %#v", edges)
 	}
-	archiveInput := model.ArchiveProjectInput{ProjectID: created.Project.ProjectID,
+	archiveInput := model.ArchiveProjectInput{ProjectID: projectID,
 		ExpectedRevision: 3, ClientMutationID: "project-archive"}
-	archived, err := resolver.setProjectArchived(ctx, archiveInput.ProjectID,
-		archiveInput.ExpectedRevision, archiveInput.ClientMutationID, true)
-	if err != nil || archived.Project.ArchivedAt == nil {
-		t.Fatalf("archive Project = %#v, %v", archived, err)
+	archivedResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($input: ArchiveProjectInput!) {
+  archiveProject(input: $input) { project { projectId revision archivedAt } }
+}`, map[string]any{"input": map[string]any{
+		"projectId": archiveInput.ProjectID, "expectedRevision": archiveInput.ExpectedRevision,
+		"clientMutationId": archiveInput.ClientMutationID,
+	}})
+	if len(archivedResponse.Errors) != 0 {
+		t.Fatalf("archive Project GraphQL errors = %#v", archivedResponse.Errors)
+	}
+	archivedProject := archivedResponse.Data["archiveProject"].(map[string]any)["project"].(map[string]any)
+	if archivedProject["archivedAt"] == nil {
+		t.Fatalf("archive Project = %#v", archivedProject)
 	}
 	assertProjectReceipt(t, resolver.Store, "project.archive", archiveInput.ClientMutationID, struct {
 		ProjectID        string `json:"projectId"`
 		ExpectedRevision int    `json:"expectedRevision"`
 	}{archiveInput.ProjectID, archiveInput.ExpectedRevision})
-	reopenInput := model.ReopenProjectInput{ProjectID: created.Project.ProjectID,
+	reopenInput := model.ReopenProjectInput{ProjectID: projectID,
 		ExpectedRevision: 4, ClientMutationID: "project-reopen"}
-	reopened, err := resolver.setProjectArchived(ctx, reopenInput.ProjectID,
-		reopenInput.ExpectedRevision, reopenInput.ClientMutationID, false)
-	if err != nil || reopened.Project.ArchivedAt != nil {
-		t.Fatalf("reopen Project = %#v, %v", reopened, err)
+	reopenedResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($input: ReopenProjectInput!) {
+  reopenProject(input: $input) { project { projectId revision archivedAt } }
+}`, map[string]any{"input": map[string]any{
+		"projectId": reopenInput.ProjectID, "expectedRevision": reopenInput.ExpectedRevision,
+		"clientMutationId": reopenInput.ClientMutationID,
+	}})
+	if len(reopenedResponse.Errors) != 0 {
+		t.Fatalf("reopen Project GraphQL errors = %#v", reopenedResponse.Errors)
+	}
+	reopenedProject := reopenedResponse.Data["reopenProject"].(map[string]any)["project"].(map[string]any)
+	if reopenedProject["archivedAt"] != nil {
+		t.Fatalf("reopen Project = %#v", reopenedProject)
 	}
 	assertProjectReceipt(t, resolver.Store, "project.reopen", reopenInput.ClientMutationID, struct {
 		ProjectID        string `json:"projectId"`
 		ExpectedRevision int    `json:"expectedRevision"`
 	}{reopenInput.ProjectID, reopenInput.ExpectedRevision})
-	current, err := resolver.projectDocument(ctx, created.Project.ProjectID)
-	if err != nil {
-		t.Fatal(err)
+	currentResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `query($project:String!) {
+  projectDocument(projectId: $project) { digest }
+}`, map[string]any{"project": projectID})
+	if len(currentResponse.Errors) != 0 {
+		t.Fatalf("current Project document GraphQL errors = %#v", currentResponse.Errors)
 	}
-	recoveryInput := model.UpdateProjectDocumentInput{ProjectID: created.Project.ProjectID,
-		ExpectedRevision: 5, ExpectedDocumentDigest: current.Digest, Content: "# Recovered\n",
+	current := currentResponse.Data["projectDocument"].(map[string]any)
+	recoveryInput := model.UpdateProjectDocumentInput{ProjectID: projectID,
+		ExpectedRevision: 5, ExpectedDocumentDigest: current["digest"].(string), Content: "# Recovered\n",
 		ClientMutationID: "project-document-recovery"}
 	encoded, err := json.Marshal(recoveryInput)
 	if err != nil {
@@ -1573,21 +1637,31 @@ func rustAPIPortProjectExecutorCWD(t *testing.T) {
 	digest := sha256.Sum256(encoded)
 	recoveryCommand := store.ProjectCommand{ActorID: projectActorID, Name: "project.update",
 		ClientMutationID: recoveryInput.ClientMutationID, RequestDigest: hex.EncodeToString(digest[:])}
-	stage, next, err := home.PrepareProjectDocumentReplace(resolver.home, created.Project.ProjectID,
-		updated.Project.Folder, current.Digest, recoveryInput.Content, recoveryCommand.RequestDigest)
+	stage, next, err := home.PrepareProjectDocumentReplace(resolver.home, projectID,
+		&folder, current["digest"].(string), recoveryInput.Content, recoveryCommand.RequestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolver.Store.UpdateProject(ctx, created.Project.ProjectID, 5,
+	if _, err := resolver.Store.UpdateProject(ctx, projectID, 5,
 		store.ProjectChanges{DocumentChanged: true, DocumentDigest: next.Digest}, recoveryCommand, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := home.ReadProjectDocumentStage(resolver.home, stage.ProjectID, stage.RequestDigest); err != nil {
 		t.Fatal(err)
 	}
-	recovered, err := resolver.updateProjectDocument(ctx, recoveryInput)
-	if err != nil || recovered.Document.Content != recoveryInput.Content || recovered.Project.Revision != 6 {
-		t.Fatalf("receipt recovery = %#v, %v", recovered, err)
+	recoveredResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($input: UpdateProjectDocumentInput!) {
+  updateProjectDocument(input: $input) { project { revision } document { content } }
+}`, map[string]any{"input": map[string]any{
+		"projectId": recoveryInput.ProjectID, "expectedRevision": recoveryInput.ExpectedRevision,
+		"expectedDocumentDigest": recoveryInput.ExpectedDocumentDigest, "content": recoveryInput.Content,
+		"clientMutationId": recoveryInput.ClientMutationID,
+	}})
+	if len(recoveredResponse.Errors) != 0 {
+		t.Fatalf("receipt recovery GraphQL errors = %#v", recoveredResponse.Errors)
+	}
+	recoveredPayload := recoveredResponse.Data["updateProjectDocument"].(map[string]any)
+	if recoveredPayload["document"].(map[string]any)["content"] != recoveryInput.Content || recoveredPayload["project"].(map[string]any)["revision"] != float64(6) {
+		t.Fatalf("receipt recovery = %#v", recoveredPayload)
 	}
 	if _, err := home.ReadProjectDocumentStage(resolver.home, stage.ProjectID, stage.RequestDigest); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("recovered stage remains: %v", err)
@@ -1597,70 +1671,73 @@ func rustAPIPortProjectExecutorCWD(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(existingFolder, "PROJECT.md"), []byte("# Existing\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	existing, err := resolver.createProject(ctx, model.CreateProjectInput{WorkspaceID: personalWorkspaceID,
-		Name: "Adopt", Folder: &existingFolder, ClientMutationID: "project-existing"})
-	if err != nil {
-		t.Fatal(err)
+	existingResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($input: CreateProjectInput!) {
+  createProject(input: $input) { project { projectId } }
+}`, map[string]any{"input": map[string]any{
+		"workspaceId": personalWorkspaceID, "name": "Adopt", "folder": existingFolder,
+		"clientMutationId": "project-existing",
+	}})
+	if len(existingResponse.Errors) != 0 {
+		t.Fatalf("existing Project GraphQL errors = %#v", existingResponse.Errors)
 	}
-	existingDocument, err := resolver.projectDocument(ctx, existing.Project.ProjectID)
-	if err != nil || existingDocument.Content != "# Existing\n" {
-		t.Fatalf("existing Project document = %#v, %v", existingDocument, err)
+	existingID := existingResponse.Data["createProject"].(map[string]any)["project"].(map[string]any)["projectId"].(string)
+	existingDocumentResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `query($project:String!) {
+  projectDocument(projectId: $project) { content }
+}`, map[string]any{"project": existingID})
+	if len(existingDocumentResponse.Errors) != 0 || existingDocumentResponse.Data["projectDocument"].(map[string]any)["content"] != "# Existing\n" {
+		t.Fatalf("existing Project document = %#v", existingDocumentResponse)
 	}
 }
 
 func rustAPIPortProjectDocument(t *testing.T) {
 	resolver := openTestResolver(t)
-	ctx := context.Background()
-	first, err := resolver.createProject(ctx, model.CreateProjectInput{
-		WorkspaceID: personalWorkspaceID, Name: " Plan ", Description: " Exact ",
-		ClientMutationID: "normalized-create",
-	})
-	if err != nil {
-		t.Fatal(err)
+	created := rustAPIRawGraphQL(t, resolver, `mutation {
+  createProject(input: {
+    workspaceId: "workspace:personal", name: "Launch plan",
+    description: "opaque-value-58310", clientMutationId: "project-document-create"
+  }) { project { projectId revision } }
+}`, nil)
+	if len(created.Errors) != 0 {
+		t.Fatalf("project creation GraphQL errors = %#v", created.Errors)
 	}
-	replay, err := resolver.createProject(ctx, model.CreateProjectInput{
-		WorkspaceID: personalWorkspaceID, Name: "Plan", Description: "Exact",
-		ClientMutationID: "normalized-create",
-	})
-	if err != nil || replay.Project.ProjectID != first.Project.ProjectID || replay.EventCursor != first.EventCursor {
-		t.Fatalf("normalized create replay = %#v, %v", replay, err)
+	project := created.Data["createProject"].(map[string]any)["project"].(map[string]any)
+	projectID := project["projectId"].(string)
+	revision := project["revision"].(float64)
+	read := rustAPIRawGraphQL(t, resolver, `query($project:String!) {
+  projectDocument(projectId: $project) { projectId content digest }
+}`, map[string]any{"project": projectID})
+	if len(read.Errors) != 0 {
+		t.Fatalf("project document read GraphQL errors = %#v", read.Errors)
 	}
-	nameWithSpace, name := " Updated ", "Updated"
-	changed, err := resolver.updateProject(ctx, model.UpdateProjectInput{ProjectID: first.Project.ProjectID,
-		ExpectedRevision: 1, Name: &nameWithSpace, ClientMutationID: "normalized-update"})
-	if err != nil {
-		t.Fatal(err)
+	document := read.Data["projectDocument"].(map[string]any)
+	if document["content"] != "# Launch plan\n\nopaque-value-58310\n" {
+		t.Fatalf("project document content = %#v", document)
 	}
-	changedReplay, err := resolver.updateProject(ctx, model.UpdateProjectInput{ProjectID: first.Project.ProjectID,
-		ExpectedRevision: 1, Name: &name, ClientMutationID: "normalized-update"})
-	if err != nil || changedReplay.EventCursor != changed.EventCursor {
-		t.Fatalf("normalized update replay = %#v, %v", changedReplay, err)
+	digest := document["digest"].(string)
+	saved := rustAPIRawGraphQL(t, resolver, `mutation($input: UpdateProjectDocumentInput!) {
+  updateProjectDocument(input: $input) { project { revision } document { content digest } eventCursor }
+}`, map[string]any{"input": map[string]any{
+		"projectId": projectID, "expectedRevision": revision,
+		"expectedDocumentDigest": digest, "content": "# Current context\n",
+		"clientMutationId": "project-document-save",
+	}})
+	if len(saved.Errors) != 0 {
+		t.Fatalf("project document save GraphQL errors = %#v", saved.Errors)
 	}
-	folder := t.TempDir()
-	folderWithSpace := " " + folder + " "
-	moved, err := resolver.updateProject(ctx, model.UpdateProjectInput{ProjectID: first.Project.ProjectID,
-		ExpectedRevision: 2, Folder: &folderWithSpace, ClientMutationID: "normalized-folder"})
-	if err != nil || moved.Project.Folder == nil || *moved.Project.Folder != folder {
-		t.Fatalf("normalized folder = %#v, %v", moved, err)
+	savedPayload := saved.Data["updateProjectDocument"].(map[string]any)
+	if savedPayload["project"].(map[string]any)["revision"] != revision+1 ||
+		savedPayload["document"].(map[string]any)["content"] != "# Current context\n" ||
+		savedPayload["eventCursor"].(string) == "" {
+		t.Fatalf("project document save = %#v", savedPayload)
 	}
-	conflictFolder := t.TempDir()
-	if err := os.WriteFile(filepath.Join(conflictFolder, "PROJECT.md"), []byte("# Other\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err = resolver.updateProject(ctx, model.UpdateProjectInput{ProjectID: first.Project.ProjectID,
-		ExpectedRevision: 3, Folder: &conflictFolder, ClientMutationID: "conflicting-folder"})
-	var graphQLError *gqlerror.Error
-	if !errors.As(err, &graphQLError) || graphQLError.Extensions["code"] != "invalid_input" {
-		t.Fatalf("folder conflict error = %#v", err)
-	}
-	if _, err := resolver.updateProject(ctx, model.UpdateProjectInput{ProjectID: first.Project.ProjectID,
-		ExpectedRevision: 0, Name: &name, ClientMutationID: "bad-revision"}); err == nil {
-		t.Fatal("nonpositive Project revision was accepted")
-	}
-	if _, err := resolver.updateProjectDocument(ctx, model.UpdateProjectDocumentInput{ProjectID: first.Project.ProjectID,
-		ExpectedRevision: 2, ExpectedDocumentDigest: "bad", Content: "x", ClientMutationID: "bad-digest"}); err == nil {
-		t.Fatal("malformed Project document digest was accepted")
-	}
+	conflict := rustAPIRawGraphQL(t, resolver, `mutation($input: UpdateProjectDocumentInput!) {
+  updateProjectDocument(input: $input) { project { revision } }
+}`, map[string]any{"input": map[string]any{
+		"projectId": projectID, "expectedRevision": revision,
+		"expectedDocumentDigest": digest, "content": "# Stale context\n",
+		"clientMutationId": "project-document-conflict",
+	}})
+	rustAPIAssertGraphQLError(t, conflict, "the authoritative Task document changed", "stale_document")
 }
 
 func rustAPIPortWhitespaceIdempotency(t *testing.T) {
@@ -2100,20 +2177,27 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 	resolver := openProviderTestResolver(t)
 	rustAPIAuthenticateCodexForWebSettings(t, resolver)
 	ctx := context.Background()
-	accountID := "provider_account:codex:default"
-	label := "Routine"
+	complexity := "simple"
+	entries, err := resolver.Store.TaskModelPoolEntries(ctx, &complexity)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("simple task model pool = %#v, %v", entries, err)
+	}
+	existing := taskModelPoolEntry(entries[0])
+	label := "Unavailable but editable"
 	updated, err := resolver.updateTaskModelPoolEntry(
 		ctx, "task_pool:setting:simple", model.TaskModelPoolEntryInput{
-			Complexity:   model.TaskComplexitySimple,
-			ProviderKind: "codex", ProviderAccountID: accountID,
-			SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended,
-			Label:         &label, Enabled: true,
+			Complexity: existing.Complexity, ProviderKind: existing.ProviderKind,
+			ProviderAccountID: existing.ProviderAccountID, SelectionMode: existing.SelectionMode,
+			ModelProfile: existing.ModelProfile, ReasoningEffort: existing.ReasoningEffort,
+			FastMode: existing.FastMode, Label: &label, Enabled: true, SortOrder: existing.SortOrder,
 		},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Label == nil || *updated.Label != "Routine" {
+	if updated.Label == nil || *updated.Label != label || updated.ProviderKind != existing.ProviderKind ||
+		updated.ProviderAccountID != existing.ProviderAccountID || updated.SelectionMode != existing.SelectionMode ||
+		updated.FastMode != existing.FastMode || updated.SortOrder != existing.SortOrder {
 		t.Fatalf("updated pool entry = %#v", updated)
 	}
 	// Rust also edits the same stale route with enabled=false and verifies the
@@ -2122,7 +2206,7 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 	// silently omitted from the port.
 	response := rustAPIRawGraphQL(t, resolver, `mutation {
   updateTaskModelPoolEntry(poolEntryId: "task_pool:setting:simple", input: {
-    complexity: SIMPLE, label: "Routine", providerKind: "codex",
+    complexity: SIMPLE, label: "Unavailable but editable", providerKind: "codex",
     providerAccountId: "provider_account:codex:default",
     selectionMode: NOEMA_RECOMMENDED, fastMode: false, sortOrder: 0, enabled: false
   }) { enabled }
@@ -2139,12 +2223,12 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 	if len(readback.Errors) != 0 {
 		t.Fatalf("stale route readback failed: %#v", readback.Errors)
 	}
-	entries, ok := readback.Data["taskModelPools"].([]any)
+	readbackEntries, ok := readback.Data["taskModelPools"].([]any)
 	if !ok {
 		t.Fatalf("stale route entries = %#v", readback.Data)
 	}
 	found := false
-	for _, raw := range entries {
+	for _, raw := range readbackEntries {
 		entry := raw.(map[string]any)
 		if entry["poolEntryId"] == "task_pool:setting:simple" {
 			found = true
@@ -2155,6 +2239,13 @@ func rustAPIPortStalePoolRoute(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("stale route was not persisted")
+	}
+	persisted, err := resolver.Store.TaskModelPoolEntries(ctx, &complexity)
+	if err != nil || len(persisted) != 1 || persisted[0].ID != "task_pool:setting:simple" || persisted[0].Enabled {
+		t.Fatalf("persisted stale route = %#v, %v", persisted, err)
+	}
+	if persisted[0].Label == nil || *persisted[0].Label != "Unavailable but editable" {
+		t.Fatalf("persisted stale route label = %#v", persisted[0])
 	}
 }
 
