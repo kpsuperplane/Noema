@@ -429,12 +429,14 @@ func TestRustServer_capacity_rejects_new_sessions_without_evicting_active_sessio
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.BrowserMaxSessions = 1
 	taskStore, err := store.Open(context.Background(), paths.Database())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = taskStore.Close() })
+	if err := taskStore.ConfigureBrowserSessionCapacity(1); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := New(paths, taskStore, config, recovery); err != nil {
 		t.Fatal(err)
 	}
