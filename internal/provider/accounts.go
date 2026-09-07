@@ -68,13 +68,59 @@ func (m AccountMetadata) SecretConfigured() bool {
 
 // ModelProfiles returns safe provider model metadata.
 func (m AccountMetadata) ModelProfiles() ([]ModelProfile, error) {
-	var profiles []ModelProfile
 	value := m["profiles"]
 	if len(value) == 0 {
 		return []ModelProfile{}, nil
 	}
-	if err := json.Unmarshal(value, &profiles); err != nil {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(value, &entries); err != nil {
 		return nil, errors.New("provider model profiles are invalid")
+	}
+	profiles := make([]ModelProfile, 0, len(entries))
+	for _, entry := range entries {
+		var raw struct {
+			ID               string            `json:"id"`
+			Label            string            `json:"label"`
+			ReasoningEfforts []json.RawMessage `json:"reasoning_efforts"`
+			DefaultReasoning json.RawMessage   `json:"default_reasoning_effort"`
+			ContextWindow    json.RawMessage   `json:"context_window_tokens"`
+		}
+		if json.Unmarshal(entry, &raw) != nil {
+			continue
+		}
+		raw.ID = strings.TrimSpace(raw.ID)
+		if raw.ID == "" {
+			continue
+		}
+		label := strings.TrimSpace(raw.Label)
+		if label == "" {
+			label = raw.ID
+		}
+		efforts := make([]string, 0, len(raw.ReasoningEfforts))
+		for _, effort := range raw.ReasoningEfforts {
+			var value string
+			if json.Unmarshal(effort, &value) != nil {
+				continue
+			}
+			if normalized := normalizeReasoningEffort(value); normalized != "" {
+				efforts = append(efforts, normalized)
+			}
+		}
+		var defaultReasoning string
+		_ = json.Unmarshal(raw.DefaultReasoning, &defaultReasoning)
+		var contextWindowTokens uint32
+		if err := json.Unmarshal(raw.ContextWindow, &contextWindowTokens); err != nil || contextWindowTokens == 0 {
+			contextWindowTokens = 0
+		}
+		var contextWindow *uint32
+		if contextWindowTokens != 0 {
+			contextWindow = &contextWindowTokens
+		}
+		profiles = append(profiles, ModelProfile{
+			ID: raw.ID, Label: label, ReasoningEfforts: efforts,
+			DefaultReasoningEffort: normalizeReasoningEffort(defaultReasoning),
+			ContextWindowTokens:    contextWindow,
+		})
 	}
 	return profiles, nil
 }
