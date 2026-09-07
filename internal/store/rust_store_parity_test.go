@@ -5037,15 +5037,27 @@ func TestRustStore_project_document_updates_fence_digest_and_folder_conflicts(t 
 
 // Rust source: crates/noema-store/src/work_command_tests.rs::acp_executor_resolves_launch_at_start_and_uses_task_directory_precedence.
 func TestRustStore_acp_executor_resolves_launch_at_start_and_uses_task_directory_precedence(t *testing.T) {
-	database := openTestStore(t)
 	ctx := t.Context()
 	now := time.Unix(1700000000, 0).UTC()
 	homeRoot := t.TempDir()
+	databasePath := filepath.Join(homeRoot, "db", "noema.sqlite3")
+	if err := os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	database, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := database.Close(); closeErr != nil {
+			t.Errorf("close test store: %v", closeErr)
+		}
+	})
 	agent, err := database.CreateAcpAgent(ctx, "Fake ACP", "/bin/false", []string{"--safe"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectFolder := filepath.Join(t.TempDir(), "acp-worktree")
+	projectFolder := filepath.Join(homeRoot, "acp-worktree")
 	if err := os.MkdirAll(projectFolder, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -5100,16 +5112,18 @@ func TestRustStore_acp_executor_resolves_launch_at_start_and_uses_task_directory
 		t.Errorf("override working directory = %#v, %v", overrideRuns, err)
 	}
 	defaultRuns, err := database.TaskRuns(ctx, defaultTask.ID, 10)
-	if err != nil || len(defaultRuns) != 1 || defaultRuns[0].EffectiveCwd == nil {
+	expectedDefault := filepath.Join(homeRoot, "tasks", "delegated-acp-default-task")
+	if err != nil || len(defaultRuns) != 1 {
 		t.Errorf("default working directory = %#v, %v", defaultRuns, err)
 	} else {
-		expectedDefault := filepath.Join(homeRoot, "tasks", "delegated-acp-default-task")
-		if *defaultRuns[0].EffectiveCwd != expectedDefault {
-			t.Errorf("default working directory = %q, want %q", *defaultRuns[0].EffectiveCwd, expectedDefault)
+		if defaultRuns[0].EffectiveCwd == nil {
+			t.Errorf("default run working directory = <nil>, want %q", expectedDefault)
+		} else if *defaultRuns[0].EffectiveCwd != expectedDefault {
+			t.Errorf("default run working directory = %q, want %q", *defaultRuns[0].EffectiveCwd, expectedDefault)
 		}
-		if _, statErr := os.Stat(expectedDefault); statErr != nil {
-			t.Errorf("default working directory is not a directory: %v", statErr)
-		}
+	}
+	if _, statErr := os.Stat(expectedDefault); statErr != nil {
+		t.Errorf("default working directory is not a directory: %v", statErr)
 	}
 	updated, err := database.UpdateAcpAgent(ctx, agent.AgentID, 1, "Fake ACP", "/bin/true", []string{}, true, now.Add(3*time.Second))
 	if err != nil {
