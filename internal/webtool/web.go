@@ -284,3 +284,21 @@ func safeError(err error) string {
 		return err.Error()
 	}
 }
+
+// providerStatus classifies one upstream HTTP result at the web provider
+// boundary. Callers use the same classification for authenticated and
+// keyless routes without including credential material in the result.
+func providerStatus(status int, authenticated bool) string {
+	switch {
+	case (status == http.StatusUnauthorized || status == http.StatusForbidden) && authenticated:
+		return "auth"
+	case status == http.StatusRequestTimeout || status == http.StatusGatewayTimeout:
+		return "timeout"
+	case status == http.StatusTooManyRequests:
+		return "rate_limited"
+	case status < 200 || status >= 300:
+		return "http"
+	default:
+		return "ok"
+	}
+}

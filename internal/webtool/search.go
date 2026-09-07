@@ -264,15 +264,24 @@ func requestJSON(ctx context.Context, method, endpoint string, body any, headers
 	if err != nil {
 		return nil, errors.New("web provider request failed")
 	}
-	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+	authenticated := false
+	for key, value := range headers {
+		if value != "" && (strings.EqualFold(key, "authorization") || strings.EqualFold(key, "x-api-key")) {
+			authenticated = true
+			break
+		}
+	}
+	switch providerStatus(response.StatusCode, authenticated) {
+	case "auth":
 		response.Body.Close()
 		return nil, errProviderAuthentication
-	}
-	if response.StatusCode == http.StatusTooManyRequests {
+	case "rate_limited":
 		response.Body.Close()
 		return nil, errors.New("web provider rate limit reached")
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	case "timeout":
+		response.Body.Close()
+		return nil, errors.New("web provider timed out")
+	case "http":
 		response.Body.Close()
 		return nil, errors.New("web provider request failed")
 	}

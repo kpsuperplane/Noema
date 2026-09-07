@@ -922,7 +922,7 @@ func browserArgumentsError(name string) error {
 func validateBrowserSnapshot(ctx context.Context, snapshot *browseSnapshot) error {
 	url, err := normalizePublicURL(ctx, snapshot.URL)
 	if err != nil {
-		return err
+		return errors.New("navigation_failed")
 	}
 	snapshot.URL = url
 	if snapshot.Revision < 1 || !utf8.ValidString(snapshot.Title) || !utf8.ValidString(snapshot.Text) || len([]rune(snapshot.Text)) > 20000 || len(snapshot.Elements) > 200 {

@@ -46,7 +46,7 @@ func startBrowserProcess(ctx context.Context, path string, oldSpaceMB int) (*bro
 	address := listener.Addr().String()
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	_ = listener.Close()
-	command := exec.Command(path, "--stealth", "--v8-flags", "--max-old-space-size="+strconv.Itoa(oldSpaceMB), "serve", "--host", "127.0.0.1", "--port", port, "--max-connections", "1")
+	command := exec.Command(path, browserCommandArguments(oldSpaceMB, port)...)
 	command.Env = append(browserWorkerEnvironment(), "RUST_LOG=obscura_cdp::server=info")
 	configureBrowserCommand(command)
 	output, err := command.StderrPipe()
@@ -140,6 +140,10 @@ func startBrowserProcess(ctx context.Context, path string, oldSpaceMB int) (*bro
 	}
 	success = true
 	return p, nil
+}
+
+func browserCommandArguments(oldSpaceMB int, port string) []string {
+	return []string{"--stealth", "--v8-flags", "--max-old-space-size=" + strconv.Itoa(oldSpaceMB), "serve", "--host", "127.0.0.1", "--port", port, "--max-connections", "1"}
 }
 
 // The browser session lock serializes calls and closure.
