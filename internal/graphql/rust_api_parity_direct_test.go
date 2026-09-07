@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -34,6 +35,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/notification"
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
+	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
 func rustAPIPortProviderStatus(t *testing.T) {
@@ -93,6 +95,10 @@ func rustAPIPortProtectedCredentialFile(t *testing.T) {
 	status, err := service.RemoveAPNS(context.Background(), 3)
 	if err != nil || status.Configured || status.Revision != 4 {
 		t.Fatalf("APNs tombstone = %#v, %v", status, err)
+	}
+	readStatus, err := service.APNSProviderStatus()
+	if err != nil || readStatus.Configured || readStatus.Revision != 4 {
+		t.Fatalf("APNs tombstone read = %#v, %v", readStatus, err)
 	}
 	data, err := os.ReadFile(paths.APNSProvider())
 	if err != nil || bytes.Contains(data, []byte("PRIVATE KEY")) || !bytes.Contains(data, []byte(`"revision": 4`)) {
@@ -252,10 +258,20 @@ func rustAPIPortAuthorizedDownloadTraversal(t *testing.T) {
 	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	version := created.CurrentVersion
-	version.LocalRelativePath = stringPointer("providers/secret.txt")
-	if _, err := resolver.Artifacts.Read(created.Artifact, version); err == nil {
-		t.Fatal("Artifact traversal path was accepted")
+	paths, err := home.FromRoot(resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := sql.Open("sqlite3", paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = metadata.Close() })
+	if _, err := metadata.Exec(`UPDATE artifact_versions SET local_relative_path=?, content_sha256=NULL WHERE artifact_version_id=?`, "providers/secret.txt", created.CurrentVersion.ID); err != nil {
+		t.Fatal(err)
+	}
+	if file, found, err := resolver.Artifacts.AuthorizedFile(context.Background(), created.CurrentVersion.ID); err != nil || found || file.Bytes != nil {
+		t.Fatalf("authorized traversal download = %#v, %t, %v", file, found, err)
 	}
 }
 
@@ -546,7 +562,8 @@ func rustAPIPortGovernedAction(t *testing.T) {
 		AuthorizationContext: map[string]any{
 			"destination":            map[string]any{"service_id": "adapter", "connection_id": connectionID, "account_id": accountID, "revision": "revision:1"},
 			"service":                map[string]any{"display_name": serviceName, "connection_label": connectionLabel, "credential": "must-not-project"},
-			"browser_review_context": map[string]any{"kind": "browser_interaction", "target": map[string]any{"ref": "e2", "role": "textbox", "name": "Name"}},
+			"origin":                 "test",
+			"browser_review_context": map[string]any{"kind": "browser_interaction", "origin": "test", "page": map[string]any{"url": "https://example.com/form", "title": "Example form"}, "target": map[string]any{"ref": "e2", "role": "textbox", "name": "Name"}},
 		},
 		SafeSummary: "fixture write", State: store.ActionAwaitingApproval,
 		Assessment: &store.ActionAssessment{Status: "completed", Authorization: "substantive", Risk: "high", ReasonCodes: []string{"sensitive_data"}, Explanation: "The action may disclose private data."},
@@ -608,19 +625,20 @@ func rustAPIPortGenericLocalDefault(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
 	profile := "shared-model"
-	_, err := resolver.saveDefaultModelPreference(context.Background(), model.SaveDefaultModelPreferenceInput{
-		ProviderKind: "local_models", ProviderAccountID: "provider_account:local_models:default",
-		SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile, ModelProfile: &profile,
-	})
-	if err == nil || err.Error() != "Activate a specific local model installation to change the local default" {
-		t.Fatalf("ambiguous local default error = %v", err)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `mutation($profile:String!) {
+  saveDefaultModelPreference(input: { providerKind: "local_models", providerAccountId: "provider_account:local_models:default", selectionMode: EXPLICIT_PROFILE, modelProfile: $profile, fastMode: false }) {
+    providerKind providerAccountId modelProfile selectionMode
+  }
+}`, map[string]any{"profile": profile})
+	if len(response.Errors) != 1 || response.Errors[0].Message != "Activate a specific local model installation to change the local default" {
+		t.Fatalf("ambiguous local default error = %#v", response.Errors)
 	}
-	preference, err := resolver.Store.DefaultModelPreference(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	preference := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query { defaultModelPreference { providerKind providerAccountId modelProfile selectionMode } }`, nil)
+	if len(preference.Errors) != 0 {
+		t.Fatalf("ambiguous local default query = %#v", preference.Errors)
 	}
-	if preference != nil {
-		t.Fatalf("ambiguous local default persisted: %#v", preference)
+	if preference.Data["defaultModelPreference"] != nil {
+		t.Fatalf("ambiguous local default persisted: %#v", preference.Data)
 	}
 }
 
@@ -665,31 +683,29 @@ func rustAPIPortLocalModelCatalog(t *testing.T) {
 	resolver.SetLocalModels(service)
 	t.Cleanup(service.Close)
 
-	setup, err := resolver.onboardingModelSetup(ctx, "provider_account:local_models:default")
-	if err != nil {
-		t.Fatal(err)
+	setupResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query {
+  onboardingModelSetup(providerAccountId: "provider_account:local_models:default") {
+    profiles { id disabledReason }
+    proposedSelections { actionReviewer { selectionMode } }
+  }
+}`, nil)
+	if len(setupResponse.Errors) != 0 {
+		t.Fatalf("local setup GraphQL errors = %#v", setupResponse.Errors)
 	}
-	if len(setup.Profiles) != 1 || setup.ProposedSelections.ActionReviewer != nil {
-		t.Fatalf("local setup = %#v", setup)
+	setup := setupResponse.Data["onboardingModelSetup"].(map[string]any)
+	if len(setup["profiles"].([]any)) != 1 || setup["proposedSelections"].(map[string]any)["actionReviewer"] != nil {
+		t.Fatalf("local setup = %#v", setupResponse.Data)
 	}
-	profile := "test-model"
-	selection := &model.OnboardingModelSelectionInput{
-		SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile,
-		ModelProfile:  &profile,
-	}
-	_, err = resolver.confirmOnboardingModelSelections(ctx, model.ConfirmOnboardingModelSelectionsInput{
-		ProviderAccountID:   "provider_account:local_models:default",
-		Noema:               selection,
-		SimpleTasks:         selection,
-		MediumTasks:         selection,
-		DifficultTasks:      selection,
-		TaskReviewer:        selection,
-		WebFetchSummarizer:  selection,
-		ToolProgressAudit:   selection,
-		MemoryConsolidation: selection,
-	})
-	if err != nil {
-		t.Fatal(err)
+	selection := map[string]any{"selectionMode": "EXPLICIT_PROFILE", "modelProfile": "test-model", "fastMode": false}
+	confirmResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation($input: ConfirmOnboardingModelSelectionsInput!) {
+  confirmOnboardingModelSelections(input: $input) { isUserOnboarded }
+}`, map[string]any{"input": map[string]any{
+		"providerAccountId": "provider_account:local_models:default", "noema": selection, "simpleTasks": selection,
+		"mediumTasks": selection, "difficultTasks": selection, "taskReviewer": selection,
+		"webFetchSummarizer": selection, "toolProgressAudit": selection, "memoryConsolidation": selection,
+	}})
+	if len(confirmResponse.Errors) != 0 {
+		t.Fatalf("local model confirmation GraphQL errors = %#v", confirmResponse.Errors)
 	}
 	assignments, err := resolver.Store.HostedModelAssignments(ctx)
 	if err != nil {
@@ -827,10 +843,33 @@ func rustAPIPortSchemaSDL(t *testing.T) {
 
 func rustAPIPortMissingPrimaryConversation(t *testing.T) {
 	t.Helper()
-	resolver := openTestResolver(t)
-	conversation, err := resolver.primaryConversation(context.Background())
-	if err != nil || conversation != nil {
-		t.Fatalf("missing primary conversation = %#v, %v", conversation, err)
+	for _, conversationExists := range []bool{false, true} {
+		resolver := openTestResolver(t)
+		if conversationExists {
+			paths, err := home.FromRoot(resolver.home.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			metadata, err := sql.Open("sqlite3", paths.Database())
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UnixMilli()
+			if _, err := metadata.Exec(`INSERT INTO conversations
+ (conversation_id, owner_human_id, provider, cwd, created_at_ms, updated_at_ms)
+ VALUES (?, 'human:local', 'openrouter', NULL, ?, ?)`, "conversation:"+strings.Repeat("a", 32), now, now); err != nil {
+				_ = metadata.Close()
+				t.Fatal(err)
+			}
+			_ = metadata.Close()
+		}
+		response := rustAPIRawGraphQL(t, resolver, `query { primaryConversation { conversationId provider } }`, nil)
+		if len(response.Errors) != 0 {
+			t.Fatalf("primary conversation errors (exists=%t) = %#v", conversationExists, response.Errors)
+		}
+		if value := response.Data["primaryConversation"]; value != nil {
+			t.Fatalf("primary conversation (exists=%t) = %#v, want null", conversationExists, value)
+		}
 	}
 }
 
@@ -1045,52 +1084,47 @@ func installAdapterParityDefinitionNamed(t *testing.T, service *adapter.Service,
 	return adapter.Definition{}
 }
 
+func rustAPIApproveAdapter(t *testing.T, resolver *Resolver, semanticDigest string) rustAPIGraphQLResponse {
+	t.Helper()
+	return rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), fmt.Sprintf(`mutation {
+  approveAdapterDefinition(input: { semanticDigest: %q }) {
+    semanticDigest reviewed superseded connectionCount
+    connections { connectionId status connectionRevision policyRevision allowedOperations policyConfigured }
+  }
+}`, semanticDigest), nil)
+}
+
+func rustAPICancelAdapter(t *testing.T, resolver *Resolver, semanticDigest string) rustAPIGraphQLResponse {
+	t.Helper()
+	return rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), fmt.Sprintf(`mutation {
+  cancelAdapterDefinition(input: { semanticDigest: %q })
+}`, semanticDigest), nil)
+}
+
 func rustAPIPortAdapterApproval(t *testing.T) {
 	t.Helper()
 	resolver, service := openAdapterParityService(t)
 	pending := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "none"}, "lookup")
-	approved, err := service.Approve(context.Background(), pending.SemanticDigest)
-	if err != nil || !approved.Manifest.Reviewed {
-		t.Fatalf("approved definition = %#v, %v", approved, err)
+	approved := rustAPIApproveAdapter(t, resolver, pending.SemanticDigest)
+	if len(approved.Errors) != 0 {
+		t.Fatalf("approved definition GraphQL errors = %#v", approved.Errors)
 	}
-	snapshot, err := service.Snapshot()
-	if err != nil {
-		t.Fatal(err)
+	value := approved.Data["approveAdapterDefinition"].(map[string]any)
+	if value["semanticDigest"] == pending.SemanticDigest || value["reviewed"] != true || value["connectionCount"] != float64(1) {
+		t.Fatalf("approved definition = %#v, pending=%q", value, pending.SemanticDigest)
 	}
-	if len(snapshot.Connections) != 1 || snapshot.Connections[0].Status != "active" || snapshot.Connections[0].SemanticDigest != approved.SemanticDigest {
-		t.Fatalf("approved connections = %#v", snapshot.Connections)
+	reviewedDigest := value["semanticDigest"].(string)
+	connections := value["connections"].([]any)
+	if len(connections) != 1 || connections[0].(map[string]any)["status"] != "active" || connections[0].(map[string]any)["policyConfigured"] != false {
+		t.Fatalf("approved connections = %#v", connections)
 	}
-	view := definitionModel(approved, snapshot)
-	if view == nil || !view.Reviewed || view.ConnectionCount != 1 {
-		t.Fatalf("approved GraphQL definition = %#v", view)
-	}
-	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `query {
-  adapterDefinitions { semanticDigest reviewed connectionCount connections { connectionId status policyConfigured } }
-}`, nil)
-	if len(response.Errors) != 0 {
-		t.Fatalf("approved adapter GraphQL errors = %#v", response.Errors)
-	}
-	definitions := response.Data["adapterDefinitions"].([]any)
-	var projected map[string]any
-	for _, value := range definitions {
-		candidate := value.(map[string]any)
-		if candidate["semanticDigest"] == approved.SemanticDigest {
-			projected = candidate
-		}
-	}
-	if projected == nil || projected["reviewed"] != true || projected["connectionCount"] != float64(1) {
-		t.Fatalf("approved adapter GraphQL projection = %#v", definitions)
-	}
-	projectedConnections := projected["connections"].([]any)
-	if len(projectedConnections) != 1 || projectedConnections[0].(map[string]any)["status"] != "active" || projectedConnections[0].(map[string]any)["policyConfigured"] != false {
-		t.Fatalf("approved adapter connection projection = %#v", projectedConnections)
-	}
-	if _, err := service.Approve(context.Background(), strings.Repeat("0", 64)); err == nil {
+	unknown := rustAPIApproveAdapter(t, resolver, strings.Repeat("0", 64))
+	if len(unknown.Errors) != 1 {
 		t.Fatal("unknown adapter digest was approved")
 	}
-	repeated, err := service.Approve(context.Background(), approved.SemanticDigest)
-	if err != nil || repeated.SemanticDigest != approved.SemanticDigest {
-		t.Fatalf("repeated approval = %#v, %v", repeated, err)
+	repeated := rustAPIApproveAdapter(t, resolver, reviewedDigest)
+	if len(repeated.Errors) != 0 || repeated.Data["approveAdapterDefinition"].(map[string]any)["semanticDigest"] != reviewedDigest {
+		t.Fatalf("repeated approval = %#v", repeated)
 	}
 }
 
@@ -1147,18 +1181,19 @@ func rustAPIPortAdapterManagement(t *testing.T) {
 
 func rustAPIPortAdapterApprovalIdempotence(t *testing.T) {
 	t.Helper()
-	_, service := openAdapterParityService(t)
+	resolver, service := openAdapterParityService(t)
 	pending := installAdapterParityDefinition(t, service, "v1", "", map[string]any{"kind": "none"}, "lookup")
-	if _, err := service.Approve(context.Background(), strings.Repeat("0", 64)); err == nil {
+	if response := rustAPIApproveAdapter(t, resolver, strings.Repeat("0", 64)); len(response.Errors) == 0 {
 		t.Fatal("unknown adapter digest was approved")
 	}
-	first, err := service.Approve(context.Background(), pending.SemanticDigest)
-	if err != nil {
-		t.Fatal(err)
+	first := rustAPIApproveAdapter(t, resolver, pending.SemanticDigest)
+	if len(first.Errors) != 0 {
+		t.Fatalf("first adapter approval = %#v", first.Errors)
 	}
-	second, err := service.Approve(context.Background(), pending.SemanticDigest)
-	if err != nil || first.SemanticDigest != second.SemanticDigest || first.Manifest.Reviewed != second.Manifest.Reviewed {
-		t.Fatalf("repeated adapter approval = %#v, %#v, %v", first, second, err)
+	reviewedDigest := first.Data["approveAdapterDefinition"].(map[string]any)["semanticDigest"].(string)
+	second := rustAPIApproveAdapter(t, resolver, reviewedDigest)
+	if len(second.Errors) != 0 || first.Data["approveAdapterDefinition"].(map[string]any)["semanticDigest"] != second.Data["approveAdapterDefinition"].(map[string]any)["semanticDigest"] || second.Data["approveAdapterDefinition"].(map[string]any)["reviewed"] != true {
+		t.Fatalf("repeated adapter approval = %#v, %#v", first, second)
 	}
 }
 
@@ -1173,9 +1208,9 @@ func rustAPIPortAdapterCancellation(t *testing.T) {
 	if interventions := rustAPIAdapterInterventions(t, resolver, conversation.ID); len(interventions) != 1 {
 		t.Fatalf("pending adapter review interventions = %#v", interventions)
 	}
-	removed, err := service.Cancel(context.Background(), pending.SemanticDigest)
-	if err != nil || !removed {
-		t.Fatalf("cancel = %t, %v", removed, err)
+	removed := rustAPICancelAdapter(t, resolver, pending.SemanticDigest)
+	if len(removed.Errors) != 0 || removed.Data["cancelAdapterDefinition"] != true {
+		t.Fatalf("cancel = %#v", removed)
 	}
 	snapshot, err := service.Snapshot()
 	if err != nil {

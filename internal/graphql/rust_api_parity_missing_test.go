@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -62,7 +63,7 @@ func rustAPIRawGraphQLContext(t *testing.T, resolver *Resolver, ctx context.Cont
 	request := httptest.NewRequest(http.MethodPost, "http://localhost:3737/graphql", bytes.NewReader(body)).WithContext(ctx)
 	request.Header.Set("Content-Type", "application/json")
 	NewHandler(resolver).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
+	if recorder.Code != http.StatusOK && recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("GraphQL status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 	var response rustAPIGraphQLResponse
@@ -269,18 +270,28 @@ func rustAPIPortACPDeleteRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolver.deleteAcpAgent(ctx, model.DeleteAcpAgentInput{AgentID: agent.AgentID, ExpectedRevision: 2}); !errors.Is(err, store.ErrAcpAgentRevisionConflict) {
-		t.Fatalf("stale ACP deletion = %v", err)
-	}
-	if _, err := resolver.deleteAcpAgent(ctx, model.DeleteAcpAgentInput{AgentID: agent.AgentID, ExpectedRevision: 1}); !errors.Is(err, store.ErrAcpAgentAuthenticationBusy) {
-		t.Fatalf("active ACP authentication deletion = %v", err)
+	for _, expected := range []int{2, 1} {
+		response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  deleteAcpAgent(input: { agentId: %q, expectedRevision: %d })
+}`, agent.AgentID, expected), nil)
+		if len(response.Errors) != 1 {
+			t.Fatalf("ACP deletion revision %d errors = %#v", expected, response.Errors)
+		}
+		if expected == 2 && !strings.Contains(response.Errors[0].Message, "revision") {
+			t.Fatalf("stale ACP deletion = %#v", response.Errors)
+		}
+		if expected == 1 && !strings.Contains(strings.ToLower(response.Errors[0].Message), "authentication") {
+			t.Fatalf("active ACP authentication deletion = %#v", response.Errors)
+		}
 	}
 	if _, err := resolver.Store.FinishAcpAuthentication(ctx, attempt, true, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	deleted, err := resolver.deleteAcpAgent(ctx, model.DeleteAcpAgentInput{AgentID: agent.AgentID, ExpectedRevision: 1})
-	if err != nil || !deleted {
-		t.Fatalf("ACP deletion = %t, %v", deleted, err)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  deleteAcpAgent(input: { agentId: %q, expectedRevision: 1 })
+}`, agent.AgentID), nil)
+	if len(response.Errors) != 0 || response.Data["deleteAcpAgent"] != true {
+		t.Fatalf("ACP deletion = %#v", response)
 	}
 	if _, err := resolver.Store.AcpAgent(ctx, agent.AgentID); !errors.Is(err, store.ErrAcpAgentNotFound) {
 		t.Fatalf("deleted ACP agent = %v", err)
@@ -298,26 +309,35 @@ func rustAPIPortACPDeleteReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	captured, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID, Title: "Keep assigned executor", ExecutorAgentID: &agent.AgentID, ClientMutationID: "capture-acp-delete-guard"})
-	if err != nil {
-		t.Fatal(err)
+	captured := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  captureTask(input: {
+    workspaceId: "workspace:personal", title: "Keep assigned executor", executorAgentId: %q,
+    schedule: { scheduledFor: "2030-01-01T08:00:00Z", timeZone: "UTC", recurrence: { startsAt: "2030-01-01T08:00:00Z", cronExpression: "0 8 * * *" } },
+    clientMutationId: "capture-acp-delete-guard"
+  }) { task { taskId revision generation } }
+}`, agent.AgentID), nil)
+	if len(captured.Errors) != 0 {
+		t.Fatalf("scheduled ACP capture = %#v", captured.Errors)
 	}
-	if _, err := resolver.deleteAcpAgent(ctx, model.DeleteAcpAgentInput{AgentID: agent.AgentID, ExpectedRevision: 1}); !errors.Is(err, store.ErrAcpAgentInUse) {
-		t.Fatalf("current-task ACP deletion = %v", err)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  deleteAcpAgent(input: { agentId: %q, expectedRevision: 1 })
+}`, agent.AgentID), nil)
+	if len(response.Errors) != 1 || !strings.Contains(strings.ToLower(response.Errors[0].Message), "use") {
+		t.Fatalf("current-task ACP deletion = %#v", response)
 	}
-	if _, err := resolver.cancelTask(ctx, model.CancelTaskInput{TaskID: captured.Task.TaskID, ExpectedRevision: 1, ExpectedGeneration: 1, ClientMutationID: "cancel-acp-delete-guard"}); err != nil {
-		t.Fatal(err)
+	task := captured.Data["captureTask"].(map[string]any)["task"].(map[string]any)
+	taskID := task["taskId"].(string)
+	cancelled := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  cancelTask(input: { taskId: %q, expectedRevision: %d, expectedGeneration: %d, clientMutationId: "cancel-acp-delete-guard" }) { task { taskId } }
+}`, taskID, int(task["revision"].(float64)), int(task["generation"].(float64))), nil)
+	if len(cancelled.Errors) != 0 {
+		t.Fatalf("cancel ACP task = %#v", cancelled.Errors)
 	}
-	_, err = resolver.captureTask(ctx, model.CaptureTaskInput{
-		WorkspaceID: personalWorkspaceID, Title: "Recurring ACP", ExecutorAgentID: &agent.AgentID,
-		Schedule:         &model.NewTaskScheduleInput{ScheduledFor: "2030-01-01T08:00:00Z", TimeZone: "UTC", Recurrence: &model.NewTaskRecurrenceInput{StartsAt: "2030-01-01T08:00:00Z", CronExpression: "0 8 * * *"}},
-		ClientMutationID: "capture-acp-recurring",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.deleteAcpAgent(ctx, model.DeleteAcpAgentInput{AgentID: agent.AgentID, ExpectedRevision: 1}); !errors.Is(err, store.ErrAcpAgentInUse) {
-		t.Fatalf("scheduled ACP deletion = %v", err)
+	response = rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  deleteAcpAgent(input: { agentId: %q, expectedRevision: 1 })
+}`, agent.AgentID), nil)
+	if len(response.Errors) != 1 || !strings.Contains(strings.ToLower(response.Errors[0].Message), "use") {
+		t.Fatalf("scheduled ACP deletion = %#v", response)
 	}
 }
 
@@ -731,25 +751,29 @@ func rustAPIPortRuntimeDebugSchema(t *testing.T) {
 	if _, err = resolver.Store.FailConversationTurn(ctx, turn, "Test failure.", started.Add(100*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
-	profile, err := resolver.runtimeDebugProfile(ctx, model.RuntimeDebugProfileInput{
-		Kind: model.RuntimeDebugScopeKindConversationTurn, ScopeID: turn.ID,
-	})
-	if err != nil || profile == nil || len(profile.Spans) != 1 {
-		t.Fatalf("profile = %#v, %v", profile, err)
+	profileResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  runtimeDebugProfile(input: { kind: CONVERSATION_TURN, scopeId: %q }) {
+    status accountedMilliseconds uninstrumentedMilliseconds
+    spans { durationMilliseconds startOffsetMilliseconds provider inputTokens }
+  }
+}`, turn.ID), nil)
+	if len(profileResponse.Errors) != 0 {
+		t.Fatalf("profile errors = %#v", profileResponse.Errors)
 	}
-	span := profile.Spans[0]
-	if span.DurationMilliseconds != 30 || span.StartOffsetMilliseconds != 10 ||
-		span.Provider == nil || *span.Provider != "openai" || span.InputTokens == nil || *span.InputTokens != 21 {
+	profile := profileResponse.Data["runtimeDebugProfile"].(map[string]any)
+	spans := profile["spans"].([]any)
+	span := spans[0].(map[string]any)
+	if span["durationMilliseconds"] != float64(30) || span["startOffsetMilliseconds"] != float64(10) || span["provider"] != "openai" || span["inputTokens"] != float64(21) {
 		t.Fatalf("span = %#v", span)
 	}
-	if profile.AccountedMilliseconds != 30 || profile.UninstrumentedMilliseconds != 70 {
+	if profile["accountedMilliseconds"] != float64(30) || profile["uninstrumentedMilliseconds"] != float64(70) {
 		t.Fatalf("profile timing = %#v", profile)
 	}
-	missing, err := resolver.runtimeDebugProfile(ctx, model.RuntimeDebugProfileInput{
-		Kind: model.RuntimeDebugScopeKindConversationTurn, ScopeID: "turn:00000000000000000000000000000000",
-	})
-	if err != nil || missing != nil {
-		t.Fatalf("unowned profile = %#v, %v", missing, err)
+	missingResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `query {
+  runtimeDebugProfile(input: { kind: CONVERSATION_TURN, scopeId: "turn:00000000000000000000000000000000" }) { status }
+}`, nil)
+	if len(missingResponse.Errors) != 0 || missingResponse.Data["runtimeDebugProfile"] != nil {
+		t.Fatalf("unowned profile = %#v", missingResponse)
 	}
 	ended := started.Add(50 * time.Millisecond)
 	runningStarted := started.Add(20 * time.Millisecond)
@@ -776,20 +800,43 @@ func rustAPIPortAgentPreference(t *testing.T) {
 	resolver := readyAgentTestResolver(t)
 	ctx := context.Background()
 	profile := "openai/gpt-5.6-luna"
-	effort := model.ReasoningEffortHigh
-	if _, err := resolver.saveAgentModelPreference(ctx, model.SaveAgentModelPreferenceInput{AgentID: store.PrimaryAgentID, ProviderAccountID: "provider_account:openrouter:default", SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile, ModelProfile: &profile}); err == nil || !strings.Contains(err.Error(), "reasoning effort") {
-		t.Fatalf("missing reasoning effort accepted: %v", err)
+	missingEffort := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, fastMode: false }) {
+    modelProfile reasoningEffort
+  }
+}`, store.PrimaryAgentID, profile), nil)
+	if len(missingEffort.Errors) != 1 || !strings.Contains(missingEffort.Errors[0].Message, "reasoning effort") {
+		t.Fatalf("missing reasoning effort = %#v", missingEffort)
 	}
-	saved, err := resolver.saveAgentModelPreference(ctx, model.SaveAgentModelPreferenceInput{AgentID: store.PrimaryAgentID, ProviderAccountID: "provider_account:openrouter:default", SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile, ModelProfile: &profile, ReasoningEffort: &effort})
-	if err != nil || saved.ModelProfile == nil || *saved.ModelProfile != profile || saved.ReasoningEffort == nil || *saved.ReasoningEffort != effort {
-		t.Fatalf("valid Agent preference = %#v, %v", saved, err)
+	saved := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, reasoningEffort: HIGH, fastMode: false }) {
+    providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode
+  }
+}`, store.PrimaryAgentID, profile), nil)
+	if len(saved.Errors) != 0 {
+		t.Fatalf("valid Agent preference errors = %#v", saved.Errors)
 	}
-	recommended, err := resolver.saveAgentModelPreference(ctx, model.SaveAgentModelPreferenceInput{AgentID: store.PrimaryAgentID, ProviderAccountID: "provider_account:openrouter:default", SelectionMode: model.ModelPreferenceSelectionModeNoemaRecommended})
-	if err != nil || recommended.ModelProfile != nil || recommended.ReasoningEffort != nil {
-		t.Fatalf("recommended Agent preference = %#v, %v", recommended, err)
+	value := saved.Data["saveAgentModelPreference"].(map[string]any)
+	if value["modelProfile"] != profile || value["reasoningEffort"] != "HIGH" || value["selectionMode"] != "EXPLICIT_PROFILE" {
+		t.Fatalf("valid Agent preference = %#v", value)
 	}
-	if _, err := resolver.saveAgentModelPreference(ctx, model.SaveAgentModelPreferenceInput{AgentID: store.TaskExecutorAgentID, ProviderAccountID: "provider_account:openrouter:default", SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile, ModelProfile: &profile, ReasoningEffort: &effort}); err == nil || !strings.Contains(err.Error(), "complexity tier") {
-		t.Fatalf("Task Executor preference accepted: %v", err)
+	recommended := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: NOEMA_RECOMMENDED, fastMode: false }) {
+    modelProfile reasoningEffort selectionMode
+  }
+}`, store.PrimaryAgentID), nil)
+	if len(recommended.Errors) != 0 {
+		t.Fatalf("recommended Agent preference errors = %#v", recommended.Errors)
+	}
+	recommendedValue := recommended.Data["saveAgentModelPreference"].(map[string]any)
+	if recommendedValue["modelProfile"] != nil || recommendedValue["reasoningEffort"] != nil || recommendedValue["selectionMode"] != "NOEMA_RECOMMENDED" {
+		t.Fatalf("recommended Agent preference = %#v", recommendedValue)
+	}
+	taskPreference := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  saveAgentModelPreference(input: { agentId: %q, providerAccountId: "provider_account:openrouter:default", selectionMode: EXPLICIT_PROFILE, modelProfile: %q, reasoningEffort: HIGH, fastMode: false }) { providerKind }
+}`, store.TaskExecutorAgentID, profile), nil)
+	if len(taskPreference.Errors) != 1 || !strings.Contains(taskPreference.Errors[0].Message, "complexity tier") {
+		t.Fatalf("Task Executor preference = %#v", taskPreference)
 	}
 }
 
@@ -797,16 +844,30 @@ func rustAPIPortACPSetup(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
 	ctx := context.Background()
-	created, err := resolver.createAcpAgent(ctx, model.CreateAcpAgentInput{DisplayName: "Codex ACP", Command: "/usr/bin/codex", Arguments: []string{"--acp"}})
-	if err != nil || created.ConnectionRevision != 1 || created.HealthStatus != model.AcpAgentHealthStatusUnknown || created.AuthStatus != model.AcpAgentAuthStatusUnknown || created.Arguments[0] != "--acp" {
-		t.Fatalf("created ACP agent = %#v, %v", created, err)
+	createdResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation {
+  createAcpAgent(input: { displayName: "Codex ACP", command: "/usr/bin/codex", arguments: ["--acp"] }) {
+    agentId connectionRevision healthStatus authStatus arguments enabled
+  }
+}`, nil)
+	if len(createdResponse.Errors) != 0 {
+		t.Fatalf("created ACP agent errors = %#v", createdResponse.Errors)
 	}
-	if strings.Contains(fmt.Sprintf("%#v", created), "credentials") {
-		t.Fatalf("ACP projection exposed credentials: %#v", created)
+	created, ok := createdResponse.Data["createAcpAgent"].(map[string]any)
+	if !ok || created["connectionRevision"] != float64(1) || created["healthStatus"] != "UNKNOWN" || created["authStatus"] != "UNKNOWN" || created["arguments"].([]any)[0] != "--acp" {
+		t.Fatalf("created ACP agent = %#v", createdResponse.Data)
 	}
-	updated, err := resolver.updateAcpAgent(ctx, model.UpdateAcpAgentInput{AgentID: created.AgentID, ExpectedRevision: 1, DisplayName: "Codex ACP", Command: "/usr/bin/codex", Arguments: []string{"--acp"}, Enabled: false})
-	if err != nil || updated.Enabled || updated.ConnectionRevision != 2 {
-		t.Fatalf("updated ACP agent = %#v, %v", updated, err)
+	agentID := created["agentId"].(string)
+	updatedResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  updateAcpAgent(input: { agentId: %q, expectedRevision: 1, displayName: "Codex ACP", command: "/usr/bin/codex", arguments: ["--acp"], enabled: false }) {
+    agentId enabled connectionRevision
+  }
+}`, agentID), nil)
+	if len(updatedResponse.Errors) != 0 {
+		t.Fatalf("updated ACP agent errors = %#v", updatedResponse.Errors)
+	}
+	updated := updatedResponse.Data["updateAcpAgent"].(map[string]any)
+	if updated["enabled"] != false || updated["connectionRevision"] != float64(2) {
+		t.Fatalf("updated ACP agent = %#v", updated)
 	}
 }
 
@@ -841,46 +902,67 @@ func rustAPIPortMemoryEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = resolver.Chat.Close() })
-	eventContext, cancel := context.WithCancel(ctx)
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+	eventContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	events, err := resolver.memoryEvents(eventContext)
+	connection, response, err := websocket.Dial(eventContext, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"graphql-transport-ws"}})
 	if err != nil {
+		if response != nil {
+			t.Fatalf("Memory subscription dial: %v (%s)", err, response.Status)
+		}
 		t.Fatal(err)
 	}
-	initial := <-events
-	if initial.Root == nil || initial.Root.Title != "Human memory" || initial.Root.Icon != "user" || initial.PendingCount != 0 || initial.UpdateStatus.State != "idle" {
-		t.Fatalf("initial Memory event = %#v", initial)
+	t.Cleanup(func() { _ = connection.CloseNow() })
+	writeWS(t, eventContext, connection, map[string]any{"type": "connection_init"})
+	if message := readWS(t, eventContext, connection); message["type"] != "connection_ack" {
+		t.Fatalf("Memory subscription ack = %#v", message)
+	}
+	writeWS(t, eventContext, connection, map[string]any{"id": "memory", "type": "subscribe", "payload": map[string]any{"query": `subscription {
+  memoryEvents { root { title icon children { title icon } } pages { path title icon } pendingCount updateStatus { state active } }
+}`}})
+	initialMessage := readWS(t, eventContext, connection)
+	initialData := initialMessage["payload"].(map[string]any)["data"].(map[string]any)["memoryEvents"].(map[string]any)
+	if initialData["root"].(map[string]any)["title"] != "Human memory" || initialData["root"].(map[string]any)["icon"] != "user" || initialData["pendingCount"] != float64(0) || initialData["updateStatus"].(map[string]any)["state"] != "idle" {
+		t.Fatalf("initial Memory event = %#v", initialData)
 	}
 	if _, _, err := resolver.Store.BeginConversationTurn(ctx, conversation.ID, "Engineering career.", nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolver.updateMemory(ctx); err != nil {
-		t.Fatal(err)
+	updateResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation { updateMemory { accepted status { state active } } }`, nil)
+	if len(updateResponse.Errors) != 0 {
+		t.Fatalf("Memory update errors = %#v", updateResponse.Errors)
 	}
-	var changed *model.GraphqlNativeMemoryTree
 	deadline := time.After(5 * time.Second)
-	for changed == nil {
+	for {
 		select {
-		case candidate, open := <-events:
-			if !open {
-				t.Fatal("Memory event stream closed before invalidation")
-			}
-			if candidate.Root != nil && len(candidate.Root.Children) == 1 {
-				changed = candidate
-			}
 		case <-deadline:
 			t.Fatal("timed out waiting for changed Memory event")
+		default:
+			message := readWS(t, eventContext, connection)
+			payload, ok := message["payload"].(map[string]any)
+			if !ok {
+				continue
+			}
+			data, ok := payload["data"].(map[string]any)
+			if !ok {
+				continue
+			}
+			changed, ok := data["memoryEvents"].(map[string]any)
+			if !ok || len(changed["root"].(map[string]any)["children"].([]any)) != 1 {
+				continue
+			}
+			root := changed["root"].(map[string]any)
+			children := root["children"].([]any)
+			if children[0].(map[string]any)["title"] != "Career" || children[0].(map[string]any)["icon"] != "briefcase-business" {
+				t.Fatalf("changed Memory root = %#v", root)
+			}
+			pages := changed["pages"].([]any)
+			if len(pages) != 3 || pages[0].(map[string]any)["path"] != "career.md" || pages[1].(map[string]any)["path"] != "career/learning.md" || pages[2].(map[string]any)["path"] != "root.md" {
+				t.Fatalf("changed Memory pages = %#v", pages)
+			}
+			return
 		}
-	}
-	if changed.Root == nil || len(changed.Root.Children) != 1 || changed.Root.Children[0].Title != "Career" || changed.Root.Children[0].Icon != "briefcase-business" {
-		t.Fatalf("changed Memory root = %#v", changed.Root)
-	}
-	if len(changed.Pages) != 3 || changed.Pages[0].Path != "career.md" || changed.Pages[1].Path != "career/learning.md" || changed.Pages[2].Path != "root.md" {
-		t.Fatalf("changed Memory pages = %#v", changed.Pages)
-	}
-	cancel()
-	if _, open := <-events; open {
-		t.Fatal("Memory event stream stayed open")
 	}
 }
 
@@ -919,26 +1001,30 @@ query ReadyChat($input: ConversationTranscriptPageInput!) {
 	if primary["conversationId"] != stored.ID || primary["provider"] != "openrouter" {
 		t.Fatalf("GraphQL primary conversation = %#v", primary)
 	}
-	page, err := resolver.conversationTranscriptPage(ctx, model.ConversationTranscriptPageInput{
-		ConversationID: stored.ID,
-	})
-	if err != nil || len(page.Items) != 0 || page.PageInfo.HasMoreBefore {
-		t.Fatalf("empty transcript page = %#v, %v", page, err)
-	}
-
-	streamCtx, cancel := context.WithCancel(ctx)
-	events, err := resolver.conversationEvents(streamCtx, stored.ID)
+	streamCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	connection, response, err := websocket.Dial(streamCtx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"graphql-transport-ws"}})
 	if err != nil {
+		if response != nil {
+			t.Fatalf("conversation subscription dial: %v (%s)", err, response.Status)
+		}
 		t.Fatal(err)
 	}
-	event := <-events
-	ready, ok := event.(model.SubscriptionReadyEvent)
-	if !ok || ready.ConversationID != stored.ID {
-		t.Fatalf("first conversation event = %#v", event)
+	t.Cleanup(func() { _ = connection.CloseNow() })
+	writeWS(t, streamCtx, connection, map[string]any{"type": "connection_init"})
+	if message := readWS(t, streamCtx, connection); message["type"] != "connection_ack" {
+		t.Fatalf("conversation subscription ack = %#v", message)
 	}
-	cancel()
-	if _, open := <-events; open {
-		t.Fatal("conversation event stream stayed open after disconnect")
+	writeWS(t, streamCtx, connection, map[string]any{"id": "ready", "type": "subscribe", "payload": map[string]any{
+		"query": fmt.Sprintf(`subscription { conversationEvents(conversationId: %q) { __typename ... on SubscriptionReadyEvent { conversationId } } }`, stored.ID),
+	}})
+	message := readWS(t, streamCtx, connection)
+	if message["type"] != "next" {
+		t.Fatalf("conversation subscription response = %#v", message)
+	}
+	data := message["payload"].(map[string]any)["data"].(map[string]any)["conversationEvents"].(map[string]any)
+	if data["__typename"] != "SubscriptionReadyEvent" || data["conversationId"] != stored.ID {
+		t.Fatalf("first conversation event = %#v", data)
 	}
 }
 
@@ -1012,75 +1098,99 @@ func rustAPIPortForeignConversationSubscription(t *testing.T) {
 	t.Helper()
 	resolver := openChatTestResolver(t)
 	foreignConversation := rustAPIInsertForeignConversation(t, resolver)
-	ctx, cancel := context.WithCancel(context.Background())
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := resolver.conversationEvents(ctx, foreignConversation); err == nil || err.Error() != "conversation is unavailable" {
-		t.Fatalf("foreign conversation subscription = %v", err)
+	connection, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"graphql-transport-ws"}})
+	if err != nil {
+		if response != nil {
+			t.Fatalf("foreign subscription dial: %v (%s)", err, response.Status)
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.CloseNow() })
+	writeWS(t, ctx, connection, map[string]any{"type": "connection_init"})
+	if message := readWS(t, ctx, connection); message["type"] != "connection_ack" {
+		t.Fatalf("foreign subscription ack = %#v", message)
+	}
+	writeWS(t, ctx, connection, map[string]any{"id": "foreign", "type": "subscribe", "payload": map[string]any{
+		"query": fmt.Sprintf(`subscription { conversationEvents(conversationId: %q) { __typename } }`, foreignConversation),
+	}})
+	message := readWS(t, ctx, connection)
+	if message["type"] != "next" {
+		t.Fatalf("foreign subscription response = %#v", message)
+	}
+	payload := message["payload"].(map[string]any)
+	encoded, err := json.Marshal(payload["errors"])
+	if err != nil || !bytes.Contains(encoded, []byte("conversation is unavailable")) {
+		t.Fatalf("foreign conversation subscription errors = %s, %v", encoded, err)
 	}
 }
 
 func rustAPIPortRecurrenceList(t *testing.T) {
 	resolver := openTestResolver(t)
 	ctx := context.Background()
+	execute := func(query string, variables map[string]any) map[string]any {
+		response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), query, variables)
+		if len(response.Errors) != 0 {
+			t.Fatalf("recurrence GraphQL errors = %#v", response.Errors)
+		}
+		return response.Data
+	}
 	first := time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute)
 	cron := fmt.Sprintf("%d %d * * *", first.Minute(), first.Hour())
-	created, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID,
-		Title: "Recurring", TaskDocument: "# Recurring\n", ClientMutationID: "capture-recurring",
-		Schedule: &model.NewTaskScheduleInput{ScheduledFor: first.Format(time.RFC3339), TimeZone: "UTC",
-			Recurrence: &model.NewTaskRecurrenceInput{StartsAt: first.Format(time.RFC3339), CronExpression: cron}}})
-	if err != nil || created.Task.Schedule == nil || created.Task.Schedule.RecurrenceID == nil ||
-		created.Task.ExecutorBackend != "provider" {
-		t.Fatalf("created scheduled Task = %#v, %v", created, err)
+	captureVariables := map[string]any{"input": map[string]any{
+		"workspaceId": personalWorkspaceID, "title": "Recurring", "taskDocument": "# Recurring\n", "clientMutationId": "capture-recurring",
+		"schedule": map[string]any{"scheduledFor": first.Format(time.RFC3339), "timeZone": "UTC", "recurrence": map[string]any{"startsAt": first.Format(time.RFC3339), "cronExpression": cron}},
+	}}
+	createdData := execute(`mutation($input: CaptureTaskInput!) { captureTask(input: $input) { task { taskId revision generation executorBackend schedule { recurrenceId } } } }`, captureVariables)
+	created := createdData["captureTask"].(map[string]any)
+	createdTask := created["task"].(map[string]any)
+	schedule := createdTask["schedule"].(map[string]any)
+	if createdTask["executorBackend"] != "provider" || schedule["recurrenceId"] == "" {
+		t.Fatalf("created scheduled Task = %#v", createdTask)
 	}
-	recurrenceID := *created.Task.Schedule.RecurrenceID
+	taskID := createdTask["taskId"].(string)
+	recurrenceID := schedule["recurrenceId"].(string)
 	if err := home.DeleteRecurrenceDocument(resolver.home, recurrenceID); err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID,
-		Title: "Recurring", TaskDocument: "# Recurring\n", ClientMutationID: "capture-recurring",
-		Schedule: &model.NewTaskScheduleInput{ScheduledFor: first.Format(time.RFC3339), TimeZone: "UTC",
-			Recurrence: &model.NewTaskRecurrenceInput{StartsAt: first.Format(time.RFC3339), CronExpression: cron}}})
-	if err != nil || replayed.Task.TaskID != created.Task.TaskID {
-		t.Fatalf("replayed capture = %#v, %v", replayed, err)
+	replayed := execute(`mutation($input: CaptureTaskInput!) { captureTask(input: $input) { task { taskId } } }`, captureVariables)
+	if replayed["captureTask"].(map[string]any)["task"].(map[string]any)["taskId"] != taskID {
+		t.Fatalf("replayed capture = %#v", replayed)
 	}
-	recurrence, err := resolver.taskRecurrence(ctx, recurrenceID, nil)
-	if err != nil || recurrence.TaskDocument != "# Recurring\n" || len(recurrence.Occurrences) != 1 {
-		t.Fatalf("recurrence = %#v, %v", recurrence, err)
+	recurrenceData := execute(`query($id: String!) { taskRecurrence(recurrenceId: $id) { taskDocument taskDocumentDigest occurrences { taskId } revision } }`, map[string]any{"id": recurrenceID})
+	recurrence := recurrenceData["taskRecurrence"].(map[string]any)
+	if recurrence["taskDocument"] != "# Recurring\n" || len(recurrence["occurrences"].([]any)) != 1 {
+		t.Fatalf("recurrence = %#v", recurrence)
 	}
 	nextDocument := "# Changed\n"
-	updated, err := resolver.updateTaskRecurrence(ctx, model.UpdateTaskRecurrenceInput{
-		RecurrenceID: recurrenceID, ExpectedRevision: 1, TaskDocument: &nextDocument,
-		ExpectedTaskDocumentDigest: &recurrence.TaskDocumentDigest, ClientMutationID: "update"})
-	if err != nil || updated.ClientMutationID != "update" {
-		t.Fatalf("updated recurrence = %#v, %v", updated, err)
+	updated := execute(`mutation($input: UpdateTaskRecurrenceInput!) { updateTaskRecurrence(input: $input) { clientMutationId task { taskId } } }`, map[string]any{"input": map[string]any{
+		"recurrenceId": recurrenceID, "expectedRevision": 1, "taskDocument": nextDocument,
+		"expectedTaskDocumentDigest": recurrence["taskDocumentDigest"], "clientMutationId": "update",
+	}})
+	if updated["updateTaskRecurrence"].(map[string]any)["clientMutationId"] != "update" {
+		t.Fatalf("updated recurrence = %#v", updated)
 	}
-	command := model.TaskRecurrenceCommandInput{RecurrenceID: recurrenceID, ExpectedRevision: 2,
-		ClientMutationID: "pause"}
-	if _, err := resolver.taskRecurrenceLifecycle(ctx, command, store.RecurrencePaused); err != nil {
+	command := map[string]any{"recurrenceId": recurrenceID, "expectedRevision": 2, "clientMutationId": "pause"}
+	execute(`mutation($input: TaskRecurrenceCommandInput!) { pauseTaskRecurrence(input: $input) { clientMutationId } }`, map[string]any{"input": command})
+	command["expectedRevision"], command["clientMutationId"] = 3, "resume"
+	execute(`mutation($input: TaskRecurrenceCommandInput!) { resumeTaskRecurrence(input: $input) { clientMutationId } }`, map[string]any{"input": command})
+	command["expectedRevision"], command["clientMutationId"] = 4, "skip"
+	execute(`mutation($input: TaskRecurrenceCommandInput!) { skipTaskRecurrenceNext(input: $input) { clientMutationId } }`, map[string]any{"input": command})
+	execute(`mutation($input: RunScheduledTaskNowInput!) { runScheduledTaskNow(input: $input) { task { taskId } } }`, map[string]any{"input": map[string]any{
+		"taskId": taskID, "expectedRevision": int(createdTask["revision"].(float64)), "expectedGeneration": int(createdTask["generation"].(float64)), "clientMutationId": "run-first",
+	}})
+	if _, err := resolver.Store.StartTask(ctx, taskID, "run:test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	command.ExpectedRevision, command.ClientMutationID = 3, "resume"
-	if _, err := resolver.taskRecurrenceLifecycle(ctx, command, store.RecurrenceActive); err != nil {
-		t.Fatal(err)
-	}
-	command.ExpectedRevision, command.ClientMutationID = 4, "skip"
-	if _, err := resolver.skipTaskRecurrenceNext(ctx, command); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.runScheduledTaskNow(ctx, model.RunScheduledTaskNowInput{TaskID: created.Task.TaskID,
-		ExpectedRevision: created.Task.Revision, ExpectedGeneration: 1, ClientMutationID: "run-first"}); err != nil {
-		t.Fatal(err)
-	}
-	started, err := resolver.Store.StartTask(ctx, created.Task.TaskID, "run:test", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.Store.FinishTask(ctx, created.Task.TaskID, started.CurrentRunID,
+	if _, err := resolver.Store.FinishTask(ctx, taskID, "run:test",
 		store.TaskCompleted, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	command.ExpectedRevision, command.ClientMutationID = 5, "run-extra"
-	manualCommand, err := newTaskCommand("run_task_recurrence_now", command.ClientMutationID, command)
+	command["expectedRevision"], command["clientMutationId"] = 5, "run-extra"
+	manualCommand, err := newTaskCommand("run_task_recurrence_now", command["clientMutationId"].(string), command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1089,43 +1199,43 @@ func rustAPIPortRecurrenceList(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := resolver.Store.RunTaskRecurrenceNow(ctx, recurrenceID, manualTaskID,
-		int64(command.ExpectedRevision), manualCommand, time.Now()); err != nil {
+		int64(command["expectedRevision"].(int)), manualCommand, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	manual, err := resolver.runTaskRecurrenceNow(ctx, command)
-	if err != nil || manual.Task.TaskDocument != nextDocument || manual.Task.TaskID == created.Task.TaskID {
-		t.Fatalf("manual occurrence = %#v, %v", manual, err)
+	manualData := execute(`mutation($input: TaskRecurrenceCommandInput!) { runTaskRecurrenceNow(input: $input) { task { taskId taskDocument } } }`, map[string]any{"input": command})
+	manualTask := manualData["runTaskRecurrenceNow"].(map[string]any)["task"].(map[string]any)
+	if manualTask["taskDocument"] != nextDocument || manualTask["taskId"] == taskID {
+		t.Fatalf("manual occurrence = %#v", manualTask)
 	}
-	replayedManual, err := resolver.runTaskRecurrenceNow(ctx, command)
-	if err != nil || replayedManual.Task.TaskID != manual.Task.TaskID {
-		t.Fatalf("replayed manual occurrence = %#v, %v", replayedManual, err)
+	replayedManual := execute(`mutation($input: TaskRecurrenceCommandInput!) { runTaskRecurrenceNow(input: $input) { task { taskId } } }`, map[string]any{"input": command})
+	if replayedManual["runTaskRecurrenceNow"].(map[string]any)["task"].(map[string]any)["taskId"] != manualTask["taskId"] {
+		t.Fatalf("replayed manual occurrence = %#v", replayedManual)
 	}
-	listed, err := resolver.taskRecurrences(ctx, personalWorkspaceID, nil, nil)
-	if err != nil || len(listed) != 1 || listed[0].Title != created.Task.Title {
-		t.Fatalf("listed recurrences = %#v, %v", listed, err)
+	listed := execute(`query { taskRecurrences(workspaceId: "workspace:personal") { recurrenceId title } }`, nil)
+	if values, ok := listed["taskRecurrences"].([]any); !ok || len(values) != 1 || values[0].(map[string]any)["title"] != "Recurring" {
+		t.Fatalf("listed recurrences = %#v", listed)
 	}
-	oneTime, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID,
-		Title: "One time", TaskDocument: "# One time\n", ClientMutationID: "capture-once"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	scheduled, err := resolver.setTaskSchedule(ctx, model.ScheduleTaskInput{TaskID: oneTime.Task.TaskID,
-		ExpectedRevision: 1, ExpectedGeneration: 1, ClientMutationID: "schedule-once",
-		Schedule: &model.NewTaskScheduleInput{ScheduledFor: first.Format(time.RFC3339), TimeZone: "UTC"}}, false)
-	if err != nil || scheduled.Task.Schedule == nil {
-		t.Fatalf("scheduled one-time Task = %#v, %v", scheduled, err)
+	oneTimeData := execute(`mutation { captureTask(input: { workspaceId: "workspace:personal", title: "One time", taskDocument: "# One time\\n", clientMutationId: "capture-once" }) { task { taskId revision generation } } }`, nil)
+	oneTimeTask := oneTimeData["captureTask"].(map[string]any)["task"].(map[string]any)
+	oneTimeID := oneTimeTask["taskId"].(string)
+	scheduled := execute(`mutation($input: ScheduleTaskInput!) { scheduleTask(input: $input) { task { taskId schedule { scheduledFor } } } }`, map[string]any{"input": map[string]any{
+		"taskId": oneTimeID, "expectedRevision": 1, "expectedGeneration": 1, "clientMutationId": "schedule-once", "schedule": map[string]any{"scheduledFor": first.Format(time.RFC3339), "timeZone": "UTC"},
+	}})
+	if scheduled["scheduleTask"].(map[string]any)["task"].(map[string]any)["schedule"] == nil {
+		t.Fatalf("scheduled one-time Task = %#v", scheduled)
 	}
 	second := first.Add(time.Hour)
-	rescheduled, err := resolver.setTaskSchedule(ctx, model.ScheduleTaskInput{TaskID: oneTime.Task.TaskID,
-		ExpectedRevision: 2, ExpectedGeneration: 1, ClientMutationID: "reschedule-once",
-		Schedule: &model.NewTaskScheduleInput{ScheduledFor: second.Format(time.RFC3339), TimeZone: "UTC"}}, true)
-	if err != nil || rescheduled.Task.Schedule.ScheduledFor != second.Format(time.RFC3339) {
-		t.Fatalf("rescheduled one-time Task = %#v, %v", rescheduled, err)
+	rescheduled := execute(`mutation($input: ScheduleTaskInput!) { rescheduleTask(input: $input) { task { schedule { scheduledFor } } } }`, map[string]any{"input": map[string]any{
+		"taskId": oneTimeID, "expectedRevision": 2, "expectedGeneration": 1, "clientMutationId": "reschedule-once", "schedule": map[string]any{"scheduledFor": second.Format(time.RFC3339), "timeZone": "UTC"},
+	}})
+	if rescheduled["rescheduleTask"].(map[string]any)["task"].(map[string]any)["schedule"].(map[string]any)["scheduledFor"] != second.Format(time.RFC3339) {
+		t.Fatalf("rescheduled one-time Task = %#v", rescheduled)
 	}
-	unscheduled, err := resolver.unscheduleTask(ctx, model.UnscheduleTaskInput{TaskID: oneTime.Task.TaskID,
-		ExpectedRevision: 3, ExpectedGeneration: 1, ClientMutationID: "unschedule-once"})
-	if err != nil || unscheduled.Task.Schedule != nil {
-		t.Fatalf("unscheduled Task = %#v, %v", unscheduled, err)
+	unscheduled := execute(`mutation($input: UnscheduleTaskInput!) { unscheduleTask(input: $input) { task { schedule { scheduledFor } } } }`, map[string]any{"input": map[string]any{
+		"taskId": oneTimeID, "expectedRevision": 3, "expectedGeneration": 1, "clientMutationId": "unschedule-once",
+	}})
+	if unscheduled["unscheduleTask"].(map[string]any)["task"].(map[string]any)["schedule"] != nil {
+		t.Fatalf("unscheduled Task = %#v", unscheduled)
 	}
 }
 
@@ -1222,8 +1332,11 @@ func rustAPIPortTaskScopeConflicts(t *testing.T) {
 func rustAPIPortTaskIdempotencyRequired(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
-	if _, err := resolver.captureTask(context.Background(), model.CaptureTaskInput{WorkspaceID: personalWorkspaceID, Title: "Missing key"}); err == nil || !strings.Contains(err.Error(), "clientMutationId") {
-		t.Fatalf("missing Task idempotency key = %v", err)
+	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(context.Background()), `mutation {
+  captureTask(input: { workspaceId: "workspace:personal", title: "Capture without idempotency key" }) { clientMutationId }
+}`, nil)
+	if len(response.Errors) == 0 || !strings.Contains(response.Errors[0].Message, "clientMutationId") {
+		t.Fatalf("missing Task idempotency key = %#v", response)
 	}
 }
 
@@ -1553,31 +1666,45 @@ func rustAPIPortTaskWorkspace(t *testing.T) {
 	t.Helper()
 	resolver := openTestResolver(t)
 	ctx := context.Background()
-	captured, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID, Title: "Inspect workspace", TaskDocument: "Current Task", ClientMutationID: "capture-workspace-files"})
-	if err != nil {
+	captured := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation {
+  captureTask(input: { workspaceId: "workspace:personal", title: "Inspect workspace", taskDocument: "Current Task", clientMutationId: "capture-workspace-files" }) { task { taskId } }
+}`, nil)
+	if len(captured.Errors) != 0 {
+		t.Fatalf("capture workspace Task = %#v", captured.Errors)
+	}
+	taskID := captured.Data["captureTask"].(map[string]any)["task"].(map[string]any)["taskId"].(string)
+	if err := home.WriteTaskFile(resolver.home, taskID, "notes/progress.md", "Nested progress"); err != nil {
 		t.Fatal(err)
 	}
-	if err := home.WriteTaskFile(resolver.home, captured.Task.TaskID, "notes/progress.md", "Nested progress"); err != nil {
-		t.Fatal(err)
+	workspace := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  task(taskId: %q) { workspaceFiles { path isDirectory sizeBytes } workspaceFilesTruncated }
+  taskWorkspaceFile(taskId: %q, path: "notes/progress.md") { path content }
+}`, taskID, taskID), nil)
+	if len(workspace.Errors) != 0 {
+		t.Fatalf("workspace GraphQL errors = %#v", workspace.Errors)
 	}
-	files, err := taskWorkspaceFiles(resolver.home, captured.Task.TaskID)
-	if err != nil {
-		t.Fatal(err)
+	task := workspace.Data["task"].(map[string]any)
+	files := task["workspaceFiles"].([]any)
+	if task["workspaceFilesTruncated"] != false || !rustAPIWorkspaceJSONHas(files, "TASK.md") || !rustAPIWorkspaceJSONHas(files, "notes") || !rustAPIWorkspaceJSONHas(files, "notes/progress.md") {
+		t.Fatalf("workspace files = %#v", task)
 	}
-	nested, err := home.ListTaskFiles(resolver.home, captured.Task.TaskID, "notes")
-	if err != nil {
-		t.Fatal(err)
+	file := workspace.Data["taskWorkspaceFile"].(map[string]any)
+	if file["content"] != "Nested progress" {
+		t.Fatalf("workspace read = %#v", file)
 	}
-	if !workspaceHas(files, "TASK.md") || !workspaceHas(files, "notes") || !workspaceHas(nested, "notes/progress.md") && !workspaceHas(nested, "progress.md") {
-		t.Fatalf("workspace files = %#v", files)
+	unsafe := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query { taskWorkspaceFile(taskId: %q, path: "../outside.md") { path } }`, taskID), nil)
+	if len(unsafe.Errors) == 0 || !strings.Contains(unsafe.Errors[0].Message, "task is unavailable") {
+		t.Fatalf("unsafe workspace read = %#v", unsafe)
 	}
-	file, err := resolver.taskWorkspaceFile(ctx, captured.Task.TaskID, "notes/progress.md")
-	if err != nil || file.Content != "Nested progress" {
-		t.Fatalf("workspace read = %#v, %v", file, err)
+}
+
+func rustAPIWorkspaceJSONHas(files []any, wanted string) bool {
+	for _, value := range files {
+		if entry, ok := value.(map[string]any); ok && entry["path"] == wanted {
+			return true
+		}
 	}
-	if _, err := resolver.taskWorkspaceFile(ctx, captured.Task.TaskID, "../outside.md"); err == nil {
-		t.Fatal("unsafe workspace read succeeded")
-	}
+	return false
 }
 
 func workspaceHas(files []home.TaskFileEntry, path string) bool {
@@ -1596,151 +1723,192 @@ func taskWorkspaceFiles(root *os.Root, taskID string) ([]home.TaskFileEntry, err
 func rustAPIPortTaskGate(t *testing.T) {
 	r := readyAgentTestResolver(t)
 	ctx := context.Background()
-	project, err := r.createProject(ctx, model.CreateProjectInput{
-		WorkspaceID: personalWorkspaceID, Name: "Attention", ClientMutationID: "attention-project",
-	})
-	if err != nil {
-		t.Fatal(err)
+	projectResponse := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), `mutation {
+  createProject(input: { workspaceId: "workspace:personal", name: "Attention", clientMutationId: "attention-project" }) {
+    project { projectId }
+  }
+}`, nil)
+	if len(projectResponse.Errors) != 0 {
+		t.Fatalf("attention project = %#v", projectResponse.Errors)
 	}
-	projectID := project.Project.ProjectID
+	projectID := projectResponse.Data["createProject"].(map[string]any)["project"].(map[string]any)["projectId"].(string)
 	clarificationID := openAttentionTask(t, r, "Clarify", &projectID, "clarification", strings.Repeat("界", 401))
 	openAttentionTask(t, r, "Approve", &projectID, "approval", "Approve this action?")
 	openAttentionTask(t, r, "Recover", nil, "recovery", "The run failed.")
 
-	detail, err := r.task(ctx, clarificationID)
-	if err != nil || detail.Attention == nil || detail.Attention.Task.TaskID != clarificationID ||
-		len([]rune(detail.Attention.Summary)) != 400 {
-		t.Fatalf("Task detail attention = %#v, %v", detail, err)
+	detailResponse := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  task(taskId: %q) { taskId attention { kind summary validActions task { taskId revision generation } gate { gateId prompt } } }
+}`, clarificationID), nil)
+	if len(detailResponse.Errors) != 0 {
+		t.Fatalf("Task detail errors = %#v", detailResponse.Errors)
 	}
-	interventions, err := r.pendingHumanInterventions(ctx, nil, &clarificationID, nil, nil)
-	if err != nil || len(interventions) != 1 {
-		t.Fatalf("Task response controls = %#v, %v", interventions, err)
+	detail := detailResponse.Data["task"].(map[string]any)
+	attentionDetail := detail["attention"].(map[string]any)
+	if detail["taskId"] != clarificationID || attentionDetail["task"].(map[string]any)["taskId"] != clarificationID || len([]rune(attentionDetail["summary"].(string))) != 400 {
+		t.Fatalf("Task detail attention = %#v", detail)
 	}
-	attention, ok := interventions[0].(*model.TaskAttention)
-	if !ok || attention.Gate.Prompt != strings.Repeat("界", 401) || len(attention.ValidActions) == 0 {
-		t.Fatal("Task question or response actions are missing")
+	pendingResponse := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  pendingHumanInterventions(taskId: %q) {
+    __typename
+    ... on TaskAttention { gate { gateId prompt } validActions }
+  }
+}`, clarificationID), nil)
+	if len(pendingResponse.Errors) != 0 {
+		t.Fatalf("Task response control errors = %#v", pendingResponse.Errors)
 	}
-	listed, err := r.tasks(ctx, model.TaskListInput{WorkspaceID: personalWorkspaceID,
-		ProjectID: &projectID, AttentionOnly: true, Scope: model.TaskScopeActive}, nil, nil)
-	if err != nil || len(listed.Edges) != 2 {
-		t.Fatalf("attention Task list = %#v, %v", listed, err)
+	interventions := pendingResponse.Data["pendingHumanInterventions"].([]any)
+	if len(interventions) != 1 {
+		t.Fatalf("Task response controls = %#v", interventions)
 	}
-	for _, edge := range listed.Edges {
-		if edge.Node.Attention == nil || edge.Node.Attention.Task.TaskID != edge.Node.TaskID {
-			t.Fatalf("Task summary attention = %#v", edge.Node)
+	attention := interventions[0].(map[string]any)
+	gate := attention["gate"].(map[string]any)
+	if gate["prompt"] != strings.Repeat("界", 401) || len(attention["validActions"].([]any)) == 0 {
+		t.Fatalf("Task question or response actions are missing: %#v", attention)
+	}
+	listedResponse := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  tasks(input: { workspaceId: "workspace:personal", projectId: %q, attentionOnly: true, scope: ACTIVE }) {
+    edges { node { taskId attention { task { taskId } } } }
+  }
+}`, projectID), nil)
+	if len(listedResponse.Errors) != 0 {
+		t.Fatalf("attention Task list errors = %#v", listedResponse.Errors)
+	}
+	listed := listedResponse.Data["tasks"].(map[string]any)["edges"].([]any)
+	if len(listed) != 2 {
+		t.Fatalf("attention Task list = %#v", listed)
+	}
+	for _, edge := range listed {
+		node := edge.(map[string]any)["node"].(map[string]any)
+		if node["attention"] == nil || node["attention"].(map[string]any)["task"].(map[string]any)["taskId"] != node["taskId"] {
+			t.Fatalf("Task summary attention = %#v", node)
 		}
 	}
 
 	first := 1
-	root := &queryRootResolver{r}
-	pageOne, err := root.NeedsYou(ctx, personalWorkspaceID, &projectID, &first, nil)
-	if err != nil || len(pageOne.Edges) != 1 || !pageOne.PageInfo.HasNextPage || pageOne.PageInfo.EndCursor == nil {
-		t.Fatalf("first Needs You page = %#v, %v", pageOne, err)
+	pageOneResponse := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  needsYou(workspaceId: "workspace:personal", projectId: %q, first: %d) { edges { node { task { taskId } } } pageInfo { hasNextPage endCursor } }
+}`, projectID, first), nil)
+	if len(pageOneResponse.Errors) != 0 {
+		t.Fatalf("first Needs You errors = %#v", pageOneResponse.Errors)
 	}
-	pageTwo, err := root.NeedsYou(ctx, personalWorkspaceID, &projectID, &first, pageOne.PageInfo.EndCursor)
-	if err != nil || len(pageTwo.Edges) != 1 || pageTwo.PageInfo.HasNextPage ||
-		pageTwo.Edges[0].Node.Task.Project.ProjectID != projectID {
-		t.Fatalf("second Needs You page = %#v, %v", pageTwo, err)
+	pageOne := pageOneResponse.Data["needsYou"].(map[string]any)
+	if len(pageOne["edges"].([]any)) != 1 || pageOne["pageInfo"].(map[string]any)["hasNextPage"] != true || pageOne["pageInfo"].(map[string]any)["endCursor"] == nil {
+		t.Fatalf("first Needs You page = %#v", pageOne)
+	}
+	endCursor := pageOne["pageInfo"].(map[string]any)["endCursor"].(string)
+	pageTwoResponse := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query {
+  needsYou(workspaceId: "workspace:personal", projectId: %q, first: %d, after: %q) { edges { node { task { project { projectId } } } } pageInfo { hasNextPage } }
+}`, projectID, first, endCursor), nil)
+	if len(pageTwoResponse.Errors) != 0 {
+		t.Fatalf("second Needs You errors = %#v", pageTwoResponse.Errors)
+	}
+	pageTwo := pageTwoResponse.Data["needsYou"].(map[string]any)
+	if len(pageTwo["edges"].([]any)) != 1 || pageTwo["pageInfo"].(map[string]any)["hasNextPage"] != false || pageTwo["edges"].([]any)[0].(map[string]any)["node"].(map[string]any)["task"].(map[string]any)["project"].(map[string]any)["projectId"] != projectID {
+		t.Fatalf("second Needs You page = %#v", pageTwo)
+	}
+	gateID := gate["gateId"].(string)
+	answer := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
+  answerTask(input: { taskId: %q, expectedRevision: %d, expectedGeneration: 1, clientMutationId: "answer-intervention-projection", gateId: %q, answerMarkdown: "Take the supported route." }) { task { taskId activeGate { gateId } } }
+}`, clarificationID, int(attentionDetail["task"].(map[string]any)["revision"].(float64)), gateID), nil)
+	if len(answer.Errors) != 0 {
+		t.Fatalf("answer Task = %#v", answer.Errors)
+	}
+	resolved := rustAPIRawGraphQLContext(t, r, auth.WithDesktopAccess(ctx), fmt.Sprintf(`query { pendingHumanInterventions(taskId: %q) { __typename } }`, clarificationID), nil)
+	if len(resolved.Errors) != 0 || len(resolved.Data["pendingHumanInterventions"].([]any)) != 0 {
+		t.Fatalf("resolved intervention query = %#v", resolved)
 	}
 }
 
 func rustAPIPortTaskMutationReplay(t *testing.T) {
-	r := readyAgentTestResolver(t)
-	ctx := context.Background()
-	captured, err := r.captureTask(ctx, model.CaptureTaskInput{
-		WorkspaceID: personalWorkspaceID, Title: "Draft", TaskDocument: "First",
-		ExecutorAgentID: stringAddress("agent:task-executor"), ClientMutationID: "capture-stale-stage",
-	})
-	if err != nil {
-		t.Fatal(err)
+	resolver := openTestResolver(t)
+	ctx := auth.WithDesktopAccess(context.Background())
+	execute := func(query string) rustAPIGraphQLResponse {
+		response := rustAPIRawGraphQLContext(t, resolver, ctx, query, nil)
+		return response
 	}
-	first := model.UpdateInboxTaskInput{
-		TaskID: captured.Task.TaskID, ExpectedRevision: 1, ExpectedGeneration: 1,
-		TaskDocument: stringAddress("Second"), ExpectedTaskDocumentDigest: &captured.Task.TaskDocumentDigest,
-		ClientMutationID: "first-staged-edit",
+	original := execute(`mutation { captureTask(input: {
+  workspaceId: "workspace:personal" title: "Receipt-stable title"
+  taskDocument: "Receipt-stable document" clientMutationId: "capture-receipt-stability"
+}) { task { taskId title taskDocument revision generation updatedAt } eventCursor clientMutationId } }`)
+	if len(original.Errors) != 0 {
+		t.Fatalf("original capture = %#v", original.Errors)
 	}
-	command, err := newTaskCommand("update_inbox_task", first.ClientMutationID, first)
-	if err != nil {
-		t.Fatal(err)
+	originalPayload := original.Data["captureTask"].(map[string]any)
+	taskID := originalPayload["task"].(map[string]any)["taskId"].(string)
+	update := execute(fmt.Sprintf(`mutation { updateInboxTask(input: {
+  taskId: %q expectedRevision: 1 expectedGeneration: 1 title: "Later title"
+  clientMutationId: "update-after-capture"
+}) { task { title revision } eventCursor } }`, taskID))
+	if len(update.Errors) != 0 || update.Data["updateInboxTask"].(map[string]any)["task"].(map[string]any)["title"] != "Later title" {
+		t.Fatalf("update = %#v", update)
 	}
-	stage, err := home.PrepareTaskDocumentReplace(r.home, first.TaskID, *first.ExpectedTaskDocumentDigest, *first.TaskDocument, command.RequestDigest)
-	if err != nil {
-		t.Fatal(err)
+	replay := execute(`mutation { captureTask(input: {
+  workspaceId: "workspace:personal" title: "Receipt-stable title"
+  taskDocument: "Receipt-stable document" clientMutationId: "capture-receipt-stability"
+}) { task { taskId title taskDocument revision generation updatedAt } eventCursor clientMutationId } }`)
+	if len(replay.Errors) != 0 || !reflect.DeepEqual(replay.Data["captureTask"], originalPayload) {
+		t.Fatalf("capture replay = %#v, original=%#v", replay, originalPayload)
 	}
-	committed, err := r.Store.UpdateInboxTask(ctx, first.TaskID, 1, 1, store.TaskUpdate{DocumentDigest: stage.Document.Digest}, command, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	newer, err := r.updateInboxTask(ctx, model.UpdateInboxTaskInput{
-		TaskID: first.TaskID, ExpectedRevision: 2, ExpectedGeneration: 1,
-		TaskDocument: stringAddress("Third"), ExpectedTaskDocumentDigest: first.ExpectedTaskDocumentDigest,
-		ClientMutationID: "newer-edit",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	replay, err := r.updateInboxTask(ctx, first)
-	current, readErr := home.ReadTaskDocument(r.home, first.TaskID)
-	wantCursor, _ := store.EncodeWorkEventCursor(committed.Event.ID)
-	if err != nil || readErr != nil || replay.EventCursor != wantCursor || current.Content != "Third" || newer.Task.Revision != 3 {
-		t.Fatalf("stale replay = %#v, current = %#v, %v, %v", replay, current, err, readErr)
-	}
+	divergent := execute(`mutation { captureTask(input: {
+  workspaceId: "workspace:personal" title: "Divergent title"
+  taskDocument: "Receipt-stable document" clientMutationId: "capture-receipt-stability"
+}) { eventCursor } }`)
+	rustAPIAssertGraphQLError(t, divergent, "idempotency key conflicts", "idempotency_conflict")
 }
 
 func rustAPIPortTaskSubscription(t *testing.T) {
 	resolver := openTestResolver(t)
 	ctx := context.Background()
-	captured, err := resolver.captureTask(ctx, model.CaptureTaskInput{WorkspaceID: personalWorkspaceID,
-		Title: "Shared cursor", TaskDocument: "Task", ClientMutationID: "shared-task"})
-	if err != nil {
+	create := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation {
+  captureTask(input: { workspaceId: "workspace:personal", title: "Shared cursor", taskDocument: "Task", clientMutationId: "shared-task" }) {
+    task { taskId } eventCursor
+  }
+}`, nil)
+	if len(create.Errors) != 0 {
+		t.Fatalf("capture subscription fixture = %#v", create.Errors)
+	}
+	captured := create.Data["captureTask"].(map[string]any)
+	taskID := captured["task"].(map[string]any)["taskId"].(string)
+	after := captured["eventCursor"].(string)
+	project := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation {
+  createProject(input: { workspaceId: "workspace:personal", name: "Interleaved", clientMutationId: "shared-project" }) { eventCursor }
+}`, nil)
+	if len(project.Errors) != 0 {
+		t.Fatalf("project subscription fixture = %#v", project.Errors)
+	}
+	if _, err := resolver.Store.StartTask(ctx, taskID, "run:shared", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolver.createProject(ctx, model.CreateProjectInput{WorkspaceID: personalWorkspaceID,
-		Name: "Interleaved", ClientMutationID: "shared-project"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.Store.StartTask(ctx, captured.Task.TaskID, "run:shared", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	after := captured.EventCursor
-	taskCtx, cancelTask := context.WithCancel(ctx)
-	stream, err := resolver.taskEvents(taskCtx, captured.Task.TaskID, &after)
-	if err != nil {
-		t.Fatal(err)
-	}
-	event := <-stream
+	taskConnection, taskCtx, cancelTask := rustAPIOpenSubscription(t, resolver, "task", fmt.Sprintf(`subscription { taskEvents(taskId: %q, after: %q) { cursor taskId kind } }`, taskID, after), nil)
+	defer cancelTask()
+	taskMessage := readWS(t, taskCtx, taskConnection)
+	taskData := taskMessage["payload"].(map[string]any)["data"].(map[string]any)["taskEvents"].(map[string]any)
 	wantThird, _ := store.EncodeWorkEventCursor(3)
-	if event.Kind != "task.started" || event.Cursor != wantThird {
-		t.Fatalf("Task event = %#v", event)
+	if taskData["kind"] != "task.started" || taskData["cursor"] != wantThird || taskData["taskId"] != taskID {
+		t.Fatalf("Task event = %#v", taskData)
 	}
-	cancelTask()
-	workspaceCtx, cancelWorkspace := context.WithCancel(ctx)
-	all, err := resolver.tasksEvents(workspaceCtx, personalWorkspaceID, &after)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, second := <-all, <-all
-	if first.ProjectID == nil || second.TaskID == nil || wantThird != second.Cursor {
+	workspaceConnection, workspaceCtx, cancelWorkspace := rustAPIOpenSubscription(t, resolver, "workspace", fmt.Sprintf(`subscription { tasksEvents(workspaceId: %q, after: %q) { cursor taskId projectId kind } }`, personalWorkspaceID, after), nil)
+	defer cancelWorkspace()
+	first := readWS(t, workspaceCtx, workspaceConnection)["payload"].(map[string]any)["data"].(map[string]any)["tasksEvents"].(map[string]any)
+	second := readWS(t, workspaceCtx, workspaceConnection)["payload"].(map[string]any)["data"].(map[string]any)["tasksEvents"].(map[string]any)
+	if first["projectId"] == nil || second["taskId"] != taskID || second["cursor"] != wantThird {
 		t.Fatalf("workspace events = %#v, %#v", first, second)
 	}
-	liveCtx, cancelLive := context.WithCancel(ctx)
-	live, err := resolver.taskEvents(liveCtx, captured.Task.TaskID, nil)
-	if err != nil {
+	liveConnection, liveCtx, cancelLive := rustAPIOpenSubscription(t, resolver, "live", fmt.Sprintf(`subscription { taskEvents(taskId: %q) { cursor taskId kind } }`, taskID), nil)
+	defer cancelLive()
+	// A cursor-free subscription starts at the high-water mark and must not replay
+	// the task.started event already committed above.
+	time.Sleep(25 * time.Millisecond)
+	if _, err := resolver.Store.FinishTask(ctx, taskID, "run:shared", store.TaskCompleted, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case historical := <-live:
-		t.Fatalf("cursor-free subscription replayed history: %#v", historical)
-	case <-time.After(25 * time.Millisecond):
-	}
-	if _, err := resolver.Store.FinishTask(ctx, captured.Task.TaskID, "run:shared", store.TaskCompleted, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if completed := <-live; completed.Kind != "task.completed" {
+	completedMessage := readWS(t, liveCtx, liveConnection)
+	completed := completedMessage["payload"].(map[string]any)["data"].(map[string]any)["taskEvents"].(map[string]any)
+	if completed["kind"] != "task.completed" || completed["taskId"] != taskID {
 		t.Fatalf("live runtime event = %#v", completed)
 	}
-	cancelLive()
-	if workspaceCompleted := <-all; workspaceCompleted.Kind != "task.completed" {
+	workspaceCompleted := readWS(t, workspaceCtx, workspaceConnection)["payload"].(map[string]any)["data"].(map[string]any)["tasksEvents"].(map[string]any)
+	if workspaceCompleted["kind"] != "task.completed" {
 		t.Fatalf("workspace runtime event = %#v", workspaceCompleted)
 	}
 	for index := 0; index < 120; index++ {
@@ -1751,14 +1919,40 @@ func rustAPIPortTaskSubscription(t *testing.T) {
 	}
 	lastSequence := int64(4)
 	for index := 0; index < 120; index++ {
-		event := <-all
-		sequence, err := store.DecodeWorkEventCursor(event.Cursor)
+		message := readWS(t, workspaceCtx, workspaceConnection)
+		event := message["payload"].(map[string]any)["data"].(map[string]any)["tasksEvents"].(map[string]any)
+		sequence, err := store.DecodeWorkEventCursor(event["cursor"].(string))
 		if err != nil || sequence != lastSequence+1 {
 			t.Fatalf("backpressure event %d = %#v, %v", index, event, err)
 		}
 		lastSequence = sequence
 	}
-	cancelWorkspace()
+}
+
+func rustAPIOpenSubscription(t *testing.T, resolver *Resolver, id, query string, variables map[string]any) (*websocket.Conn, context.Context, context.CancelFunc) {
+	t.Helper()
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	connection, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"graphql-transport-ws"}})
+	if err != nil {
+		cancel()
+		if response != nil {
+			t.Fatalf("subscription dial: %v (%s)", err, response.Status)
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.CloseNow() })
+	writeWS(t, ctx, connection, map[string]any{"type": "connection_init"})
+	if message := readWS(t, ctx, connection); message["type"] != "connection_ack" {
+		t.Fatalf("subscription ack = %#v", message)
+	}
+	payload := map[string]any{"query": query}
+	if variables != nil {
+		payload["variables"] = variables
+	}
+	writeWS(t, ctx, connection, map[string]any{"id": id, "type": "subscribe", "payload": payload})
+	return connection, ctx, cancel
 }
 
 func rustAPIPortAuthoritativeU64(t *testing.T) {
@@ -2429,122 +2623,159 @@ func rustAPIPortDeliveryStatuses(t *testing.T) {
 
 func rustAPIPortWebToolDefault(t *testing.T) {
 	resolver := openProviderTestResolver(t)
+	rustAPIAuthenticateCodexForWebSettings(t, resolver)
 	executable, _ := os.Executable()
 	resolver.WebTools, _ = webtool.New(resolver.Store, resolver.ProviderAccounts, nil, nil, t.TempDir(), executable, 2, 1024)
-	settings, err := resolver.webToolSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	ctx := auth.WithDesktopAccess(context.Background())
+	settings := rustAPIRawGraphQLContext(t, resolver, ctx, `query { webToolSettings {
+  search { activeProviderAccountId providerOptions { providerAccountId displayName dataFlowClass citations } }
+  fetch { activeProviderAccountId providerOptions { providerAccountId displayName dataFlowClass directUrlFetch citations } }
+  browse { activeProviderAccountId providerOptions { providerAccountId jsRendering authenticatedContext } }
+} }`, nil)
+	if len(settings.Errors) != 0 {
+		t.Fatalf("web settings errors = %#v", settings.Errors)
 	}
-	if settings.Search.ActiveProviderAccountID != "provider_account:duckduckgo_public:system" ||
-		settings.Fetch.ActiveProviderAccountID != "provider_account:direct_http:system" ||
-		settings.Browse.ActiveProviderAccountID != "provider_account:obscura:system" {
-		t.Fatalf("unexpected defaults: %#v", settings)
+	search := settings.Data["webToolSettings"].(map[string]any)["search"].(map[string]any)
+	fetch := settings.Data["webToolSettings"].(map[string]any)["fetch"].(map[string]any)
+	browse := settings.Data["webToolSettings"].(map[string]any)["browse"].(map[string]any)
+	if search["activeProviderAccountId"] != "provider_account:codex:default" || fetch["activeProviderAccountId"] != "provider_account:codex:default" || browse["activeProviderAccountId"] != "provider_account:obscura:system" {
+		t.Fatalf("unexpected defaults: %#v", settings.Data)
 	}
-	native := &provider.Account{ID: "provider_account:openai:default", ProviderKind: "openai", AccountKey: "default", DisplayName: "OpenAI"}
-	nativeSearch, _ := resolver.webBindingSettings(context.Background(), "web.search", nil, native, true)
-	nativeFetch, _ := resolver.webBindingSettings(context.Background(), "web.fetch", nil, native, true)
-	if option := nativeSearch.ProviderOptions[0]; option.DataFlowClass != "trusted_external_search_query" || !option.Citations {
-		t.Fatalf("native search metadata = %#v", option)
+	if !rustAPIWebOption(t, search, "provider_account:codex:default", "OpenAI", "trusted_external_search_query", true, false) || !rustAPIWebOption(t, fetch, "provider_account:codex:default", "OpenAI", "external_web_fetch", false, true) {
+		t.Fatalf("native web options = search %#v fetch %#v", search, fetch)
 	}
-	if option := nativeFetch.ProviderOptions[0]; option.DataFlowClass != "external_web_fetch" || option.Citations || !option.DirectURLFetch {
-		t.Fatalf("native fetch metadata = %#v", option)
+	if !rustAPIWebBrowseOption(t, browse, "provider_account:obscura:system") {
+		t.Fatalf("browse options = %#v", browse)
 	}
 	secret, _ := provider.NewSecret("exa-secret")
-	exa, err := resolver.ProviderAccounts.CreateSecretAccount(context.Background(), "exa", "Exa", secret, time.Now())
+	exa, err := resolver.ProviderAccounts.CreateSecretAccount(ctx, "exa", "Exa", secret, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := resolver.saveWebToolProviderBinding(context.Background(), model.SaveWebToolProviderBindingInput{
-		ToolName: "web.search", CapabilityID: "web.search", ProviderAccountID: exa.ID,
-	})
-	if err != nil || saved.ActiveProviderAccountID != exa.ID {
-		t.Fatalf("saved = %#v, %v", saved, err)
+	saved := rustAPIRawGraphQLContext(t, resolver, ctx, `mutation($input: SaveWebToolProviderBindingInput!) { saveWebToolProviderBinding(input: $input) { activeProviderAccountId } }`, map[string]any{"input": map[string]any{"toolName": "web.search", "capabilityId": "web.search", "providerAccountId": exa.ID}})
+	if len(saved.Errors) != 0 || saved.Data["saveWebToolProviderBinding"].(map[string]any)["activeProviderAccountId"] != exa.ID {
+		t.Fatalf("saved = %#v", saved)
 	}
-	if _, err := resolver.saveWebToolProviderBinding(context.Background(), model.SaveWebToolProviderBindingInput{
-		ToolName: "web.search", CapabilityID: "web.fetch", ProviderAccountID: exa.ID,
-	}); err == nil {
-		t.Fatal("mismatched tool and capability accepted")
+	mismatch := rustAPIRawGraphQLContext(t, resolver, ctx, `mutation($input: SaveWebToolProviderBindingInput!) { saveWebToolProviderBinding(input: $input) { activeProviderAccountId } }`, map[string]any{"input": map[string]any{"toolName": "web.search", "capabilityId": "web.fetch", "providerAccountId": exa.ID}})
+	rustAPIAssertGraphQLError(t, mismatch, "tool and capability do not match", "")
+	restored := rustAPIRawGraphQLContext(t, resolver, ctx, `mutation($input: SaveWebToolProviderBindingInput!) { saveWebToolProviderBinding(input: $input) { activeProviderAccountId } }`, map[string]any{"input": map[string]any{"toolName": "web.fetch", "capabilityId": "web.fetch", "providerAccountId": "provider_account:codex:default"}})
+	if len(restored.Errors) != 0 {
+		t.Fatalf("restore OpenAI web tools = %#v", restored.Errors)
 	}
-	browse, err := resolver.saveBrowserProviderRoute(context.Background(), model.SaveBrowserProviderRouteInput{
-		ProviderAccountIds: []string{"provider_account:obscura:system"},
-	})
-	if err != nil || len(browse.ProviderRouteAccountIds) != 1 {
-		t.Fatalf("browse = %#v, %v", browse, err)
-	}
-	kernelSecret, _ := provider.NewSecret("kernel-secret")
-	kernel, err := resolver.ProviderAccounts.CreateSecretAccount(context.Background(), "kernel", "Kernel", kernelSecret, time.Now())
-	if err != nil || resolver.Store.SaveBrowserProviderRoute(context.Background(), []string{kernel.ID}, time.Now()) != nil {
-		t.Fatalf("prepare prior route: %v", err)
-	}
-	resolver.WebTools = nil
-	if _, err := resolver.saveBrowserProviderRoute(context.Background(), model.SaveBrowserProviderRouteInput{
-		ProviderAccountIds: []string{"provider_account:obscura:system"},
-	}); err == nil {
-		t.Fatal("unavailable installer was accepted")
-	}
-	route, _ := resolver.Store.WebProviderRoute(context.Background(), "web.browse")
-	if len(route) != 1 || route[0].ProviderAccountID != kernel.ID {
-		t.Fatalf("prior route changed: %#v", route)
+	final := rustAPIRawGraphQLContext(t, resolver, ctx, `query { webToolSettings { search { activeProviderAccountId } fetch { activeProviderAccountId } } }`, nil)
+	if final.Data["webToolSettings"].(map[string]any)["search"].(map[string]any)["activeProviderAccountId"] != "provider_account:codex:default" || final.Data["webToolSettings"].(map[string]any)["fetch"].(map[string]any)["activeProviderAccountId"] != "provider_account:codex:default" {
+		t.Fatalf("restored web settings = %#v", final.Data)
 	}
 }
 
 func rustAPIPortWebToolFiltering(t *testing.T) {
 	resolver := openProviderTestResolver(t)
+	ctx := auth.WithDesktopAccess(context.Background())
 	executable, _ := os.Executable()
 	resolver.WebTools, _ = webtool.New(resolver.Store, resolver.ProviderAccounts, nil, nil, t.TempDir(), executable, 2, 1024)
-	settings, err := resolver.webToolSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if settings.Search.ActiveProviderAccountID != "provider_account:duckduckgo_public:system" ||
-		settings.Fetch.ActiveProviderAccountID != "provider_account:direct_http:system" ||
-		settings.Browse.ActiveProviderAccountID != "provider_account:obscura:system" {
-		t.Fatalf("unexpected defaults: %#v", settings)
-	}
-	native := &provider.Account{ID: "provider_account:openai:default", ProviderKind: "openai", AccountKey: "default", DisplayName: "OpenAI"}
-	nativeSearch, _ := resolver.webBindingSettings(context.Background(), "web.search", nil, native, true)
-	nativeFetch, _ := resolver.webBindingSettings(context.Background(), "web.fetch", nil, native, true)
-	if option := nativeSearch.ProviderOptions[0]; option.DataFlowClass != "trusted_external_search_query" || !option.Citations {
-		t.Fatalf("native search metadata = %#v", option)
-	}
-	if option := nativeFetch.ProviderOptions[0]; option.DataFlowClass != "external_web_fetch" || option.Citations || !option.DirectURLFetch {
-		t.Fatalf("native fetch metadata = %#v", option)
-	}
 	secret, _ := provider.NewSecret("exa-secret")
-	exa, err := resolver.ProviderAccounts.CreateSecretAccount(context.Background(), "exa", "Exa", secret, time.Now())
+	exa, err := resolver.ProviderAccounts.CreateSecretAccount(ctx, "exa", "Exa", secret, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := resolver.saveWebToolProviderBinding(context.Background(), model.SaveWebToolProviderBindingInput{
-		ToolName: "web.search", CapabilityID: "web.search", ProviderAccountID: exa.ID,
-	})
-	if err != nil || saved.ActiveProviderAccountID != exa.ID {
-		t.Fatalf("saved = %#v, %v", saved, err)
+	initial := rustAPIRawGraphQLContext(t, resolver, ctx, `query { webToolSettings { search { activeProviderAccountId providerOptions { providerAccountId providerKind } } fetch { activeProviderAccountId providerOptions { providerAccountId providerKind } } } }`, nil)
+	if len(initial.Errors) != 0 {
+		t.Fatalf("initial web settings = %#v", initial.Errors)
 	}
-	if _, err := resolver.saveWebToolProviderBinding(context.Background(), model.SaveWebToolProviderBindingInput{
-		ToolName: "web.search", CapabilityID: "web.fetch", ProviderAccountID: exa.ID,
-	}); err == nil {
-		t.Fatal("mismatched tool and capability accepted")
+	initialSettings := initial.Data["webToolSettings"].(map[string]any)
+	initialSearch := initialSettings["search"].(map[string]any)
+	initialFetch := initialSettings["fetch"].(map[string]any)
+	if initialSearch["activeProviderAccountId"] != "provider_account:duckduckgo_public:system" || initialFetch["activeProviderAccountId"] != "provider_account:direct_http:system" || !rustAPIWebOptionByID(initialSearch, exa.ID) {
+		t.Fatalf("filtered initial settings = %#v", initialSettings)
 	}
-	browse, err := resolver.saveBrowserProviderRoute(context.Background(), model.SaveBrowserProviderRouteInput{
-		ProviderAccountIds: []string{"provider_account:obscura:system"},
-	})
-	if err != nil || len(browse.ProviderRouteAccountIds) != 1 {
-		t.Fatalf("browse = %#v, %v", browse, err)
+	if rustAPIWebOptionByKind(initialSearch, "codex") || rustAPIWebOptionByKind(initialFetch, "openai") {
+		t.Fatalf("unexpected unavailable native options = search %#v fetch %#v", initialSearch, initialFetch)
 	}
-	kernelSecret, _ := provider.NewSecret("kernel-secret")
-	kernel, err := resolver.ProviderAccounts.CreateSecretAccount(context.Background(), "kernel", "Kernel", kernelSecret, time.Now())
-	if err != nil || resolver.Store.SaveBrowserProviderRoute(context.Background(), []string{kernel.ID}, time.Now()) != nil {
-		t.Fatalf("prepare prior route: %v", err)
+	saved := rustAPIRawGraphQLContext(t, resolver, ctx, `mutation($input: SaveWebToolProviderBindingInput!) { saveWebToolProviderBinding(input: $input) { activeProviderAccountId } }`, map[string]any{"input": map[string]any{"toolName": "web.search", "capabilityId": "web.search", "providerAccountId": exa.ID}})
+	if len(saved.Errors) != 0 {
+		t.Fatalf("save Exa binding = %#v", saved.Errors)
 	}
-	resolver.WebTools = nil
-	if _, err := resolver.saveBrowserProviderRoute(context.Background(), model.SaveBrowserProviderRouteInput{
-		ProviderAccountIds: []string{"provider_account:obscura:system"},
-	}); err == nil {
-		t.Fatal("unavailable installer was accepted")
+	paths, err := home.FromRoot(resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
 	}
-	route, _ := resolver.Store.WebProviderRoute(context.Background(), "web.browse")
-	if len(route) != 1 || route[0].ProviderAccountID != kernel.ID {
-		t.Fatalf("prior route changed: %#v", route)
+	metadata, err := sql.Open("sqlite3", paths.Database())
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = metadata.Close() })
+	if _, err := metadata.Exec(`UPDATE provider_accounts SET status='unknown' WHERE provider_account_id=?`, exa.ID); err != nil {
+		t.Fatal(err)
+	}
+	stale := rustAPIRawGraphQLContext(t, resolver, ctx, `query { webToolSettings { search { activeProviderAccountId providerOptions { providerAccountId } } } }`, nil)
+	if len(stale.Errors) != 0 {
+		t.Fatalf("stale settings = %#v", stale.Errors)
+	}
+	staleSearch := stale.Data["webToolSettings"].(map[string]any)["search"].(map[string]any)
+	if staleSearch["activeProviderAccountId"] != "provider_account:duckduckgo_public:system" || rustAPIWebOptionByID(staleSearch, exa.ID) {
+		t.Fatalf("stale binding remained selectable = %#v", staleSearch)
+	}
+}
+
+func rustAPIAuthenticateCodexForWebSettings(t *testing.T, resolver *Resolver) {
+	t.Helper()
+	paths, err := home.FromRoot(resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := sql.Open("sqlite3", paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = metadata.Close() })
+	if _, err := metadata.Exec(`UPDATE provider_accounts SET status='authenticated', auth_method='oauth_device_code', metadata_json='{"credentialRevision":1,"secretConfigured":true}' WHERE provider_account_id='provider_account:codex:default'`); err != nil {
+		t.Fatal(err)
+	}
+	assignments := make([]store.ModelAssignment, 0, len(store.HostedModelRoles()))
+	for _, role := range store.HostedModelRoles() {
+		assignments = append(assignments, store.ModelAssignment{Role: role, ProviderKind: "codex", ProviderAccountID: "provider_account:codex:default", SelectionMode: store.ModelSelectionNoemaRecommended})
+	}
+	if _, err := resolver.Store.ConfirmHostedModelAssignments(context.Background(), "provider_account:codex:default", assignments); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func rustAPIWebOption(t *testing.T, settings map[string]any, accountID, displayName, dataFlow string, citations, directFetch bool) bool {
+	t.Helper()
+	for _, raw := range settings["providerOptions"].([]any) {
+		option := raw.(map[string]any)
+		if option["providerAccountId"] == accountID {
+			return option["displayName"] == displayName && option["dataFlowClass"] == dataFlow && option["citations"] == citations && option["directUrlFetch"] == directFetch
+		}
+	}
+	return false
+}
+
+func rustAPIWebBrowseOption(t *testing.T, settings map[string]any, accountID string) bool {
+	t.Helper()
+	for _, raw := range settings["providerOptions"].([]any) {
+		option := raw.(map[string]any)
+		if option["providerAccountId"] == accountID {
+			return option["jsRendering"] == true && option["authenticatedContext"] == true
+		}
+	}
+	return false
+}
+
+func rustAPIWebOptionByID(settings map[string]any, accountID string) bool {
+	for _, raw := range settings["providerOptions"].([]any) {
+		if raw.(map[string]any)["providerAccountId"] == accountID {
+			return true
+		}
+	}
+	return false
+}
+
+func rustAPIWebOptionByKind(settings map[string]any, kind string) bool {
+	for _, raw := range settings["providerOptions"].([]any) {
+		if raw.(map[string]any)["providerKind"] == kind {
+			return true
+		}
+	}
+	return false
 }
