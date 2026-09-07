@@ -5500,25 +5500,76 @@ func TestRustStore_task_capability_authentication_propagates_to_source_and_opens
 func TestRustStore_delegate_source_replay_is_exact_across_idempotency_namespaces(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, item, err := database.BeginConversationTurn(ctx, conversation.ID, "Delegate the requested task.", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	account := createReadyModelAccount(t, database)
-	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-rust-command")); err != nil {
+	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
 		t.Fatal(err)
 	}
-	id, err := NewTaskID()
+	source := ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID, ItemID: item.ID}
+	options := TaskCreateOptions{Source: source, SourceToolCallID: "tool_call:same-source", InitialRunKind: "planner"}
+	command := func(key, title string) TaskCommand {
+		digest := sha256.Sum256([]byte("task.delegate\x00" + key + "\x00" + title))
+		return TaskCommand{
+			Name: "task.delegate", ClientMutationID: key, RequestDigest: hex.EncodeToString(digest[:]),
+			CorrelationID: "correlation:delegate:same-source",
+		}
+	}
+	firstID, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(ctx, id, "Rust command", "correlation:rust-command", time.Unix(1700000000, 0))
+	first, err := database.CreateTaskWithOptions(ctx, firstID, "Delegated same-source", command("idem:source:first", "Delegated same-source"), options, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := database.QueueTask(ctx, id, task.Revision, 1, testTaskLifecycleCommand("queue_task", "rust-command"), time.Unix(1700000000, 0))
-	if err != nil || queued.Task.State != TaskRunning {
-		t.Fatalf("queued task = %#v, %v", queued, err)
+	secondID, err := NewTaskID()
+	if err != nil {
+		t.Fatal(err)
 	}
-	events, err := database.WorkEventsForTask(ctx, id, 0, 100)
-	if err != nil || len(events) == 0 {
-		t.Fatalf("events = %#v, %v", events, err)
+	replay, err := database.CreateTaskWithOptions(ctx, secondID, "Delegated same-source", command("idem:source:second", "Delegated same-source"), options, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.Event.EventID != first.Event.EventID || replay.Event.ID != first.Event.ID {
+		t.Errorf("source replay event = %#v, want event %q/%d", replay.Event, first.Event.EventID, first.Event.ID)
+	}
+	if !reflect.DeepEqual(replay.Task, first.Task) {
+		t.Errorf("source replay Task = %#v, want %#v", replay.Task, first.Task)
+	}
+	if replay.Task.CurrentRunID != first.Task.CurrentRunID {
+		t.Errorf("source replay planner run = %q, want %q", replay.Task.CurrentRunID, first.Task.CurrentRunID)
+	}
+	authority, err := database.ConversationAuthorizationContext(ctx, conversation.ID, turn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, ok := authority["messages"].([]map[string]any)
+	if !ok || len(messages) == 0 || messages[0]["role"] != "human" {
+		t.Errorf("source authorization context = %#v, want first human message", authority)
+	}
+	thirdID, err := NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	divergent, err := database.CreateTaskWithOptions(ctx, thirdID, "Changed durable payload", command("idem:source:third", "Changed durable payload"), options, now)
+	if err == nil || !errors.Is(err, ErrCommandConflict) {
+		t.Errorf("divergent source replay = %#v, %v, want %v", divergent, err, ErrCommandConflict)
+	}
+	var durableRows int
+	if err := database.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks
+WHERE source_conversation_id = ? AND source_tool_call_id = ?`, conversation.ID, "tool_call:same-source").Scan(&durableRows); err != nil {
+		t.Fatal(err)
+	}
+	if durableRows != 1 {
+		t.Errorf("source replay durable rows = %d, want 1", durableRows)
 	}
 }
 
