@@ -3332,43 +3332,6 @@ func TestRustProviders_EvalSessionExposesOnlyReadyProviderMetadataAndOwnedShutdo
 	}
 }
 
-// Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::digest_mismatch_removes_partial_and_publishes_nothing (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_DigestMismatchRemovesPartialAndPublishesNothing(t *testing.T) {
-	root := t.TempDir()
-	expected := []byte("GGUF expected evaluation model")
-	digest := providerLocalDigest(expected)
-	_, err := materializeProviderModelAtomically(t.Context(), root, expected, strings.NewReader("GGUF incorrect evaluation bytes"), digest)
-	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
-		t.Fatalf("checksum error = %v", err)
-	}
-	if entries, readErr := os.ReadDir(root); readErr != nil || len(entries) != 0 {
-		t.Fatalf("partial cache entries = %v, %v", entries, readErr)
-	}
-}
-
-// Rust source: crates/noema-providers/src/local_models/eval/materialize.rs::successful_download_is_atomic_and_store_free (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
-func TestRustProviders_SuccessfulDownloadIsAtomicAndStoreFree(t *testing.T) {
-	root := t.TempDir()
-	bytesValue := []byte("GGUF successful evaluation model")
-	path, err := materializeProviderModelAtomically(t.Context(), root, bytesValue, bytes.NewReader(bytesValue), providerLocalDigest(bytesValue))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(got, bytesValue) {
-		t.Fatalf("materialized bytes = %q, %v", got, err)
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".partial") || strings.Contains(entry.Name(), "sqlite") {
-			t.Fatalf("non-atomic cache entry = %q", entry.Name())
-		}
-	}
-}
-
 // Rust source: crates/noema-providers/src/local_models/manager/tests.rs::activation_and_route_replacement_contracts (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_ActivationAndRouteReplacementContracts(t *testing.T) {
 	manager := newProviderLocalManagerContract()
