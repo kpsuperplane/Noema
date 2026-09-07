@@ -6,7 +6,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -23,9 +25,11 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/artifact"
+	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/localmodel"
 	"github.com/kpsuperplane/noema/internal/notification"
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -79,12 +83,18 @@ func rustAPIPortProtectedCredentialFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := service.RemoveAPNS(context.Background(), 0)
-	if err != nil || status.Configured || status.Revision != 1 {
+	key := testAPNSPrivateKeyPEM(t)
+	for expected := 0; expected < 3; expected++ {
+		if _, err := service.ConfigureAPNS("TEAM123456", "KEYID12345", key, expected); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status, err := service.RemoveAPNS(context.Background(), 3)
+	if err != nil || status.Configured || status.Revision != 4 {
 		t.Fatalf("APNs tombstone = %#v, %v", status, err)
 	}
 	data, err := os.ReadFile(paths.APNSProvider())
-	if err != nil || bytes.Contains(data, []byte("PRIVATE KEY")) {
+	if err != nil || bytes.Contains(data, []byte("PRIVATE KEY")) || !bytes.Contains(data, []byte(`"revision": 4`)) {
 		t.Fatalf("APNs tombstone = %q, %v", data, err)
 	}
 	if runtime.GOOS != "windows" {
@@ -152,14 +162,10 @@ func rustAPIPortArtifactPreviewKinds(t *testing.T) {
 	created, err := resolver.createTaskLocalArtifact(context.Background(), model.CreateTaskLocalArtifactInput{
 		TaskID: task.ID, ExpectedRevision: 1, ExpectedGeneration: 1,
 		Title: "Data", Filename: "data.xlsx", MediaType: spreadsheet,
-		ContentBase64: "UEsDBBQAAAAIAAAAIQAAAAAAAAAAAAAAAAAJAAAAX3JlbHMvLnJlbHNQSwECHwAUAAAACAAAAAghAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAAAAAAAAAAAF9yZWxzLy5yZWxzUEsFBgAAAAABAAEANwAAACsAAAAAAA==",
+		ContentBase64: base64.StdEncoding.EncodeToString(spreadsheetXLSX(t)),
 	})
 	if err != nil {
-		// The compact fixture above is valid enough for a storage test only on
-		// implementations that provide spreadsheet conversion. Use the shared
-		// fixture when conversion is available through the GraphQL test path.
-		TestArtifactGraphQLOperations(t)
-		return
+		t.Fatal(err)
 	}
 	detail, err := resolver.artifactVersionDetail(context.Background(), created.CurrentVersion.ArtifactVersionID)
 	if err != nil {
@@ -293,7 +299,7 @@ func rustAPIPortAuthorizedDownloadStoreFailure(t *testing.T) {
 	}
 	server := httptest.NewServer(service.Handler())
 	defer server.Close()
-	response, err := http.Get(server.URL + "/artifacts/versions/" + created.CurrentVersion.ID + "/download")
+	response, err := http.Get(server.URL + artifact.DownloadURL(created.CurrentVersion.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,23 +318,129 @@ func rustAPIPortAuthorizedDownloadStoreFailure(t *testing.T) {
 
 func rustAPIPortClientListAndRevoke(t *testing.T) {
 	t.Helper()
-	// This is the same authenticated GraphQL boundary and assertion set as the
-	// existing native-client contract test.
-	TestNativeClientGraphQLListsCurrentAndRevokesIt(t)
+	ctx := context.Background()
+	paths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	database, err := store.Open(ctx, paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	now := time.Now()
+	oldSession, newSession := sha256.Sum256([]byte("rust-api-client-old")), sha256.Sum256([]byte("rust-api-client-new"))
+	if err := database.CreateAnonymousSession(ctx, oldSession, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RegisterPasskey(ctx, store.HumanPasskey{CredentialID: "AQ", CredentialJSON: `{}`}, store.RegistrationInitial, oldSession, newSession, now); err != nil {
+		t.Fatal(err)
+	}
+	config, recovery, err := auth.LoadConfig(paths, "127.0.0.1:3737")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authentication, err := auth.New(paths, database, config, recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientID := "noema-desktop:abcdefghijklmnop"
+	redirect := "http://127.0.0.1:49152/oauth/callback"
+	nonce := "rust-api-client-code"
+	access, refresh := "rust-api-client-access", "rust-api-client-refresh"
+	if err := database.InsertNativeOAuthCode(ctx, sha256.Sum256([]byte(nonce)), clientID, "Noema Desktop", redirect, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", now.Unix(), now.Add(10*time.Minute).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ExchangeNativeOAuthCode(ctx, sha256.Sum256([]byte(nonce)), clientID, redirect, "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk", "10000000000000000000000000000000", sha256.Sum256([]byte(access)), sha256.Sum256([]byte(refresh)), now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := artifact.New(root, database, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := authentication.Handler(NewHandler(NewResolver(database, root, authentication, nil, nil, nil, nil, artifacts, nil, nil)))
+	list := nativeGraphQLRequest(t, access, `{ clients { clientId displayName createdAt revokedAt isCurrent } }`)
+	listed := httptest.NewRecorder()
+	handler.ServeHTTP(listed, list)
+	var payload struct {
+		Data struct {
+			Clients []modelClient `json:"clients"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &payload); err != nil || listed.Code != http.StatusOK || len(payload.Data.Clients) != 1 || !payload.Data.Clients[0].IsCurrent {
+		t.Fatalf("client list = %d %s, %v", listed.Code, listed.Body.String(), err)
+	}
+	revoke := nativeGraphQLRequest(t, access, `mutation { revokeClient(clientId: "`+clientID+`") { clientId revokedAt isCurrent } }`)
+	revoked := httptest.NewRecorder()
+	handler.ServeHTTP(revoked, revoke)
+	if revoked.Code != http.StatusOK || !bytes.Contains(revoked.Body.Bytes(), []byte(`"isCurrent":true`)) || !bytes.Contains(revoked.Body.Bytes(), []byte(`"revokedAt":`)) {
+		t.Fatalf("client revocation = %d %s", revoked.Code, revoked.Body.String())
+	}
+	rejected := httptest.NewRecorder()
+	handler.ServeHTTP(rejected, nativeGraphQLRequest(t, access, `{ clients { clientId } }`))
+	if rejected.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked bearer = %d", rejected.Code)
+	}
 }
 
 func rustAPIPortClientRevokeAll(t *testing.T) {
 	t.Helper()
-	// The existing authenticated client test establishes the native OAuth
-	// boundary. This mapped test also checks the all-client mutation directly.
-	resolver := openTestResolver(t)
-	if resolver.Auth != nil {
-		t.Fatal("plain GraphQL resolver unexpectedly has native client authority")
+	ctx := context.Background()
+	paths, err := home.FromRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Exercise the resolver's real boundary when the authority is absent. The
-	// production handler supplies Auth, while this fixture must reject the call.
-	if _, err := resolver.revokeAllClients(context.Background()); err == nil || !strings.Contains(err.Error(), "native client authority") {
-		t.Fatalf("revoke-all without native authority = %v", err)
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	database, err := store.Open(ctx, paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	now := time.Now()
+	for index, clientID := range []string{"noema-ios:abcdefghijklmnop", "noema-desktop:qrstuvwxyzabcdef"} {
+		code, access, refresh := fmt.Sprintf("revoke-all-code-%d", index), fmt.Sprintf("revoke-all-access-%d", index), fmt.Sprintf("revoke-all-refresh-%d", index)
+		redirect := "http://127.0.0.1:49152/oauth/callback"
+		if index == 0 {
+			redirect = "noema://oauth/callback"
+		}
+		if err := database.InsertNativeOAuthCode(ctx, sha256.Sum256([]byte(code)), clientID, clientID, redirect, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", now.Unix(), now.Add(10*time.Minute).Unix()); err != nil {
+			t.Fatal(err)
+		}
+		familyID := fmt.Sprintf("%031x%d", index+1, index+1)
+		if err := database.ExchangeNativeOAuthCode(ctx, sha256.Sum256([]byte(code)), clientID, redirect, "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk", familyID, sha256.Sum256([]byte(access)), sha256.Sum256([]byte(refresh)), now.Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config, recovery, err := auth.LoadConfig(paths, "127.0.0.1:3737")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authentication, err := auth.New(paths, database, config, recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewResolver(database, root, authentication, nil, nil, nil, nil, nil, nil, nil)
+	count, err := resolver.revokeAllClients(auth.WithDesktopAccess(ctx))
+	if err != nil || count != 2 {
+		t.Fatalf("revoke-all clients = %d, %v", count, err)
+	}
+	clients, err := database.NativeOAuthClients(ctx)
+	if err != nil || len(clients) != 2 {
+		t.Fatalf("retained clients = %#v, %v", clients, err)
+	}
+	for _, client := range clients {
+		if client.RevokedAt == nil {
+			t.Fatalf("client remained active after revoke-all: %#v", client)
+		}
 	}
 }
 
@@ -478,11 +590,84 @@ func rustAPIPortGenericLocalDefault(t *testing.T) {
 }
 
 func rustAPIPortLocalModelCatalog(t *testing.T) {
-	t.Helper()
-	// Keep the complete installation transition and preference assertions from
-	// the existing GraphQL local-model contract in this one-to-one entry.
-	TestLocalModelOnboardingKeepsActionReviewWithHuman(t)
-	TestLocalModelSettingsReadContract(t)
+	resolver := openProviderTestResolver(t)
+	ctx := context.Background()
+	now := time.Now()
+	queued, err := resolver.Store.QueueLocalModel(ctx, store.LocalModelInstallation{
+		ID:         "local_model_installation:test",
+		ModelID:    "test-model",
+		Name:       "Test model",
+		File:       "test-model.gguf",
+		SourceKind: "local_file",
+		Backend:    "cpu",
+		TotalBytes: 4,
+		CreatedAt:  now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifying, err := resolver.Store.UpdateLocalModel(
+		ctx, queued.ID, "verifying", 4, 4, 0, "", "", "", "", now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := resolver.Store.UpdateLocalModel(
+		ctx, verifying.ID, "installed", 4, 4, 4,
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"models/blobs/a.gguf", "", "", now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.ActivateLocalModel(ctx, installed.ID, false, now); err != nil {
+		t.Fatal(err)
+	}
+	service, err := localmodel.New(resolver.Store, resolver.home.Name(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.SetLocalModels(service)
+	t.Cleanup(service.Close)
+
+	setup, err := resolver.onboardingModelSetup(ctx, "provider_account:local_models:default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(setup.Profiles) != 1 || setup.ProposedSelections.ActionReviewer != nil {
+		t.Fatalf("local setup = %#v", setup)
+	}
+	profile := "test-model"
+	selection := &model.OnboardingModelSelectionInput{
+		SelectionMode: model.ModelPreferenceSelectionModeExplicitProfile,
+		ModelProfile:  &profile,
+	}
+	_, err = resolver.confirmOnboardingModelSelections(ctx, model.ConfirmOnboardingModelSelectionsInput{
+		ProviderAccountID:   "provider_account:local_models:default",
+		Noema:               selection,
+		SimpleTasks:         selection,
+		MediumTasks:         selection,
+		DifficultTasks:      selection,
+		TaskReviewer:        selection,
+		WebFetchSummarizer:  selection,
+		ToolProgressAudit:   selection,
+		MemoryConsolidation: selection,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignments, err := resolver.Store.HostedModelAssignments(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assignments) != 8 {
+		t.Fatalf("local assignment count = %d", len(assignments))
+	}
+	for _, assignment := range assignments {
+		if assignment.Role == store.HostedModelActionReviewer {
+			t.Fatal("local onboarding assigned action review")
+		}
+	}
 }
 
 func rustAPIPortProviderCallback(t *testing.T) {
@@ -518,28 +703,21 @@ func parseURL(t *testing.T, value string) *url.URL {
 
 func provider_oauth_callback_parameters(callback, expected *url.URL) ([2]string, error) {
 	var result [2]string
-	if callback == nil || expected == nil || callback.Scheme != expected.Scheme || callback.Host != expected.Host || callback.Path != expected.Path+"/"+result[0] {
-		// The attempt identifier is the single path segment appended to the
-		// configured callback route. Parse it before comparing the complete
-		// route so the error remains independent of the authorization code.
-		if callback == nil || expected == nil || callback.Scheme != expected.Scheme || callback.Host != expected.Host {
-			return result, fmt.Errorf("provider callback origin does not match")
-		}
-		prefix := strings.TrimSuffix(expected.Path, "/") + "/"
-		if !strings.HasPrefix(callback.Path, prefix) {
-			return result, fmt.Errorf("provider callback path does not match")
-		}
-		attempt := strings.TrimPrefix(callback.Path, prefix)
-		if strings.Contains(attempt, "/") || len(attempt) < 16 {
-			return result, fmt.Errorf("provider callback attempt is invalid")
-		}
-		result[0] = attempt
-	} else {
-		return result, fmt.Errorf("provider callback attempt is missing")
+	if callback == nil || expected == nil || callback.Scheme != expected.Scheme || callback.Host != expected.Host {
+		return result, fmt.Errorf("provider callback origin does not match")
 	}
+	prefix := strings.TrimSuffix(expected.Path, "/") + "/"
+	if !strings.HasPrefix(callback.Path, prefix) {
+		return result, fmt.Errorf("provider callback path does not match")
+	}
+	attempt := strings.TrimPrefix(callback.Path, prefix)
+	if attempt == "" || strings.Contains(attempt, "/") || len(attempt) < 16 {
+		return result, fmt.Errorf("provider callback attempt is invalid")
+	}
+	result[0] = attempt
 	values := callback.Query()
 	code := values.Get("code")
-	if code == "" || len(values["code"]) != 1 || values.Get("error") != "" {
+	if code == "" || len(values["code"]) != 1 || len(values["error"]) != 0 {
 		return [2]string{}, fmt.Errorf("provider callback code is invalid")
 	}
 	result[1] = code
@@ -580,11 +758,20 @@ func rustAPIPortOnboardingProposals(t *testing.T) {
 
 func rustAPIPortWallClockIntervals(t *testing.T) {
 	t.Helper()
-	// The Rust test bounds a clock-corrected timeline and then unions its
-	// intervals. The Go projection must retain the same 6,100 milliseconds.
-	got := unionDebugIntervals([][2]int64{{0, 3600}, {3600, 2500}, {3950, 7}})
-	if got != 6100 {
-		t.Fatalf("wall-clock interval union = %d, want 6100", got)
+	started := time.Date(2026, time.July, 21, 21, 0, 0, 0, time.UTC)
+	ended := started.Add(6100 * time.Millisecond)
+	firstEnd := started.Add(3600 * time.Millisecond)
+	secondStart, secondEnd := started.Add(3600*time.Millisecond), started.Add(6100*time.Millisecond)
+	thirdStart, thirdEnd := started.Add(3950*time.Millisecond), started.Add(3957*time.Millisecond)
+	profile := &store.RuntimeDebugProfile{Scope: store.RuntimeDebugScope{Kind: "conversation_turn", ID: "turn:intervals"}, Status: "completed", StartedAt: started, EndedAt: &ended,
+		Spans: []store.RuntimeDebugSpan{
+			{ID: "span:first", Category: "provider", Status: "completed", StartedAt: started, EndedAt: &firstEnd},
+			{ID: "span:second", Category: "tool", Status: "completed", StartedAt: secondStart, EndedAt: &secondEnd},
+			{ID: "span:third", Category: "runtime", Status: "completed", StartedAt: thirdStart, EndedAt: &thirdEnd},
+		}}
+	projected := runtimeDebugProfileModel(profile, ended)
+	if projected.AccountedMilliseconds != 6100 || projected.UninstrumentedMilliseconds != 0 {
+		t.Fatalf("wall-clock interval union = %d/%d, want 6100/0", projected.AccountedMilliseconds, projected.UninstrumentedMilliseconds)
 	}
 }
 
@@ -657,7 +844,7 @@ func rustAPIPortHiddenReplay(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{"enable.calendar.move_event", "task.delegate", "web.browse.close"} {
 		for _, kind := range []store.ConversationItemKind{store.ConversationToolCall, store.ConversationToolResult} {
-			item, err := transcriptItemModel(store.ConversationItem{Kind: kind, Payload: map[string]any{"id": string(kind) + ":" + name, "activity_kind": string(kind), "title": "Hidden tool activity", "metadata": map[string]any{"action": map[string]any{"name": name}}}})
+			item, err := transcriptItemModel(store.ConversationItem{Kind: kind, Status: "completed", Payload: map[string]any{"id": string(kind) + ":" + name, "activity_kind": string(kind), "title": "Hidden tool activity", "metadata": map[string]any{"action": map[string]any{"name": name}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -755,13 +942,24 @@ func openAdapterParityService(t *testing.T) (*Resolver, *adapter.Service) {
 func installAdapterParityDefinition(t *testing.T, service *adapter.Service, revision, baseDigest string, authentication map[string]any, operationID string) adapter.Definition {
 	t.Helper()
 	definition := map[string]any{"definition_id": "parity-service", "adapter_id": "parity-service", "display_name": "Parity service", "definition_revision": revision, "origin": "https://api.example.com/", "authentication": authentication}
-	operation := map[string]any{"operation_id": operationID, "description": "List one item.", "method": "GET", "path": "/items", "authorization": map[string]any{"kind": "none"}, "read_only": true, "idempotent": true, "destructive": false, "open_world": false, "pagination": map[string]any{"kind": "none"}, "response": map[string]any{"kind": "flat_object", "fields": []any{map[string]any{"name": "id", "source_pointer": "/id", "type": "string", "max_bytes": 64, "required": true}}}}
+	authorization := map[string]any{"kind": "none"}
+	if authentication["kind"] == "oauth2_authorization_code_pkce" {
+		authorization = map[string]any{"kind": "oauth_scopes", "accepted_scope_sets": [][]string{{"scope.read", "scope.write"}}}
+	}
+	operation := map[string]any{"operation_id": operationID, "description": "List one item.", "method": "GET", "path": "/items", "authorization": authorization, "read_only": true, "idempotent": true, "destructive": false, "open_world": false, "pagination": map[string]any{"kind": "none"}, "response": map[string]any{"kind": "flat_object", "fields": []any{map[string]any{"name": "id", "source_pointer": "/id", "type": "string", "max_bytes": 64, "required": true}}}}
 	proposal := map[string]any{"source_reference": "https://api.example.com/docs", "upsert_operations": []any{operation}}
 	if baseDigest == "" {
 		proposal["new_definition"] = definition
 	} else {
 		proposal["base_semantic_digest"] = baseDigest
-		proposal["revision"] = map[string]any{"definition_revision": revision}
+		revisionValue := map[string]any{"definition_revision": revision}
+		if authentication["kind"] != "none" {
+			revisionValue["authentication"] = authentication
+		}
+		proposal["revision"] = revisionValue
+		if operationID != "lookup" {
+			proposal["remove_operation_ids"] = []string{"lookup"}
+		}
 	}
 	raw, err := json.Marshal(proposal)
 	if err != nil {
@@ -1088,7 +1286,7 @@ func rustAPIPortAdapterIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	installAdapterParityDefinition(t, service, "v2", approved.SemanticDigest, map[string]any{"kind": "none"}, "get_item")
-	integrations, err := resolver.adapterIntegrations(context.Background())
+	integrations, err := resolver.adapterIntegrations(auth.WithDesktopAccess(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
