@@ -9,20 +9,74 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
+const (
+	webAssetWatchScript = "dev:assets"
+	devAssetDirEnv      = "NOEMA_DEV_ASSET_DIR"
+	rootDevAssetDir     = "/run/noema-dev/web-assets"
+	rootWebAssetShell   = `umask 022; exec "$@"`
+	watcherRestartDelay = 250 * time.Millisecond
+)
+
+var webServerWatchIgnoreGlobs = []string{
+	"apps/web/**",
+	"crates/noema-server/target/web-assets/**",
+}
+
+type devErrorKind string
+
+const (
+	devProcessExited devErrorKind = "process_exited"
+	devUnknownMode   devErrorKind = "unknown_mode"
+)
+
+type devError struct {
+	kind         devErrorKind
+	label        string
+	status       error
+	processGroup *int
+	unknownMode  string
+}
+
+func (e *devError) Error() string {
+	switch e.kind {
+	case devProcessExited:
+		return fmt.Sprintf("%s exited with status %v", e.label, e.status)
+	case devUnknownMode:
+		return fmt.Sprintf("unknown Noema development mode: %q", e.unknownMode)
+	default:
+		return "Noema development error"
+	}
+}
+
 func main() {
-	if len(os.Args) > 2 || len(os.Args) == 2 && os.Args[1] != "dev" {
-		fmt.Fprintln(os.Stderr, "usage: noema-dev [dev]")
+	if len(os.Args) > 1 && os.Args[1] != "dev" && os.Args[1] != "serve" && os.Args[1] != "validate" {
+		fmt.Fprintln(os.Stderr, "usage: noema-dev [dev|serve|validate]")
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
-	if err := run(ctx); err != nil {
+	if err := runMode(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+func runMode(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] == "dev" {
+		return run(ctx)
+	}
+	switch args[0] {
+	case "serve":
+		return runDevelopmentServer(ctx)
+	case "validate":
+		return runValidation(ctx, args[1:])
+	default:
+		return &devError{kind: devUnknownMode, unknownMode: args[0]}
 	}
 }
 
@@ -46,6 +100,7 @@ func run(ctx context.Context) error {
 	var group sync.WaitGroup
 	failures := make(chan error, len(commands))
 	for _, args := range commands {
+		args := args
 		group.Go(func() {
 			if err := watch(ctx, root, args); err != nil {
 				failures <- err
@@ -67,11 +122,12 @@ func watch(ctx context.Context, root string, args []string) error {
 		child.Dir = root
 		child.Stdout, child.Stderr = os.Stdout, os.Stderr
 		configureProcess(child)
+		stripCargoRunEnv(child)
 		if err := child.Start(); err != nil {
 			return fmt.Errorf("start %s: %w", args[0], err)
 		}
 		exited := make(chan error, 1)
-		go func() { exited <- child.Wait() }()
+		go func() { exited <- waitForChild(args[0], child) }()
 		select {
 		case <-ctx.Done():
 			stopProcess(child)
@@ -87,8 +143,59 @@ func watch(ctx context.Context, root string, args []string) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(watcherRestartDelay):
 		}
 	}
 	return nil
+}
+
+func waitForChild(label string, child *exec.Cmd) error {
+	processGroup := 0
+	if child.Process != nil {
+		processGroup = child.Process.Pid
+	}
+	status := child.Wait()
+	return &devError{kind: devProcessExited, label: label, status: status, processGroup: &processGroup}
+}
+
+func watcherExit(err error) (string, *int) {
+	var exited *devError
+	if !errors.As(err, &exited) || exited.kind != devProcessExited {
+		return "", nil
+	}
+	return exited.label, exited.processGroup
+}
+
+func configureWebServerWatcher(command *exec.Cmd, executable string) {
+	command.Args = append(command.Args,
+		"watch", "--delay", "1.5",
+		"-E", "CARGO_PROFILE_DEV_INCREMENTAL=true",
+		"-E", "CARGO_PROFILE_DEV_DEBUG=0",
+		"-w", "crates",
+		"-w", "Cargo.toml",
+		"-w", "Cargo.lock",
+	)
+	for _, glob := range webServerWatchIgnoreGlobs {
+		command.Args = append(command.Args, "--ignore", glob)
+	}
+	command.Args = append(command.Args, "--", executable, "serve")
+}
+
+func stripCargoRunEnv(command *exec.Cmd) {
+	environment := command.Env
+	if environment == nil {
+		environment = os.Environ()
+	}
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		key, _, _ := strings.Cut(entry, "=")
+		if key == "CC" || key == "CXX" || key == "CARGO_MANIFEST_DIR" ||
+			key == "CARGO_MANIFEST_PATH" || key == "CARGO_CRATE_NAME" ||
+			key == "CARGO_BIN_NAME" || key == "CARGO_PRIMARY_PACKAGE" ||
+			strings.HasPrefix(key, "CARGO_PKG_") {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	command.Env = filtered
 }

@@ -20,8 +20,12 @@ func preparePlatform() error {
 	}
 	return nil
 }
+func runningAsRoot() bool              { return os.Geteuid() == 0 }
 func configureProcess(child *exec.Cmd) { child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
 func stopProcess(child *exec.Cmd) {
+	if child == nil || child.Process == nil {
+		return
+	}
 	_ = syscall.Kill(-child.Process.Pid, syscall.SIGTERM)
 	time.Sleep(time.Second)
 	_ = syscall.Kill(-child.Process.Pid, syscall.SIGKILL)
