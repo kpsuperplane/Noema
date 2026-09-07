@@ -1752,21 +1752,29 @@ func TestRustStore_conversation_working_directory_is_allocated_and_persisted(t *
 func TestRustStore_explicit_conversation_working_directory_replaces_default(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	explicit := filepath.Join(t.TempDir(), "conversation-cwd")
+	if err := os.Mkdir(explicit, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(explicit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	selected, err := database.EnsurePrimaryConversation(ctx, "openrouter", explicit, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
 	}
-	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	if selected.ID != conversation.ID || selected.CWD != want {
+		t.Fatalf("explicit conversation working directory = %#v, want %q", selected, want)
+	}
+	reloaded, err := database.Conversation(ctx, conversation.ID)
+	if err != nil || reloaded.CWD != want {
+		t.Fatalf("reloaded explicit conversation working directory = %#v, %v", reloaded, err)
 	}
 }
 
@@ -1774,21 +1782,66 @@ func TestRustStore_explicit_conversation_working_directory_replaces_default(t *t
 func TestRustStore_final_tool_result_finishes_exact_call_and_repeats_without_a_duplicate(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	for _, test := range []struct {
+		name, wantStatus string
+		success          bool
+	}{
+		{name: "success", wantStatus: "completed", success: true},
+		{name: "failure", wantStatus: "failed"},
+	} {
+		turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Call "+test.name, nil, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+			Provider: "openrouter",
+			Call: ConversationToolCallInput{
+				ProviderCallID: "call:" + test.name, ProviderName: "example", Name: "example",
+				Arguments: json.RawMessage(fmt.Sprintf(`{"case":%q}`, test.name)),
+			},
+		}, now)
+		if err != nil || len(calls) != 1 || calls[0].Kind != ConversationToolCall || calls[0].Status != "running" {
+			t.Fatalf("%s call = %#v, %v", test.name, calls, err)
+		}
+		resultInput := ConversationToolResultInput{
+			CallItemID: calls[0].ID, Provider: "openrouter", ProviderCallID: "call:" + test.name,
+			ProviderName: "example", Name: "example", Success: test.success,
+			Payload: json.RawMessage(fmt.Sprintf(`{"case":%q}`, test.name)),
+		}
+		first, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(time.Second))
+		if err != nil || first.Kind != ConversationToolResult || first.Status != test.wantStatus || first.ParentItemID != calls[0].ID {
+			t.Fatalf("%s first result = %#v, %v", test.name, first, err)
+		}
+		repeated, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(2*time.Second))
+		if err != nil || repeated.ID != first.ID || repeated.Status != test.wantStatus {
+			t.Fatalf("%s repeated result = %#v, want same %s, %v", test.name, repeated, first.ID, err)
+		}
+		if _, err := database.CompleteConversationTurn(ctx, turn, "Finished "+test.name, "Finished "+test.name, nil, now.Add(3*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	toolItems := make([]ConversationItem, 0, 4)
+	for _, item := range page.Items {
+		if item.Kind == ConversationToolCall || item.Kind == ConversationToolResult {
+			toolItems = append(toolItems, item)
+		}
 	}
-	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	if len(toolItems) != 4 {
+		t.Fatalf("tool rows = %#v, want four rows", toolItems)
+	}
+	for index := 0; index < len(toolItems); index += 2 {
+		if toolItems[index].Kind != ConversationToolCall || toolItems[index+1].Kind != ConversationToolResult || toolItems[index].Status != toolItems[index+1].Status {
+			t.Fatalf("tool call/result pair = %#v", toolItems[index:index+2])
+		}
 	}
 }
 
@@ -1800,17 +1853,33 @@ func TestRustStore_idempotent_conversation_item_id_prevents_duplicate_task_deliv
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	taskID, err := NewTaskID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	task, err := database.CreateTask(ctx, taskID, "Task update", "correlation:task-delivery", time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := database.LatestTaskWorkEvent(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := PrimaryNotificationWrite{Event: event, Conversation: conversation, Source: "task_status", Task: &task}
+	first, err := database.CommitPrimaryNotification(ctx, write, time.Unix(0, 0))
+	if err != nil || len(first) != 1 || first[0].Kind != ConversationTaskReference || first[0].Payload["task_id"] != task.ID {
+		t.Fatalf("first task delivery = %#v, %v", first, err)
+	}
+	repeated, err := database.CommitPrimaryNotification(ctx, write, time.Unix(0, 0))
+	if err != nil || len(repeated) != 0 {
+		t.Fatalf("idempotent task delivery = %#v, %v", repeated, err)
 	}
 	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	if err != nil || len(items) != 1 || items[0].Kind != ConversationTaskReference || items[0].Payload["task_id"] != task.ID {
+		t.Fatalf("task delivery items = %#v, %v", items, err)
+	}
+	if cursor, err := database.PrimaryTaskNotificationCursor(ctx); err != nil || cursor != event.ID {
+		t.Fatalf("task delivery cursor = %d, %v", cursor, err)
 	}
 }
 
@@ -1818,21 +1887,44 @@ func TestRustStore_idempotent_conversation_item_id_prevents_duplicate_task_deliv
 func TestRustStore_mcp_setup_tool_result_remains_pending_until_exact_resolution(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Connect it.", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	items, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Provider: "openrouter",
+		Call: ConversationToolCallInput{ProviderCallID: "setup-1", ProviderName: "mcp.connect_service",
+			Name: "mcp.connect_service", Arguments: json.RawMessage(`{"service_url":"https://example.test"}`)},
+	}, now)
+	if err != nil || len(items) != 1 || items[0].Kind != ConversationToolCall {
+		t.Fatalf("setup call = %#v, %v", items, err)
 	}
-	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	result, err := database.FinishConversationToolCall(ctx, turn, ConversationToolResultInput{
+		CallItemID: items[0].ID, Provider: "openrouter", ProviderCallID: "setup-1",
+		ProviderName: "mcp.connect_service", Name: "mcp.connect_service", Success: true,
+		Payload: json.RawMessage(`{"status":"needs_auth"}`),
+	}, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := database.PendingMCPSetupItems(ctx, conversation.ID, 10)
+	if err != nil || len(pending) != 1 || pending[0].ID != result.ID {
+		t.Fatalf("pending setup items = %#v, %v", pending, err)
+	}
+	if changed, err := database.ResolveMCPSetupItem(ctx, conversation.ID, result.ID, "mcp:notion"); err != nil || !changed {
+		t.Fatalf("resolve setup = %t, %v", changed, err)
+	}
+	pending, err = database.PendingMCPSetupItems(ctx, conversation.ID, 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("resolved setup items = %#v, %v", pending, err)
+	}
+	if changed, err := database.ResolveMCPSetupItem(ctx, conversation.ID, result.ID, "mcp:notion"); err != nil || changed {
+		t.Fatalf("repeated setup resolution = %t, %v", changed, err)
 	}
 }
 
@@ -1840,21 +1932,69 @@ func TestRustStore_mcp_setup_tool_result_remains_pending_until_exact_resolution(
 func TestRustStore_memory_source_range_captures_one_conversation_head_and_resumes_after_it(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", time.Unix(0, 0))
+	now := time.Unix(1700000000, 0).UTC()
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "human input", nil, time.Unix(0, 0))
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "first", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := database.CompleteConversationTurn(ctx, turn, "assistant output", "assistant output", nil, time.Unix(1, 0))
-	if err != nil || item.Kind != ConversationAssistantText || item.ContentText != "assistant output" {
-		t.Fatalf("assistant item = %#v, %v", item, err)
+	trigger, err := database.CompleteConversationTurn(ctx, turn, "context", "context", nil, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
 	}
-	items, err := database.ConversationProviderItems(ctx, conversation.ID)
-	if err != nil || len(items) < 2 {
-		t.Fatalf("provider items = %#v, %v", items, err)
+	continuation, err := database.BeginConversationContinuation(ctx, conversation.ID, trigger.ID, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.StartConversationToolRound(ctx, continuation, ConversationToolRound{
+		Provider: "openrouter",
+		Call: ConversationToolCallInput{ProviderCallID: "memory-tool", ProviderName: "memory.lookup",
+			Name: "memory.lookup", Arguments: json.RawMessage(`{"query":"tool evidence"}`)},
+	}, now.Add(3*time.Second))
+	if err != nil || len(items) != 1 {
+		t.Fatalf("memory tool call = %#v, %v", items, err)
+	}
+	if _, err := database.FinishConversationToolCall(ctx, continuation, ConversationToolResultInput{
+		CallItemID: items[0].ID, Provider: "openrouter", ProviderCallID: "memory-tool",
+		ProviderName: "memory.lookup", Name: "memory.lookup", Success: true,
+		Payload: json.RawMessage(`{"text":"tool evidence"}`),
+	}, now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	first, err := database.CaptureMemorySourceRange(ctx, conversation.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.CapturedHead != 3 || len(first.Items) != 3 {
+		t.Errorf("first memory source range = %#v, want head 3 with three rows", first)
+	}
+	wantSequence := []int64{1, 2, 3}
+	if len(first.Items) == len(wantSequence) {
+		for index, item := range first.Items {
+			if item.Sequence != wantSequence[index] {
+				t.Errorf("first memory sequence[%d] = %d, want %d", index, item.Sequence, wantSequence[index])
+			}
+		}
+	}
+	if err := database.CancelConversationTurn(ctx, continuation, now.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	laterTurn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "later", nil, now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if laterTurn.ID == "" {
+		t.Fatal("later conversation turn has no id")
+	}
+	resumed, err := database.CaptureMemorySourceRange(ctx, conversation.ID, first.CapturedHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.CapturedHead != first.CapturedHead+1 || len(resumed.Items) != 1 || resumed.Items[0].ContentText != "later" {
+		t.Fatalf("resumed memory source range = %#v", resumed)
 	}
 }
 
