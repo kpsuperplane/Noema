@@ -9,9 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -49,53 +47,6 @@ func rustCapabilityRawDigest(value any) string {
 	}
 	digest := sha256.Sum256(raw)
 	return hex.EncodeToString(digest[:])
-}
-
-func rustCapabilityRouterServiceFixture(t *testing.T, schema string, unsafePolicy string, invoker CapabilityInvoker) (*Service, *store.Store, Binding) {
-	t.Helper()
-	paths, err := home.FromRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	database, err := store.Open(t.Context(), paths.Database())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	service, err := NewService(paths, database, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(service.Close)
-	serverID := "mcp_server:" + strings.Repeat("1", 32)
-	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat("2", 32), Revision: "mcp_definition_revision:" + strings.Repeat("3", 32),
-		DisplayName: "Capabilities", TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"http://127.0.0.1:1"}`)}
-	toolID := "mcp_tool:" + strings.Repeat("4", 32)
-	tool := store.MCPTool{ID: toolID, ServerID: serverID, Name: "read", Description: "Test operation.",
-		InputSchema: json.RawMessage(schema), Annotations: json.RawMessage(`{}`), SourceRevision: strings.Repeat("a", 64),
-		ReadOnly:    store.MCPHint{Value: rustCapabilityBool(unsafePolicy == "never_ask"), Source: "annotation"},
-		Idempotent:  store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"},
-		Destructive: store.MCPHint{Value: rustCapabilityBool(unsafePolicy != "" && unsafePolicy != "never_ask"), Source: "annotation"},
-		OpenWorld:   store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"}, Status: "ready", PolicyRevision: 1}
-	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID,
-		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat("4", 32), AuthStatus: "none", Tools: []store.MCPTool{tool}}, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	server, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", unsafePolicy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bindings, err := service.Bindings(t.Context())
-	if err != nil || len(bindings) != 1 {
-		t.Fatalf("live MCP bindings = %#v, %v", bindings, err)
-	}
-	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: invoker})
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.router = router
-	return service, database, bindings[0]
 }
 
 // Rust source: crates/noema-capabilities/src/router.rs::strict_resolution_rejects_unknown_and_forwards_exact_target.
@@ -255,13 +206,24 @@ func TestRustCapabilities_source_input_check_protects_immediate_and_reviewed_dis
 // Rust source: crates/noema-capabilities/src/router.rs::binding_policy_applies_to_every_control_plane_failure_view.
 func TestRustCapabilities_binding_policy_applies_to_every_control_plane_failure_view(t *testing.T) {
 	redactedInvoker := &rustCapabilityRecordingInvoker{err: ErrCapabilityUnavailable}
-	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", redactedInvoker)
-	_, redactedFailure := service.dispatch(t.Context(), binding, json.RawMessage(`{"api_key":"private","query":"safe"}`), nil)
+	redactedRouter, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: redactedInvoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	redactedBinding := Binding{
+		Name: "mcp.docs.read", Description: "Read docs.", InvokerKey: "mcp", OperationToken: "reviewed:1",
+		InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true},
+		PersistencePolicy: BindingPersistenceRedacted,
+	}
+	if redactedBinding.Name != "mcp.docs.read" || redactedBinding.OperationToken != "reviewed:1" || redactedBinding.Destination != nil || redactedBinding.SourceRevision != "" || redactedBinding.ConnectionRevision != "" {
+		t.Fatalf("redacted router fixture changed = %#v", redactedBinding)
+	}
+	_, redactedFailure := redactedRouter.Dispatch(t.Context(), rustCapabilityRouterSnapshot(t, redactedBinding), redactedBinding.Name, json.RawMessage(`{"api_key":"private","query":"safe"}`))
 	if !errors.Is(redactedFailure.Error, ErrCapabilityUnavailable) || !reflect.DeepEqual(redactedFailure.Persisted.Arguments, map[string]any{"api_key": "[REDACTED]", "query": "safe"}) || !reflect.DeepEqual(redactedFailure.Persisted.Output, map[string]any{"error": "unavailable", "message": "capability is unavailable", "recovery": "retry_later"}) {
 		t.Fatalf("redacted control-plane failure = %#v", redactedFailure)
 	}
 
-	omittedBinding := binding
+	omittedBinding := redactedBinding
 	omittedBinding.PersistencePolicy = BindingPersistenceOmitted
 	omittedInvoker := &rustCapabilityRecordingInvoker{err: ErrCapabilityUnavailable}
 	omittedRouter, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: omittedInvoker})
@@ -278,8 +240,19 @@ func TestRustCapabilities_binding_policy_applies_to_every_control_plane_failure_
 // Rust source: crates/noema-capabilities/src/router.rs::persisted_output_source_stays_out_of_model_payload.
 func TestRustCapabilities_persisted_output_source_stays_out_of_model_payload(t *testing.T) {
 	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: true, Payload: map[string]any{"page": "summary"}}.WithPersistedOutputSource(map[string]any{"screenshot": "png"})}
-	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
-	dispatch, failure := service.dispatch(t.Context(), binding, json.RawMessage(`{"query":"safe"}`), nil)
+	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: invoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := Binding{
+		Name: "mcp.docs.read", Description: "Read docs.", InvokerKey: "mcp", OperationToken: "reviewed:1",
+		InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true},
+		PersistencePolicy: BindingPersistenceRedacted,
+	}
+	if binding.Name != "mcp.docs.read" || binding.OperationToken != "reviewed:1" || binding.Destination != nil || binding.SourceRevision != "" || binding.ConnectionRevision != "" {
+		t.Fatalf("persisted-output router fixture changed = %#v", binding)
+	}
+	dispatch, failure := router.Dispatch(t.Context(), rustCapabilityRouterSnapshot(t, binding), binding.Name, json.RawMessage(`{"query":"safe"}`))
 	if failure.Error != nil || !dispatch.Output.Success || !reflect.DeepEqual(dispatch.Output.Payload, map[string]any{"page": "summary"}) {
 		t.Fatalf("dispatch output = %#v, %#v", dispatch, failure)
 	}
@@ -291,8 +264,19 @@ func TestRustCapabilities_persisted_output_source_stays_out_of_model_payload(t *
 // Rust source: crates/noema-capabilities/src/router.rs::tool_declared_failure_is_completed_dispatch_with_views.
 func TestRustCapabilities_tool_declared_failure_is_completed_dispatch_with_views(t *testing.T) {
 	invoker := &rustCapabilityRecordingInvoker{output: CapabilityOutput{Success: false, Payload: map[string]any{"error": "tool_declared", "password": "private"}, Failure: &CapabilityFailure{Kind: "invalid_request", Recovery: "correct_arguments"}}}
-	service, _, binding := rustCapabilityRouterServiceFixture(t, `{"type":"object"}`, "never_ask", invoker)
-	dispatch, failure := service.dispatch(t.Context(), binding, json.RawMessage(`{"query":"safe"}`), nil)
+	router, err := NewCapabilityRegistryRouter(CapabilityInvokerRegistration{Key: "mcp", Invoker: invoker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := Binding{
+		Name: "mcp.docs.read", Description: "Read docs.", InvokerKey: "mcp", OperationToken: "reviewed:1",
+		InputSchema: json.RawMessage(`{"type":"object"}`), Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true},
+		PersistencePolicy: BindingPersistenceRedacted,
+	}
+	if binding.Name != "mcp.docs.read" || binding.OperationToken != "reviewed:1" || binding.Destination != nil || binding.SourceRevision != "" || binding.ConnectionRevision != "" {
+		t.Fatalf("tool-failure router fixture changed = %#v", binding)
+	}
+	dispatch, failure := router.Dispatch(t.Context(), rustCapabilityRouterSnapshot(t, binding), binding.Name, json.RawMessage(`{"query":"safe"}`))
 	if failure.Error != nil || dispatch.Output.Success || !reflect.DeepEqual(dispatch.Persisted.Output, map[string]any{"error": "tool_declared", "failure_kind": "invalid_request", "password": "[REDACTED]", "recovery": "correct_arguments"}) {
 		t.Fatalf("completed tool failure = %#v, %#v", dispatch, failure)
 	}

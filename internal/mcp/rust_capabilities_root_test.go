@@ -7,9 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -104,9 +102,10 @@ func TestRustCapabilities_merges_snapshots_and_notices_in_configured_order(t *te
 
 // Rust source: crates/noema-capabilities/src/composite.rs::duplicate_canonical_name_fails_closed.
 func TestRustCapabilities_duplicate_canonical_name_fails_closed(t *testing.T) {
-	firstService, _, _ := rustCapabilityCatalogService(t, "1", "Same", "same.name", "none", true)
-	secondService, _, _ := rustCapabilityCatalogService(t, "1", "Same", "same.name", "none", true)
-	composite := NewCompositeBindingSource(firstService, secondService)
+	composite := NewCompositeBindingSource(
+		asyncRustCapabilitySource(BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("same.name")}}),
+		asyncRustCapabilitySource(BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("same.name")}}),
+	)
 	if _, err := composite.Catalog(t.Context()); err != ErrInvalidBindingSource {
 		t.Fatalf("duplicate canonical name error = %v", err)
 	}
@@ -147,73 +146,3 @@ func asyncRustCapabilitySource(result BindingCatalogResult) BindingSource {
 		return result, nil
 	})
 }
-
-func rustCapabilityCatalogService(t *testing.T, suffix, displayName, toolName, authStatus string, enabled bool) (*Service, *store.Store, Binding) {
-	t.Helper()
-	paths, err := home.FromRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	database, err := store.Open(t.Context(), paths.Database())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	service, err := NewService(paths, database, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(service.Close)
-	serverID := "mcp_server:" + strings.Repeat(suffix, 32)
-	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat(suffix, 32), Revision: "mcp_definition_revision:" + strings.Repeat(suffix, 32),
-		DisplayName: displayName, TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"http://127.0.0.1:1"}`)}
-	tool := store.MCPTool{ID: "mcp_tool:" + strings.Repeat(suffix, 32), ServerID: serverID, Name: toolName, Description: "Test operation.",
-		InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: json.RawMessage(`{}`), SourceRevision: strings.Repeat(suffix, 64),
-		ReadOnly: store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"}, Idempotent: store.MCPHint{Value: rustCapabilityBool(true), Source: "annotation"},
-		Destructive: store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"}, OpenWorld: store.MCPHint{Value: rustCapabilityBool(false), Source: "annotation"},
-		Status: "ready", PolicyRevision: 1}
-	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID,
-		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat(suffix, 32), AuthStatus: "none", Tools: []store.MCPTool{tool}}, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if authStatus != "none" {
-		if err := database.MarkMCPUnavailable(t.Context(), server.ID, server.ConnectionRevision, authStatus, time.Now().UTC()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if enabled {
-		server, err = service.SaveConnectionPolicy(t.Context(), server.ID, server.ConnectionRevision, 0, "allow_automatically", "never_ask")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	bindings, err := service.Bindings(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var binding Binding
-	if len(bindings) == 1 {
-		binding = bindings[0]
-	}
-	return service, database, binding
-}
-
-func rustCapabilityAddNoticeServer(t *testing.T, database *store.Store, suffix, displayName, authStatus string) {
-	t.Helper()
-	serverID := "mcp_server:" + strings.Repeat(suffix, 32)
-	definition := store.MCPDefinition{ID: "mcp_definition:" + strings.Repeat(suffix, 32), Revision: "mcp_definition_revision:" + strings.Repeat(suffix, 32),
-		DisplayName: displayName, TransportKind: "streamable_http", SafeConfig: json.RawMessage(`{"url":"http://127.0.0.1:1"}`)}
-	server, err := database.CommitMCPConnection(t.Context(), store.NewMCPConnection{Definition: definition, ServerID: serverID,
-		ConnectionRevision: "mcp_connection_revision:" + strings.Repeat(suffix, 32), AuthStatus: "none"}, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if authStatus != "none" {
-		if err := database.MarkMCPUnavailable(t.Context(), server.ID, server.ConnectionRevision, authStatus, time.Now().UTC()); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func rustCapabilityBool(value bool) *bool { return &value }
