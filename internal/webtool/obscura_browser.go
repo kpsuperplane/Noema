@@ -8,6 +8,17 @@ import (
 
 func executeObscuraBrowser(ctx context.Context, session *browserSession, name string, arguments map[string]any) (*browseProviderResponse, *browserProviderFailure) {
 	p := session.process
+	if name == BrowseInteractName && arguments["action"] == "upload_file" {
+		return nil, &browserProviderFailure{
+			code:    "unavailable",
+			message: "Obscura browser does not support file upload",
+			diagnostic: &browserDiagnostic{
+				Provider: "obscura",
+				Stage:    name,
+				Detail:   "file upload is unavailable in the Obscura worker",
+			},
+		}
+	}
 	command, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	uncertain := name == BrowseInteractName || name == BrowseHistoryName || name == BrowseOpenName && session.publicRevision != 0

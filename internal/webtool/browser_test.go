@@ -40,6 +40,29 @@ func init() {
 		}
 		defer conn.CloseNow()
 		invalid := false
+		filled := ""
+		selected := "engineer"
+		lastKey := ""
+		confirmed := false
+		snapshot := func() json.RawMessage {
+			title, url := "Page", "https://1.1.1.1/page"
+			if confirmed {
+				title, url = "Confirmed", "https://1.1.1.1/confirmed"
+			}
+			elements := []map[string]any{
+				{"reference": "e1", "role": "link", "name": "Next", "href": "https://8.8.8.8/next", "disabled": false},
+				{"reference": "e2", "role": "button", "name": "Submit", "disabled": false, "submission": map[string]any{"destination": "https://1.1.1.1/submit", "method": "POST", "fields": []map[string]string{{"name": "q", "value": "safe"}}, "omitted_control_count": 1, "truncated": false}},
+				{"reference": "e3", "role": "link", "name": "Private", "href": "http://127.0.0.1/private", "disabled": false},
+				{"reference": "e4", "role": "input", "name": "Name", "disabled": false},
+				{"reference": "e5", "role": "input", "name": "File", "disabled": false},
+				{"reference": "e6", "role": "select", "name": "Role", "disabled": false},
+				{"reference": "e7", "role": "button", "name": "Save", "disabled": false},
+				{"reference": "e8", "role": "button", "name": "Activate", "disabled": false},
+				{"reference": "e9", "role": "button", "name": "Submit form", "disabled": false, "submission": map[string]any{"destination": "https://example.com/confirmed", "method": "POST", "fields": []map[string]string{{"name": "amount", "value": "125.00"}}, "omitted_control_count": 2, "truncated": false}},
+			}
+			payload, _ := json.Marshal(map[string]any{"url": url, "title": title, "text": "Visible text", "width": 1280, "height": 720, "elements": elements})
+			return payload
+		}
 		for {
 			var request struct {
 				ID        int            `json:"id"`
@@ -62,9 +85,10 @@ func init() {
 			case "Page.navigate":
 				failure = request.Params["url"] == "https://1.1.1.1/fail"
 			case "Page.captureScreenshot":
-				result = map[string]any{"data": "aW1hZ2U="}
+				result = map[string]any{"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="}
 			case "Runtime.evaluate":
 				expression, _ := request.Params["expression"].(string)
+				wasConfirmed := confirmed
 				if strings.Contains(expression, `const value = "loss"`) {
 					os.Exit(0)
 				}
@@ -80,12 +104,43 @@ func init() {
 					_ = conn.Write(r.Context(), websocket.MessageText, []byte(strings.Repeat("x", browserFrameLimit+1)))
 					return
 				}
+				switch {
+				case strings.Contains(expression, `const value = "Ada"`):
+					filled = "Ada"
+				case strings.Contains(expression, `const value = "!"`):
+					filled += "!"
+				case strings.Contains(expression, `const value = "Backspace"`):
+					if filled != "" {
+						filled = filled[:len(filled)-1]
+					}
+				case strings.Contains(expression, `const value = "manager"`):
+					selected = "manager"
+				case strings.Contains(expression, `const value = "ARROWRIGHT"`):
+					lastKey = "ArrowRight"
+				case strings.Contains(expression, `const value = "ENTER"`):
+					lastKey = "Enter"
+					confirmed = true
+					_ = wsjson.Write(r.Context(), conn, map[string]any{"method": "Network.responseReceived", "sessionId": request.SessionID, "params": map[string]any{"type": "Document", "frameId": "frame", "response": map[string]any{"status": 502}}})
+				}
 				value := any(true)
 				if strings.Contains(expression, "const body=") {
-					value = json.RawMessage(`{"url":"https://1.1.1.1/page","title":"Page","text":"Visible text","width":640,"height":480,"elements":[{"reference":"e1","role":"link","name":"Next","href":"https://8.8.8.8/next","disabled":false},{"reference":"e2","role":"button","name":"Submit","disabled":false,"submission":{"destination":"https://1.1.1.1/submit","method":"POST","fields":[{"name":"q","value":"safe"}],"omitted_control_count":1,"truncated":false}},{"reference":"e3","role":"link","name":"Private","href":"http://127.0.0.1/private","disabled":false}]}`)
+					value = snapshot()
 					if invalid {
 						value = "invalid"
 					}
+				} else if strings.Contains(expression, "select.value") {
+					value = map[string]any{"value": selected, "inputTrusted": "true", "changeTrusted": "true"}
+				} else if strings.Contains(expression, "inputTrusted") {
+					value = map[string]any{"value": filled, "inputTrusted": "true", "changeTrusted": "true"}
+				} else if strings.Contains(expression, "keydownTrusted") {
+					value = map[string]any{"value": filled, "keydownTrusted": "true", "keyupTrusted": "true"}
+				} else if strings.Contains(expression, "data-click-trusted") {
+					value = "true"
+				} else if strings.Contains(expression, "data-key") {
+					value = lastKey
+				}
+				if wasConfirmed && strings.Contains(expression, "const expected =") {
+					value = false
 				}
 				result = map[string]any{"result": map[string]any{"value": value}}
 			}

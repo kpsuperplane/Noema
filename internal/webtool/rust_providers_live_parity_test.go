@@ -267,18 +267,18 @@ activate.addEventListener('keydown',event=>{activate.setAttribute('data-key',eve
 		}
 		return nil
 	}
-	input, button, file, roleSelect, activate := find("Name"), find("Save"), find("File"), find("Role"), find("Activate")
-	if input == nil || button == nil || file == nil || roleSelect == nil || activate == nil {
+	input, button, file, roleSelect, activate, submit := find("Name"), find("Save"), find("File"), find("Role"), find("Activate"), find("Submit form")
+	if input == nil || button == nil || file == nil || roleSelect == nil || activate == nil || submit == nil {
 		t.Fatalf("interactive snapshot elements = %#v", snapshot)
 	}
 	if button.Disabled {
 		t.Fatal("settled button remained disabled")
 	}
-	if button.Submission == nil || button.Submission.Method != "POST" || button.Submission.OmittedControlCount != 2 ||
-		len(button.Submission.Fields) == 0 || button.Submission.Fields[0].Value != "125.00" {
-		t.Fatalf("submission context = %#v", button.Submission)
+	if submit.Submission == nil || submit.Submission.Method != "POST" || submit.Submission.OmittedControlCount != 2 ||
+		len(submit.Submission.Fields) == 0 || submit.Submission.Fields[0].Value != "125.00" {
+		t.Fatalf("submission context = %#v", submit.Submission)
 	}
-	encodedSubmission, err := json.Marshal(button.Submission)
+	encodedSubmission, err := json.Marshal(submit.Submission)
 	if err != nil || strings.Contains(string(encodedSubmission), "secret") {
 		t.Fatalf("submission exposed secret fields = %s, %v", encodedSubmission, err)
 	}
@@ -337,7 +337,7 @@ activate.addEventListener('keydown',event=>{activate.setAttribute('data-key',eve
 	}
 	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
 		"ref": file.Reference, "action": "upload_file",
-	}); failure == nil || !strings.Contains(failure.message, "CDP") {
+	}); failure == nil || failure.code != "unavailable" {
 		t.Fatalf("file upload failure = %#v", failure)
 	}
 	if _, failure := executeObscuraBrowser(t.Context(), session, BrowseInteractName, map[string]any{
