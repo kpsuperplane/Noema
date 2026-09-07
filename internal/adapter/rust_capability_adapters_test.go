@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -691,12 +692,13 @@ func TestRustAdapters_durable_cursor_authority_rejects_tampering_expiry_and_ever
 func TestRustAdapters_oauth_documents_are_not_imported_as_connection_credentials(t *testing.T) {
 	service, _, _, _ := rustAdapterService(t)
 	manifest := oauthManifest()
+	manifest.Reviewed = true
 	definition, err := service.files.installDefinition(manifest, "https://api.example.test/", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = service.SetupCredentialConnection(t.Context(), definition.SemanticDigest, "", CredentialInputValue{Document: []byte(`{"web":{"client_id":"client-marker","client_secret":"secret-marker"}}`)}); err == nil {
-		t.Fatal("OAuth document was accepted as a connection credential")
+	if _, _, err = service.SetupCredentialConnection(t.Context(), definition.SemanticDigest, "", CredentialInputValue{Document: []byte(`{"web":{"client_id":"client-marker","client_secret":"secret-marker"}}`)}); !errors.Is(err, errOAuthUnsupported) {
+		t.Fatalf("OAuth document import error = %v, want Unsupported", err)
 	}
 }
 
@@ -755,7 +757,7 @@ func TestRustAdapters_install_is_content_addressed_idempotent_and_scannable(t *t
 		t.Fatalf("definition projection changed across restart: %#v != %#v", scan.Definitions[0], first)
 	}
 	raw, err := os.ReadFile(filepath.Join(directory, "adapters", "definitions", first.SemanticDigest, "provenance.json"))
-	if err != nil || strings.Contains(string(raw), "fixture://other-provenance") {
+	if err != nil || strings.Contains(string(raw), "https://fixture.example.test/other-provenance") {
 		t.Fatalf("provenance = %s, %v", raw, err)
 	}
 	if !reflect.DeepEqual(first.Operations[0].InputSchema, second.Operations[0].InputSchema) || first.Operations[0].Behavior != second.Operations[0].Behavior {
@@ -827,8 +829,13 @@ func TestRustAdapters_exact_source_digest_detects_mutation_and_source_bounds(t *
 		t.Fatalf("mutated source scan = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
 	}
 	overSized := make([]byte, sourceLimit+1)
-	if _, err = service.files.installDefinitionWithSource(testManifest(), "https://example.test/two", overSized, "json", nil, nil); err == nil || !strings.Contains(err.Error(), "oversized") {
-		t.Fatalf("oversized source result = %v", err)
+	if _, err = service.files.installDefinitionWithSource(testManifest(), "https://example.test/two", overSized, "json", nil, nil); err == nil {
+		t.Fatal("oversized source was accepted")
+	} else {
+		var storeErr *DefinitionStoreError
+		if !errors.As(err, &storeErr) || storeErr.Code != "source_oversized" {
+			t.Fatalf("oversized source result = %v (%T), want source_oversized", err, err)
+		}
 	}
 }
 
@@ -850,8 +857,13 @@ func TestRustAdapters_quarantine_conflict_preserves_different_active_and_quarant
 	if active.SourceReference != "https://example.test/different" {
 		t.Fatalf("active source = %q", active.SourceReference)
 	}
-	if err = service.files.quarantine("definitions", installed.SemanticDigest); err == nil || !strings.Contains(err.Error(), "conflict") {
-		t.Fatalf("duplicate quarantine result = %v", err)
+	if err = service.files.quarantine("definitions", installed.SemanticDigest); err == nil {
+		t.Fatal("duplicate quarantine was accepted")
+	} else {
+		var storeErr *DefinitionStoreError
+		if !errors.As(err, &storeErr) || storeErr.Code != "quarantine_conflict" {
+			t.Fatalf("duplicate quarantine result = %v (%T), want quarantine_conflict", err, err)
+		}
 	}
 	active, err = service.files.loadDefinition(installed.SemanticDigest)
 	if err != nil || active.SourceReference != "https://example.test/different" {
@@ -1004,21 +1016,27 @@ func TestRustAdapters_agent_code_cannot_mutate_input_or_run_forever(t *testing.T
 // Rust source: crates/noema-capabilities/adapters/src/luau.rs::reviewed_provider_and_non_json_fixtures_share_one_transform_contract.
 func TestRustAdapters_reviewed_provider_and_non_json_fixtures_share_one_transform_contract(t *testing.T) {
 	cases := []struct {
-		manifest    []byte
-		contentType string
-		body        []byte
-		want        map[string]any
+		manifest             []byte
+		operationID          string
+		acceptedContentTypes []string
+		contentType          string
+		body                 []byte
+		want                 map[string]any
 	}{
-		{rustGmailProfileTransform, "application/json", rustGmailProfileResponse, map[string]any{"account": "person@example.test", "message_count": json.Number("42")}},
-		{rustGitHubUserTransform, "application/json", rustGitHubUserResponse, map[string]any{"account": "fixture-user", "provider_id": json.Number("7")}},
-		{rustCSVTransform, "text/csv", rustCSVResponse, map[string]any{"id": "item-7", "total": json.Number("42")}},
+		{rustGmailProfileTransform, "get_profile", []string{"application/json"}, "application/json", rustGmailProfileResponse, map[string]any{"account": "person@example.test", "message_count": json.Number("42")}},
+		{rustGitHubUserTransform, "get_user", []string{"application/json"}, "application/json", rustGitHubUserResponse, map[string]any{"account": "fixture-user", "provider_id": json.Number("7")}},
+		{rustCSVTransform, "get_record", []string{"text/csv"}, "text/csv", rustCSVResponse, map[string]any{"id": "item-7", "total": json.Number("42")}},
 	}
 	for _, candidate := range cases {
 		definition, err := CompileJSON(candidate.manifest)
 		if err != nil || len(definition.Operations) != 1 {
 			t.Fatalf("compiled transform fixture = %#v, %v", definition, err)
 		}
-		contract := definition.Operations[0].Response
+		operation := definition.Operations[0]
+		if operation.OperationID != candidate.operationID || !slices.Equal(operation.Response.AcceptedContentTypes, candidate.acceptedContentTypes) {
+			t.Fatalf("transform fixture operation = %q content types %#v, want %q %#v", operation.OperationID, operation.Response.AcceptedContentTypes, candidate.operationID, candidate.acceptedContentTypes)
+		}
+		contract := operation.Response
 		value, err := decodeResponse(httpResponse{status: 200, contentType: candidate.contentType, body: candidate.body}, contract)
 		if err != nil {
 			t.Fatalf("%s transform = %v", candidate.contentType, err)
@@ -1235,11 +1253,11 @@ func TestRustAdapters_resolved_targets_reject_empty_mixed_and_non_public_answers
 	if err := validateResolvedAddresses([]net.IP{public}); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateResolvedAddresses(nil); err == nil {
-		t.Fatal("empty DNS answer was accepted")
+	if err := validateResolvedAddresses(nil); !errors.Is(err, errResolvedTargetUnavailable) {
+		t.Fatalf("empty DNS answer error = %v, want Unavailable", err)
 	}
-	if err := validateResolvedAddresses([]net.IP{public, private}); err == nil {
-		t.Fatal("mixed public and private DNS answers were accepted")
+	if err := validateResolvedAddresses([]net.IP{public, private}); !errors.Is(err, errResolvedTargetUnavailable) {
+		t.Fatalf("mixed DNS answer error = %v, want Unavailable", err)
 	}
 	for _, raw := range []string{"https://", "https://user:password@1.1.1.1/", "https://127.0.0.1/", "https://localhost/", "ftp://1.1.1.1/"} {
 		if _, err := netpolicy.CheckURLTarget(raw); err == nil {
@@ -1315,10 +1333,49 @@ func TestRustAdapters_operation_changes_preserve_untouched_operations(t *testing
 }
 
 func rustOAuthProfile() OAuthProfile {
-	profile := googleOAuthProfile()
-	profile.ProfileID = "rust-test"
-	profile.DisplayName = "Rust OAuth test"
-	profile.AuthorizationParameters = map[string]string{"prompt": "consent"}
+	profile := OAuthProfile{
+		SchemaVersion:         1,
+		ProfileID:             "oauth:test",
+		DisplayName:           "Test OAuth",
+		AuthorizationEndpoint: "https://auth.example.test/authorize",
+		TokenEndpoint:         "https://auth.example.test/token",
+		ClientAuthentication:  "none",
+		Setups: []OAuthSetup{
+			{
+				CallbackMode: "loopback",
+				Setup: CredentialSetup{
+					CredentialType: "Desktop app",
+					SetupURL:       "https://developers.example.test/oauth/clients/new",
+					Instructions:   []string{"Create a Desktop app client."},
+					Input: CredentialInput{
+						Kind:      "document",
+						MediaType: "application/json",
+						Fields:    []CredentialField{{ID: "client_id", Label: "Client ID"}},
+						Normalize: &Transform{Language: "luau", Source: "return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id } end"},
+					},
+				},
+			},
+			{
+				CallbackMode: "hosted",
+				Setup: CredentialSetup{
+					CredentialType: "Web application",
+					SetupURL:       "https://developers.example.test/oauth/clients/new",
+					Instructions:   []string{"Create a Web application client."},
+					Input: CredentialInput{
+						Kind:      "document",
+						MediaType: "application/json",
+						Fields:    []CredentialField{{ID: "client_id", Label: "Client ID"}},
+						Normalize: &Transform{Language: "luau", Source: "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id } end"},
+					},
+				},
+			},
+		},
+		AuthorizationParameters:         map[string]string{"prompt": "consent"},
+		AccountSelectionParameters:      map[string]string{"prompt": "select_account"},
+		GrantAudience:                   "test-api",
+		OmittedScopePolicy:              "requested_scopes",
+		PreserveRefreshTokenOnExpansion: true,
+	}
 	raw, _ := json.Marshal(profile)
 	var canonical any
 	_ = json.Unmarshal(raw, &canonical)
@@ -1357,7 +1414,7 @@ func rustOAuthFixture(t *testing.T, callback string) (*Service, OAuthApplication
 
 func rustOAuthGrant(t *testing.T, service *Service, application OAuthApplication, revision int) OAuthGrant {
 	t.Helper()
-	grant := OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: "google-apis", DesiredScopes: []string{"scope.read"}, GrantedScopes: []string{"scope.read"}, AuthorityRevision: revision, TokenRevision: 1, Status: "active"}
+	grant := OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: rustOAuthProfile().GrantAudience, DesiredScopes: []string{"scope.read"}, GrantedScopes: []string{"scope.read"}, AuthorityRevision: revision, TokenRevision: 1, Status: "active"}
 	if err := service.files.installOAuthOwned("adapters/oauth-grants", grant.GrantID, "grant.json", grant, "", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1617,9 +1674,8 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 		t.Fatal("token debug output exposed bearer material")
 	}
 	for _, mode := range []string{"none", "client_secret_basic", "client_secret_post"} {
-		profile := googleOAuthProfile()
+		profile := rustOAuthProfile()
 		profile.ClientAuthentication = mode
-		profile.TokenEndpoint = "https://auth.example.test/token"
 		transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","refresh_token":"fresh-refresh","token_type":"Bearer","expires_in":3600,"scope":"read"}`}
 		form := url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}
 		beforeExchange := time.Now().Unix()
@@ -1627,6 +1683,9 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 		afterExchange := time.Now().Unix()
 		if exchangeErr != nil || token.AccessToken != "fresh-access" || token.ExpiresAt < beforeExchange+3600 || token.ExpiresAt > afterExchange+3600 || !reflect.DeepEqual(token.Scopes, []string{"read"}) {
 			t.Fatalf("%s recorded token exchange = %#v, %v", mode, token, exchangeErr)
+		}
+		if transport.methodSeen != http.MethodPost || transport.urlSeen != profile.TokenEndpoint || transport.contentTypeSeen != "application/x-www-form-urlencoded" || transport.acceptEncodingSeen != "identity" {
+			t.Fatalf("%s token request = method %q URL %q content type %q encoding %q", mode, transport.methodSeen, transport.urlSeen, transport.contentTypeSeen, transport.acceptEncodingSeen)
 		}
 		if !strings.Contains(transport.bodySeen, "code=code-marker") || !strings.Contains(transport.bodySeen, "code_verifier=verifier-marker") || strings.Contains(transport.bodySeen, "scope=") {
 			t.Fatalf("%s recorded authorization-code form = %q", mode, transport.bodySeen)
@@ -1641,7 +1700,8 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 				t.Fatalf("none client authentication = header %q form %#v", transport.authorizationSeen, formValues)
 			}
 		case "client_secret_basic":
-			if !strings.HasPrefix(transport.authorizationSeen, "Basic ") || formValues.Get("client_id") != "" || formValues.Get("client_secret") != "" {
+			wantAuthorization := "Basic " + base64.StdEncoding.EncodeToString([]byte("client-marker:secret-marker"))
+			if transport.authorizationSeen != wantAuthorization || formValues.Get("client_id") != "" || formValues.Get("client_secret") != "" {
 				t.Fatalf("basic client authentication = header %q form %#v", transport.authorizationSeen, formValues)
 			}
 		case "client_secret_post":
@@ -1650,22 +1710,33 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 			}
 		}
 	}
-	profile := googleOAuthProfile()
-	profile.TokenEndpoint = "https://auth.example.test/token"
+	profile := rustOAuthProfile()
+	profile.ClientAuthentication = "client_secret_post"
 	refreshTransport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","scope":"read"}`}
 	refresh, refreshErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"refresh-marker"}}, []string{"read"}, &http.Client{Transport: refreshTransport})
 	if refreshErr != nil || !reflect.DeepEqual(refresh.Scopes, []string{"read"}) {
 		t.Fatalf("recorded refresh exchange = %#v, %v", refresh, refreshErr)
 	}
-	if !strings.Contains(refreshTransport.bodySeen, "grant_type=refresh_token") || !strings.Contains(refreshTransport.bodySeen, "refresh_token=refresh-marker") || strings.Contains(refreshTransport.bodySeen, "scope=") {
+	if refreshTransport.methodSeen != http.MethodPost || refreshTransport.urlSeen != profile.TokenEndpoint || refreshTransport.contentTypeSeen != "application/x-www-form-urlencoded" || refreshTransport.acceptEncodingSeen != "identity" || !strings.Contains(refreshTransport.bodySeen, "grant_type=refresh_token") || !strings.Contains(refreshTransport.bodySeen, "refresh_token=refresh-marker") || strings.Contains(refreshTransport.bodySeen, "scope=") {
 		t.Fatalf("recorded refresh form = %q", refreshTransport.bodySeen)
+	}
+	invalidTransport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"MAC","scope":"read"}`}
+	invalidProfile := rustOAuthProfile()
+	_, invalidErr := exchangeOAuthTokenWithClient(t.Context(), invalidProfile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{}, url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}, []string{"read"}, &http.Client{Transport: invalidTransport})
+	if !errors.Is(invalidErr, errOAuthInvalidResponse) {
+		t.Fatalf("invalid OAuth token response = %v, want InvalidResponse", invalidErr)
 	}
 }
 
 type recordingOAuthTransport struct {
-	body              string
-	bodySeen          string
-	authorizationSeen string
+	body               string
+	statusCode         int
+	bodySeen           string
+	methodSeen         string
+	urlSeen            string
+	contentTypeSeen    string
+	acceptEncodingSeen string
+	authorizationSeen  string
 }
 
 func (r *recordingOAuthTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -1674,8 +1745,16 @@ func (r *recordingOAuthTransport) RoundTrip(request *http.Request) (*http.Respon
 		return nil, err
 	}
 	r.bodySeen = string(raw)
+	r.methodSeen = request.Method
+	r.urlSeen = request.URL.String()
+	r.contentTypeSeen = request.Header.Get("Content-Type")
+	r.acceptEncodingSeen = request.Header.Get("Accept-Encoding")
 	r.authorizationSeen = request.Header.Get("Authorization")
-	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(r.body)), Request: request}, nil
+	statusCode := r.statusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	return &http.Response{StatusCode: statusCode, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(r.body)), Request: request}, nil
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/network/oauth_token.rs::rejects_ambiguous_json_and_scope_or_expiry_drift.
@@ -1719,8 +1798,8 @@ func TestRustAdapters_refresh_uses_the_reviewed_client_auth_without_requesting_n
 	if _, err = parseOAuthToken(200, []byte(`{"access_token":"fresh-access","token_type":"Bearer","scope":"read unknown"}`), []string{"read"}, true, 1000); err == nil {
 		t.Fatal("refresh scope expansion was accepted")
 	}
-	profile := googleOAuthProfile()
-	profile.TokenEndpoint = "https://auth.example.test/token"
+	profile := rustOAuthProfile()
+	profile.ClientAuthentication = "client_secret_post"
 	transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","scope":"read"}`}
 	_, exchangeErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"refresh-marker"}}, []string{"read", "write"}, &http.Client{Transport: transport})
 	if exchangeErr != nil {
@@ -1747,7 +1826,7 @@ func rustInstallOAuthAccountGrant(t *testing.T, service *Service, application OA
 		t.Fatal(err)
 	}
 	generation := tokenID
-	grant := OAuthGrant{SchemaVersion: 1, GrantID: grantID, ApplicationID: application.ApplicationID, AccountID: &account.AccountID, Audience: "google-apis", DesiredScopes: []string{"scope.read"}, GrantedScopes: []string{"scope.read"}, AuthorityRevision: 1, TokenGeneration: &generation, TokenRevision: 1, Status: "active"}
+	grant := OAuthGrant{SchemaVersion: 1, GrantID: grantID, ApplicationID: application.ApplicationID, AccountID: &account.AccountID, Audience: rustOAuthProfile().GrantAudience, DesiredScopes: []string{"scope.read"}, GrantedScopes: []string{"scope.read"}, AuthorityRevision: 1, TokenGeneration: &generation, TokenRevision: 1, Status: "active"}
 	token := oauthGrantToken{SchemaVersion: 1, GenerationID: generation, AccessToken: "access-" + tokenID, RefreshToken: "refresh-" + tokenID, ExpiresAt: 2_000_000_000}
 	if err := service.files.installOAuthOwned("adapters/oauth-grants", grant.GrantID, "grant.json", grant, "tokens", generation, token); err != nil {
 		t.Fatal(err)
@@ -1856,7 +1935,7 @@ func TestRustAdapters_unsafe_or_extra_entries_block_the_complete_snapshot(t *tes
 func rustRuntimeOAuthFixture(t *testing.T, scopes []string) (*Service, OAuthApplication, Definition, OAuthGrant, Connection) {
 	t.Helper()
 	service, application, definition := rustOAuthFixture(t, "http://127.0.0.1:3737/adapter/oauth/callback")
-	grant := OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: "google-apis", DesiredScopes: []string{"scope.extra", "scope.read"}, GrantedScopes: append([]string(nil), scopes...), AuthorityRevision: 3, TokenRevision: 4, Status: "active"}
+	grant := OAuthGrant{SchemaVersion: 1, GrantID: randomHex(), ApplicationID: application.ApplicationID, Audience: rustOAuthProfile().GrantAudience, DesiredScopes: []string{"scope.extra", "scope.read"}, GrantedScopes: append([]string(nil), scopes...), AuthorityRevision: 3, TokenRevision: 4, Status: "active"}
 	if err := service.files.installOAuthOwned("adapters/oauth-grants", grant.GrantID, "grant.json", grant, "", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -3090,8 +3169,23 @@ func TestRustAdapters_selection_is_not_activation_and_source_refresh_keeps_old_d
 		t.Fatal(err)
 	}
 	secondActivation, err := secondCandidate.Activate(secondSelection, rustReviewedOpenAPIManifest(secondCandidate, true))
-	if err != nil || firstActivation.SourceDigest != firstCandidate.SourceDigest || !slices.Equal(firstActivation.OperationIDs, selection.OperationIDs) || secondActivation.SemanticChangeFrom(firstActivation) != OpenAPIDocumentationOnly {
-		t.Fatalf("OpenAPI source refresh = %#v %#v, %v", firstActivation, secondActivation, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstActivation.SourceDigest != firstCandidate.SourceDigest || !slices.Equal(firstActivation.OperationIDs, selection.OperationIDs) {
+		t.Fatalf("OpenAPI activation authority = %#v", firstActivation)
+	}
+	if change := secondActivation.SemanticChangeFrom(firstActivation); change != OpenAPIDocumentationOnly {
+		t.Fatalf("OpenAPI source refresh classification = %q, want DocumentationOnly", change)
+	}
+	semanticManifest := rustReviewedOpenAPIManifest(firstCandidate, true)
+	semanticManifest.Operations[0].Path = "/changed"
+	semanticActivation, err := firstCandidate.Activate(selection, semanticManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change := semanticActivation.SemanticChangeFrom(firstActivation); change != OpenAPIRequiresReview {
+		t.Fatalf("OpenAPI semantic refresh classification = %q, want RequiresReview", change)
 	}
 }
 

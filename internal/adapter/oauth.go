@@ -30,10 +30,11 @@ const (
 )
 
 var (
-	errOAuthRejected      = errors.New("adapter OAuth grant was rejected")
-	errOAuthScopeMismatch = errors.New("adapter OAuth response scopes are invalid")
-	errOAuthUnsupported   = errors.New("adapter OAuth capability is unsupported")
-	errOAuthInvalidInput  = errors.New("adapter OAuth input is invalid")
+	errOAuthRejected        = errors.New("adapter OAuth grant was rejected")
+	errOAuthScopeMismatch   = errors.New("adapter OAuth response scopes are invalid")
+	errOAuthInvalidResponse = errors.New("adapter OAuth response is invalid")
+	errOAuthUnsupported     = errors.New("adapter OAuth capability is unsupported")
+	errOAuthInvalidInput    = errors.New("adapter OAuth input is invalid")
 )
 
 type oauthCategorizedError struct {
@@ -296,16 +297,18 @@ func parseOAuthClient(profile OAuthProfile, raw []byte, callback string) (string
 			return "", "", "", OAuthClientInvalidDocument
 		}
 		if mode == "hosted" {
-			var redirects []string
-			if json.Unmarshal([]byte(fields["redirect_uris"]), &redirects) != nil {
-				return "", "", "", OAuthClientInvalidDocument
-			}
-			found := false
-			for _, redirect := range redirects {
-				found = found || redirect == callback
-			}
-			if !found {
-				return "", "", "", OAuthClientRedirectMismatch
+			if rawRedirects, hasRedirects := fields["redirect_uris"]; hasRedirects {
+				var redirects []string
+				if json.Unmarshal([]byte(rawRedirects), &redirects) != nil {
+					return "", "", "", OAuthClientInvalidDocument
+				}
+				found := false
+				for _, redirect := range redirects {
+					found = found || redirect == callback
+				}
+				if !found {
+					return "", "", "", OAuthClientRedirectMismatch
+				}
 			}
 		}
 		return mode, fields["client_id"], fields["client_secret"], nil
@@ -838,11 +841,11 @@ func exchangeOAuthTokenWithClient(ctx context.Context, profile OAuthProfile, app
 		}
 	}
 	if headerBytes > 64<<10 {
-		return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, (128<<10)+1))
 	if err != nil || len(body) > 128<<10 {
-		return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	return parseOAuthTokenWithPolicy(response.StatusCode, body, expected, form.Get("grant_type") == "refresh_token", time.Now().Unix(), profile.OmittedScopePolicy)
 }
@@ -859,7 +862,7 @@ func parseOAuthTokenWithPolicy(status int, body []byte, expected []string, refre
 		if json.Unmarshal(body, &failure) == nil && failure.Error != "" {
 			return oauthGrantToken{}, errOAuthRejected
 		}
-		return oauthGrantToken{}, errors.New("adapter OAuth authorization failed")
+		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	var value struct {
 		AccessToken  string `json:"access_token"`
@@ -871,28 +874,28 @@ func parseOAuthTokenWithPolicy(status int, body []byte, expected []string, refre
 	decoded, err := script.DecodeJSON(body)
 	normalized, marshalErr := script.MarshalJSON(decoded)
 	if err != nil || marshalErr != nil || json.Unmarshal(normalized, &value) != nil || value.AccessToken == "" || len(value.AccessToken) > 16<<10 || len(value.RefreshToken) > 16<<10 || !strings.EqualFold(value.TokenType, "Bearer") || value.ExpiresIn != nil && *value.ExpiresIn <= 0 {
-		return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	scopes := strings.Fields(value.Scope)
 	if value.Scope == "" {
 		if omittedScopePolicy != "requested_scopes" {
-			return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+			return oauthGrantToken{}, errOAuthInvalidResponse
 		}
 		scopes = append([]string(nil), expected...)
 	}
 	sort.Strings(scopes)
 	if len(uniqueStrings(append([]string(nil), scopes...))) != len(scopes) {
-		return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	total := 0
 	for _, scope := range scopes {
 		if !boundedText(scope, 256, false) {
-			return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+			return oauthGrantToken{}, errOAuthInvalidResponse
 		}
 		total += len(scope)
 	}
 	if total > 4096 {
-		return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	if refresh && !scopeSubset(expected, scopes) {
 		return oauthGrantToken{}, errOAuthScopeMismatch

@@ -63,7 +63,10 @@ type OpenAPIActivation struct {
 
 type OpenAPISemanticChange string
 
-const OpenAPIDocumentationOnly OpenAPISemanticChange = "documentation_only"
+const (
+	OpenAPIDocumentationOnly OpenAPISemanticChange = "documentation_only"
+	OpenAPIRequiresReview    OpenAPISemanticChange = "requires_review"
+)
 
 func (candidate OpenAPICandidate) HasBlockingDiagnostics() bool {
 	return len(candidate.Diagnostics) > 0
@@ -98,7 +101,7 @@ func (activation OpenAPIActivation) SemanticChangeFrom(previous OpenAPIActivatio
 	if activation.Compiled.SemanticDigest == previous.Compiled.SemanticDigest {
 		return OpenAPIDocumentationOnly
 	}
-	return "semantic"
+	return OpenAPIRequiresReview
 }
 
 func mustCompile(manifest Manifest) Definition {

@@ -22,6 +22,17 @@ const (
 	connectionBytes = 128 << 10
 )
 
+// DefinitionStoreError identifies an integrity category at the durable
+// definition boundary.
+type DefinitionStoreError struct{ Code string }
+
+func (e *DefinitionStoreError) Error() string {
+	if e == nil {
+		return "adapter definition store integrity failed"
+	}
+	return "adapter definition store integrity failed: " + e.Code
+}
+
 type provenance struct {
 	SourceReference     string   `json:"source_reference"`
 	SourceDigest        string   `json:"source_digest,omitempty"`
@@ -177,7 +188,7 @@ func (f *fileAuthority) installDefinitionWithSource(manifest Manifest, sourceRef
 		return Definition{}, err
 	}
 	if len(source) > sourceLimit {
-		return Definition{}, errors.New("adapter source is oversized")
+		return Definition{}, &DefinitionStoreError{Code: "source_oversized"}
 	}
 	if len(source) > 0 && sourceFormat != "json" && sourceFormat != "yaml" {
 		return Definition{}, errors.New("adapter source format is invalid")
@@ -709,7 +720,7 @@ func (f *fileAuthority) quarantine(kind, id string) error {
 	}
 	target := "adapters/quarantine/" + kind + "/" + id
 	if _, err := f.root.Lstat(target); err == nil {
-		return errors.New("adapter quarantine conflict")
+		return &DefinitionStoreError{Code: "quarantine_conflict"}
 	}
 	if err := f.root.Rename("adapters/"+kind+"/"+id, target); err != nil {
 		return err

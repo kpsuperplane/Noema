@@ -636,8 +636,11 @@ func (s *Service) SetupCredentialConnection(ctx context.Context, digest, replace
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	definition, err := s.files.loadDefinition(digest)
-	if err != nil || !definition.Manifest.Reviewed || definition.Superseded || definition.Manifest.Authentication.Kind != "credential" {
+	if err != nil || !definition.Manifest.Reviewed || definition.Superseded {
 		return Definition{}, Connection{}, errors.New("adapter credential setup is unavailable")
+	}
+	if definition.Manifest.Authentication.Kind != "credential" {
+		return Definition{}, Connection{}, errOAuthUnsupported
 	}
 	fields, err := normalizeCredential(*definition.Manifest.Authentication.Setup, input)
 	if err != nil {

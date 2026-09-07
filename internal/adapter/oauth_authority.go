@@ -167,12 +167,17 @@ func validateOAuthProfile(p OAuthProfile) error {
 		for _, field := range entry.Setup.Input.Fields {
 			fields[field.ID] = true
 		}
-		wanted := 2
+		allowed := map[string]bool{"client_id": true, "client_secret": true}
 		if entry.CallbackMode == "hosted" {
-			wanted = 3
+			allowed["redirect_uris"] = true
 		}
-		if len(fields) != wanted || !fields["client_id"] || !fields["client_secret"] || entry.CallbackMode == "hosted" && !fields["redirect_uris"] {
+		if len(fields) < 1 || len(fields) > len(allowed) || !fields["client_id"] {
 			return errors.New("adapter OAuth profile credential fields are invalid")
+		}
+		for name := range fields {
+			if !allowed[name] {
+				return errors.New("adapter OAuth profile credential fields are invalid")
+			}
 		}
 	}
 	return nil
