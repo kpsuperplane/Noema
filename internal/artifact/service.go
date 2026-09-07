@@ -71,6 +71,11 @@ type Service struct {
 	errors *diagnostics.Writer
 	mu     sync.Mutex
 	now    func() time.Time
+	// These hooks are nil in production. Tests use them to reproduce the
+	// deterministic operation allocation and publication interruption points
+	// covered by the Rust filesystem contract.
+	testOperationIDs []string
+	testPublishHook  func() error
 }
 
 // New creates one concrete Artifact service and cleans stale stages.
@@ -256,9 +261,12 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 	if err := s.cleanupStaging(s.now()); err != nil {
 		return publication{}, err
 	}
-	opID, err := operationID()
+	opID, err := s.nextOperationID()
 	if err != nil {
 		return publication{}, err
+	}
+	if !validOperationID(opID) {
+		return publication{}, errors.New("unsafe Artifact operation id")
 	}
 	stageDir := filepath.Join(stagingRootName, opID)
 	stage, err := createExclusiveDirectory(s.root, stagingRootName, opID)
@@ -283,6 +291,12 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 	if err != nil {
 		_ = removeStage(s.root, stageDir, filename)
 		return publication{}, fmt.Errorf("write Artifact stage: %w", err)
+	}
+	if s.testPublishHook != nil {
+		if err := s.testPublishHook(); err != nil {
+			_ = removeStage(s.root, stageDir, filename)
+			return publication{}, err
+		}
 	}
 	finalBase := filepath.Join(versionDirectory(owner, artifactID, index), "objects")
 	finalDir := filepath.Join(finalBase, opID)
@@ -316,6 +330,15 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 		relativePath: filepath.ToSlash(finalPath), directory: finalDir, filename: filename,
 		byteSize: int64(len(bytes)), digest: hex.EncodeToString(digest[:]),
 	}, nil
+}
+
+func (s *Service) nextOperationID() (string, error) {
+	if len(s.testOperationIDs) > 0 {
+		value := s.testOperationIDs[0]
+		s.testOperationIDs = s.testOperationIDs[1:]
+		return value, nil
+	}
+	return operationID()
 }
 
 func (s *Service) discardPublication(value publication) error {
