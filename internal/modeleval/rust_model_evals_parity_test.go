@@ -150,8 +150,7 @@ func TestRustModelEvals_BundledCandidateAndSuiteManifestsAreValid(t *testing.T) 
 func TestRustModelEvals_ManifestRejectsDuplicateRolesAndHidesPrivateBaseURL(t *testing.T) {
 	value := rustModelEvalManifestCandidate("candidate", 1)
 	value.Roles = []string{"primary", "primary"}
-	_, policies := rustModelEvalPolicies("candidate", 0)
-	err := validateMatrix(rustModelEvalSuite(1), policies, []candidate{value}, false)
+	err := validateCandidates([]candidate{value})
 	if err == nil || !strings.Contains(err.Error(), "repeats an evaluation role") {
 		t.Fatalf("duplicate role error = %v", err)
 	}
@@ -172,7 +171,7 @@ func TestRustModelEvals_ManifestRejectsDuplicateRolesAndHidesPrivateBaseURL(t *t
 	}
 
 	value.ID = "../escape"
-	if err := validateMatrix(rustModelEvalSuite(1), policies, []candidate{value}, false); err == nil {
+	if err := validateCandidates([]candidate{value}); err == nil {
 		t.Fatal("path escaping candidate ID was accepted")
 	}
 }
@@ -180,16 +179,15 @@ func TestRustModelEvals_ManifestRejectsDuplicateRolesAndHidesPrivateBaseURL(t *t
 // Rust source: crates/noema-model-evals/src/matrix_manifest.rs::manifest_requires_exact_openrouter_mapping_and_rejects_local_targets
 func TestRustModelEvals_ManifestRequiresExactOpenrouterMappingAndRejectsLocalTargets(t *testing.T) {
 	value := rustModelEvalManifestCandidate("candidate", 1)
-	_, policies := rustModelEvalPolicies("candidate", 0)
 	value.Targets[0].ModelProfile = "vendor/other"
-	err := validateMatrix(rustModelEvalSuite(1), policies, []candidate{value}, false)
+	err := validateCandidates([]candidate{value})
 	if err == nil || !strings.Contains(err.Error(), "exact OpenRouter model and effort") {
 		t.Fatalf("mismatched OpenRouter target error = %v", err)
 	}
 
 	value = rustModelEvalManifestCandidate("candidate", 1)
 	value.Targets = []recommendationTarget{{Provider: "local_models", ModelProfile: "local-model"}}
-	err = validateMatrix(rustModelEvalSuite(1), policies, []candidate{value}, false)
+	err = validateCandidates([]candidate{value})
 	if err == nil || !strings.Contains(err.Error(), "cannot map local recommendation target") {
 		t.Fatalf("local target error = %v", err)
 	}
@@ -443,14 +441,14 @@ func TestRustModelEvals_DefaultSelectionSkipsDisabledCandidatesButExplicitSelect
 
 // Rust source: crates/noema-model-evals/src/matrix_runner.rs::default_decision_requires_every_runtime_role
 func TestRustModelEvals_DefaultDecisionRequiresEveryRuntimeRole(t *testing.T) {
-	_, policies := rustModelEvalPolicies("primary-only", 0)
+	policies := rustModelEvalRunnerPolicies("primary-only")
 	err := validateDecisionCandidates([]candidate{rustModelEvalCandidate("primary-only", 1)}, policies)
 	if err == nil || !strings.Contains(err.Error(), "task_simple") {
 		t.Fatalf("missing-role error = %v", err)
 	}
 	custom := rustModelEvalCandidate("custom-endpoint", 1)
 	custom.BaseURL = "https://example.test/v1"
-	_, policies = rustModelEvalPolicies("custom-endpoint", 0)
+	policies = rustModelEvalRunnerPolicies("custom-endpoint")
 	err = validateDecisionCandidates([]candidate{custom}, policies)
 	if err == nil || !strings.Contains(err.Error(), "cannot override the OpenRouter base URL") {
 		t.Fatalf("custom endpoint error = %v", err)
@@ -572,8 +570,21 @@ func rustModelEvalReportCandidate(id string, inputPrice float64) candidate {
 	return candidate{ID: id, Name: id, Model: id, Roles: []string{"primary"}, AcceptedResponseModels: []string{"case-model"}, Targets: []recommendationTarget{{Provider: "openrouter", ModelProfile: id}}, Pricing: &modelPricing{InputUSDPerMillion: inputPrice, OutputUSDPerMillion: 1}, Enabled: &enabled}
 }
 
-func rustModelEvalPolicies(incumbent string, margin float64) (suiteConfig, rolePolicies) {
-	return rustModelEvalSuite(1), rustModelEvalPoliciesForReport(incumbent, margin)
+func rustModelEvalRunnerPolicies(incumbent string) rolePolicies {
+	policies := rolePolicies{SchemaVersion: 1, Judge: judgePolicy{Model: "judge/model", MaximumOutputTokens: 256}}
+	for _, role := range roles() {
+		policies.Policies = append(policies.Policies, rolePolicy{
+			Role:                     role,
+			IncumbentCandidateID:     incumbent,
+			MinimumCases:             5,
+			MinimumQualityScore:      0.8,
+			MaximumErrorRate:         0.1,
+			MaximumP95LatencyMS:      120000,
+			ReplacementQualityMargin: 0.02,
+			DeterministicWeight:      1,
+		})
+	}
+	return policies
 }
 
 func rustModelEvalPoliciesForReport(incumbent string, margin float64) rolePolicies {

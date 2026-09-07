@@ -201,7 +201,52 @@ func validateMatrix(s suiteConfig, p rolePolicies, cs []candidate, decision bool
 	if e := s.validate(); e != nil {
 		return e
 	}
-	if len(cs) == 0 || p.SchemaVersion != 2 || p.Judge.Model == "" || p.Judge.MaximumOutputTokens <= 0 {
+	if p.SchemaVersion != 2 || p.Judge.Model == "" || p.Judge.MaximumOutputTokens <= 0 {
+		return errors.New("invalid candidates or policy version")
+	}
+	if e := validateCandidates(cs); e != nil {
+		return e
+	}
+	allRoles := roles()
+	seen := map[string]bool{}
+	for _, r := range p.Policies {
+		if !slices.Contains(allRoles, r.Role) || seen[r.Role] || r.MinimumCases < 5 || r.MaximumP95LatencyMS <= 0 {
+			return fmt.Errorf("invalid policy %s", r.Role)
+		}
+		seen[r.Role] = true
+		for _, v := range []float64{r.MinimumQualityScore, r.MaximumErrorRate, r.ReplacementQualityMargin, r.DeterministicWeight, r.JudgeWeight} {
+			if !finiteNonnegative(v) || v > 1 {
+				return errors.New("invalid policy threshold")
+			}
+		}
+		if math.Abs(r.DeterministicWeight+r.JudgeWeight-1) > 1e-9 || (r.JudgeWeight > 0) != (len(r.JudgeCaseIDs) > 0) {
+			return errors.New("invalid policy weights")
+		}
+		cases := runtime.EvaluationCases([]string{r.Role})
+		js := map[string]bool{}
+		for _, id := range r.JudgeCaseIDs {
+			if js[id] || slices.IndexFunc(cases, func(c runtime.EvaluationCase) bool { return c.ID == id && c.JudgeRubric != "" }) < 0 {
+				return fmt.Errorf("policy %s references unavailable judge case %s", r.Role, id)
+			}
+			js[id] = true
+		}
+		if decision && slices.IndexFunc(cs, func(c candidate) bool { return c.ID == r.IncumbentCandidateID && slices.Contains(c.Roles, r.Role) }) < 0 {
+			return fmt.Errorf("missing incumbent for %s", r.Role)
+		}
+	}
+	if len(seen) != len(allRoles) {
+		return errors.New("policies must cover every production role")
+	}
+	if decision {
+		if e := validateDecisionCandidates(cs, p); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func validateCandidates(cs []candidate) error {
+	if len(cs) == 0 {
 		return errors.New("invalid candidates or policy version")
 	}
 	seen := map[string]bool{}
@@ -244,40 +289,6 @@ func validateMatrix(s suiteConfig, p rolePolicies, cs []candidate, decision bool
 			if !finiteNonnegative(q.InputUSDPerMillion) || !finiteNonnegative(q.OutputUSDPerMillion) || q.CachedInputUSDPerMillion != nil && !finiteNonnegative(*q.CachedInputUSDPerMillion) {
 				return errors.New("invalid pricing")
 			}
-		}
-	}
-	seen = map[string]bool{}
-	for _, r := range p.Policies {
-		if !slices.Contains(allRoles, r.Role) || seen[r.Role] || r.MinimumCases < 5 || r.MaximumP95LatencyMS <= 0 {
-			return fmt.Errorf("invalid policy %s", r.Role)
-		}
-		seen[r.Role] = true
-		for _, v := range []float64{r.MinimumQualityScore, r.MaximumErrorRate, r.ReplacementQualityMargin, r.DeterministicWeight, r.JudgeWeight} {
-			if !finiteNonnegative(v) || v > 1 {
-				return errors.New("invalid policy threshold")
-			}
-		}
-		if math.Abs(r.DeterministicWeight+r.JudgeWeight-1) > 1e-9 || (r.JudgeWeight > 0) != (len(r.JudgeCaseIDs) > 0) {
-			return errors.New("invalid policy weights")
-		}
-		cases := runtime.EvaluationCases([]string{r.Role})
-		js := map[string]bool{}
-		for _, id := range r.JudgeCaseIDs {
-			if js[id] || slices.IndexFunc(cases, func(c runtime.EvaluationCase) bool { return c.ID == id && c.JudgeRubric != "" }) < 0 {
-				return fmt.Errorf("policy %s references unavailable judge case %s", r.Role, id)
-			}
-			js[id] = true
-		}
-		if decision && slices.IndexFunc(cs, func(c candidate) bool { return c.ID == r.IncumbentCandidateID && slices.Contains(c.Roles, r.Role) }) < 0 {
-			return fmt.Errorf("missing incumbent for %s", r.Role)
-		}
-	}
-	if len(seen) != len(allRoles) {
-		return errors.New("policies must cover every production role")
-	}
-	if decision {
-		if e := validateDecisionCandidates(cs, p); e != nil {
-			return e
 		}
 	}
 	return nil
