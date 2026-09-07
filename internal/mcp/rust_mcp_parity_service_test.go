@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -82,6 +83,16 @@ func TestRustMCP_HTTPConfigurationValidationRedactionAndRedirectContracts(t *tes
 	if strings.Contains(debug, "Bearer secret") || !strings.Contains(debug, "REDACTED") {
 		t.Fatalf("secret debug = %s", debug)
 	}
+	authorization := &OAuthCredentials{AccessToken: "access-secret", RefreshToken: "refresh-secret", ClientID: "client-secret"}
+	authorizationDebug := fmt.Sprintf("%#v", authorization)
+	for _, value := range []string{"access-secret", "refresh-secret", "client-secret"} {
+		if strings.Contains(authorizationDebug, value) {
+			t.Errorf("OAuth authorization debug leaked %q: %s", value, authorizationDebug)
+		}
+	}
+	if !strings.Contains(authorizationDebug, "REDACTED") {
+		t.Errorf("OAuth authorization debug lacked redaction: %s", authorizationDebug)
+	}
 	for _, raw := range []string{"https://user:password@example.com/mcp", "https://example.com/mcp#fragment", "http://example.com/mcp", "file:///tmp/mcp.sock"} {
 		if parsed, parseErr := normalizeServiceURL(t.Context(), raw); parseErr == nil && parsed != nil {
 			t.Fatalf("unsafe URL accepted: %s", raw)
@@ -94,7 +105,9 @@ func TestRustMCP_HTTPConfigurationValidationRedactionAndRedirectContracts(t *tes
 	}
 	redirectTarget := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("redirect target received a request") }))
 	t.Cleanup(redirectTarget.Close)
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var originHeaders http.Header
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		originHeaders = request.Header.Clone()
 		http.Redirect(w, nil, redirectTarget.URL+"/leak", http.StatusTemporaryRedirect)
 	}))
 	t.Cleanup(origin.Close)
@@ -110,6 +123,9 @@ func TestRustMCP_HTTPConfigurationValidationRedactionAndRedirectContracts(t *tes
 	response.Body.Close()
 	if response.StatusCode != http.StatusTemporaryRedirect {
 		t.Fatalf("redirect status = %d", response.StatusCode)
+	}
+	if originHeaders.Get("Authorization") != "Bearer secret" || originHeaders.Get("X-Override") != "secret" {
+		t.Fatalf("origin did not receive merged secret headers: %#v", originHeaders)
 	}
 }
 
@@ -193,7 +209,10 @@ func TestRustMCP_ShutdownTimeoutKeepsTheLifecycleShuttingDown(t *testing.T) {
 	service.Close()
 	service.Close()
 	if _, err := service.Catalog(t.Context()); err == nil {
-		t.Fatal("closed MCP service exposed a catalog")
+		t.Error("closed MCP service exposed a catalog")
+	}
+	if _, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "unsupported"}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "shutting") {
+		t.Errorf("closed MCP service admission error = %v", err)
 	}
 }
 
@@ -215,14 +234,39 @@ func TestRustMCP_RegistryAttemptLifecycleContracts(t *testing.T) {
 func TestRustMCP_OAuthProtocolSafetyTimeoutAndRedactionContracts(t *testing.T) {
 	for _, raw := range []string{"javascript:alert(1)", "file:///tmp/authorize", "http://auth.example/authorize", "https://user:password@auth.example/authorize", "https://auth.example/authorize#access_token=secret"} {
 		if _, err := validateOAuthRemoteURL(raw); err == nil {
-			t.Fatalf("unsafe OAuth URL accepted: %s", raw)
+			t.Errorf("unsafe OAuth URL accepted: %s", raw)
 		}
 	}
 	if _, err := validateOAuthCallback("https://callback.example/oauth"); err == nil {
-		t.Fatal("non-loopback callback accepted")
+		t.Error("non-loopback callback accepted")
 	}
-	if _, err := validateOAuthCallback("http://127.0.0.1/mcp/oauth/callback"); err != nil {
+	callback := "http://127.0.0.1/mcp/oauth/callback"
+	if _, err := validateOAuthCallback(callback); err != nil {
+		t.Error(err)
+	}
+	paths, err := home.FromRoot(t.TempDir())
+	if err != nil {
 		t.Fatal(err)
+	}
+	database, err := store.Open(t.Context(), paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(paths, database, false, nil, callback)
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { service.Close(); _ = database.Close() })
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := service.StartOAuthCreate(cancelled, "human:local", SetupInput{DisplayName: "Cancelled", TransportKind: "streamable_http", URL: "https://mcp.example/mcp"}, callback); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled OAuth setup error = %v", err)
+	}
+	expired, expire := context.WithTimeout(t.Context(), time.Millisecond)
+	defer expire()
+	if _, err := service.StartOAuthCreate(expired, "human:local", SetupInput{DisplayName: "Timed out", TransportKind: "streamable_http", URL: "https://mcp.example/mcp"}, callback); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("timed out OAuth setup error = %v", err)
 	}
 	attempt := OAuthAttempt{ID: "private-attempt", Status: "waiting_for_user", AuthorizationURL: "https://auth.example/authorize?state=private-token"}
 	debug := fmt.Sprintf("%#v", attempt)
@@ -233,35 +277,58 @@ func TestRustMCP_OAuthProtocolSafetyTimeoutAndRedactionContracts(t *testing.T) {
 
 // Rust source: crates/noema-capabilities/mcp/src/secrets.rs::filesystem_secret_persistence_privacy_and_removal_contracts (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_FilesystemSecretPersistencePrivacyAndRemovalContracts(t *testing.T) {
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "docs", Version: "1"}, nil)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "read", Description: "Read docs", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"ok": true}, nil
+	})
+	server := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(server.Close)
 	paths, _, service := newMCPParityService(t, false)
-	id := "mcp_server:" + strings.Repeat("a", 32)
-	expected := SecretMaterial{Revision: "revision:test", Environment: map[string]string{"GITHUB_TOKEN": "env-secret"}, Headers: map[string]string{"Authorization": "Bearer header-secret"}}
-	if err := service.secrets.writeConnection(id, expected); err != nil {
-		t.Fatal(err)
+	expected := SecretMaterial{Environment: map[string]string{"GITHUB_TOKEN": "env-secret"}, Headers: map[string]string{"Authorization": "Bearer header-secret"}}
+	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Docs", TransportKind: "streamable_http", URL: server.URL, AuthPreference: "USE_ANONYMOUS", Secrets: expected})
+	if err != nil || created.Server == nil {
+		t.Fatalf("secret setup = %#v, %v", created, err)
 	}
-	loaded, err := service.secrets.loadConnection(id)
-	if err != nil || !reflect.DeepEqual(loaded, expected) {
+	loaded, err := service.secrets.loadConnection(created.Server.ID)
+	if err != nil || loaded.Environment["GITHUB_TOKEN"] != "env-secret" || loaded.Headers["Authorization"] != "Bearer header-secret" || loaded.Revision == "" {
 		t.Fatalf("secret round trip = %#v, %v", loaded, err)
 	}
-	path := filepath.Join(paths.Root(), "mcp", id, "credentials.json")
+	path := filepath.Join(paths.Root(), "mcp", created.Server.ID, "credentials.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "env-secret") || strings.Contains(string(data), "safe_config") || strings.Contains(string(data), "url") {
+	if !strings.Contains(string(data), "env-secret") || !strings.Contains(string(data), "Bearer header-secret") || strings.Contains(string(data), "safe_config") || strings.Contains(string(data), "url") || strings.Contains(string(data), "command") {
 		t.Fatalf("serialized secret material = %s", data)
+	}
+	debug := fmt.Sprintf("%v %#v", loaded, loaded)
+	for _, secret := range []string{"env-secret", "Bearer header-secret"} {
+		if strings.Contains(debug, secret) {
+			t.Fatalf("secret debug exposed %q: %s", secret, debug)
+		}
+	}
+	if !strings.Contains(debug, "REDACTED") {
+		t.Fatalf("secret debug lacked redaction: %s", debug)
 	}
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(path)
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("secret permissions = %v, %v", info, err)
 		}
+		directory, err := os.Stat(filepath.Dir(path))
+		if err != nil || directory.Mode().Perm() != 0o700 {
+			t.Fatalf("secret directory permissions = %v, %v", directory, err)
+		}
 	}
-	if err := service.secrets.removeConnection(id); err != nil {
-		t.Fatal(err)
+	deleted, err := service.Delete(t.Context(), created.Server.ID)
+	if err != nil || !deleted {
+		t.Fatalf("secret deletion = %t, %v", deleted, err)
 	}
-	if err := service.secrets.removeConnection(id); err == nil {
-		t.Fatal("repeated secret removal unexpectedly failed")
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Errorf("secret home remained after deletion: %v", err)
+	}
+	if deleted, err := service.Delete(t.Context(), created.Server.ID); err != nil || deleted {
+		t.Fatalf("repeated secret deletion = %t, %v", deleted, err)
 	}
 }
 

@@ -633,13 +633,26 @@ func TestRustMCP_RefreshPolicyPreservesUnboundedLegacyAndRotatedTokens(t *testin
 
 // Rust source: crates/noema-capabilities/mcp/src/oauth_model.rs::debug_preserves_attempt_identity_without_exposing_oauth_secrets (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustMCP_DebugPreservesAttemptIdentityWithoutExposingOAuthSecrets(t *testing.T) {
-	view := OAuthAttempt{ID: "attempt-public", Status: "waiting_for_user", AuthorizationURL: "https://auth.example/authorize?prompt=consent&state=authorization-secret", Error: "callback-secret"}
-	debug := fmt.Sprintf("%#v", view)
-	if strings.Contains(debug, "callback-secret") || strings.Contains(debug, "authorization-secret") {
-		t.Fatalf("OAuth debug exposed secret: %s", debug)
+	_, database, service := newMCPParityService(t, false)
+	attemptID := "mcp_oauth:" + strings.Repeat("a", 32)
+	now := time.Now()
+	if err := database.CreateMCPOAuthAttempt(t.Context(), store.MCPOAuthAttempt{ID: attemptID, OwnerHumanID: "human:local", Status: "waiting_for_user", ExpiresAt: now.Add(time.Minute), CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(debug, "attempt-public") || !strings.Contains(debug, "waiting_for_user") {
-		t.Fatalf("OAuth debug lost public identity: %s", debug)
+	service.mu.Lock()
+	service.attempts[attemptID] = &oauthAttempt{authorizationURL: "https://auth.example/authorize?prompt=consent&state=authorization-secret"}
+	service.mu.Unlock()
+	t.Cleanup(func() { service.CancelOAuth(attemptID) })
+	view, err := service.Attempt(t.Context(), attemptID, "human:local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	debug := fmt.Sprintf("%#v", view)
+	if strings.Contains(debug, "authorization-secret") || strings.Contains(debug, "callback-secret") {
+		t.Errorf("OAuth debug exposed secret: %s", debug)
+	}
+	if !strings.Contains(debug, attemptID) || !strings.Contains(debug, "waiting_for_user") {
+		t.Errorf("OAuth debug lost public identity: %s", debug)
 	}
 }
 
