@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -793,21 +792,7 @@ func TestRustAdapters_scan_blocks_tampered_symlinked_and_oversized_objects(t *te
 	if len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 {
 		t.Fatalf("tampered definition scan = %#v diagnostics=%#v", scan.Definitions, scan.Diagnostics)
 	}
-	if runtime.GOOS != "windows" {
-		if err = os.Remove(manifestPath); err != nil {
-			t.Fatal(err)
-		}
-		if err = os.Symlink(filepath.Join(directory, "other.json"), manifestPath); err != nil {
-			t.Fatal(err)
-		}
-		if _, err = service.files.loadDefinition(installed.SemanticDigest); err == nil {
-			t.Fatal("symlinked manifest was accepted")
-		}
-		scan, err = service.files.scanDefinitions()
-		if err != nil || len(scan.Definitions) != 0 || len(scan.Diagnostics) != 1 || scan.Diagnostics[0].Code != "object_file" {
-			t.Fatalf("symlinked definition scan = %#v diagnostics=%#v, %v", scan.Definitions, scan.Diagnostics, err)
-		}
-	}
+	assertSymlinkedDefinition(t, service.files, manifestPath, installed.SemanticDigest)
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/definition_store/tests.rs::exact_source_digest_detects_mutation_and_source_bounds.
@@ -869,13 +854,24 @@ func TestRustAdapters_quarantine_conflict_preserves_different_active_and_quarant
 	if err != nil || active.SourceReference != "https://example.test/different" {
 		t.Fatalf("active definition after quarantine conflict = %#v, %v", active, err)
 	}
+	activeProvenanceRaw, err := os.ReadFile(filepath.Join(directory, "adapters", "definitions", installed.SemanticDigest, "provenance.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	entries, err := os.ReadDir(filepath.Join(directory, "adapters", "quarantine", "definitions"))
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("quarantined entries = %#v, %v", entries, err)
 	}
-	quarantined, err := os.ReadFile(filepath.Join(directory, "adapters", "quarantine", "definitions", entries[0].Name(), "provenance.json"))
-	if err != nil || !strings.Contains(string(quarantined), "https://example.test/first") {
-		t.Fatalf("quarantined source = %s, %v", quarantined, err)
+	quarantinedProvenanceRaw, err := os.ReadFile(filepath.Join(directory, "adapters", "quarantine", "definitions", entries[0].Name(), "provenance.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var activeProvenance, quarantinedProvenance provenance
+	if decodeExactJSON(activeProvenanceRaw, &activeProvenance) != nil || decodeExactJSON(quarantinedProvenanceRaw, &quarantinedProvenance) != nil {
+		t.Fatalf("provenance objects could not be reloaded: active=%s quarantined=%s", activeProvenanceRaw, quarantinedProvenanceRaw)
+	}
+	if !reflect.DeepEqual(activeProvenance, provenance{SourceReference: "https://example.test/different"}) || !reflect.DeepEqual(quarantinedProvenance, provenance{SourceReference: "https://example.test/first"}) {
+		t.Fatalf("provenance references = active %#v quarantined %#v", activeProvenance, quarantinedProvenance)
 	}
 }
 
@@ -1663,12 +1659,20 @@ func TestRustAdapters_attempt_registry_is_state_indexed_one_use_and_bounded(t *t
 
 // Rust source: crates/noema-capabilities/adapters/src/network/oauth_token.rs::uses_reviewed_client_auth_and_validates_tokens.
 func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.T) {
-	token, err := parseOAuthToken(200, []byte(`{"access_token":"access-marker","refresh_token":"refresh-marker","token_type":"Bearer","expires_in":3600,"scope":"read write"}`), []string{"read", "write"}, false, 1000)
+	initialProfile := rustOAuthProfile()
+	initialProfile.ClientAuthentication = "client_secret_post"
+	initialForm := url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}
+	beforeExchange := time.Now().Unix()
+	token, err, initialTransport := exchangeRustOAuthToken(t, initialProfile, `{"access_token":"access-marker","refresh_token":"refresh-marker","token_type":"Bearer","expires_in":3600,"scope":"read write"}`, initialForm, []string{"read", "write"})
+	afterExchange := time.Now().Unix()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if token.ExpiresAt != 4600 || !reflect.DeepEqual(token.Scopes, []string{"read", "write"}) {
+	if token.ExpiresAt < beforeExchange+3600 || token.ExpiresAt > afterExchange+3600 || !reflect.DeepEqual(token.Scopes, []string{"read", "write"}) {
 		t.Fatalf("token = %#v", token)
+	}
+	if initialTransport.methodSeen != http.MethodPost {
+		t.Fatalf("initial token exchange did not reach client boundary: %#v", initialTransport)
 	}
 	if strings.Contains(fmt.Sprintf("%#v", token), "access-marker") || strings.Contains(fmt.Sprintf("%#v", token), "refresh-marker") {
 		t.Fatal("token debug output exposed bearer material")
@@ -1720,6 +1724,9 @@ func TestRustAdapters_uses_reviewed_client_auth_and_validates_tokens(t *testing.
 	if refreshTransport.methodSeen != http.MethodPost || refreshTransport.urlSeen != profile.TokenEndpoint || refreshTransport.contentTypeSeen != "application/x-www-form-urlencoded" || refreshTransport.acceptEncodingSeen != "identity" || !strings.Contains(refreshTransport.bodySeen, "grant_type=refresh_token") || !strings.Contains(refreshTransport.bodySeen, "refresh_token=refresh-marker") || strings.Contains(refreshTransport.bodySeen, "scope=") {
 		t.Fatalf("recorded refresh form = %q", refreshTransport.bodySeen)
 	}
+	if refreshTransport.authorizationSeen != "" {
+		t.Fatalf("recorded refresh authorization header = %q", refreshTransport.authorizationSeen)
+	}
 	invalidTransport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"MAC","scope":"read"}`}
 	invalidProfile := rustOAuthProfile()
 	_, invalidErr := exchangeOAuthTokenWithClient(t.Context(), invalidProfile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{}, url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}, []string{"read"}, &http.Client{Transport: invalidTransport})
@@ -1737,6 +1744,13 @@ type recordingOAuthTransport struct {
 	contentTypeSeen    string
 	acceptEncodingSeen string
 	authorizationSeen  string
+}
+
+func exchangeRustOAuthToken(t *testing.T, profile OAuthProfile, body string, form url.Values, expected []string) (oauthGrantToken, error, *recordingOAuthTransport) {
+	t.Helper()
+	transport := &recordingOAuthTransport{body: body}
+	token, err := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, form, expected, &http.Client{Transport: transport})
+	return token, err, transport
 }
 
 func (r *recordingOAuthTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -1759,22 +1773,28 @@ func (r *recordingOAuthTransport) RoundTrip(request *http.Request) (*http.Respon
 
 // Rust source: crates/noema-capabilities/adapters/src/network/oauth_token.rs::rejects_ambiguous_json_and_scope_or_expiry_drift.
 func TestRustAdapters_rejects_ambiguous_json_and_scope_or_expiry_drift(t *testing.T) {
-	if _, err := parseOAuthToken(200, []byte(`{"access_token":"one","access_token":"two","token_type":"Bearer"}`), nil, false, 100); err == nil {
-		t.Fatal("duplicate token field was accepted")
-	}
+	profile := rustOAuthProfile()
+	profile.ClientAuthentication = "client_secret_post"
 	for _, raw := range []string{
+		`{"access_token":"one","access_token":"two","token_type":"Bearer"}`,
 		`{"access_token":"access","token_type":"Bearer","scope":"read read"}`,
 		`{"access_token":"access","token_type":"Bearer","expires_in":0,"scope":"read write"}`,
 		`{"access_token":"access","token_type":"MAC","scope":"read write"}`,
 	} {
-		if _, err := parseOAuthToken(200, []byte(raw), []string{"read", "write"}, false, 100); err == nil {
-			t.Fatalf("invalid token response accepted: %s", raw)
+		_, err, transport := exchangeRustOAuthToken(t, profile, raw, url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}, []string{"read", "write"})
+		if !errors.Is(err, errOAuthInvalidResponse) {
+			t.Fatalf("invalid token response = %v for %s, want InvalidResponse", err, raw)
+		}
+		if transport.methodSeen != http.MethodPost {
+			t.Fatalf("invalid token response bypassed client boundary: %s", raw)
 		}
 	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/network/oauth_token.rs::authorization_code_preserves_provider_reported_scopes.
 func TestRustAdapters_authorization_code_preserves_provider_reported_scopes(t *testing.T) {
+	profile := rustOAuthProfile()
+	profile.ClientAuthentication = "client_secret_post"
 	for _, candidate := range []struct {
 		raw  string
 		want []string
@@ -1782,39 +1802,52 @@ func TestRustAdapters_authorization_code_preserves_provider_reported_scopes(t *t
 		{`{"access_token":"access","token_type":"Bearer","scope":"calendar read write"}`, []string{"calendar", "read", "write"}},
 		{`{"access_token":"access","token_type":"Bearer","scope":"read"}`, []string{"read"}},
 	} {
-		token, err := parseOAuthToken(200, []byte(candidate.raw), []string{"read", "write"}, false, 100)
+		token, err, transport := exchangeRustOAuthToken(t, profile, candidate.raw, url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}, []string{"read", "write"})
 		if err != nil || !reflect.DeepEqual(token.Scopes, candidate.want) {
 			t.Fatalf("provider scopes = %#v, %v; want %#v", token.Scopes, err, candidate.want)
+		}
+		if transport.methodSeen != http.MethodPost {
+			t.Fatal("provider scope response bypassed client boundary")
 		}
 	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/network/oauth_token.rs::refresh_uses_the_reviewed_client_auth_without_requesting_new_scopes.
 func TestRustAdapters_refresh_uses_the_reviewed_client_auth_without_requesting_new_scopes(t *testing.T) {
-	token, err := parseOAuthToken(200, []byte(`{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600,"scope":"read"}`), []string{"read", "write"}, true, 1000)
+	profile := rustOAuthProfile()
+	profile.ClientAuthentication = "client_secret_post"
+	refreshForm := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"refresh-marker"}}
+	token, err, transport := exchangeRustOAuthToken(t, profile, `{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600,"scope":"read"}`, refreshForm, []string{"read", "write"})
 	if err != nil || !reflect.DeepEqual(token.Scopes, []string{"read"}) {
 		t.Fatalf("refresh token = %#v, %v", token, err)
 	}
-	if _, err = parseOAuthToken(200, []byte(`{"access_token":"fresh-access","token_type":"Bearer","scope":"read unknown"}`), []string{"read"}, true, 1000); err == nil {
-		t.Fatal("refresh scope expansion was accepted")
-	}
-	profile := rustOAuthProfile()
-	profile.ClientAuthentication = "client_secret_post"
-	transport := &recordingOAuthTransport{body: `{"access_token":"fresh-access","token_type":"Bearer","scope":"read"}`}
-	_, exchangeErr := exchangeOAuthTokenWithClient(t.Context(), profile, OAuthApplication{ClientID: "client-marker"}, oauthApplicationCredential{ClientSecret: "secret-marker"}, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"refresh-marker"}}, []string{"read", "write"}, &http.Client{Transport: transport})
-	if exchangeErr != nil {
-		t.Fatal(exchangeErr)
+	if transport.authorizationSeen != "" {
+		t.Fatalf("refresh request sent authorization header %q", transport.authorizationSeen)
 	}
 	form, parseErr := url.ParseQuery(transport.bodySeen)
 	if parseErr != nil || form.Get("grant_type") != "refresh_token" || form.Get("refresh_token") != "refresh-marker" || form.Get("scope") != "" || form.Get("client_secret") != "secret-marker" {
 		t.Fatalf("refresh request form = %q (%v)", transport.bodySeen, parseErr)
 	}
+	_, err, expansionTransport := exchangeRustOAuthToken(t, profile, `{"access_token":"fresh-access","token_type":"Bearer","scope":"read unknown"}`, refreshForm, []string{"read"})
+	if !errors.Is(err, errOAuthInvalidResponse) {
+		t.Fatalf("refresh scope expansion = %v, want InvalidResponse", err)
+	}
+	if expansionTransport.methodSeen != http.MethodPost {
+		t.Fatal("refresh scope expansion bypassed client boundary")
+	}
 }
 
 // Rust source: crates/noema-capabilities/adapters/src/network/oauth_token.rs::omitted_scope_requires_the_reviewed_profile_rule.
 func TestRustAdapters_omitted_scope_requires_the_reviewed_profile_rule(t *testing.T) {
-	if _, err := parseOAuthTokenWithPolicy(200, []byte(`{"access_token":"access","token_type":"Bearer"}`), []string{"read"}, false, 1000, "reject_omitted_scope"); err == nil {
-		t.Fatal("omitted scope was accepted without a reviewed profile rule")
+	profile := rustOAuthProfile()
+	profile.ClientAuthentication = "client_secret_post"
+	profile.OmittedScopePolicy = "reject_omitted_scope"
+	_, err, transport := exchangeRustOAuthToken(t, profile, `{"access_token":"access","token_type":"Bearer"}`, url.Values{"grant_type": {"authorization_code"}, "code": {"code-marker"}, "code_verifier": {"verifier-marker"}}, []string{"read"})
+	if !errors.Is(err, errOAuthInvalidResponse) {
+		t.Fatalf("omitted scope response = %v, want InvalidResponse", err)
+	}
+	if transport.methodSeen != http.MethodPost {
+		t.Fatal("omitted scope response bypassed client boundary")
 	}
 }
 
