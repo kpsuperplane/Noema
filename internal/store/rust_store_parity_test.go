@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -2244,17 +2245,54 @@ func rustStoreGovernedActionFixture(t *testing.T, arguments json.RawMessage) (*S
 func TestRustStore_live_activity_client_callbacks_form_a_secret_free_timeline(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	now := time.Unix(1700000000, 0)
-	_, _ = seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("rust-start-token"), APNSProduction, nil, now); err != nil {
+	now := time.Now().UTC().Truncate(time.Second)
+	clientID := "client:timeline"
+	_, _ = seedNativeFamily(t, database, clientID, "c", now.Unix())
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSDevelopment,
+		[]string{"live_activity:observed:test"}, now); err != nil {
 		t.Fatal(err)
 	}
-	activity, err := database.ClientTaskActivity(ctx, testNativeClient)
-	if err != nil || activity == nil || activity.Lifecycle != "starting" {
+	activity, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || activity == nil || activity.Lifecycle != "starting" || activity.ActivityID == "" {
 		t.Fatalf("live activity = %#v, %v", activity, err)
 	}
-	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, testNativeClient, activity.ActivityID, []byte("rust-update-token"), now); err != nil || !changed {
+	activityID := activity.ActivityID
+	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, clientID, activityID, []byte{4, 5, 6}, now); err != nil || !changed {
 		t.Fatalf("live activity update = %v, %v", changed, err)
+	}
+	if changed, err := database.DismissClientLiveActivity(ctx, clientID, activityID); err != nil || !changed {
+		t.Fatalf("dismiss activity = %v, %v", changed, err)
+	}
+	type observation struct {
+		event, activityID, active string
+	}
+	rows, err := database.db.QueryContext(ctx, `SELECT event, COALESCE(activity_id, ''), active_activity_ids_json
+FROM live_activity_observations WHERE client_id=? ORDER BY rowid`, clientID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	observations := make([]observation, 0, 3)
+	for rows.Next() {
+		var item observation
+		if err := rows.Scan(&item.event, &item.activityID, &item.active); err != nil {
+			t.Fatal(err)
+		}
+		observations = append(observations, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	wantObservations := []observation{
+		{event: "snapshot", active: `["live_activity:observed:test"]`},
+		{event: "update_token", activityID: activityID, active: `[]`},
+		{event: "dismissed", activityID: activityID, active: `[]`},
+	}
+	if !reflect.DeepEqual(observations, wantObservations) {
+		t.Fatalf("live activity observations = %#v, want %#v", observations, wantObservations)
+	}
+	if strings.Contains(fmt.Sprintf("%#v", observations), "1, 2, 3") || strings.Contains(fmt.Sprintf("%#v", observations), "4, 5, 6") {
+		t.Fatalf("live activity observations retained token bytes: %#v", observations)
 	}
 }
 
@@ -2262,17 +2300,57 @@ func TestRustStore_live_activity_client_callbacks_form_a_secret_free_timeline(t 
 func TestRustStore_terminal_live_activity_delivery_keeps_apns_id_for_thirty_days(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	now := time.Unix(1700000000, 0)
-	_, _ = seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("rust-start-token"), APNSProduction, nil, now); err != nil {
+	now := time.Unix(1700000000, 0).UTC()
+	clientID := "client:delivery"
+	_, _ = seedNativeFamily(t, database, clientID, "d", now.Unix())
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSProduction, nil, now); err != nil {
 		t.Fatal(err)
 	}
-	activity, err := database.ClientTaskActivity(ctx, testNativeClient)
-	if err != nil || activity == nil || activity.Lifecycle != "starting" {
+	activity, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || activity == nil || activity.Lifecycle != "starting" || activity.ActivityID == "" {
 		t.Fatalf("live activity = %#v, %v", activity, err)
 	}
-	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, testNativeClient, activity.ActivityID, []byte("rust-update-token"), now); err != nil || !changed {
-		t.Fatalf("live activity update = %v, %v", changed, err)
+	if err := database.QueueLiveActivityDelivery(ctx, NewLiveActivityDelivery{
+		ClientID: clientID, DeliveryKey: "live:start:retention", ActivityID: activity.ActivityID,
+		Token: []byte{1, 2, 3}, Environment: APNSProduction, Event: LiveActivityStart,
+		Payload: map[string]any{"aps": map[string]any{"event": "start"}}, Urgency: "high", TTLSeconds: 600,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := database.ClaimDueLiveActivityDelivery(ctx, now)
+	if err != nil || delivery == nil || delivery.Event != LiveActivityStart {
+		t.Fatalf("claimed delivery = %#v, %v", delivery, err)
+	}
+	if err := database.FinishLiveActivityDelivery(ctx, *delivery, APNSDelivered, "", "apns-retained", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.ExecContext(ctx, `UPDATE live_activity_deliveries SET created_at_ms=? WHERE client_id=?`,
+		now.Add(-29*24*time.Hour).UnixMilli(), clientID); err != nil {
+		t.Fatal(err)
+	}
+	if recent, err := database.ClaimDueLiveActivityDelivery(ctx, now); err != nil || recent != nil {
+		t.Fatalf("recent retention claim = %#v, %v", recent, err)
+	}
+	var apnsID string
+	if err := database.db.QueryRowContext(ctx, `SELECT apns_id FROM live_activity_deliveries WHERE client_id=?`, clientID).Scan(&apnsID); err != nil {
+		t.Fatal(err)
+	}
+	if apnsID != "apns-retained" {
+		t.Fatalf("retained APNs identifier = %q", apnsID)
+	}
+	if _, err := database.db.ExecContext(ctx, `UPDATE live_activity_deliveries SET created_at_ms=? WHERE client_id=?`,
+		now.Add(-31*24*time.Hour).UnixMilli(), clientID); err != nil {
+		t.Fatal(err)
+	}
+	if expired, err := database.ClaimDueLiveActivityDelivery(ctx, now); err != nil || expired != nil {
+		t.Fatalf("expired retention claim = %#v, %v", expired, err)
+	}
+	var count int
+	if err := database.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM live_activity_deliveries WHERE client_id=?`, clientID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("retained delivery count = %d, want zero", count)
 	}
 }
 
@@ -2280,17 +2358,104 @@ func TestRustStore_terminal_live_activity_delivery_keeps_apns_id_for_thirty_days
 func TestRustStore_live_registration_binds_to_active_client_and_redacts_tokens(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	now := time.Unix(1700000000, 0)
-	_, _ = seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("rust-start-token"), APNSProduction, nil, now); err != nil {
+	now := time.Unix(1700000000, 0).UTC()
+	clientID := "client:live-one"
+	oldClientID := "client:live-old"
+	_, _ = seedNativeFamily(t, database, clientID, "e", now.Unix())
+	_, _ = seedNativeFamily(t, database, oldClientID, "f", now.Unix())
+	if err := database.RegisterClientLiveActivities(ctx, oldClientID, []byte{1, 2, 3}, APNSDevelopment, nil, now); err != nil {
 		t.Fatal(err)
 	}
-	activity, err := database.ClientTaskActivity(ctx, testNativeClient)
-	if err != nil || activity == nil || activity.Lifecycle != "starting" {
-		t.Fatalf("live activity = %#v, %v", activity, err)
+	oldActivity, err := database.ClientTaskActivity(ctx, oldClientID)
+	if err != nil || oldActivity == nil || oldActivity.ActivityID == "" {
+		t.Fatalf("old live activity = %#v, %v", oldActivity, err)
 	}
-	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, testNativeClient, activity.ActivityID, []byte("rust-update-token"), now); err != nil || !changed {
-		t.Fatalf("live activity update = %v, %v", changed, err)
+	if err := database.QueueLiveActivityDelivery(ctx, NewLiveActivityDelivery{
+		ClientID: oldClientID, DeliveryKey: "live:start:old", ActivityID: oldActivity.ActivityID,
+		Token: []byte{1, 2, 3}, Environment: APNSDevelopment, Event: LiveActivityStart,
+		Payload: map[string]any{"aps": map[string]any{"event": "start"}}, Urgency: "high", TTLSeconds: 600,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DisableClientLiveActivities(ctx, clientID, now); err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := database.ClientLiveActivityRegistration(ctx, clientID)
+	if err != nil || disabled == nil || disabled.Enabled || len(disabled.PushToStartToken) != 0 || disabled.Environment != nil {
+		t.Fatalf("disabled registration = %#v, %v", disabled, err)
+	}
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSDevelopment, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if registration, err := database.ClientLiveActivityRegistration(ctx, oldClientID); err != nil || registration != nil {
+		t.Fatalf("transferred old registration = %#v, %v", registration, err)
+	}
+	if activity, err := database.ClientTaskActivity(ctx, oldClientID); err != nil || activity != nil {
+		t.Fatalf("transferred old activity = %#v, %v", activity, err)
+	}
+	var oldDeliveryStatus, oldDeliveryCode string
+	if err := database.db.QueryRowContext(ctx, `SELECT status, last_error_code FROM live_activity_deliveries
+WHERE client_id=? AND delivery_key=?`, oldClientID, "live:start:old").Scan(&oldDeliveryStatus, &oldDeliveryCode); err != nil {
+		t.Fatal(err)
+	}
+	if oldDeliveryStatus != "suppressed" || oldDeliveryCode != "token_transferred" {
+		t.Fatalf("transferred delivery = %q/%q", oldDeliveryStatus, oldDeliveryCode)
+	}
+	registration, err := database.ClientLiveActivityRegistration(ctx, clientID)
+	if err != nil || registration == nil || !registration.Enabled || string(registration.PushToStartToken) != string([]byte{1, 2, 3}) {
+		t.Fatalf("active registration = %#v, %v", registration, err)
+	}
+	if debug := fmt.Sprintf("%#v", registration); strings.Contains(debug, "1, 2, 3") || !strings.Contains(debug, clientID) {
+		t.Fatalf("registration debug leaks or omits client identity: %s", debug)
+	}
+	if err := database.RegisterClientLiveActivities(ctx, "client:missing", []byte{1, 2, 3}, APNSDevelopment, nil, now); err == nil {
+		t.Fatal("missing client accepted Live Activity registration")
+	}
+	activity, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || activity == nil || activity.Lifecycle != "starting" || activity.ActivityID == "" || activity.TaskSessionID == "" {
+		t.Fatalf("starting activity = %#v, %v", activity, err)
+	}
+	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, clientID, activity.ActivityID, []byte{4, 5, 6}, now); err != nil || !changed {
+		t.Fatalf("register update token = %v, %v", changed, err)
+	}
+	active, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || active == nil || active.Lifecycle != "active" {
+		t.Fatalf("active activity = %#v, %v", active, err)
+	}
+	encoded, err := json.Marshal(active)
+	if err != nil || strings.Contains(string(encoded), "4, 5, 6") {
+		t.Fatalf("active activity serialization leaks token: %s", encoded)
+	}
+	activeActivityID, activeSessionID := active.ActivityID, active.TaskSessionID
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSDevelopment,
+		[]string{activeActivityID}, now); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || preserved == nil || preserved.ActivityID != activeActivityID || preserved.TaskSessionID != activeSessionID {
+		t.Fatalf("preserved activity = %#v, %v", preserved, err)
+	}
+	if err := database.QueueLiveActivityDelivery(ctx, NewLiveActivityDelivery{
+		ClientID: clientID, DeliveryKey: "live:update:stale", ActivityID: activeActivityID,
+		Token: []byte{4, 5, 6}, Environment: APNSDevelopment, Event: LiveActivityUpdate,
+		Payload: map[string]any{"aps": map[string]any{"event": "update"}}, Urgency: "normal", TTLSeconds: 600,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSDevelopment, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || replacement == nil || replacement.Lifecycle != "starting" || replacement.ActivityID == activeActivityID || replacement.TaskSessionID == activeSessionID || replacement.UpdateToken != nil {
+		t.Fatalf("replacement activity = %#v, %v", replacement, err)
+	}
+	var staleStatus, staleCode string
+	if err := database.db.QueryRowContext(ctx, `SELECT status, last_error_code FROM live_activity_deliveries
+WHERE client_id=? AND delivery_key=?`, clientID, "live:update:stale").Scan(&staleStatus, &staleCode); err != nil {
+		t.Fatal(err)
+	}
+	if staleStatus != "suppressed" || staleCode != "activity_missing" {
+		t.Fatalf("stale delivery = %q/%q", staleStatus, staleCode)
 	}
 }
 
@@ -2298,17 +2463,51 @@ func TestRustStore_live_registration_binds_to_active_client_and_redacts_tokens(t
 func TestRustStore_disabling_live_activities_clears_a_dismissed_session(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	now := time.Unix(1700000000, 0)
-	_, _ = seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("rust-start-token"), APNSProduction, nil, now); err != nil {
+	now := time.Unix(1700000000, 0).UTC()
+	clientID := "client:live"
+	_, _ = seedNativeFamily(t, database, clientID, "g", now.Unix())
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSProduction, nil, now); err != nil {
 		t.Fatal(err)
 	}
-	activity, err := database.ClientTaskActivity(ctx, testNativeClient)
+	activity, err := database.ClientTaskActivity(ctx, clientID)
 	if err != nil || activity == nil || activity.Lifecycle != "starting" {
 		t.Fatalf("live activity = %#v, %v", activity, err)
 	}
-	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, testNativeClient, activity.ActivityID, []byte("rust-update-token"), now); err != nil || !changed {
-		t.Fatalf("live activity update = %v, %v", changed, err)
+	if changed, err := database.UpdateClientTaskActivityProjection(ctx, clientID,
+		map[string]any{"focusTaskId": "task:one"}, strings.Repeat("a", 64), "task:one", now); err != nil || !changed {
+		t.Fatalf("save activity projection = %v, %v", changed, err)
+	}
+	if changed, err := database.DismissClientLiveActivity(ctx, clientID, activity.ActivityID); err != nil || !changed {
+		t.Fatalf("dismiss activity = %v, %v", changed, err)
+	}
+	if err := database.DisableClientLiveActivities(ctx, clientID, now); err != nil {
+		t.Fatal(err)
+	}
+	dismissed, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || dismissed == nil || dismissed.Lifecycle != "dismissed" || dismissed.ProjectionSignature != "" || dismissed.FocusedTaskID != "" || len(dismissed.Projection) != 0 {
+		t.Fatalf("disabled activity = %#v, %v", dismissed, err)
+	}
+	if cleared, err := database.ClearClientTaskActivityDismissal(ctx, clientID, now); err != nil || cleared {
+		t.Fatalf("repeat dismissal clear = %v, %v", cleared, err)
+	}
+	if _, err := database.db.ExecContext(ctx, `UPDATE local_human_state SET primary_task_notification_event_id=10 WHERE state_id=1`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AdvancePrimaryTaskNotification(ctx, 10); err != nil {
+		t.Errorf("same notification checkpoint was not idempotent: %v", err)
+	}
+	var checkpoint int64
+	if err := database.db.QueryRowContext(ctx, `SELECT primary_task_notification_event_id FROM local_human_state WHERE state_id=1`).Scan(&checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != 10 {
+		t.Fatalf("notification checkpoint = %d, want 10", checkpoint)
+	}
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSProduction, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if created, err := database.EnsureClientTaskActivitySession(ctx, clientID, now); err != nil || !created {
+		t.Fatalf("replacement activity session = %v, %v", created, err)
 	}
 }
 
@@ -2316,17 +2515,109 @@ func TestRustStore_disabling_live_activities_clears_a_dismissed_session(t *testi
 func TestRustStore_live_activity_end_delivery_dismisses_and_allows_a_new_session(t *testing.T) {
 	database := openTestStore(t)
 	ctx := t.Context()
-	now := time.Unix(1700000000, 0)
-	_, _ = seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if err := database.RegisterClientLiveActivities(ctx, testNativeClient, []byte("rust-start-token"), APNSProduction, nil, now); err != nil {
+	now := time.Unix(1700000000, 0).UTC()
+	clientID := "client:live"
+	_, _ = seedNativeFamily(t, database, clientID, "h", now.Unix())
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSProduction, nil, now); err != nil {
 		t.Fatal(err)
 	}
-	activity, err := database.ClientTaskActivity(ctx, testNativeClient)
-	if err != nil || activity == nil || activity.Lifecycle != "starting" {
-		t.Fatalf("live activity = %#v, %v", activity, err)
+	starting, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || starting == nil || starting.Lifecycle != "starting" || starting.ActivityID == "" || starting.TaskSessionID == "" {
+		t.Fatalf("starting activity = %#v, %v", starting, err)
 	}
-	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, testNativeClient, activity.ActivityID, []byte("rust-update-token"), now); err != nil || !changed {
-		t.Fatalf("live activity update = %v, %v", changed, err)
+	if err := database.QueueLiveActivityDelivery(ctx, NewLiveActivityDelivery{
+		ClientID: clientID, DeliveryKey: "live:start:test", ActivityID: starting.ActivityID,
+		Token: []byte{1, 2, 3}, Environment: APNSProduction, Event: LiveActivityStart,
+		Payload: map[string]any{"aps": map[string]any{"event": "start"}}, Urgency: "high", TTLSeconds: 600,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	start, err := database.ClaimDueLiveActivityDelivery(ctx, now)
+	if err != nil || start == nil || start.Event != LiveActivityStart {
+		t.Fatalf("start delivery = %#v, %v", start, err)
+	}
+	if err := database.FinishLiveActivityDelivery(ctx, *start, APNSDelivered, "", "apns-start", now); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := database.RegisterClientLiveActivityUpdate(ctx, clientID, starting.ActivityID, []byte{4, 5, 6}, now); err != nil || !changed {
+		t.Fatalf("register update = %v, %v", changed, err)
+	}
+	active, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || active == nil || active.Lifecycle != "active" {
+		t.Fatalf("active activity = %#v, %v", active, err)
+	}
+	if changed, err := database.UpdateClientTaskActivityProjection(ctx, clientID,
+		map[string]any{"focusTaskId": "task:one", "phase": "working"}, strings.Repeat("a", 64), "task:one", now); err != nil || !changed {
+		t.Fatalf("save active projection = %v, %v", changed, err)
+	}
+	if ending, err := database.MarkClientTaskActivityEnding(ctx, clientID, active.ActivityID, now); err != nil || !ending {
+		t.Fatalf("mark activity ending = %v, %v", ending, err)
+	}
+	if err := database.QueueLiveActivityDelivery(ctx, NewLiveActivityDelivery{
+		ClientID: clientID, DeliveryKey: "live:end:test", ActivityID: active.ActivityID,
+		Token: []byte{4, 5, 6}, Environment: APNSProduction, Event: LiveActivityEnd,
+		Payload: map[string]any{"aps": map[string]any{"event": "end"}}, Urgency: "high", TTLSeconds: 600,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	end, err := database.ClaimDueLiveActivityDelivery(ctx, now)
+	if err != nil || end == nil || end.Event != LiveActivityEnd {
+		t.Fatalf("end delivery = %#v, %v", end, err)
+	}
+	if err := database.FinishLiveActivityDelivery(ctx, *end, APNSDelivered, "", "apns-end", now); err != nil {
+		t.Fatal(err)
+	}
+	dismissed, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || dismissed == nil || dismissed.Lifecycle != "dismissed" {
+		t.Fatalf("dismissed activity = %#v, %v", dismissed, err)
+	}
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{1, 2, 3}, APNSProduction, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || refreshed == nil || refreshed.Lifecycle != "dismissed" || refreshed.TaskSessionID != starting.TaskSessionID || refreshed.ActivityID != starting.ActivityID {
+		t.Fatalf("refreshed dismissed activity = %#v, %v", refreshed, err)
+	}
+	if created, err := database.EnsureClientTaskActivitySession(ctx, clientID, now); err != nil || !created {
+		t.Fatalf("next activity session = %v, %v", created, err)
+	}
+	next, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || next == nil || next.Lifecycle != "starting" || next.TaskSessionID == starting.TaskSessionID || next.ActivityID == starting.ActivityID || next.UpdateToken != nil {
+		t.Fatalf("next activity = %#v, %v", next, err)
+	}
+	if err := database.QueueLiveActivityDelivery(ctx, NewLiveActivityDelivery{
+		ClientID: clientID, DeliveryKey: "live:start:" + next.TaskSessionID, ActivityID: next.ActivityID,
+		Token: []byte{1, 2, 3}, Environment: APNSProduction, Event: LiveActivityStart,
+		Payload: map[string]any{"aps": map[string]any{"event": "start"}}, Urgency: "high", TTLSeconds: 600,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	secondStart, err := database.ClaimDueLiveActivityDelivery(ctx, now)
+	if err != nil || secondStart == nil || secondStart.Event != LiveActivityStart {
+		t.Fatalf("second start delivery = %#v, %v", secondStart, err)
+	}
+	if err := database.FinishLiveActivityDelivery(ctx, *secondStart, APNSInvalid, "", "", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RegisterClientLiveActivities(ctx, clientID, []byte{7, 8, 9}, APNSProduction, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := database.ClientTaskActivity(ctx, clientID)
+	if err != nil || rotated == nil || rotated.Lifecycle != "starting" || rotated.TaskSessionID == next.TaskSessionID || rotated.ActivityID == next.ActivityID {
+		t.Fatalf("rotated activity = %#v, %v", rotated, err)
+	}
+	if err := database.QueueLiveActivityDelivery(ctx, NewLiveActivityDelivery{
+		ClientID: clientID, DeliveryKey: "live:start:disable", ActivityID: rotated.ActivityID,
+		Token: []byte{7, 8, 9}, Environment: APNSProduction, Event: LiveActivityStart,
+		Payload: map[string]any{"aps": map[string]any{"event": "start"}}, Urgency: "high", TTLSeconds: 600,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DisableClientLiveActivities(ctx, clientID, now); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := database.ClaimDueLiveActivityDelivery(ctx, now); err != nil || pending != nil {
+		t.Fatalf("delivery after disable = %#v, %v", pending, err)
 	}
 }
 
