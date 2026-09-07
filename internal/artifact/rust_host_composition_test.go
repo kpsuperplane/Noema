@@ -25,6 +25,41 @@ func TestRustHost_task_append_race_has_one_winner_and_cleans_loser(t *testing.T)
 	runRustHostAppendRace(t, true)
 }
 
+// rustHostBarrierMetadataStore reproduces the Rust test's metadata boundary.
+// Both appenders must commit the same loaded append target before either one
+// can write its version.
+type rustHostBarrierMetadataStore struct {
+	store   *store.Store
+	loaded  *sync.WaitGroup
+	release <-chan struct{}
+}
+
+func (s *rustHostBarrierMetadataStore) ArtifactOwnerAuthorized(ctx context.Context, owner store.ArtifactOwner) (bool, error) {
+	return s.store.ArtifactOwnerAuthorized(ctx, owner)
+}
+
+func (s *rustHostBarrierMetadataStore) CreateArtifact(ctx context.Context, artifact store.Artifact, version store.ArtifactVersion, now time.Time) (store.ArtifactWithVersions, error) {
+	return s.store.CreateArtifact(ctx, artifact, version, now)
+}
+
+func (s *rustHostBarrierMetadataStore) AppendArtifactVersion(ctx context.Context, artifactID string, version store.ArtifactVersion, now time.Time) (store.ArtifactVersion, error) {
+	return s.store.AppendArtifactVersion(ctx, artifactID, version, now)
+}
+
+func (s *rustHostBarrierMetadataStore) ArtifactWithVersionsByID(ctx context.Context, artifactID string) (store.ArtifactWithVersions, error) {
+	value, err := s.store.ArtifactWithVersionsByID(ctx, artifactID)
+	if err != nil {
+		return store.ArtifactWithVersions{}, err
+	}
+	s.loaded.Done()
+	<-s.release
+	return value, nil
+}
+
+func (s *rustHostBarrierMetadataStore) AuthorizedLocalArtifactVersion(ctx context.Context, versionID string) (store.Artifact, store.ArtifactVersion, bool, error) {
+	return s.store.AuthorizedLocalArtifactVersion(ctx, versionID)
+}
+
 func runRustHostAppendRace(t *testing.T, taskOwner bool) {
 	t.Helper()
 	ctx := context.Background()
@@ -62,23 +97,35 @@ func runRustHostAppendRace(t *testing.T, taskOwner bool) {
 		}
 		owner.ObjectID = conversation.ID
 	}
-	serviceA, err := New(root, databaseA, nil)
+	initialService, err := New(root, databaseA, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	serviceB, err := New(root, databaseB, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	initial, err := serviceA.CreateLocal(ctx, LocalInput{
+	initial, err := initialService.CreateLocal(ctx, LocalInput{
 		Owner: owner, Title: "Race report", Kind: "document", Filename: "report.txt",
 		Bytes: []byte("initial"), MediaType: stringPtr("text/plain"), CreatedByActorID: "agent:test",
+		Metadata: map[string]any{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	start := make(chan struct{})
+	loaded := &sync.WaitGroup{}
+	loaded.Add(2)
+	release := make(chan struct{})
+	serviceA, err := newService(root, &rustHostBarrierMetadataStore{
+		store: databaseA, loaded: loaded, release: release,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceB, err := newService(root, &rustHostBarrierMetadataStore{
+		store: databaseB, loaded: loaded, release: release,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	type appendResult struct {
 		version store.ArtifactVersion
 		err     error
@@ -97,32 +144,40 @@ func runRustHostAppendRace(t *testing.T, taskOwner bool) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			<-start
-			version, err := contender.service.AppendLocal(ctx, initial.Artifact.ID, "report.txt", []byte(contender.bytes), nil, stringPtr("text/plain"), "agent:test", store.ArtifactSource{}, nil)
+			version, err := contender.service.AppendLocal(ctx, initial.Artifact.ID, "report.txt", []byte(contender.bytes), nil, stringPtr("text/plain"), "agent:test", store.ArtifactSource{}, map[string]any{})
 			results <- appendResult{version: version, err: err, bytes: contender.bytes}
 		}()
 	}
-	close(start)
+	loaded.Wait()
+	close(release)
 	group.Wait()
 	close(results)
 
 	var winner appendResult
-	var losers int
+	var loser appendResult
 	for result := range results {
 		if result.err == nil {
-			if winner.err == nil && winner.version.ID != "" {
+			if winner.version.ID != "" {
 				t.Fatalf("append race produced two winners: %#v and %#v", winner.version, result.version)
 			}
 			winner = result
-			continue
+		} else {
+			if loser.err != nil {
+				t.Fatalf("append race produced two losers: %v and %v", loser.err, result.err)
+			}
+			loser = result
 		}
-		losers++
 	}
-	if winner.version.ID == "" || losers != 1 {
-		t.Fatalf("append race results = winner %#v, losers %d; Go must preserve one-winner CAS behavior", winner, losers)
+	if winner.version.ID == "" || loser.err == nil {
+		t.Fatalf("append race results = winner %#v, loser %v; Go must preserve one-winner CAS behavior", winner, loser.err)
 	}
 	if !strings.Contains(strings.ToLower(winner.version.ID), "artifact_version:") {
 		t.Fatalf("winner version = %#v", winner.version)
+	}
+	if !errors.Is(loser.err, ErrMetadata) ||
+		!strings.Contains(loser.err.Error(), "expected_next_version_index=2") ||
+		!strings.Contains(loser.err.Error(), "actual_next_version_index=3") {
+		t.Fatalf("unexpected loser error: %v", loser.err)
 	}
 
 	stored, err := databaseA.ArtifactWithVersionsByID(ctx, initial.Artifact.ID)

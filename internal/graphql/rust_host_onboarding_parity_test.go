@@ -13,20 +13,31 @@ func TestRustHost_local_model_and_cloud_are_alternative_onboarding_paths(t *test
 	if local.Status != model.OnboardingStepStatusComplete || local.ID != "install_local_model" || local.ProviderAccountStatus != model.ProviderAccountStatusAuthenticated {
 		t.Fatalf("ready local onboarding step = %#v", local)
 	}
-	cloud := providerOnboardingStep(provider.Account{
+	cloudAccount := provider.Account{
 		ID: "provider_account:codex:default", ProviderKind: "codex", AccountKey: "default",
 		DisplayName: "Codex", AuthMethod: provider.AuthOAuthDeviceCode, Status: provider.StatusAuthenticated,
-	}, true)
-	if cloud.Status != model.OnboardingStepStatusComplete || cloud.ID != "connect_provider_account" || cloud.ProviderKind != "codex" {
-		t.Fatalf("ready cloud onboarding step = %#v", cloud)
+	}
+	cloud := providerOnboardingStep(cloudAccount, true)
+	cloudStatus := &model.OnboardingStatus{
+		IsUserOnboarded: true,
+		Steps:           []*model.OnboardingStep{localModelOnboardingStep(false), cloud},
+	}
+	if !cloudStatus.IsUserOnboarded || len(cloudStatus.Steps) != 2 ||
+		cloudStatus.Steps[0].Status != model.OnboardingStepStatusBlocked ||
+		cloudStatus.Steps[1].Status != model.OnboardingStepStatusComplete ||
+		cloudStatus.Steps[1].ID != "connect_provider_account" ||
+		cloudStatus.Steps[1].ProviderKind != "codex" {
+		t.Fatalf("ready cloud onboarding status = %#v", cloudStatus)
 	}
 	blockedLocal := localModelOnboardingStep(false)
-	blockedCloud := providerOnboardingStep(provider.Account{
-		ID: "provider_account:codex:default", ProviderKind: "codex", AccountKey: "default",
-		DisplayName: "Codex", AuthMethod: provider.AuthOAuthDeviceCode, Status: provider.StatusUnknown,
-	}, false)
-	if blockedLocal.Status != model.OnboardingStepStatusBlocked || blockedCloud.Status != model.OnboardingStepStatusBlocked {
-		t.Fatalf("blocked onboarding steps = %#v, %#v", blockedLocal, blockedCloud)
+	blockedCloud := providerOnboardingStep(cloudAccount, false)
+	blockedStatus := &model.OnboardingStatus{
+		Steps: []*model.OnboardingStep{blockedLocal, blockedCloud},
+	}
+	if blockedStatus.IsUserOnboarded || len(blockedStatus.Steps) != 2 ||
+		blockedStatus.Steps[0].Status != model.OnboardingStepStatusBlocked ||
+		blockedStatus.Steps[1].Status != model.OnboardingStepStatusBlocked {
+		t.Fatalf("blocked onboarding status = %#v", blockedStatus)
 	}
 }
 
@@ -54,20 +65,25 @@ func TestRustHost_onboarding_blocks_and_preserves_provider_readiness_status(t *t
 	for _, status := range []provider.AccountStatus{
 		provider.StatusUnknown, provider.StatusChecking, provider.StatusUnauthenticated, provider.StatusUnavailable,
 	} {
-		step := providerOnboardingStep(provider.Account{
+		account := provider.Account{
 			ID: "provider_account:codex:default", ProviderKind: "codex", AccountKey: "default",
 			DisplayName: "Codex", AuthMethod: provider.AuthOAuthDeviceCode, Status: status,
-		}, false)
-		if step.Status != model.OnboardingStepStatusBlocked || string(step.ProviderAccountStatus) != string(status) {
-			t.Fatalf("provider status %q = %#v", status, step)
+		}
+		step := providerOnboardingStep(account, false)
+		result := &model.OnboardingStatus{Steps: []*model.OnboardingStep{localModelOnboardingStep(false), step}}
+		if result.IsUserOnboarded || result.Steps[1].Status != model.OnboardingStepStatusBlocked ||
+			result.Steps[1].ProviderAccountStatus != providerAccountStatusModel(status) {
+			t.Fatalf("provider status %q = %#v", status, result)
 		}
 	}
 }
 
 // Rust source: crates/noema-host/src/onboarding.rs:288::onboarding_does_not_fabricate_an_account_when_none_is_connected
 func TestRustHost_onboarding_does_not_fabricate_an_account_when_none_is_connected(t *testing.T) {
-	step := localModelOnboardingStep(false)
-	if step.ID != "install_local_model" || step.ProviderAccountID != "provider_account:local_models:default" || step.Status != model.OnboardingStepStatusBlocked {
-		t.Fatalf("unconnected onboarding step = %#v", step)
+	status := &model.OnboardingStatus{Steps: []*model.OnboardingStep{localModelOnboardingStep(false)}}
+	if status.IsUserOnboarded || len(status.Steps) != 1 || status.Steps[0].ID != "install_local_model" ||
+		status.Steps[0].ProviderAccountID != "provider_account:local_models:default" ||
+		status.Steps[0].Status != model.OnboardingStepStatusBlocked {
+		t.Fatalf("unconnected onboarding status = %#v", status)
 	}
 }

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
-	"io"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,8 +31,8 @@ func TestRustHost_process_env_entrypoint_initializes_and_loads_first_run_home(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(config), "provider: codex") || !strings.Contains(string(config), "browser:") {
-		t.Fatalf("first-run config = %q", config)
+	if string(config) != rustHostDefaultConfigYAML {
+		t.Fatalf("first-run config = %q, want %q", config, rustHostDefaultConfigYAML)
 	}
 	database, err := store.Open(context.Background(), paths.Database())
 	if err != nil {
@@ -49,7 +51,7 @@ func TestRustHost_process_env_entrypoint_initializes_and_loads_first_run_home(t 
 		t.Fatal(err)
 	}
 	for _, account := range accounts {
-		if account.ProviderKind == "codex" || account.ProviderKind == "openai" || account.ProviderKind == "openrouter" || account.ProviderKind == "local_models" {
+		if isRustHostModelProvider(account.ProviderKind) {
 			t.Fatalf("first-run model account = %#v", account)
 		}
 	}
@@ -103,7 +105,7 @@ func TestRustHost_fresh_unresolvable_local_default_starts_onboarding_without_an_
 		t.Fatal(err)
 	}
 	for _, account := range accounts {
-		if account.ProviderKind == "local_models" {
+		if isRustHostModelProvider(account.ProviderKind) {
 			t.Fatalf("unresolvable local default fabricated an account: %#v", account)
 		}
 	}
@@ -111,16 +113,7 @@ func TestRustHost_fresh_unresolvable_local_default_starts_onboarding_without_an_
 
 // Rust source: crates/noema-host/src/composition/tests.rs:31::startup_entrypoint_child
 func TestRustHost_startup_entrypoint_child(t *testing.T) {
-	token := strings.Repeat("a", 43)
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	options, reader := readDesktopOptions(strings.NewReader(`{"token":"` + token + `","runtimeRoot":"` + runtimeRoot + `"}` + "\nshutdown"))
-	if options == nil || options.Token != token || options.RuntimeRoot != runtimeRoot {
-		t.Fatalf("desktop startup options = %#v", options)
-	}
-	remainder, err := io.ReadAll(reader)
-	if err != nil || string(remainder) != "shutdown" {
-		t.Fatalf("startup child remainder = %q, %v", remainder, err)
-	}
+	t.Fatal("unsupported port: Go server has no isolated startup test child entrypoint")
 }
 
 func runHostForRustTest(t *testing.T) error {
@@ -133,7 +126,90 @@ func runHostForRustTest(t *testing.T) error {
 	if err := listener.Close(); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	return run(ctx, address, io.Discard, nil)
+	output := &rustHostReadyWriter{ready: make(chan struct{})}
+	result := make(chan error, 1)
+	go func() { result <- run(ctx, address, output, nil) }()
+	select {
+	case <-output.ready:
+		cancel()
+	case <-time.After(10 * time.Second):
+		cancel()
+		return fmt.Errorf("host did not report readiness")
+	}
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("host did not stop after cancellation")
+	}
+}
+
+type rustHostReadyWriter struct {
+	ready chan struct{}
+	once  sync.Once
+}
+
+func (w *rustHostReadyWriter) Write(value []byte) (int, error) {
+	if strings.Contains(string(value), "Noema listening on ") {
+		w.once.Do(func() { close(w.ready) })
+	}
+	return len(value), nil
+}
+
+func isRustHostModelProvider(providerKind string) bool {
+	switch providerKind {
+	case "codex", "openai", "foundation_local", "local_models", "openrouter":
+		return true
+	default:
+		return false
+	}
+}
+
+const rustHostDefaultConfigYAML = `# Noema configuration
+provider: codex
+
+codex:
+  base_url: https://chatgpt.com/backend-api/codex
+  # Explicit model overrides must also set reasoning_effort when supported.
+  # model: <model-id>
+  # reasoning_effort: medium
+  # tool_classification_model defaults to gpt-5.4-mini when unset.
+  # tool_classification_model: gpt-5.4-mini
+  timeout_seconds: 300
+
+# The daemon opens the embedded Noema store under this home directory.
+
+browser:
+  max_sessions: 2
+  max_old_space_mb: 1024
+
+web:
+  host: 127.0.0.1
+  port: 3737
+  rp_id: localhost
+  dev_no_auth: false
+  local_graphql_socket: false
+  graphiql: false
+  # Set this to the exact HTTPS origin exposed by your reverse proxy.
+  # For deployment, set both values to the stable public domain.
+  # rp_id: noema.example.com
+  # public_origin: https://noema.example.com
+
+mcp:
+  stdio_enabled: false
+`
+
+// Rust source: crates/noema-host/src/composition/tests.rs:157::configured_foundation_bridge_establishes_default_readiness
+func TestRustHost_configured_foundation_bridge_establishes_default_readiness(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Rust source is cfg(target_os = \"macos\")")
+	}
+	t.Fatal("unsupported port: Go host has no Foundation Local bridge composition authority")
+}
+
+// Rust source: crates/noema-host/src/composition/tests.rs:211::runtime_host_error_messages_are_plain_language
+func TestRustHost_runtime_host_error_messages_are_plain_language(t *testing.T) {
+	t.Fatal("unsupported port: Go host has no RuntimeHostError user-message authority")
 }
