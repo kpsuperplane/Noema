@@ -250,7 +250,7 @@ func TestACPTaskRunCapturesLaunchAndRecovers(t *testing.T) {
 	_, executor, found, err := database.ClaimTaskExecution(context.Background(), now)
 	if err != nil || !found || executor.ExecutorBackend != "acp" || executor.AcpLaunch == nil ||
 		executor.AcpLaunch.Command != "second-command" || executor.AcpLaunch.ConnectionRevision != 2 || len(executor.AcpLaunch.Arguments) != 0 ||
-		executor.EffectiveCwd == nil || *executor.EffectiveCwd != override {
+		executor.EffectiveCwd == nil || *executor.EffectiveCwd != filepath.Join(override, "acp-execution") {
 		t.Fatalf("ACP launch = %#v, %t, %v", executor, found, err)
 	}
 	if err = database.StartTaskExecution(context.Background(), executor.ID, 1, now); err != nil {
@@ -305,13 +305,15 @@ func TestTaskRunEffectiveCwdPrecedence(t *testing.T) {
 	}
 	defer tx.Rollback()
 	override := t.TempDir()
+	overrideEffective := filepath.Join(override, "task")
+	projectEffective := filepath.Join(projectFolder, "task")
 	for _, test := range []struct {
 		name string
 		task Task
 		want *string
 	}{
-		{name: "override", task: Task{ProjectID: projectID, CwdOverride: &override}, want: &override},
-		{name: "project", task: Task{ProjectID: projectID}, want: &projectFolder},
+		{name: "override", task: Task{ProjectID: projectID, CwdOverride: &override}, want: &overrideEffective},
+		{name: "project", task: Task{ProjectID: projectID}, want: &projectEffective},
 		{name: "default", task: Task{}, want: nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {

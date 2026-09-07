@@ -34,7 +34,19 @@ type projectedTask struct {
 	Run  *store.TaskRun
 }
 
+// ReconcileLiveActivities serializes one live Activity projection pass with
+// every other pass for this client registration set.
+func (s *Service) ReconcileLiveActivities(ctx context.Context) error {
+	s.liveActivityMu.Lock()
+	defer s.liveActivityMu.Unlock()
+	return s.reconcileLiveActivitiesLocked(ctx)
+}
+
 func (s *Service) reconcileLiveActivities(ctx context.Context) error {
+	return s.ReconcileLiveActivities(ctx)
+}
+
+func (s *Service) reconcileLiveActivitiesLocked(ctx context.Context) error {
 	credential, err := readAPNSCredential(s.paths.APNSProvider())
 	if err != nil || !credential.Configured {
 		return nil
@@ -229,6 +241,12 @@ func (s *Service) applyLiveProjection(ctx context.Context, target store.LiveActi
 		}
 		if terminal == nil && activity.ProjectionSignature != "" {
 			terminal = &liveProjection{Content: activity.Projection, Signature: activity.ProjectionSignature, FocusedTaskID: activity.FocusedTaskID}
+		}
+		if terminal != nil {
+			if _, err := s.database.UpdateClientTaskActivityProjection(ctx, target.Registration.ClientID,
+				terminal.Content, terminal.Signature, terminal.FocusedTaskID, time.Now()); err != nil {
+				return err
+			}
 		}
 		if len(activity.UpdateToken) > 0 && terminal != nil && target.Registration.Environment != nil {
 			if err := s.queueLiveActivity(ctx, target, activity, store.LiveActivityEnd,

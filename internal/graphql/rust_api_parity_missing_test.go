@@ -2653,25 +2653,56 @@ func rustAPIPortLiveActivityPriority(t *testing.T) {
 
 func rustAPIPortLiveActivityMutationLane(t *testing.T) {
 	t.Helper()
-	resolver, _, clientID := rustAPILiveDeliveryFixture(t)
+	resolver, service, clientID := rustAPILiveDeliveryFixture(t)
 	ctx := context.Background()
+	taskID := "task:33333333333333333333333333333333"
+	if _, err := home.CreatePendingTaskDocument(resolver.home, taskID, "Mutation lane task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(resolver.home, taskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.CreateTask(ctx, taskID, "Mutation lane task", "correlation:mutation-lane", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := resolver.queueTask(ctx, model.QueueTaskInput{TaskID: taskID, ExpectedRevision: 1, ExpectedGeneration: 1, ClientMutationID: "queue-mutation-lane"})
+	if err != nil || queued.Task.CurrentRun == nil {
+		t.Fatalf("queue mutation-lane run = %#v, %v", queued, err)
+	}
+	_, run, found, err := resolver.Store.ClaimTaskExecution(ctx, time.Now())
+	if err != nil || !found {
+		t.Fatalf("claim mutation-lane run = %#v, %v", run, err)
+	}
+	if err := resolver.Store.StartTaskExecution(ctx, run.ID, run.Generation, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	activity, err := resolver.Store.ClientTaskActivity(ctx, clientID)
 	if err != nil || activity == nil {
 		t.Fatal(err)
 	}
-	value := store.NewLiveActivityDelivery{ClientID: clientID, DeliveryKey: "live:update:one", ActivityID: activity.ActivityID, Token: []byte("start-token"), Environment: store.APNSDevelopment, Event: store.LiveActivityStart, Payload: map[string]any{"aps": map[string]any{}}, Urgency: "high", TTLSeconds: 3600}
+	wantDeliveryKey := "live:start:" + activity.TaskSessionID
+	errs := make(chan error, 4)
 	var group sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			_ = resolver.Store.QueueLiveActivityDelivery(ctx, value, time.Now())
+			errs <- service.ReconcileLiveActivities(ctx)
 		}()
 	}
 	group.Wait()
+	close(errs)
+	for reconcileErr := range errs {
+		if reconcileErr != nil {
+			t.Fatal(reconcileErr)
+		}
+	}
 	delivery, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
-	if err != nil || delivery == nil || delivery.DeliveryKey != value.DeliveryKey {
-		t.Fatalf("mutation-lane delivery = %#v, %v", delivery, err)
+	if err != nil || delivery == nil || delivery.DeliveryKey != wantDeliveryKey {
+		t.Fatalf("mutation-lane delivery = %#v, want %q: %v", delivery, wantDeliveryKey, err)
+	}
+	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *delivery, store.APNSSuppressed, "test_claimed_once", "", time.Now()); err != nil {
+		t.Fatal(err)
 	}
 	if duplicate, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute)); err != nil || duplicate != nil {
 		t.Fatalf("duplicate mutation-lane delivery = %#v, %v", duplicate, err)
@@ -2825,7 +2856,28 @@ func rustAPIPortTerminalLiveActivity(t *testing.T) {
 	if _, err := resolver.Store.CreateTask(ctx, taskID, "Finished task", "correlation:terminal", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	queued, err := resolver.queueTask(ctx, model.QueueTaskInput{TaskID: taskID, ExpectedRevision: 1, ExpectedGeneration: 1, ClientMutationID: "queue-live-terminal"})
+	agent, err := resolver.Store.CreateAcpAgent(ctx, "Atlas", "/bin/false", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := newTaskCommand("update_task", "terminal-agent", store.TaskUpdate{ExecutorAgentID: &agent.AgentID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.UpdateInboxTask(ctx, taskID, 1, 1, store.TaskUpdate{ExecutorAgentID: &agent.AgentID}, command, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	mediaType := "text/plain"
+	for index := 1; index <= 3; index++ {
+		if _, err := resolver.Artifacts.CreateLocal(ctx, artifact.LocalInput{
+			Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: taskID}, Title: fmt.Sprintf("Output %d", index),
+			Kind: "document", Filename: fmt.Sprintf("output-%d.txt", index), Bytes: []byte("completed output"),
+			MediaType: &mediaType, CreatedByActorID: agent.AgentID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queued, err := resolver.queueTask(ctx, model.QueueTaskInput{TaskID: taskID, ExpectedRevision: 2, ExpectedGeneration: 1, ClientMutationID: "queue-live-terminal"})
 	if err != nil || queued.Task.CurrentRun == nil {
 		t.Fatalf("queue terminal run = %#v, %v", queued, err)
 	}
@@ -2843,32 +2895,22 @@ func rustAPIPortTerminalLiveActivity(t *testing.T) {
 	if err := resolver.Store.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{Kind: "assistant_output", Status: "completed", Round: 1, Content: "Finished task output", Payload: map[string]any{"phase": "final_answer"}}}, store.TaskRunUsage{}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	activity, _ := resolver.Store.ClientTaskActivity(ctx, clientID)
-	if _, err := resolver.Store.UpdateClientTaskActivityProjection(ctx, clientID, map[string]any{"focusTaskId": taskID}, strings.Repeat("a", 64), taskID, time.Now()); err != nil {
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
 		t.Fatal(err)
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	events := make(chan noemaruntime.Event)
-	go service.Run(runCtx, events)
-	defer cancel()
 	if _, err := resolver.Store.FinishTask(ctx, taskID, runID, store.TaskCompleted, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		value, err := resolver.Store.ClientTaskActivity(ctx, clientID)
-		if err == nil && value != nil && value.Projection["phase"] == "completed" {
-			if value.Projection["activeTaskCount"] != float64(0) && value.Projection["activeTaskCount"] != 0 {
-				t.Fatalf("terminal active count = %#v", value.Projection["activeTaskCount"])
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := service.ReconcileLiveActivities(ctx); err != nil {
+		t.Fatal(err)
 	}
-	if activity == nil {
-		t.Fatal("missing starting Live Activity")
+	value, err := resolver.Store.ClientTaskActivity(ctx, clientID)
+	if err != nil || value == nil {
+		t.Fatalf("terminal Live Activity = %#v, %v", value, err)
 	}
-	t.Fatal("terminal Live Activity projection was not published")
+	if value.Projection["phase"] != "completed" || value.Projection["agentName"] != "Atlas" || value.Projection["completedOutputCount"] != float64(3) && value.Projection["completedOutputCount"] != 3 || value.Projection["activeTaskCount"] != float64(0) && value.Projection["activeTaskCount"] != 0 {
+		t.Fatalf("terminal Live Activity projection = %#v", value.Projection)
+	}
 }
 
 func rustAPIPortDeliveryStatuses(t *testing.T) {

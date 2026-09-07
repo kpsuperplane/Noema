@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -329,14 +330,16 @@ func (r *Resolver) taskSummaryModel(
 ) *model.TaskSummary {
 	result := taskSummaryModel(task, workspaceID, document)
 	if task.CwdOverride != nil {
-		result.EffectiveCwd = task.CwdOverride
+		value := filepath.Join(*task.CwdOverride, store.TaskDirectoryName(task.Title))
+		result.EffectiveCwd = &value
 		result.EffectiveCwdSource = "task"
 	}
 	if task.ProjectID != "" {
 		if project, err := r.Store.Project(ctx, task.ProjectID); err == nil {
 			result.Project = projectModel(project)
 			if result.EffectiveCwd == nil && project.Folder != nil {
-				result.EffectiveCwd = project.Folder
+				value := filepath.Join(*project.Folder, store.TaskDirectoryName(task.Title))
+				result.EffectiveCwd = &value
 				result.EffectiveCwdSource = "project"
 			}
 		}
@@ -356,14 +359,16 @@ func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, documen
 	}
 	result.WorkspaceFiles, result.WorkspaceFilesTruncated = r.taskWorkspaceManifest(task.ID)
 	if task.CwdOverride != nil {
-		result.EffectiveCwd = task.CwdOverride
+		value := filepath.Join(*task.CwdOverride, store.TaskDirectoryName(task.Title))
+		result.EffectiveCwd = &value
 		result.EffectiveCwdSource = "task"
 	}
 	if task.ProjectID != "" {
 		if project, err := r.Store.Project(ctx, task.ProjectID); err == nil {
 			result.Project = projectModel(project)
 			if result.EffectiveCwd == nil && project.Folder != nil {
-				result.EffectiveCwd = project.Folder
+				value := filepath.Join(*project.Folder, store.TaskDirectoryName(task.Title))
+				result.EffectiveCwd = &value
 				result.EffectiveCwdSource = "project"
 			}
 		}

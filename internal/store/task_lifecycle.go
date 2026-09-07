@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/uptrace/bun"
 )
@@ -588,8 +589,10 @@ VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,
 }
 
 func taskRunEffectiveCwdTx(ctx context.Context, tx bun.Tx, task Task) (*string, error) {
+	directory := taskDirectoryName(task.Title)
 	if task.CwdOverride != nil {
-		return cloneString(task.CwdOverride), nil
+		value := filepath.Join(*task.CwdOverride, directory)
+		return &value, nil
 	}
 	if task.ProjectID == "" {
 		return nil, nil
@@ -598,8 +601,41 @@ func taskRunEffectiveCwdTx(ctx context.Context, tx bun.Tx, task Task) (*string, 
 	if err := tx.QueryRowContext(ctx, `SELECT folder FROM projects WHERE project_id=?`, task.ProjectID).Scan(&folder); err != nil {
 		return nil, err
 	}
-	return nullStringPointer(folder), nil
+	if !folder.Valid {
+		return nil, nil
+	}
+	value := filepath.Join(folder.String, directory)
+	return &value, nil
 }
+
+// taskDirectoryName mirrors the task-file directory slug used by the Rust
+// task executor when it resolves a process working directory.
+func taskDirectoryName(title string) string {
+	var slug strings.Builder
+	separator := false
+	for _, character := range strings.ToLower(strings.TrimSpace(title)) {
+		if unicode.IsLetter(character) || unicode.IsDigit(character) {
+			if separator && slug.Len() > 0 {
+				slug.WriteByte('-')
+			}
+			slug.WriteRune(character)
+			separator = false
+			if slug.Len() >= 64 {
+				break
+			}
+			continue
+		}
+		separator = true
+	}
+	value := strings.TrimRight(slug.String(), "-")
+	if value == "" {
+		return "task"
+	}
+	return value
+}
+
+// TaskDirectoryName returns the stable task-file directory for one title.
+func TaskDirectoryName(title string) string { return taskDirectoryName(title) }
 
 func insertTaskMessage(ctx context.Context, tx bun.Tx, task Task, gateID, kind, body string, approval *string, now time.Time) (string, error) {
 	id, err := newID("task_message")
