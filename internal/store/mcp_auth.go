@@ -118,7 +118,9 @@ WHERE run_id=? AND task_id=? AND task_generation=? AND status='running'`, millis
 	notice, err := insertConversationOutputTx(ctx, tx, ConversationItem{ID: "item:" + id[9:], ConversationID: value.ConversationID,
 		TurnID: value.TurnID, ParentItemID: value.CallItemID, Sequence: sequence, Kind: ConversationApprovalRequest,
 		Status: "completed", AuthorActorID: "agent:primary", ContentText: "Authentication required",
-		Payload:  map[string]any{"id": id, "activity_kind": "authentication_request", "status": "completed", "title": "Authentication required"},
+		Payload: map[string]any{"id": id, "activity_kind": "authentication_request", "status": "completed",
+			"title": "Authentication required", "summary": value.CapabilityName,
+			"metadata": map[string]any{"source": value.AuthorityKind + "_authentication", "request_id": id}},
 		Metadata: map[string]any{"source": value.AuthorityKind + "_authentication"}, CreatedAt: now})
 	if err != nil {
 		return MCPAuthRequest{}, ConversationItem{}, err

@@ -270,6 +270,17 @@ func TestConversationToolActivitiesPreserveStoredIdentityAndStatus(t *testing.T)
 	if status, err := activityStatusModel("cancelled"); err != nil || status != model.TurnActivityStatusFailed {
 		t.Fatalf("cancelled activity status = %q, %v", status, err)
 	}
+	legacy, err := transcriptItemModel(store.ConversationItem{
+		Kind: store.ConversationApprovalRequest, Status: "completed",
+		Payload:  map[string]any{"id": "mcp_auth:one", "activity_kind": "authentication_request", "title": "Authentication required"},
+		Metadata: map[string]any{"source": "mcp_server_authentication"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activity, ok := legacy.(model.Activity); !ok || activity.Metadata["source"] != "mcp_server_authentication" {
+		t.Fatalf("legacy activity metadata = %#v", legacy)
+	}
 }
 
 func TestConversationMultipleChoiceItemsPreserveOrderedContract(t *testing.T) {

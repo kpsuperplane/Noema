@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/kpsuperplane/noema/internal/publicpage"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
+	"github.com/kpsuperplane/noema/internal/publicpage"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -289,6 +289,7 @@ func (s *Service) publishOAuthReauthentication(ctx context.Context, attempt *oau
 	replacement.OAuth = attempt.input.Secrets.OAuth
 	replacement.Revision = attempt.input.Secrets.Revision
 	merged := mergeSecrets(current, replacement)
+	merged.Revision = attempt.input.Secrets.Revision
 	if err := s.secrets.writeConnection(server.ID, merged); err != nil {
 		return SetupResult{}, err
 	}
@@ -496,9 +497,12 @@ func (s *Service) refreshOAuth(ctx context.Context, server store.MCPServer, secr
 	return updated, nil
 }
 func absoluteCallback(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
+	scheme := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")))
+	if scheme != "http" && scheme != "https" {
+		scheme = "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
 	}
 	return scheme + "://" + r.Host + r.URL.RequestURI()
 }

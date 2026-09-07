@@ -313,6 +313,9 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		title, _ := item.Payload["title"].(string)
 		summary, _ := item.Payload["summary"].(string)
 		metadata, _ := item.Payload["metadata"].(map[string]any)
+		if metadata == nil {
+			metadata = item.Metadata
+		}
 		if id == "" || kind == "" || title == "" || metadata == nil {
 			return nil, errors.New("stored conversation activity is invalid")
 		}

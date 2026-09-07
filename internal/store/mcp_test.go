@@ -133,11 +133,14 @@ func TestAdapterAuthenticationSchemaConvergesFromVersionTwentyFour(t *testing.T)
 		t.Fatal(err)
 	}
 	call := items[len(items)-1]
-	request, _, err := database.CreateMCPAuthRequest(t.Context(), MCPAuthRequest{OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID,
+	request, notice, err := database.CreateMCPAuthRequest(t.Context(), MCPAuthRequest{OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID,
 		CallItemID: call.ID, AuthorityKind: "adapter_connection", AuthorityID: strings.Repeat("a", 32), CapabilityName: "example.lookup",
 		BindingJSON: `{"connection":"ordinary"}`, ArgumentsJSON: `{"ordinary":"value"}`}, now)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if notice.Payload["summary"] != "example.lookup" || notice.Payload["metadata"] == nil {
+		t.Fatalf("authentication notice payload = %#v", notice.Payload)
 	}
 	adapterPending, err := database.PendingAdapterAuthRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
 	if err != nil || len(adapterPending) != 1 || adapterPending[0].AuthorityID != strings.Repeat("a", 32) {

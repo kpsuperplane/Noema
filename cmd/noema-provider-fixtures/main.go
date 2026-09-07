@@ -40,9 +40,10 @@ type requestTrace struct {
 }
 
 type fixture struct {
-	mu       sync.Mutex
-	requests []requestTrace
-	oauth    fixtureOAuth
+	mu                 sync.Mutex
+	requests           []requestTrace
+	oauth              fixtureOAuth
+	notionAuthRequired bool
 }
 
 func (f *fixture) trace(r *http.Request, status int) {
@@ -77,6 +78,12 @@ func (f *fixture) traces() []requestTrace {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]requestTrace(nil), f.requests...)
+}
+
+func (f *fixture) requiresNotionAuth() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.notionAuthRequired
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -388,6 +395,7 @@ type notionPage struct {
 	Blocks     []notionBlock
 	Rows       []map[string]any
 	Accessible bool
+	Owner      string
 }
 
 type notionBlock struct {
@@ -406,15 +414,19 @@ func notionPages() []notionPage {
 		{ID: "notion-page-launch-records", URL: "https://www.notion.so/notion-page-launch-records", Title: "Launch decision records", Content: "Related launch decision records.", UpdatedAt: "2026-09-03T09:00:00.000Z", Parent: "workspace-root", Object: "data_source", Accessible: true,
 			Rows: []map[string]any{{"id": "launch-record-001", "decision": "support window", "status": "open"}, {"id": "launch-record-002", "decision": "rollback owner", "status": "open"}}},
 		{ID: "notion-page-launch-archive", URL: "https://www.notion.so/notion-page-launch-archive", Title: "Launch project archive", Content: "Archived launch notes are retained for reference.", UpdatedAt: "2026-08-30T09:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true},
-		{ID: "notion-page-private", URL: "https://www.notion.so/notion-page-private", Title: "Private account page", Content: "This page belongs to the second synthetic account.", UpdatedAt: "2026-09-05T10:00:00.000Z", Parent: "workspace-private", Object: "page", Accessible: false},
+		{ID: "notion-page-private", URL: "https://www.notion.so/notion-page-private", Title: "Private account page", Content: "This page belongs to the second synthetic account.", UpdatedAt: "2026-09-05T10:00:00.000Z", Parent: "workspace-private", Object: "page", Accessible: true, Owner: "account-b"},
 	}
 }
 
-func accessibleNotionPages() []notionPage {
+func accessibleNotionPages(account ...string) []notionPage {
+	selected := "anonymous"
+	if len(account) != 0 && account[0] != "" {
+		selected = account[0]
+	}
 	pages := notionPages()
 	result := make([]notionPage, 0, len(pages))
 	for _, page := range pages {
-		if page.Accessible {
+		if page.Accessible && (page.Owner == "" || page.Owner == selected) {
 			result = append(result, page)
 		}
 	}
@@ -436,11 +448,72 @@ func (f *fixture) notionOAuthMetadata(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/.well-known/oauth-protected-resource" {
 		return
 	}
-	// The first vertical slice uses a synthetic anonymous MCP connection. Keep
-	// the route absent from the public card so Noema does not start a real OAuth
-	// flow against this test process.
-	f.trace(r, http.StatusNotFound)
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+	f.trace(r, http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"resource":                 fixtureNotionResource,
+		"authorization_servers":    []string{fixtureNotionIssuer},
+		"scopes_supported":         []string{fixtureNotionScope},
+		"bearer_methods_supported": []string{"header"},
+		"resource_name":            "Synthetic Notion MCP",
+	})
+}
+
+func (f *fixture) notionOAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/.well-known/openid-configuration" &&
+		r.URL.Path != "/.well-known/oauth-authorization-server/__pa-replay" &&
+		r.URL.Path != "/.well-known/openid-configuration/__pa-replay" {
+		return
+	}
+	f.trace(r, http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issuer":                                fixtureNotionIssuer,
+		"authorization_endpoint":                fixtureNotionAuthEndpoint,
+		"token_endpoint":                        fixtureNotionTokenEndpoint,
+		"registration_endpoint":                 fixtureNotionRegistrationEndpoint,
+		"jwks_uri":                              fixtureNotionIssuer + "/.well-known/jwks.json",
+		"scopes_supported":                      []string{fixtureNotionScope, "offline_access"},
+		"response_types_supported":              []string{"code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"token_endpoint_auth_methods_supported": []string{"client_secret_post"},
+		"code_challenge_methods_supported":      []string{"S256"},
+	})
+}
+
+func (f *fixture) notionOAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/oauth/register" || r.Method != http.MethodPost {
+		f.trace(r, http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "invalid_request"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var request struct {
+		RedirectURIs []string `json:"redirect_uris"`
+	}
+	if json.NewDecoder(r.Body).Decode(&request) != nil || len(request.RedirectURIs) != 1 || !validNotionRedirect(request.RedirectURIs[0]) {
+		f.trace(r, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_client_metadata"})
+		return
+	}
+	f.mu.Lock()
+	if f.oauth.notionRedirects == nil {
+		f.oauth.notionRedirects = map[string]struct{}{}
+	}
+	f.oauth.notionRedirects[request.RedirectURIs[0]] = struct{}{}
+	secret := f.oauth.secret
+	f.mu.Unlock()
+	if secret == "" {
+		f.trace(r, http.StatusServiceUnavailable)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily_unavailable"})
+		return
+	}
+	f.trace(r, http.StatusCreated)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"client_id": fixtureNotionClientID, "client_secret": secret,
+		"token_endpoint_auth_method": "client_secret_post",
+		"redirect_uris":              request.RedirectURIs,
+		"grant_types":                []string{"authorization_code", "refresh_token"},
+		"response_types":             []string{"code"},
+	})
 }
 
 func (f *fixture) notionHandler() http.Handler {
@@ -458,6 +531,12 @@ func (f *fixture) notionHandler() http.Handler {
 		if r.URL.Path != "/notion/mcp" {
 			return
 		}
+		if f.requiresNotionAuth() && f.requestAccount(r) == "anonymous" {
+			f.trace(r, http.StatusUnauthorized)
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+fixtureNotionResourceMetadata+`", scope="`+fixtureNotionScope+`"`)
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		f.trace(r, http.StatusOK)
 		handler.ServeHTTP(w, r)
 	})
@@ -472,7 +551,11 @@ func notionTool(f *fixture, name string) mcp.ToolHandler {
 		if arguments == nil {
 			arguments = map[string]any{}
 		}
-		pages := notionPages()
+		account := "anonymous"
+		if request.Extra != nil && request.Extra.Header != nil {
+			account = f.requestAccount(&http.Request{Header: request.Extra.Header})
+		}
+		pages := accessibleNotionPages(account)
 		var value any
 		switch name {
 		case "notion-get-self":
@@ -568,6 +651,46 @@ func notionTool(f *fixture, name string) mcp.ToolHandler {
 	}
 }
 
+func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/fixture/control" || r.Method != http.MethodPost {
+		f.trace(r, http.StatusNotFound)
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var request struct {
+		Action string `json:"action"`
+	}
+	if json.NewDecoder(r.Body).Decode(&request) != nil {
+		f.trace(r, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	f.mu.Lock()
+	switch request.Action {
+	case "notion_require_auth":
+		f.notionAuthRequired = true
+	case "notion_allow_anonymous":
+		f.notionAuthRequired = false
+	case "notion_expire_tokens":
+		for token, value := range f.oauth.tokens {
+			if value.scope == fixtureNotionScope {
+				value.expires = time.Unix(1, 0)
+				f.oauth.tokens[token] = value
+			}
+		}
+	default:
+		f.mu.Unlock()
+		f.trace(r, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown_action"})
+		return
+	}
+	required := f.notionAuthRequired
+	f.mu.Unlock()
+	f.trace(r, http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notion_auth_required": required})
+}
+
 func notionBlockChildren(blocks []notionBlock) []map[string]any {
 	children := make([]map[string]any, 0, len(blocks))
 	for _, block := range blocks {
@@ -609,12 +732,17 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", f.health)
 	mux.HandleFunc("/fixture/requests", f.operatorTrace)
+	mux.HandleFunc("/fixture/control", f.operatorControl)
 	mux.HandleFunc("/gmail/docs", f.docs)
 	mux.HandleFunc("/oauth/authorize", f.authorize)
 	mux.HandleFunc("/oauth/token", f.token)
+	mux.HandleFunc("/oauth/register", f.notionOAuthRegister)
 	mux.HandleFunc("/notion/docs", f.docs)
 	mux.HandleFunc("/.well-known/mcp.json", f.notionCard)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", f.notionOAuthMetadata)
+	mux.HandleFunc("/.well-known/openid-configuration", f.notionOAuthServerMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server/", f.notionOAuthServerMetadata)
+	mux.HandleFunc("/.well-known/openid-configuration/", f.notionOAuthServerMetadata)
 	mux.HandleFunc("/gmail/v1/", f.gmail)
 	mux.Handle("/notion/mcp", f.notionHandler())
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -729,8 +857,10 @@ nested block tree. The fixture also exposes one related data source with rows.
 Search uses opaque ` + "`page-N`" + ` cursors and returns ` + "`has_more`" + ` until all
 matching records are read. An inaccessible ID returns an MCP tool error with
 code ` + "`object_not_found`" + `. An invalid cursor returns ` + "`invalid_cursor`" + `.
-The catalog and schemas are part of the acceptance evidence.
-
-This first fixture slice uses an anonymous synthetic MCP connection. It does not
-claim to emulate Notion OAuth consent. OAuth compatibility is a separate case.
+The catalog and schemas are part of the acceptance evidence. The service also
+implements the protected-resource metadata, dynamic client registration, OAuth
+authorization-code flow with PKCE, token refresh, and account-specific access
+needed by the connection cases. The operator may enable anonymous mode for
+transport-only checks or require a synthetic account for protected checks.
+Credentials are never included in traces or documents.
 `

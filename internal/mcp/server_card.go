@@ -221,8 +221,17 @@ func oauthAvailable(ctx context.Context, endpoint string) bool {
 	paths := []string{"/.well-known/oauth-protected-resource"}
 	if path := strings.Trim(base.Path, "/"); path != "" {
 		paths = append([]string{"/.well-known/oauth-protected-resource/" + path}, paths...)
+		segments := strings.Split(path, "/")
+		for end := len(segments) - 1; end > 0; end-- {
+			paths = append(paths, "/"+strings.Join(segments[:end], "/")+"/.well-known/oauth-protected-resource")
+		}
 	}
+	seen := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
 		candidate := *base
 		candidate.Path, candidate.RawQuery, candidate.Fragment = path, "", ""
 		body, state := fetchServerCard(ctx, &candidate)
