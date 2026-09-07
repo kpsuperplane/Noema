@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -18,14 +19,27 @@ func TestRustCapabilities_renamed_mcp_binding_omits_arguments_and_outputs(t *tes
 		SourceRevision: "source:read_docs", ConnectionRevision: "connection:read_docs", InputSchema: json.RawMessage(`{"type":"object"}`),
 		Behavior: store.ActionBehavior{ReadOnly: true, RepeatSafe: true}, InvokerKey: "test", OperationToken: "read_docs",
 		PersistencePolicy: BindingPersistenceOmitted}
-	tools := GenerationTools([]Binding{binding})
-	if binding.InvokerKey != "test" || binding.OperationToken != "read_docs" || binding.ServerID != "test" || binding.ToolID != "read_docs" || binding.SourceRevision != "source:read_docs" || binding.ConnectionRevision != "connection:read_docs" {
-		t.Fatalf("binding authority changed = %#v", binding)
+	builder := NewBindingCatalogBuilder()
+	if err := builder.Add(binding); err != nil {
+		t.Fatal(err)
 	}
+	catalog := builder.BuildSnapshot()
+	resolved, ok := catalog.Resolve("read_docs")
+	if !ok {
+		t.Fatal("binding was not resolved from the built catalog")
+	}
+	debug := fmt.Sprintf("%#v", resolved)
+	if !strings.Contains(debug, `InvokerKey("test")`) || !strings.Contains(debug, `OperationToken("read_docs")`) {
+		t.Fatalf("binding debug authority = %s", debug)
+	}
+	if resolved.InvokerKey != "test" || resolved.OperationToken != "read_docs" || resolved.ServerID != "test" || resolved.ToolID != "read_docs" || resolved.SourceRevision != "source:read_docs" || resolved.ConnectionRevision != "connection:read_docs" {
+		t.Fatalf("binding authority changed = %#v", resolved)
+	}
+	tools := GenerationTools([]Binding{resolved})
 	if len(tools) != 1 || tools[0].Name != "read_docs" || tools[0].Description != "Test operation." {
 		t.Fatalf("generated binding = %#v", tools)
 	}
-	views := binding.PersistedViews(
+	views := resolved.PersistedViews(
 		map[string]any{"private": "workspace query"},
 		map[string]any{"private": "workspace result"},
 	)

@@ -81,6 +81,12 @@ type Binding struct {
 	PersistencePolicy                                   BindingPersistencePolicy `json:"persistence_policy,omitempty"`
 }
 
+// GoString preserves the Rust authority names in diagnostic formatting used
+// by the capability parity contract.
+func (b Binding) GoString() string {
+	return fmt.Sprintf("Binding{InvokerKey(%q), OperationToken(%q), Name(%q), ServerID(%q), ToolID(%q), SourceRevision(%q), ConnectionRevision(%q)}", b.InvokerKey, b.OperationToken, b.Name, b.ServerID, b.ToolID, b.SourceRevision, b.ConnectionRevision)
+}
+
 // Service owns MCP setup, credentials, catalogs, and calls.
 type Service struct {
 	database      *store.Store

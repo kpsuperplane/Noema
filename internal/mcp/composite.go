@@ -53,6 +53,13 @@ type BindingCatalogBuilder struct {
 	seen     map[string]struct{}
 }
 
+// BindingCatalogSnapshot is one immutable request-local binding catalog.
+// Resolution uses only the entries captured when the snapshot was built.
+type BindingCatalogSnapshot struct {
+	bindings []Binding
+	byName   map[string]int
+}
+
 // NewBindingCatalogBuilder starts an empty request-local catalog builder.
 func NewBindingCatalogBuilder() *BindingCatalogBuilder {
 	return &BindingCatalogBuilder{seen: make(map[string]struct{})}
@@ -77,6 +84,34 @@ func (builder *BindingCatalogBuilder) Build() []Binding {
 		return nil
 	}
 	return append([]Binding(nil), builder.bindings...)
+}
+
+// BuildSnapshot freezes the builder into a catalog that resolves only its
+// advertised binding names.
+func (builder *BindingCatalogBuilder) BuildSnapshot() BindingCatalogSnapshot {
+	if builder == nil {
+		return BindingCatalogSnapshot{}
+	}
+	bindings := builder.Build()
+	byName := make(map[string]int, len(bindings))
+	for index, binding := range bindings {
+		byName[binding.Name] = index
+	}
+	return BindingCatalogSnapshot{bindings: bindings, byName: byName}
+}
+
+// Resolve returns the binding advertised under name in this snapshot.
+func (snapshot BindingCatalogSnapshot) Resolve(name string) (Binding, bool) {
+	index, ok := snapshot.byName[name]
+	if !ok || index < 0 || index >= len(snapshot.bindings) {
+		return Binding{}, false
+	}
+	return snapshot.bindings[index], true
+}
+
+// Bindings returns the stable insertion-ordered entries in this snapshot.
+func (snapshot BindingCatalogSnapshot) Bindings() []Binding {
+	return append([]Binding(nil), snapshot.bindings...)
 }
 
 // CompositeBindingSource loads configured sources in order and preserves that

@@ -1,6 +1,9 @@
 package mcp
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // BindingPersistencePolicy controls which safe views may be retained for one
 // model-visible MCP authority.
@@ -28,10 +31,22 @@ func (b Binding) persistView(value any) any {
 	case BindingPersistenceOmitted:
 		return nil
 	case BindingPersistenceRedacted:
-		return redactBindingValue(value)
+		return redactBindingValue(cloneBindingValue(value))
 	default:
+		return cloneBindingValue(value)
+	}
+}
+
+func cloneBindingValue(value any) any {
+	raw, err := json.Marshal(value)
+	if err != nil {
 		return value
 	}
+	var clone any
+	if err := json.Unmarshal(raw, &clone); err != nil {
+		return value
+	}
+	return clone
 }
 
 func redactBindingValue(value any) any {
