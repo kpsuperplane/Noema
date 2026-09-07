@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -20,6 +21,8 @@ import (
 var (
 	ErrOutcomeUncertain       = errors.New("adapter request outcome is uncertain")
 	ErrAuthenticationRequired = errors.New("adapter authentication is required")
+	errCursorBindingMismatch  = errors.New("adapter continuation binding mismatch")
+	errCursorExpired          = errors.New("adapter continuation expired")
 )
 
 // Service owns reviewed adapter files, public indexes, and calls.
@@ -32,10 +35,16 @@ type Service struct {
 	oauthEvents      map[string]OAuthAttemptEvent
 	oauthSubscribers map[string]map[chan OAuthAttemptEvent]struct{}
 	oauthCompleted   func(OAuthAttemptEvent)
+	httpClient       *http.Client
+	oauthClient      *http.Client
 }
 
 // NewService recovers and indexes one fresh Go adapter authority.
 func NewService(root *os.Root, database *store.Store) (*Service, error) {
+	return newService(root, database, nil)
+}
+
+func newService(root *os.Root, database *store.Store, client *http.Client) (*Service, error) {
 	if database == nil {
 		return nil, errors.New("adapter store is unavailable")
 	}
@@ -43,7 +52,7 @@ func NewService(root *os.Root, database *store.Store) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	service := &Service{files: files, database: database, oauthAttempts: make(map[string]*oauthAttempt), oauthEvents: make(map[string]OAuthAttemptEvent), oauthSubscribers: make(map[string]map[chan OAuthAttemptEvent]struct{})}
+	service := &Service{files: files, database: database, oauthAttempts: make(map[string]*oauthAttempt), oauthEvents: make(map[string]OAuthAttemptEvent), oauthSubscribers: make(map[string]map[chan OAuthAttemptEvent]struct{}), httpClient: client, oauthClient: client}
 	if err := service.reconcile(context.Background()); err != nil {
 		return nil, err
 	}
@@ -800,6 +809,45 @@ func (s *Service) Bindings() ([]Binding, error) {
 	defer s.mu.Unlock()
 	return s.bindings()
 }
+
+// AvailabilityNotices returns deterministic reasons for reviewed operations
+// that remain selected but cannot enter the callable catalog.
+func (s *Service) AvailabilityNotices() ([]AvailabilityNotice, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot, err := s.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	definitions := make(map[string]Definition, len(snapshot.Definitions))
+	for _, definition := range snapshot.Definitions {
+		if definition.Manifest.Reviewed && !definition.Superseded {
+			definitions[definition.SemanticDigest] = definition
+		}
+	}
+	result := make([]AvailabilityNotice, 0)
+	for _, connection := range snapshot.Connections {
+		definition, ok := definitions[connection.SemanticDigest]
+		if !ok || connection.Status != "active" || definition.Manifest.Authentication.Kind != "oauth2_authorization_code_pkce" {
+			continue
+		}
+		grant, _, loadErr := s.files.loadOAuthGrant(connection.Authentication.GrantID)
+		if loadErr != nil || grant.Status != "active" {
+			continue
+		}
+		allowed := make(map[string]bool, len(connection.AllowedOperations))
+		for _, operationID := range connection.AllowedOperations {
+			allowed[operationID] = true
+		}
+		for _, operation := range definition.Operations {
+			if allowed[operation.OperationID] && !operationScopesSatisfied(operation, grant.GrantedScopes) {
+				result = append(result, AvailabilityNotice{Name: definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID, Status: "authorization_scope_unavailable", DefinitionDigest: definition.SemanticDigest, OperationID: operation.OperationID})
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result, nil
+}
 func (s *Service) bindings() ([]Binding, error) {
 	snapshot, err := s.snapshot()
 	if err != nil {
@@ -817,7 +865,7 @@ func (s *Service) bindings() ([]Binding, error) {
 		if !ok || connection.Status != "active" || connection.DataSharingPolicy == "" || connection.UnsafeActionPolicy == "" || definition.Manifest.Authentication.Kind == "credential" && connection.Authentication.GenerationID == "" {
 			continue
 		}
-		grantID, authorityRevision := "", connection.Authentication.Revision
+		grantID, accountID, authorityRevision := "", "", connection.Authentication.Revision
 		connectionName := connection.ConnectionLabel
 		if connectionName == "" {
 			connectionName = connection.ConnectionSlug
@@ -830,6 +878,9 @@ func (s *Service) bindings() ([]Binding, error) {
 				continue
 			}
 			grantID, authorityRevision, granted = grant.GrantID, grant.AuthorityRevision, grant.GrantedScopes
+			if grant.AccountID != nil {
+				accountID = *grant.AccountID
+			}
 			accountName := grant.GrantID
 			if grant.AccountLabel != nil {
 				accountName = *grant.AccountLabel
@@ -873,7 +924,7 @@ func (s *Service) bindings() ([]Binding, error) {
 			}
 			route := reviewRoute(connection, behavior)
 			name := definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID
-			result = append(result, Binding{Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
+			result = append(result, Binding{Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, AccountID: accountID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -970,7 +1021,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		grant, token, loadErr := s.oauthBearer(ctx, connection.Authentication.GrantID, false)
 		if loadErr != nil {
 			if errors.Is(loadErr, errOAuthRejected) {
-				_ = s.requireOAuthAuthentication(ctx, &grant)
+				_ = s.invalidateOAuthAuthentication(ctx, &grant)
 				return nil, false, ErrAuthenticationRequired
 			}
 			if errors.Is(loadErr, ErrAuthenticationRequired) {
@@ -989,11 +1040,11 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	digest := argumentsDigest(arguments)
 	if reference != "" {
 		cursor, _ := s.loadCursor(reference)
-		if cursor.ConnectionID != current.ConnectionID || cursor.ConnectionRevision != current.ConnectionRevision || cursor.SemanticDigest != current.SemanticDigest || cursor.OperationID != current.OperationID || cursor.OperationDigest != current.OperationDigest || cursor.ArgumentsDigest != digest || time.Now().After(cursor.ExpiresAt) {
+		if cursorErr := validateCursorBinding(cursor, current, digest, time.Now()); cursorErr != nil {
 			return nil, false, errors.New("adapter continuation is stale")
 		}
 	}
-	response, err := executeHTTP(ctx, request, operation.Retry == "transport_safe_read" && current.Behavior.RepeatSafe)
+	response, err := s.executeHTTP(ctx, request, operation.Retry == "transport_safe_read" && current.Behavior.RepeatSafe)
 	if errors.Is(err, errOutcomeUncertain) {
 		return nil, false, classifyHTTPOutcome(err, current.Behavior)
 	}
@@ -1010,13 +1061,17 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 		}
 		if refreshErr == nil && grant.AuthorityRevision == current.CredentialRevision && current.Behavior.ReadOnly {
 			request.headers["Authorization"] = "Bearer " + token.AccessToken
-			response, refreshErr = executeHTTP(ctx, request, false)
+			response, refreshErr = s.executeHTTP(ctx, request, false)
 		}
 		if refreshErr != nil && !errors.Is(refreshErr, errOAuthRejected) && !errors.Is(refreshErr, ErrAuthenticationRequired) {
 			return nil, false, refreshErr
 		}
 		if refreshErr != nil || response.status == 401 || !current.Behavior.ReadOnly {
-			_ = s.requireOAuthAuthentication(ctx, &grant)
+			if errors.Is(refreshErr, errOAuthRejected) {
+				_ = s.invalidateOAuthAuthentication(ctx, &grant)
+			} else {
+				_ = s.requireOAuthAuthentication(ctx, &grant)
+			}
 			return nil, false, ErrAuthenticationRequired
 		}
 	}
@@ -1070,7 +1125,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			return nil, false, errors.New("adapter pagination result is invalid")
 		}
 		if nextToken != "" {
-			next := Cursor{Reference: randomHex(), ConnectionID: current.ConnectionID, ConnectionRevision: current.ConnectionRevision, SemanticDigest: current.SemanticDigest, OperationID: current.OperationID, OperationDigest: current.OperationDigest, ArgumentsDigest: digest, Token: nextToken, ExpiresAt: time.Now().Add(time.Hour)}
+			next := Cursor{Reference: randomHex(), ConnectionID: current.ConnectionID, GrantID: current.GrantID, AccountID: current.AccountID, ConnectionRevision: current.ConnectionRevision, SemanticDigest: current.SemanticDigest, OperationID: current.OperationID, OperationDigest: current.OperationDigest, ArgumentsDigest: digest, Token: nextToken, ExpiresAt: time.Now().Add(time.Hour)}
 			if err = s.putCursor(next); err != nil {
 				return nil, false, err
 			}
@@ -1084,6 +1139,16 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 	}
 	payload, err := wrapResult(sanitizeSensitiveOutput(result, sensitive, secretValues))
 	return payload, err == nil, err
+}
+
+func validateCursorBinding(cursor Cursor, binding Binding, argumentsDigest string, now time.Time) error {
+	if cursor.ConnectionID != binding.ConnectionID || cursor.ConnectionRevision != binding.ConnectionRevision || cursor.GrantID != binding.GrantID || cursor.AccountID != binding.AccountID || cursor.SemanticDigest != binding.SemanticDigest || cursor.OperationID != binding.OperationID || cursor.OperationDigest != binding.OperationDigest || cursor.ArgumentsDigest != argumentsDigest {
+		return errCursorBindingMismatch
+	}
+	if !cursor.ExpiresAt.After(now) {
+		return errCursorExpired
+	}
+	return nil
 }
 
 func classifyHTTPOutcome(err error, behavior store.ActionBehavior) error {

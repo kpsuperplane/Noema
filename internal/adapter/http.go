@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,26 @@ type encodedRequest struct {
 	method, rawURL string
 	headers        map[string]string
 	body           []byte
+	secretValues   []string
 }
+
+// GoString keeps request-auth output useful while removing every reviewed
+// credential value from the URL, headers, and body representation.
+func (r encodedRequest) GoString() string {
+	rawURL := r.rawURL
+	headers := make(map[string]string, len(r.headers))
+	for name, value := range r.headers {
+		headers[name] = value
+	}
+	for _, secret := range r.secretValues {
+		rawURL = strings.ReplaceAll(rawURL, secret, "[REDACTED]")
+		for name, value := range headers {
+			headers[name] = strings.ReplaceAll(value, secret, "[REDACTED]")
+		}
+	}
+	return fmt.Sprintf("adapter.encodedRequest{method:%q, rawURL:%q, headers:%#v, body:%q}", r.method, rawURL, headers, r.body)
+}
+
 type httpResponse struct {
 	status      int
 	contentType string
@@ -81,9 +101,14 @@ func encodeRequest(definition Definition, operation CompiledOperation, raw json.
 		}
 	}
 	path := operation.Path
-	query := url.Values{}
-	for name, value := range operation.FixedQuery {
-		query.Add(name, value)
+	query := make([][2]string, 0, len(operation.FixedQuery)+len(operation.Arguments)+2)
+	fixedNames := make([]string, 0, len(operation.FixedQuery))
+	for name := range operation.FixedQuery {
+		fixedNames = append(fixedNames, name)
+	}
+	slices.Sort(fixedNames)
+	for _, name := range fixedNames {
+		query = append(query, [2]string{name, operation.FixedQuery[name]})
 	}
 	body := map[string]any{}
 	for _, argument := range operation.Arguments {
@@ -100,7 +125,7 @@ func encodeRequest(definition Definition, operation CompiledOperation, raw json.
 			path = strings.ReplaceAll(path, "{"+argument.Name+"}", url.PathEscape(text))
 		case "query":
 			for _, text := range queryTexts(value) {
-				query.Add(argument.Name, text)
+				query = append(query, [2]string{argument.Name, text})
 			}
 		case "json_body":
 			if operation.JSONBodyTemplate == nil {
@@ -111,20 +136,20 @@ func encodeRequest(definition Definition, operation CompiledOperation, raw json.
 	if strings.ContainsAny(path, "{}") {
 		return encodedRequest{}, nil, errors.New("adapter path is invalid")
 	}
-	if operation.Pagination.PageSize != nil && !query.Has(operation.Pagination.PageSize.RequestArgument) {
-		query.Add(operation.Pagination.PageSize.RequestArgument, strconv.Itoa(operation.Pagination.PageSize.Value))
+	if operation.Pagination.PageSize != nil && !queryContains(query, operation.Pagination.PageSize.RequestArgument) {
+		query = append(query, [2]string{operation.Pagination.PageSize.RequestArgument, strconv.Itoa(operation.Pagination.PageSize.Value)})
 	}
 	if cursor != "" {
-		if query.Has(operation.Pagination.RequestArgument) {
+		if queryContains(query, operation.Pagination.RequestArgument) {
 			return encodedRequest{}, nil, errors.New("adapter continuation query conflicts")
 		}
-		query.Add(operation.Pagination.RequestArgument, cursor)
+		query = append(query, [2]string{operation.Pagination.RequestArgument, cursor})
 	}
 	parsed, err := url.Parse(strings.TrimSuffix(definition.Manifest.Origin, "/") + path)
 	if err != nil {
 		return encodedRequest{}, nil, errors.New("adapter URL is invalid")
 	}
-	parsed.RawQuery = query.Encode()
+	parsed.RawQuery = encodeQuery(query)
 	origin, _ := url.Parse(definition.Manifest.Origin)
 	if len(parsed.String()) > 8192 || parsed.Scheme != "https" || parsed.Host != origin.Host || parsed.User != nil {
 		return encodedRequest{}, nil, errors.New("adapter URL changed origin")
@@ -220,6 +245,23 @@ func queryTexts(value any) []string {
 	}
 	return []string{scalarText(value)}
 }
+
+func queryContains(values [][2]string, name string) bool {
+	for _, value := range values {
+		if value[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func encodeQuery(values [][2]string) string {
+	encoded := make([]string, len(values))
+	for index, value := range values {
+		encoded[index] = url.QueryEscape(value[0]) + "=" + url.QueryEscape(value[1])
+	}
+	return strings.Join(encoded, "&")
+}
 func renderTemplate(value any, arguments map[string]any) (any, error) {
 	switch value := value.(type) {
 	case map[string]any:
@@ -255,13 +297,21 @@ func renderTemplate(value any, arguments map[string]any) (any, error) {
 }
 
 func executeHTTP(ctx context.Context, request encodedRequest, retry bool) (httpResponse, error) {
+	return executeHTTPWithClient(ctx, request, retry, nil)
+}
+
+func (s *Service) executeHTTP(ctx context.Context, request encodedRequest, retry bool) (httpResponse, error) {
+	return executeHTTPWithClient(ctx, request, retry, s.httpClient)
+}
+
+func executeHTTPWithClient(ctx context.Context, request encodedRequest, retry bool, client *http.Client) (httpResponse, error) {
 	attempts := 1
 	if retry && request.method == "GET" {
 		attempts = 2
 	}
 	var last error
 	for range attempts {
-		response, err := executeHTTPOnce(ctx, request)
+		response, err := executeHTTPOnceWithClient(ctx, request, client)
 		if err == nil {
 			return response, nil
 		}
@@ -277,13 +327,19 @@ func executeHTTP(ctx context.Context, request encodedRequest, retry bool) (httpR
 }
 
 func executeHTTPOnce(ctx context.Context, request encodedRequest) (httpResponse, error) {
+	return executeHTTPOnceWithClient(ctx, request, nil)
+}
+
+func executeHTTPOnceWithClient(ctx context.Context, request encodedRequest, client *http.Client) (httpResponse, error) {
 	resolveContext, cancelResolve := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelResolve()
 	checked, err := netpolicy.CheckURL(resolveContext, request.rawURL)
 	if err != nil || checked.URL.Scheme != "https" || checked.URL.User != nil {
 		return httpResponse{}, errors.New("adapter target is unavailable")
 	}
-	client := netpolicy.PinnedClient(checked, 10*time.Second)
+	if client == nil {
+		client = netpolicy.PinnedClient(checked, 10*time.Second)
+	}
 	if transport, ok := client.Transport.(*http.Transport); ok {
 		transport.DisableKeepAlives = true
 		transport.DisableCompression = true

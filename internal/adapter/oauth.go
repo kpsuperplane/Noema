@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/kpsuperplane/noema/internal/publicpage"
 	"io"
 	"net"
@@ -27,12 +28,37 @@ const (
 	oauthEventLimit = 64
 )
 
-var errOAuthRejected = errors.New("adapter OAuth grant was rejected")
+var (
+	errOAuthRejected      = errors.New("adapter OAuth grant was rejected")
+	errOAuthScopeMismatch = errors.New("adapter OAuth response scopes are invalid")
+)
+
+func cloneValues(value url.Values) url.Values {
+	clone := make(url.Values, len(value))
+	for name, values := range value {
+		clone[name] = append([]string(nil), values...)
+	}
+	return clone
+}
 
 type OAuthAttempt struct {
 	AttemptID, AuthorizationURL string
 	ExpiresAt                   int64
 }
+
+// GoString keeps transient OAuth values out of diagnostic output while
+// retaining the attempt identity and reviewed handoff URL for debugging.
+func (a OAuthAttempt) GoString() string {
+	handoff := a.AuthorizationURL
+	if parsed, err := url.Parse(handoff); err == nil {
+		query := parsed.Query()
+		query.Del("state")
+		parsed.RawQuery = query.Encode()
+		handoff = parsed.String()
+	}
+	return fmt.Sprintf("adapter.OAuthAttempt{AttemptID:%q, AuthorizationURL:%q, ExpiresAt:%d}", a.AttemptID, handoff, a.ExpiresAt)
+}
+
 type OAuthAttemptEvent struct {
 	AttemptID, SemanticDigest, GrantID, Status string
 	GrantRevision                              int
@@ -610,20 +636,30 @@ func (s *Service) CompleteOAuth(ctx context.Context, callback string) (OAuthAtte
 }
 
 func exchangeOAuthToken(ctx context.Context, profile OAuthProfile, application OAuthApplication, credential oauthApplicationCredential, form url.Values, expected []string) (oauthGrantToken, error) {
-	form.Set("client_id", application.ClientID)
-	form.Set("client_secret", credential.ClientSecret)
 	checked, err := netpolicy.CheckURL(ctx, profile.TokenEndpoint)
 	if err != nil {
 		return oauthGrantToken{}, errors.New("adapter OAuth service is unavailable")
 	}
-	request, err := http.NewRequestWithContext(ctx, "POST", checked.URL.String(), strings.NewReader(form.Encode()))
+	client := netpolicy.PinnedClient(checked, 10*time.Second)
+	client.Timeout = 30 * time.Second
+	return exchangeOAuthTokenWithClient(ctx, profile, application, credential, form, expected, client)
+}
+
+// exchangeOAuthTokenWithClient keeps the reviewed form and response checks at
+// the production OAuth boundary while allowing deterministic transport tests.
+func exchangeOAuthTokenWithClient(ctx context.Context, profile OAuthProfile, application OAuthApplication, credential oauthApplicationCredential, form url.Values, expected []string, client *http.Client) (oauthGrantToken, error) {
+	form = cloneValues(form)
+	form.Set("client_id", application.ClientID)
+	form.Set("client_secret", credential.ClientSecret)
+	if client == nil {
+		return oauthGrantToken{}, errors.New("adapter OAuth service is unavailable")
+	}
+	request, err := http.NewRequestWithContext(ctx, "POST", profile.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return oauthGrantToken{}, err
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept-Encoding", "identity")
-	client := netpolicy.PinnedClient(checked, 10*time.Second)
-	client.Timeout = 30 * time.Second
 	response, err := client.Do(request)
 	if err != nil {
 		return oauthGrantToken{}, errors.New("adapter OAuth service is unavailable")
@@ -642,10 +678,14 @@ func exchangeOAuthToken(ctx context.Context, profile OAuthProfile, application O
 	if err != nil || len(body) > 128<<10 {
 		return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
 	}
-	return parseOAuthToken(response.StatusCode, body, expected, form.Get("grant_type") == "refresh_token", time.Now().Unix())
+	return parseOAuthTokenWithPolicy(response.StatusCode, body, expected, form.Get("grant_type") == "refresh_token", time.Now().Unix(), profile.OmittedScopePolicy)
 }
 
 func parseOAuthToken(status int, body []byte, expected []string, refresh bool, now int64) (oauthGrantToken, error) {
+	return parseOAuthTokenWithPolicy(status, body, expected, refresh, now, "requested_scopes")
+}
+
+func parseOAuthTokenWithPolicy(status int, body []byte, expected []string, refresh bool, now int64, omittedScopePolicy string) (oauthGrantToken, error) {
 	if status < 200 || status >= 300 {
 		var failure struct {
 			Error string `json:"error"`
@@ -669,6 +709,9 @@ func parseOAuthToken(status int, body []byte, expected []string, refresh bool, n
 	}
 	scopes := strings.Fields(value.Scope)
 	if value.Scope == "" {
+		if omittedScopePolicy != "requested_scopes" {
+			return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+		}
 		scopes = append([]string(nil), expected...)
 	}
 	sort.Strings(scopes)
@@ -682,8 +725,11 @@ func parseOAuthToken(status int, body []byte, expected []string, refresh bool, n
 		}
 		total += len(scope)
 	}
-	if total > 4096 || refresh && !scopeSubset(expected, scopes) {
+	if total > 4096 {
 		return oauthGrantToken{}, errors.New("adapter OAuth response is invalid")
+	}
+	if refresh && !scopeSubset(expected, scopes) {
+		return oauthGrantToken{}, errOAuthScopeMismatch
 	}
 	expiry := int64(0)
 	if value.ExpiresIn != nil {
@@ -801,15 +847,11 @@ func (s *Service) AttachOAuthConnection(ctx context.Context, digest, grantID str
 	if err != nil || ge != nil || ae != nil || definition.SemanticDigest == "" || !definition.Manifest.Reviewed || definition.Superseded || grant.AuthorityRevision != grantRevision || grant.Status != "active" || definition.Manifest.Authentication.ProfileDigest != application.ProfileDigest {
 		return Definition{}, Connection{}, errors.New("adapter OAuth connection is unavailable")
 	}
-	allowed := []string{}
+	allowed := make([]string, 0, len(definition.Operations))
 	for _, op := range definition.Operations {
-		for _, set := range op.Authorization.AcceptedScopeSets {
-			if scopeSubset(grant.GrantedScopes, set) {
-				allowed = append(allowed, op.OperationID)
-				break
-			}
-		}
+		allowed = append(allowed, op.OperationID)
 	}
+	sort.Strings(allowed)
 	var connection Connection
 	if replacement == "" {
 		connections, loadErr := s.files.connections()
@@ -909,13 +951,22 @@ func (s *Service) oauthBearer(ctx context.Context, grantID string, force bool) (
 	}
 	application, credential, err := s.files.loadOAuthApplication(grant.ApplicationID)
 	if err != nil {
+		if errors.Is(err, errOAuthScopeMismatch) {
+			return grant, token, errOAuthRejected
+		}
 		return grant, token, err
 	}
 	profile, err := s.files.loadOAuthProfile(application.ProfileDigest)
 	if err != nil {
 		return grant, token, err
 	}
-	fresh, err := exchangeOAuthToken(ctx, profile, application, credential, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {token.RefreshToken}}, grant.DesiredScopes)
+	expectedGrant := grant
+	var fresh oauthGrantToken
+	if s.oauthClient != nil {
+		fresh, err = exchangeOAuthTokenWithClient(ctx, profile, application, credential, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {token.RefreshToken}}, grant.GrantedScopes, s.oauthClient)
+	} else {
+		fresh, err = exchangeOAuthToken(ctx, profile, application, credential, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {token.RefreshToken}}, grant.GrantedScopes)
+	}
 	if err != nil {
 		return grant, token, err
 	}
@@ -927,7 +978,7 @@ func (s *Service) oauthBearer(ctx context.Context, grantID string, force bool) (
 	fresh.GenerationID = generation
 	grant.TokenGeneration = &generation
 	grant.TokenRevision++
-	if err = s.files.replaceOAuthObject("adapters/oauth-grants", grantID, "grant.json", grant, "tokens", generation, fresh); err != nil {
+	if err = s.files.replaceOAuthGrantGeneration(expectedGrant, grant, fresh, true); err != nil {
 		return grant, token, err
 	}
 	return grant, fresh, nil
@@ -939,6 +990,22 @@ func (s *Service) requireOAuthAuthentication(ctx context.Context, grant *OAuthGr
 		grant.TokenRevision++
 		grant.TokenGeneration = nil
 		if err := s.files.replaceOAuthGrantWithoutToken(*grant); err != nil {
+			return err
+		}
+	}
+	if err := s.setGrantConnections(grant.GrantID, "authentication_required"); err != nil {
+		return err
+	}
+	return s.reconcile(ctx)
+}
+
+func (s *Service) invalidateOAuthAuthentication(ctx context.Context, grant *OAuthGrant) error {
+	if grant.GrantID != "" {
+		grant.Status = "authentication_required"
+		grant.AuthorityRevision++
+		grant.TokenRevision++
+		grant.TokenGeneration = nil
+		if err := s.files.deactivateOAuthGrant(*grant); err != nil {
 			return err
 		}
 	}

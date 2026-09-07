@@ -161,6 +161,7 @@ func applyCredentialAuth(auth Authentication, fields map[string]string, operatio
 		return nil, nil, errors.New("adapter credential URL is too large")
 	}
 	request.rawURL = parsed.String()
+	request.secretValues = append(request.secretValues, secretValues...)
 	return sensitive, secretValues, nil
 }
 

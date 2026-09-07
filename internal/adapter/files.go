@@ -33,7 +33,7 @@ func newFileAuthority(root *os.Root) (*fileAuthority, error) {
 	if root == nil {
 		return nil, errors.New("adapter home is unavailable")
 	}
-	for _, path := range []string{"adapters", "adapters/definitions", "adapters/connections", "adapters/cursors", "adapters/oauth-profiles", "adapters/oauth-applications", "adapters/oauth-accounts", "adapters/oauth-grants", "adapters/quarantine", "adapters/quarantine/definitions", "adapters/quarantine/connections", "adapters/quarantine/oauth-applications"} {
+	for _, path := range []string{"adapters", "adapters/definitions", "adapters/connections", "adapters/cursors", "adapters/oauth-profiles", "adapters/oauth-applications", "adapters/oauth-accounts", "adapters/oauth-grants", "adapters/quarantine", "adapters/quarantine/definitions", "adapters/quarantine/connections", "adapters/quarantine/oauth-applications", "adapters/quarantine/oauth-grants"} {
 		if err := root.MkdirAll(path, 0o700); err != nil {
 			return nil, errors.New("adapter home could not be prepared")
 		}
@@ -172,6 +172,46 @@ func (f *fileAuthority) installConnection(connection Connection) (Connection, er
 		return Connection{}, err
 	}
 	return f.loadConnection(connection.ConnectionID)
+}
+
+// mergeOAuthConnections combines two descriptors that share one grant.
+// The caller decides when the redundant descriptor enters quarantine.
+func (f *fileAuthority) mergeOAuthConnections(survivorID, redundantID string) (Connection, error) {
+	survivor, err := f.loadConnection(survivorID)
+	if err != nil {
+		return Connection{}, err
+	}
+	redundant, err := f.loadConnection(redundantID)
+	if err != nil {
+		return Connection{}, err
+	}
+	if survivor.Authentication.Kind != "oauth_grant" || redundant.Authentication.Kind != "oauth_grant" || survivor.Authentication.GrantID == "" || survivor.Authentication.GrantID != redundant.Authentication.GrantID || survivor.SemanticDigest != redundant.SemanticDigest {
+		return Connection{}, errors.New("adapter connection merge binding is invalid")
+	}
+	allowed := append(append([]string(nil), survivor.AllowedOperations...), redundant.AllowedOperations...)
+	sort.Strings(allowed)
+	mergedAllowed := allowed[:0]
+	for _, operation := range allowed {
+		if len(mergedAllowed) == 0 || mergedAllowed[len(mergedAllowed)-1] != operation {
+			mergedAllowed = append(mergedAllowed, operation)
+		}
+	}
+	survivor.AllowedOperations = mergedAllowed
+	if survivor.ConnectionLabel == "" {
+		survivor.ConnectionLabel = redundant.ConnectionLabel
+	}
+	if survivor.DataSharingPolicy != "review_every_call" && redundant.DataSharingPolicy == "review_every_call" {
+		survivor.DataSharingPolicy = redundant.DataSharingPolicy
+	}
+	if survivor.UnsafeActionPolicy != "always_ask" && redundant.UnsafeActionPolicy == "always_ask" {
+		survivor.UnsafeActionPolicy = redundant.UnsafeActionPolicy
+	}
+	survivor.ConnectionRevision++
+	if redundant.PolicyRevision > survivor.PolicyRevision {
+		survivor.PolicyRevision = redundant.PolicyRevision
+	}
+	survivor.PolicyRevision++
+	return f.replaceConnection(survivor)
 }
 
 func (f *fileAuthority) installCredentialConnection(connection Connection, generation credentialGeneration) (Connection, error) {

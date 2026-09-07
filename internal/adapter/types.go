@@ -4,6 +4,7 @@ package adapter
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -257,7 +258,7 @@ type Binding struct {
 	SemanticDigest, OperationID, OperationDigest           string
 	ConnectionRevision, PolicyRevision, ToolPolicyRevision int
 	CredentialRevision                                     int
-	GrantID                                                string
+	GrantID, AccountID                                     string
 	InputSchema                                            json.RawMessage
 	Behavior                                               store.ActionBehavior
 	ReviewRoute                                            store.ActionReviewRoute
@@ -280,8 +281,20 @@ type ServiceSnapshot struct {
 	Connections []Connection
 }
 
+// AvailabilityNotice explains why one reviewed operation is absent from the
+// callable catalog.
+type AvailabilityNotice struct {
+	Name, Status, DefinitionDigest, OperationID string
+}
+
 type Cursor struct {
 	Reference, ConnectionID, SemanticDigest, OperationID, OperationDigest, ArgumentsDigest, Token string
+	GrantID, AccountID                                                                            string
 	ConnectionRevision                                                                            int
 	ExpiresAt                                                                                     time.Time
+}
+
+// GoString prevents the continuation token from entering diagnostics.
+func (c Cursor) GoString() string {
+	return fmt.Sprintf("adapter.Cursor{Reference:%q, ConnectionID:%q, GrantID:%q, AccountID:%q, ConnectionRevision:%d, SemanticDigest:%q, OperationID:%q, OperationDigest:%q, ArgumentsDigest:%q, Token:%q, ExpiresAt:%s}", c.Reference, c.ConnectionID, c.GrantID, c.AccountID, c.ConnectionRevision, c.SemanticDigest, c.OperationID, c.OperationDigest, c.ArgumentsDigest, "[REDACTED]", c.ExpiresAt.UTC().Format(time.RFC3339Nano))
 }

@@ -3,9 +3,11 @@ package adapter
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -81,6 +83,12 @@ type oauthGrantToken struct {
 	ExpiresAt     int64    `json:"expires_at_epoch_seconds,omitempty"`
 	Scopes        []string `json:"-"`
 }
+
+// GoString prevents bearer and refresh material from entering diagnostics.
+func (t oauthGrantToken) GoString() string {
+	return fmt.Sprintf("adapter.oauthGrantToken{SchemaVersion:%d, GenerationID:%q, AccessToken:%q, RefreshToken:%q, ExpiresAt:%d, Scopes:%#v}", t.SchemaVersion, t.GenerationID, "[REDACTED]", "[REDACTED]", t.ExpiresAt, t.Scopes)
+}
+
 type OAuthSnapshot struct {
 	Profiles     []OAuthProfile
 	Applications []OAuthApplication
@@ -318,6 +326,11 @@ func (f *fileAuthority) loadOAuthGrant(id string) (OAuthGrant, oauthGrantToken, 
 }
 
 func (f *fileAuthority) replaceOAuthObject(parent, id, descriptor string, value any, secretDir, secretID string, secret any) error {
+	if parent == "adapters/oauth-grants" && descriptor == "grant.json" {
+		if _, ok := value.(OAuthGrant); !ok {
+			return errors.New("adapter OAuth grant authority is invalid")
+		}
+	}
 	d, err := f.root.OpenRoot(parent + "/" + id)
 	if err != nil {
 		return errors.New("adapter OAuth object is unavailable")
@@ -374,6 +387,55 @@ func (f *fileAuthority) replaceOAuthGrantWithoutToken(value OAuthGrant) error {
 		return err
 	}
 	return pruneOAuthGenerations(directory, "tokens", "")
+}
+
+// deactivateOAuthGrant publishes the non-executable grant while retaining the
+// previous grant directory in quarantine for diagnosis and recovery.
+func (f *fileAuthority) deactivateOAuthGrant(value OAuthGrant) error {
+	if value.GrantID == "" || value.TokenGeneration != nil {
+		return errors.New("adapter OAuth grant deactivation is invalid")
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return errors.New("adapter OAuth grant deactivation is invalid")
+	}
+	quarantine := "adapters/quarantine/oauth-grants/" + value.GrantID + "-" + randomHex()
+	target := "adapters/oauth-grants/" + value.GrantID
+	if err = f.root.Rename(target, quarantine); err != nil {
+		return errors.New("adapter OAuth grant deactivation failed")
+	}
+	if err = f.installDirectory("adapters/oauth-grants", value.GrantID, map[string][]byte{"grant.json": raw}); err != nil {
+		_ = f.root.Rename(quarantine, target)
+		return errors.New("adapter OAuth grant deactivation failed")
+	}
+	if err = home.SyncRootDirectory(f.root, "adapters/quarantine/oauth-grants"); err != nil {
+		return errors.New("adapter OAuth grant deactivation durability failed")
+	}
+	return nil
+}
+
+// replaceOAuthGrantGeneration applies the optimistic transition fence used by
+// OAuth promotion and refresh. The descriptor and token publish together.
+func (f *fileAuthority) replaceOAuthGrantGeneration(expected, replacement OAuthGrant, token oauthGrantToken, refresh bool) error {
+	current, currentToken, err := f.loadOAuthGrant(expected.GrantID)
+	if err != nil || !reflect.DeepEqual(current, expected) || current.SchemaVersion != replacement.SchemaVersion || current.GrantID != replacement.GrantID || current.ApplicationID != replacement.ApplicationID || !equalOptionalString(current.AccountID, replacement.AccountID) || current.Audience != replacement.Audience || replacement.TokenGeneration == nil || *replacement.TokenGeneration != token.GenerationID || current.TokenGeneration != nil && *current.TokenGeneration == token.GenerationID || replacement.TokenRevision != current.TokenRevision+1 || replacement.Status != "active" {
+		return errors.New("adapter OAuth grant transition is invalid")
+	}
+	if refresh {
+		if currentToken.GenerationID == "" || !reflect.DeepEqual(replacement.DesiredScopes, current.DesiredScopes) || !reflect.DeepEqual(replacement.GrantedScopes, current.GrantedScopes) || replacement.AuthorityRevision != current.AuthorityRevision {
+			return errors.New("adapter OAuth grant transition is invalid")
+		}
+	} else if replacement.AuthorityRevision != current.AuthorityRevision+1 {
+		return errors.New("adapter OAuth grant transition is invalid")
+	}
+	return f.replaceOAuthObject("adapters/oauth-grants", replacement.GrantID, "grant.json", replacement, "tokens", token.GenerationID, token)
+}
+
+func equalOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }
 
 func pruneOAuthGenerations(root *os.Root, directory, keep string) error {
