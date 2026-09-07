@@ -13,7 +13,7 @@ import (
 
 // Rust source: crates/noema-providers/src/adapters/foundation/bridge/tests.rs::bridge_start_reports_foundation_unavailable_health (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_BridgeStartReportsFoundationUnavailableHealth(t *testing.T) {
-	config := foundationBridgeConfigForProvider(foundationProviderConfig{DefaultProfile: "default"})
+	config := foundationUnavailableBridgeConfig(t)
 	_, err := providerStartFoundationBridge(t.Context(), config)
 	var bridgeErr foundationBridgeError
 	if !errors.As(err, &bridgeErr) || bridgeErr.Code != "foundation_unavailable" {

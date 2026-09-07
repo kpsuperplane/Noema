@@ -31,6 +31,27 @@ done
 	return foundationBridgeConfig{BridgePath: path}
 }
 
+// foundationUnavailableBridgeConfig starts the production Foundation process
+// and lets its health response report the Rust unavailable state. This keeps
+// the failure at the provider health boundary instead of at executable lookup.
+func foundationUnavailableBridgeConfig(t *testing.T) foundationBridgeConfig {
+	t.Helper()
+	directory := t.TempDir()
+	path := filepath.Join(directory, "bridge")
+	script := `#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":3}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":false,"profiles":[],"unavailable_reason":"Foundation Models runtime is unavailable."}}' ;;
+  esac
+done
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return foundationBridgeConfig{BridgePath: path}
+}
+
 func foundationHealthyProvider(t *testing.T, extraCases string) *foundationProvider {
 	t.Helper()
 	provider := newFoundationProvider(foundationProviderConfig{
