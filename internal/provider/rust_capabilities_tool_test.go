@@ -29,20 +29,22 @@ func TestRustCapabilities_canonical_tool_spec_requires_object_input_schema(t *te
 // Rust source: crates/noema-capabilities/src/tool.rs::tool_name_accepts_canonical_noema_names.
 func TestRustCapabilities_tool_name_accepts_canonical_noema_names(t *testing.T) {
 	for _, name := range []string{"search_memory", "web.search", "mcp.mcp:docs.read"} {
-		if err := validateGenerationToolName(name); err != nil {
+		toolName, err := NewToolName(name)
+		if err != nil || toolName.String() != name {
 			t.Errorf("canonical name %q rejected: %v", name, err)
 		}
 	}
 	for _, name := range []string{"", " web.search", "web/search", "web..search", "web search"} {
-		if err := validateGenerationToolName(name); err == nil {
+		if _, err := NewToolName(name); err == nil {
 			t.Errorf("invalid name %q was accepted", name)
 		}
 	}
-	if err := validateGenerationToolName("web/search"); err == nil {
-		t.Error("slash name was accepted")
+	var decoded ToolName
+	if err := json.Unmarshal([]byte(`"web/search"`), &decoded); !errors.Is(err, ErrGenerationToolNameInvalid) {
+		t.Fatalf("slash name JSON error = %v", err)
 	}
-	if err := validateGenerationToolName("web.search"); err != nil {
-		t.Errorf("dotted name was rejected: %v", err)
+	if err := json.Unmarshal([]byte(`"web.search"`), &decoded); err != nil || decoded.String() != "web.search" {
+		t.Fatalf("valid name JSON = %q, %v", decoded.String(), err)
 	}
 }
 

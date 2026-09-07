@@ -19,6 +19,34 @@ var (
 	ErrGenerationToolSchemaInvalid = errors.New("tool input schema root must be an object")
 )
 
+// ToolName is one validated canonical Noema tool name.
+type ToolName string
+
+// NewToolName validates and constructs one canonical tool name.
+func NewToolName(value string) (ToolName, error) {
+	if err := validateGenerationToolName(value); err != nil {
+		return "", err
+	}
+	return ToolName(value), nil
+}
+
+// String returns the canonical tool name.
+func (name ToolName) String() string { return string(name) }
+
+// UnmarshalJSON keeps the validation boundary active for decoded names.
+func (name *ToolName) UnmarshalJSON(raw []byte) error {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ErrGenerationToolNameInvalid
+	}
+	validated, err := NewToolName(value)
+	if err != nil {
+		return err
+	}
+	*name = validated
+	return nil
+}
+
 // Generator performs one provider-neutral model generation.
 type Generator interface {
 	Generate(context.Context, GenerateRequest, func(StreamEvent)) (GenerationResult, error)
@@ -181,7 +209,7 @@ func (schema *ToolSchema) UnmarshalJSON(raw []byte) error {
 // Validate checks the provider-neutral tool contract before a provider maps it
 // into its own request format.
 func (tool GenerationTool) Validate() error {
-	if err := validateGenerationToolName(tool.Name); err != nil {
+	if _, err := NewToolName(tool.Name); err != nil {
 		return err
 	}
 	if strings.TrimSpace(tool.Description) == "" {

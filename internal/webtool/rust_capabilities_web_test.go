@@ -10,12 +10,15 @@ import (
 
 // Rust source: crates/noema-capabilities/src/web/browse.rs::parsers_enforce_operation_specific_arguments.
 func TestRustCapabilities_parsers_enforce_operation_specific_arguments(t *testing.T) {
-	if _, _, _, err := parseBrowserArguments(context.Background(), BrowseOpenName, json.RawMessage(`{"url":" https://example.com "}`)); err != nil {
+	open, err := parseBrowserCommand(context.Background(), BrowseOpenName, json.RawMessage(`{"url":" https://example.com "}`))
+	if err != nil {
 		t.Errorf("open arguments: %v", err)
+	} else if open.target != "https://example.com" || open.action != "" || open.snapshotRevision != nil {
+		t.Errorf("typed open command = %#v", open)
 	}
 	assertBrowserError := func(raw string, want string) {
 		t.Helper()
-		_, _, _, err := parseBrowserArguments(context.Background(), BrowseInteractName, json.RawMessage(raw))
+		_, err := parseBrowserCommand(context.Background(), BrowseInteractName, json.RawMessage(raw))
 		if err == nil {
 			t.Errorf("interaction %s was accepted", raw)
 			return
@@ -26,16 +29,16 @@ func TestRustCapabilities_parsers_enforce_operation_specific_arguments(t *testin
 	}
 	assertBrowserError(`{"snapshot_revision":1,"ref":"e1","action":"fill"}`, "value is required for this interaction")
 	assertBrowserError(`{"snapshot_revision":1,"ref":"e1","action":"upload_file"}`, "artifact_id and artifact_version_id are required for file upload")
-	values, _, _, err := parseBrowserArguments(context.Background(), BrowseInteractName, json.RawMessage(`{"snapshot_revision":1,"ref":"e1","action":"upload_file","artifact_id":"artifact:1","artifact_version_id":"artifact_version:1"}`))
+	upload, err := parseBrowserCommand(context.Background(), BrowseInteractName, json.RawMessage(`{"snapshot_revision":1,"ref":"e1","action":"upload_file","artifact_id":"artifact:1","artifact_version_id":"artifact_version:1"}`))
 	if err != nil {
 		t.Fatalf("upload arguments: %v", err)
 	}
-	if values["action"] != "upload_file" {
-		t.Errorf("upload action = %#v", values["action"])
+	if upload.snapshotRevision == nil || *upload.snapshotRevision != 1 || upload.ref != "e1" || upload.action != "upload_file" || upload.value != nil || upload.artifactID == nil || *upload.artifactID != "artifact:1" || upload.artifactVersionID == nil || *upload.artifactVersionID != "artifact_version:1" {
+		t.Errorf("typed upload command = %#v", upload)
 	}
 	assertWaitError := func(raw string, want string) {
 		t.Helper()
-		_, _, _, err := parseBrowserArguments(context.Background(), BrowseWaitName, json.RawMessage(raw))
+		_, err := parseBrowserCommand(context.Background(), BrowseWaitName, json.RawMessage(raw))
 		if err == nil {
 			t.Errorf("wait arguments %s were accepted", raw)
 			return
@@ -47,19 +50,19 @@ func TestRustCapabilities_parsers_enforce_operation_specific_arguments(t *testin
 	assertWaitError(`{"condition":{"text":"ready","ref":"e1"}}`, "arguments do not match the web browse schema")
 	assertWaitError(`{"timeout_ms":5000}`, "arguments do not match the web browse schema")
 	assertWaitError(`{"condition":{"text":"`+strings.Repeat("x", 501)+`"}}`, "wait text is too long")
-	_, revision, _, err := parseBrowserArguments(context.Background(), BrowseSwitchName, json.RawMessage(`{"snapshot_revision":4,"url":" https://example.com/start "}`))
+	switchCommand, err := parseBrowserCommand(context.Background(), BrowseSwitchName, json.RawMessage(`{"snapshot_revision":4,"url":" https://example.com/start "}`))
 	if err != nil {
 		t.Fatalf("provider switch: %v", err)
 	}
-	if revision != 4 {
-		t.Errorf("provider switch revision = %d, want 4", revision)
+	if switchCommand.snapshotRevision == nil || *switchCommand.snapshotRevision != 4 || switchCommand.target != "https://example.com/start" {
+		t.Errorf("provider switch command = %#v", switchCommand)
 	}
-	_, revision, _, err = parseBrowserArguments(context.Background(), BrowseSwitchName, json.RawMessage(`{"url":"https://example.com/start"}`))
+	switchCommand, err = parseBrowserCommand(context.Background(), BrowseSwitchName, json.RawMessage(`{"url":"https://example.com/start"}`))
 	if err != nil {
 		t.Fatalf("provider switch without revision: %v", err)
 	}
-	if revision != 0 {
-		t.Errorf("failed-open provider switch revision = %d, want 0", revision)
+	if switchCommand.snapshotRevision != nil {
+		t.Errorf("failed-open provider switch revision = %v, want nil", *switchCommand.snapshotRevision)
 	}
 	var openDescription string
 	for _, tool := range BrowserTools {

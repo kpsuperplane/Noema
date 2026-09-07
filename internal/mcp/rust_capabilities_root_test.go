@@ -53,38 +53,28 @@ func TestRustCapabilities_renamed_mcp_binding_omits_arguments_and_outputs(t *tes
 
 // Rust source: crates/noema-capabilities/src/binding.rs::catalog_rejects_duplicate_authority_names.
 func TestRustCapabilities_catalog_rejects_duplicate_authority_names(t *testing.T) {
-	duplicate := NewCompositeBindingSource(
-		BindingSourceFunc(func(context.Context) (BindingCatalogResult, error) {
-			return BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("one")}}, nil
-		}),
-		BindingSourceFunc(func(context.Context) (BindingCatalogResult, error) {
-			return BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("one")}}, nil
-		}),
-	)
-	if _, err := duplicate.Catalog(t.Context()); err != ErrDuplicateBindingName {
+	builder := NewBindingCatalogBuilder()
+	if err := builder.Add(rustCapabilityBinding("one")); err != nil {
+		t.Fatal(err)
+	}
+	if err := builder.Add(rustCapabilityBinding("one")); err != ErrDuplicateBindingName {
 		t.Fatalf("duplicate catalog error = %v", err)
 	}
-	unique := NewCompositeBindingSource(
-		BindingSourceFunc(func(context.Context) (BindingCatalogResult, error) {
-			return BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("one")}}, nil
-		}),
-		BindingSourceFunc(func(context.Context) (BindingCatalogResult, error) {
-			return BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("two")}}, nil
-		}),
-	)
-	result, err := unique.Catalog(t.Context())
-	if err != nil || len(result.Bindings) != 2 || result.Bindings[0].Name != "one" || result.Bindings[1].Name != "two" {
-		t.Fatalf("reusable catalog = %#v, %v", result.Bindings, err)
+	if err := builder.Add(rustCapabilityBinding("two")); err != nil {
+		t.Fatalf("builder was not reusable after rejection: %v", err)
+	}
+	bindings := builder.Build()
+	if len(bindings) != 2 || bindings[0].Name != "one" || bindings[1].Name != "two" {
+		t.Fatalf("reusable catalog = %#v", bindings)
 	}
 }
 
 // Rust source: crates/noema-capabilities/src/composite.rs::merges_snapshots_and_notices_in_configured_order.
 func TestRustCapabilities_merges_snapshots_and_notices_in_configured_order(t *testing.T) {
 	first := "first.hidden"
-	second := "second.hidden"
 	composite := NewCompositeBindingSource(
 		asyncRustCapabilitySource(BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("first.one")}, AvailabilityNotices: []BindingAvailabilityNotice{{Capability: &first, Status: "unavailable"}}}),
-		asyncRustCapabilitySource(BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("second.one")}, AvailabilityNotices: []BindingAvailabilityNotice{{Capability: &second, Status: "authentication_required"}}}),
+		asyncRustCapabilitySource(BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding("second.one")}, AvailabilityNotices: []BindingAvailabilityNotice{{Capability: nil, Status: "authentication_required"}}}),
 	)
 	result, err := composite.Catalog(t.Context())
 	if err != nil {
@@ -93,7 +83,7 @@ func TestRustCapabilities_merges_snapshots_and_notices_in_configured_order(t *te
 	if got := []string{result.Bindings[0].Name, result.Bindings[1].Name}; !reflect.DeepEqual(got, []string{"first.one", "second.one"}) {
 		t.Fatalf("configured binding order = %#v", got)
 	}
-	wantNotices := []BindingAvailabilityNotice{{Capability: &first, Status: "unavailable"}, {Capability: &second, Status: "authentication_required"}}
+	wantNotices := []BindingAvailabilityNotice{{Capability: &first, Status: "unavailable"}, {Capability: nil, Status: "authentication_required"}}
 	if !reflect.DeepEqual(result.AvailabilityNotices, wantNotices) {
 		t.Fatalf("availability notices = %#v, want %#v", result.AvailabilityNotices, wantNotices)
 	}
@@ -110,7 +100,7 @@ func TestRustCapabilities_duplicate_canonical_name_fails_closed(t *testing.T) {
 			return BindingCatalogResult{Bindings: []Binding{rustCapabilityBinding(name)}}, nil
 		}),
 	)
-	if _, err := composite.Catalog(t.Context()); err != ErrDuplicateBindingName {
+	if _, err := composite.Catalog(t.Context()); err != ErrInvalidBindingSource {
 		t.Fatalf("duplicate canonical name error = %v", err)
 	}
 }

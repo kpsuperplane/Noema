@@ -140,6 +140,19 @@ type browserProviderFailure struct {
 	diagnostic    *browserDiagnostic
 }
 
+// browserCommand is the typed authority parsed from one browser operation.
+// The original arguments map remains attached for the provider boundary, but
+// operation-specific fields use pointers where omission has meaning.
+type browserCommand struct {
+	arguments         map[string]any
+	snapshotRevision  *uint64
+	target            string
+	ref, action       string
+	value             *string
+	artifactID        *string
+	artifactVersionID *string
+}
+
 func (failure *browserProviderFailure) result() BrowserResult {
 	return browserFailureDiagnostic(failure.code, failure.message, failure.uncertain, failure.diagnostic)
 }
@@ -195,10 +208,11 @@ func (s *Service) BrowserAvailable(ctx context.Context) bool {
 }
 
 func (s *Service) BrowserAuthority(ctx context.Context, owner, name string, raw json.RawMessage) (BrowserAuthority, error) {
-	arguments, revision, target, err := parseBrowserArguments(ctx, name, raw)
+	command, err := parseBrowserCommand(ctx, name, raw)
 	if err != nil {
 		return BrowserAuthority{}, err
 	}
+	arguments, revision, target := command.arguments, command.revision(), command.target
 	route, routeKey, err := s.browserRoute(ctx)
 	if err != nil || len(route) == 0 {
 		return BrowserAuthority{}, errors.New("browser provider route is unavailable")
@@ -297,10 +311,11 @@ func browserElement(elements []browseElement, raw any) *browseElement {
 }
 
 func (s *Service) BrowserObserved(ctx context.Context, name string, raw json.RawMessage) (bool, error) {
-	_, _, target, err := parseBrowserArguments(ctx, name, raw)
+	command, err := parseBrowserCommand(ctx, name, raw)
 	if err != nil {
 		return false, err
 	}
+	target := command.target
 	if target == "" {
 		return true, nil
 	}
@@ -312,10 +327,11 @@ func (s *Service) BrowserObserved(ctx context.Context, name string, raw json.Raw
 }
 
 func (s *Service) ExecuteBrowser(ctx context.Context, owner, name string, raw json.RawMessage, source string) BrowserResult {
-	arguments, revision, target, err := parseBrowserArguments(ctx, name, raw)
+	command, err := parseBrowserCommand(ctx, name, raw)
 	if err != nil {
 		return browserFailure("invalid_input", err.Error(), false)
 	}
+	arguments, revision, target := command.arguments, command.revision(), command.target
 	if name == BrowseCloseName {
 		s.browserMu.Lock()
 		session := s.browsers[owner]
@@ -854,6 +870,46 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 		}
 	}
 	return values, revision, target, nil
+}
+
+// parseBrowserCommand validates one operation and preserves its typed fields.
+func parseBrowserCommand(ctx context.Context, name string, raw json.RawMessage) (browserCommand, error) {
+	arguments, _, target, err := parseBrowserArguments(ctx, name, raw)
+	if err != nil {
+		return browserCommand{}, err
+	}
+	command := browserCommand{arguments: arguments, target: target}
+	if rawRevision, ok := arguments["snapshot_revision"]; ok {
+		number, valid := rawRevision.(float64)
+		if !valid || number < 1 || number != float64(uint64(number)) {
+			return browserCommand{}, browserArgumentsError(name)
+		}
+		value := uint64(number)
+		command.snapshotRevision = &value
+	}
+	if value, ok := arguments["ref"].(string); ok {
+		command.ref = value
+	}
+	if value, ok := arguments["action"].(string); ok {
+		command.action = value
+	}
+	if value, ok := arguments["value"].(string); ok {
+		command.value = &value
+	}
+	if value, ok := arguments["artifact_id"].(string); ok {
+		command.artifactID = &value
+	}
+	if value, ok := arguments["artifact_version_id"].(string); ok {
+		command.artifactVersionID = &value
+	}
+	return command, nil
+}
+
+func (command browserCommand) revision() uint64 {
+	if command.snapshotRevision == nil {
+		return 0
+	}
+	return *command.snapshotRevision
 }
 
 func browserArgumentsError(name string) error {
