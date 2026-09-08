@@ -160,7 +160,14 @@ func (s *Service) startOAuth(ctx context.Context, owner string, input SetupInput
 		_ = s.failOAuth(id, "invalid_client")
 		return OAuthAttempt{}, err
 	}
-	go s.runOAuth(ctx, attempt, handler, failed)
+	// The GraphQL request that starts OAuth ends as soon as the authorization
+	// URL is returned. Keep the attempt on the service lifetime context so that
+	// closing that request does not cancel the browser sign-in flow.
+	runtimeContext := s.classifyCtx
+	if runtimeContext == nil {
+		runtimeContext = context.Background()
+	}
+	go s.runOAuth(runtimeContext, attempt, handler, failed)
 	select {
 	case authorizationURL := <-started:
 		parsed, parseErr := validateOAuthRemoteURL(authorizationURL)
