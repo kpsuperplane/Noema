@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/home"
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -18,7 +21,34 @@ import (
 
 func TestRustRuntime_native_provider_can_call_web_fetch_and_continue(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/continuation_and_web.rs::native_provider_can_call_web_fetch_and_continue.
-	chat, _, conversation := chatFixture(t)
+	chat, database, conversation := chatFixture(t)
+	accounts, err := provider.NewAccountService(chat.home.Name(), database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.Initialize(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	web, err := webtool.New(database, accounts, nil, nil, chat.home.Name(), "", 2, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(web.Close)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true,"data":{"markdown":"Test page content","url":"https://example.com/page"}}`))
+	}))
+	t.Cleanup(server.Close)
+	if err := web.SetEndpoint("firecrawl", server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveWebProviderBinding(t.Context(), webtool.FetchName, "provider_account:firecrawl:public", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ObserveURLs(t.Context(), "search_result", "tool_call:test_search", []string{"https://example.com/page"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	chat.web = web
 	var requests []provider.GenerateRequest
 	chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		requests = append(requests, request)
@@ -158,7 +188,7 @@ func TestRustRuntime_native_provider_can_create_local_artifact_with_two_versions
 				Name: artifactCreateLocalName, Payload: artifactPayload,
 			}}}, nil
 		}
-		return provider.GenerationResult{Text: "continued"}, nil
+		return provider.GenerationResult{Text: "I created the two-version artifact."}, nil
 	})
 	events, err := chat.Subscribe(context.Background(), conversation.ID)
 	if err != nil {
@@ -688,6 +718,15 @@ func TestRustRuntime_prompt_context_sends_prior_transcript_as_provider_messages(
 func TestRustRuntime_start_primary_conversation_generates_initial_name_onboarding_message(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/replay_and_tools.rs::start_primary_conversation_generates_initial_name_onboarding_message.
 	chat, database, conversation := chatFixture(t)
+	chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		if len(request.Tools) != 0 || request.ToolTransport != provider.ToolTransportNone || !strings.Contains(request.Messages[0].Content, "newly started primary conversation") {
+			t.Fatalf("initial onboarding request = %#v", request)
+		}
+		return provider.GenerationResult{Model: "openai/gpt-5.6-luna", Text: "hey, i’m glad to be here with you 👋\n---\ni can help you think, plan, make, untangle, and keep life moving with a little more ease\n---\nwhat would you like to name me?"}, nil
+	})
+	if err := chat.StartPrimaryConversation(context.Background(), conversation.ID); err != nil {
+		t.Fatal(err)
+	}
 	items, err := database.ConversationItemPage(context.Background(), conversation.ID, "", 30)
 	if err != nil {
 		t.Fatal(err)
@@ -697,9 +736,20 @@ func TestRustRuntime_start_primary_conversation_generates_initial_name_onboardin
 			t.Errorf("initial onboarding created a fake user item: %#v", item)
 		}
 	}
-	if len(items.Items) == 0 {
-		// The Go Chat currently creates the primary conversation without the Rust onboarding turn.
-		t.Errorf("initial onboarding did not persist its assistant messages")
+	got := make([]string, 0, 3)
+	for _, item := range items.Items {
+		if item.Kind == store.ConversationAssistantText {
+			got = append(got, item.ContentText)
+		}
+	}
+	want := []string{"hey, i’m glad to be here with you 👋", "i can help you think, plan, make, untangle, and keep life moving with a little more ease", "what would you like to name me?"}
+	if len(got) != len(want) {
+		t.Fatalf("initial onboarding assistant messages = %#v", got)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("initial onboarding assistant messages = %#v, want %#v", got, want)
+		}
 	}
 	if _, err := chat.modelEnvironment(context.Background(), conversation, time.UTC, time.Now()); err != nil {
 		t.Fatal(err)
@@ -709,6 +759,14 @@ func TestRustRuntime_start_primary_conversation_generates_initial_name_onboardin
 func TestRustRuntime_failed_initial_name_onboarding_logs_runtime_invariant(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/replay_and_tools.rs::failed_initial_name_onboarding_logs_runtime_invariant.
 	chat, database, conversation := chatFixture(t)
+	chat.openRouter = generatorFunc(func(_ context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		return provider.GenerationResult{Model: "openai/gpt-5.6-luna"}, nil
+	})
+	firstError := chat.StartPrimaryConversation(context.Background(), conversation.ID)
+	secondError := chat.StartPrimaryConversation(context.Background(), conversation.ID)
+	if firstError == nil || secondError == nil || firstError.Error() != secondError.Error() || !strings.Contains(firstError.Error(), "initial onboarding response did not include assistant text") {
+		t.Fatalf("failed onboarding errors = %v, %v", firstError, secondError)
+	}
 	environment, err := chat.modelEnvironment(context.Background(), conversation, time.UTC, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -1007,7 +1065,28 @@ func TestRustRuntime_notification_delivery_waits_for_foreground_turn_and_publish
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(context.Background(), taskID, "Waiting notification", "correlation:notification", time.Now())
+	created, err := database.CreateTaskWithOptions(context.Background(), taskID, "Waiting notification", runtimeTaskCommand("notification-task", taskID), store.TaskCreateOptions{InitialRunKind: "executor", ExecutionComplexity: "simple"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := created.Task
+	if _, err := home.CreatePendingTaskDocument(chat.home, task.ID, "Wait for the human."); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(chat.home, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, run, found, err := database.ClaimTaskExecution(context.Background(), time.Now())
+	if err != nil || !found {
+		t.Fatalf("notification run claim = %#v, %t, %v", run, found, err)
+	}
+	if err := database.StartTaskExecution(context.Background(), run.ID, run.Generation, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BlockTaskExecution(context.Background(), run.ID, run.Generation, "clarification", "Which value?", "Choose the required value.", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	task, err = database.Task(context.Background(), task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1018,7 +1097,11 @@ func TestRustRuntime_notification_delivery_waits_for_foreground_turn_and_publish
 	if err := database.CancelConversationTurn(context.Background(), turn, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	event := store.WorkEvent{ID: 1, EventID: "event:waiting", WorkspaceID: "workspace:personal", Kind: "gate.opened", TaskID: task.ID, Payload: map[string]any{"gate_id": "gate:one", "gate_kind": "clarification"}}
+	cursor, err := database.PrimaryTaskNotificationCursor(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := store.WorkEvent{ID: cursor + 1, EventID: "event:waiting", WorkspaceID: "workspace:personal", Kind: "gate.opened", TaskID: task.ID, RunID: run.ID, Payload: map[string]any{"gate_id": task.ActiveGateID, "gate_kind": "clarification"}}
 	write, prompt, mapped, err := chat.primaryNotification(conversation, event)
 	if err != nil || !mapped || write.Source != "work_notification" || prompt == "" {
 		t.Fatalf("notification mapping = %#v, %q, %t, %v", write, prompt, mapped, err)
@@ -1026,7 +1109,7 @@ func TestRustRuntime_notification_delivery_waits_for_foreground_turn_and_publish
 	write.Text = "The Task is waiting."
 	write.Metadata = map[string]any{"notification_kind": "task_waiting", "notification_id": "notification:one", "work_notification": map[string]any{"task_id": task.ID}}
 	items, err := database.CommitPrimaryNotification(context.Background(), write, time.Now())
-	if err != nil || len(items) != 1 || items[0].Kind != store.ConversationAssistantText || items[0].ContentText != write.Text {
+	if err != nil || len(items) != 2 || items[0].Kind != store.ConversationAssistantText || items[0].ContentText != write.Text || items[1].Kind != store.ConversationTaskReference {
 		t.Fatalf("notification assistant item = %#v, %v", items, err)
 	}
 	repeated, err := database.CommitPrimaryNotification(context.Background(), write, time.Now())

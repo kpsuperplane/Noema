@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"encoding/json"
+	"slices"
+
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/webtool"
 )
@@ -67,5 +69,17 @@ func evaluationActionTools() []provider.GenerationTool {
 		{Name: "gmail.list_messages", Description: "Search the connected Gmail mailbox and return matching message summaries and identifiers.", InputSchema: json.RawMessage("{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"max_results\":{\"type\":\"integer\"}},\"required\":[\"query\"],\"additionalProperties\":false}")},
 		{Name: "gmail.get_message", Description: "Read one Gmail message by the exact identifier returned by gmail.list_messages.", InputSchema: json.RawMessage("{\"type\":\"object\",\"properties\":{\"message_id\":{\"type\":\"string\"}},\"required\":[\"message_id\"],\"additionalProperties\":false}")},
 	}
-	return append(tools, taskToolSpecs...)
+	seen := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		seen[tool.Name] = true
+	}
+	for _, tool := range append(localChatTools(), webtool.BrowserTools...) {
+		if !seen[tool.Name] {
+			tool.InputSchema = json.RawMessage(`{"type":"object","additionalProperties":true}`)
+			tools = append(tools, tool)
+			seen[tool.Name] = true
+		}
+	}
+	tools = append(tools, provider.GenerationTool{Name: "mcp.connect_service", Description: "Start setup for an official hosted MCP service.", InputSchema: connectMCPServiceSchema})
+	return slices.Clone(tools)
 }

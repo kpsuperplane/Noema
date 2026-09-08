@@ -26,7 +26,7 @@ func (c *Chat) prepareMCPAction(
 				"response_id": responseID, "hosted_state": hostedState})
 			_, notice, saveErr := c.database.CreateMCPAuthRequest(c.ctx, store.MCPAuthRequest{
 				OwnerHumanID: "human:local", ConversationID: conversation.ID, TurnID: turn.ID,
-				CallItemID: callItem.ID, ServerID: binding.ServerID, CapabilityName: binding.Name,
+				CallItemID: callItem.ID, ServerID: binding.ServerID, CapabilityName: modelName,
 				BindingJSON: string(token), ArgumentsJSON: string(arguments), ProviderRound: providerRound,
 			}, time.Now())
 			if saveErr != nil {
@@ -59,7 +59,7 @@ func (c *Chat) prepareMCPAction(
 	}
 	action, err := c.database.CreateActionRequest(c.ctx, store.NewActionRequest{
 		ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: callItem.ID,
-		OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: binding.Name,
+		OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: modelName,
 		OperationToken: binding.Name, ReviewRoute: binding.ReviewRoute, Behavior: binding.Behavior,
 		Arguments: arguments, InputSchema: binding.InputSchema, AuthorizationContext: contextValue,
 		SafeSummary: "Use " + strings.TrimPrefix(binding.Name, "mcp."+server.ID+".") + " on " + server.DisplayName,

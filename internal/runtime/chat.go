@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/adapter"
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/localmodel"
 	_ "time/tzdata"
@@ -146,6 +146,7 @@ type Chat struct {
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
 	adapters   *adapter.Service
+	artifacts  *artifact.Service
 	projects   *project.Service
 	web        *webtool.Service
 	errors     *diagnostics.Writer
@@ -218,6 +219,7 @@ func NewChat(
 	ctx, cancel := context.WithCancel(context.Background())
 	var mcpService *noemamcp.Service
 	var adapterService *adapter.Service
+	var artifactService *artifact.Service
 	var localModels *localmodel.Service
 	var webTools *webtool.Service
 	var errorLog *diagnostics.Writer
@@ -227,6 +229,8 @@ func NewChat(
 			mcpService = value
 		case *adapter.Service:
 			adapterService = value
+		case *artifact.Service:
+			artifactService = value
 		case *localmodel.Service:
 			localModels = value
 		case *webtool.Service:
@@ -235,10 +239,17 @@ func NewChat(
 			errorLog = value
 		}
 	}
+	if artifactService == nil {
+		artifactService, err = artifact.New(homeRoot, database, errorLog)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("initialize Chat Artifacts: %w", err)
+		}
+	}
 	chat := &Chat{
 		ctx: ctx, cancel: cancel, database: database,
 		openRouter: openRouter, codex: codex, openAI: openAI, local: localModels, home: homeRoot,
-		memory: memoryStore, mcp: mcpService, adapters: adapterService, web: webTools, errors: errorLog,
+		memory: memoryStore, mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools, errors: errorLog,
 		projects: project.New(database, homeRoot),
 		turns:    make(chan queuedTurn, turnQueueLimit), actions: make(chan actionResolution, turnQueueLimit),
 		mcpAuth:          make(chan mcpAuthResolution, turnQueueLimit),
@@ -735,9 +746,6 @@ func (c *Chat) failTurn(input SendTurnInput, turn store.ConversationTurn, cause 
 	_ = c.errors.Write("runtime.chat_failed", diagnostics.Text("conversation_id", turn.ConversationID),
 		diagnostics.Text("turn_id", turn.ID))
 	message := "The provider request failed."
-	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
-		message = cause.Error()
-	}
 	item, err := c.database.FailConversationTurn(c.ctx, turn, message, time.Now())
 	if err != nil {
 		c.publishTransientFailure(input, cause)

@@ -99,7 +99,7 @@ func TestRustEvaluationSuiteAssignsCasesToEveryRole(t *testing.T) {
 		}
 		for _, tool := range candidate.request.Tools {
 			for _, character := range tool.Name {
-				if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
+				if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' || character == '-' || character == '.') {
 					t.Fatalf("stateful case %s has unsafe tool %q", id, tool.Name)
 				}
 			}

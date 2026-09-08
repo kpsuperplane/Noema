@@ -1322,8 +1322,11 @@ func boundedUTF8(value string, limit int) string {
 }
 
 func toolFinalizationInstruction(reason string) string {
-	return "The tool loop must stop because: " + reason +
-		". Give one concise final answer from the saved results. Do not call tools."
+	prefix := "The tool loop must stop now."
+	if reason != "success" && reason != "failed" && reason != "approved" && strings.TrimSpace(reason) != "" {
+		prefix += " Provider summary: " + reason + "."
+	}
+	return prefix + " Give one concise final answer from the saved results. Do not call tools."
 }
 
 func addProviderUsage(total *provider.Usage, next provider.Usage) error {

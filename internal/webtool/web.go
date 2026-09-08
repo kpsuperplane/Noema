@@ -81,6 +81,19 @@ func New(database *store.Store, accounts *provider.AccountService, generators ma
 		}}, nil
 }
 
+// SetEndpoint replaces one configured provider endpoint. Hosts use this to
+// route a provider through a controlled gateway, including deterministic
+// local provider doubles used by integration tests.
+func (s *Service) SetEndpoint(providerName, endpoint string) error {
+	providerName = strings.TrimSpace(providerName)
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if providerName == "" || err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return errors.New("provider endpoint is invalid")
+	}
+	s.endpoints[providerName] = strings.TrimRight(parsed.String(), "/")
+	return nil
+}
+
 // Close stops all browser workers.
 func (s *Service) Close() {
 	s.browserMu.Lock()

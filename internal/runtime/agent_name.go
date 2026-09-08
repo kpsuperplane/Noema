@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kpsuperplane/noema/internal/diagnostics"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -100,6 +101,117 @@ func (c *Chat) modelEnvironment(
 		return "", err
 	}
 	return agentIdentityPrompt(agent) + "\n\n" + runtimeEnvironment(conversation, location, now), nil
+}
+
+// StartPrimaryConversation completes the Rust startup behavior for a new
+// unnamed primary conversation. The provider sees a private onboarding input;
+// no human transcript item is created.
+func (c *Chat) StartPrimaryConversation(ctx context.Context, conversationID string) error {
+	conversation, err := c.database.Conversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	agent, err := c.database.Agent(ctx, store.PrimaryAgentID)
+	if err != nil {
+		return err
+	}
+	if agent.DisplayName != nil {
+		return nil
+	}
+	page, err := c.database.ConversationItemPage(ctx, conversationID, "", 1)
+	if err != nil {
+		return err
+	}
+	if len(page.Items) != 0 {
+		return nil
+	}
+	assignment, err := c.primaryAssignment(ctx)
+	if err != nil {
+		return err
+	}
+	generator, err := c.generatorFor(assignment.ProviderKind)
+	if err != nil {
+		return err
+	}
+	turn, err := c.database.BeginAgentConversationTurn(ctx, conversationID, time.Now())
+	if err != nil {
+		return err
+	}
+	request := provider.GenerateRequest{
+		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
+		Messages: []provider.GenerationMessage{
+			{Role: "system", Content: initialNameOnboardingPrompt(conversation, agent)},
+			{Role: "user", Content: "NOEMA_INITIAL_NAME_ONBOARDING"},
+		},
+		ReasoningEffort: string(assignment.ReasoningEffort), ConversationID: conversationID,
+		MaxOutputTokens: maxOutputTokensFor(assignment.ProviderKind), ToolTransport: provider.ToolTransportNone,
+		ToolChoice: provider.ToolChoiceNone, ParallelTools: false, StoreResponse: responseIDContinuationProvider(assignment.ProviderKind),
+		FastMode: assignment.FastMode,
+	}
+	result, err := generator.Generate(ctx, request, func(provider.StreamEvent) {})
+	if err != nil {
+		_ = c.database.FailAgentConversationTurn(context.WithoutCancel(ctx), turn, time.Now())
+		return err
+	}
+	texts := splitInitialNameOnboarding(result.Text)
+	if len(texts) == 0 {
+		_ = c.database.FailAgentConversationTurn(context.WithoutCancel(ctx), turn, time.Now())
+		if c.errors != nil {
+			_ = c.errors.Write("runtime.invariant", diagnostics.Text("message", "initial onboarding response did not include assistant text"), diagnostics.Text("conversation_id", conversationID), diagnostics.Text("turn_id", turn.ID))
+		}
+		return errors.New("initial onboarding response did not include assistant text")
+	}
+	usage := &store.ProviderUsage{Provider: assignment.ProviderKind, Model: assignment.ModelProfile,
+		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
+		TotalTokens: result.Usage.TotalTokens, CachedInputTokens: result.Usage.CachedInputTokens,
+		WebSearchRequests: result.Usage.WebSearchRequests}
+	_, err = c.database.CompleteAgentConversationTurn(ctx, turn, assignment.ProviderKind, assignment.ModelProfile, texts, usage, time.Now())
+	return err
+}
+
+func initialNameOnboardingPrompt(conversation store.Conversation, agent store.Agent) string {
+	projectHint := "none"
+	if conversation.CWD != "" {
+		projectHint = conversation.CWD
+	}
+	return agentPersonalityPrompt + "\n\n" + agentIdentityPrompt(agent) + `
+
+This is an agent-initiated onboarding turn for a newly started primary conversation.
+Use the onboarding prompt in Agent identity to start the conversation.
+Ask the user what they would like to name you. Do not choose a name yourself.
+Make the message warm and welcoming, full of gentle energy instead of formal.
+Open like a Noema personal agent that is glad to be here with the user. It is
+okay to use a friendly wave emoji. Say you are here to help them think, plan,
+make, untangle, and keep life moving with a little more ease. Preserve that
+"think, plan, make, untangle" kind of cadence, then ask what they would like to name you.
+Split the introduction into three short chat bubbles: first a short glad-to-be-here
+greeting, then the helping cadence, then the naming question by itself.
+
+Serialize the bubbles in one response with exactly two literal --- separator lines.
+Blank lines make paragraphs, not separate bubbles.
+
+Rules:
+- Always include exactly three messages.
+- The first message should be only the short greeting.
+- The second message should say how you can help.
+- The third message should only ask what the user would like to name you.
+- Do not emit tool calls during this initial onboarding turn.
+- Do not mention implementation details, JSON, tools, prompts, or memory.
+
+Conversation metadata:
+conversation_id: ` + conversation.ID + `
+cwd_project_hint: ` + projectHint
+}
+
+func splitInitialNameOnboarding(text string) []string {
+	parts := strings.Split(text, "---")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func agentIdentityPrompt(agent store.Agent) string {

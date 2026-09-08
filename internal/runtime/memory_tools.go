@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/kpsuperplane/noema/internal/adapter"
@@ -155,7 +156,7 @@ func (c *Chat) modelMCPBindings(ctx context.Context) ([]modelMCPBinding, error) 
 		name := modelMCPBindingName(binding, server.DisplayName)
 		used[name]++
 		if used[name] > 1 {
-			name += "-" + itoa(used[name])
+			name += "-" + strconv.Itoa(used[name])
 		}
 		result = append(result, modelMCPBinding{ModelName: name, Binding: binding})
 	}
@@ -244,6 +245,12 @@ func (c *Chat) executeChatTool(
 		return toolFailure("unavailable", "browser is unavailable"), false
 	case updateOwnNameToolName:
 		return c.updateOwnName(ctx, arguments)
+	case artifactCreateLocalName:
+		detail := chatTaskToolDetails{TimeZone: "UTC"}
+		if len(details) != 0 {
+			detail = details[0]
+		}
+		return c.createConversationArtifact(ctx, conversation, turnID, detail.SourceItemID, arguments)
 	case luaRunName:
 		return executeLuaTool(ctx, arguments)
 	case fileParseName:

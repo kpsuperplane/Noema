@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -492,20 +494,42 @@ func TestRustRuntime_browser_review_values_stay_out_of_tool_results(t *testing.T
 		t.Fatal(err)
 	}
 	t.Cleanup(web.Close)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/browsers":
+			_, _ = response.Write([]byte(`{"session_id":"runtime-kernel"}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/browsers/runtime-kernel/playwright/execute":
+			_ = json.NewEncoder(response).Encode(map[string]any{"success": true, "result": map[string]any{
+				"ok": true, "main_document_status": 200,
+				"snapshot": map[string]any{"url": "https://8.8.8.8/form", "title": "Form", "text": "Remote form",
+					"elements":   []any{map[string]any{"reference": "e1", "role": "button", "name": "Continue", "disabled": false}},
+					"screenshot": "c2NyZWVuc2hvdA==", "width": 800, "height": 600},
+			}})
+		case request.Method == http.MethodDelete && request.URL.Path == "/browsers/runtime-kernel":
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(response, "unexpected", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	if err := web.SetEndpoint("kernel", server.URL); err != nil {
+		t.Fatal(err)
+	}
 	if !web.BrowserAvailable(t.Context()) {
 		t.Fatal("production browser route was not available")
 	}
 	owner := chatBrowserOwner(conversation.ID)
 	open := webtool.BrowserResult{}
-	open = web.ExecuteBrowser(t.Context(), owner, webtool.BrowseOpenName, json.RawMessage(`{"url":"https://example.com/form"}`), "browser-review")
+	open = web.ExecuteBrowser(t.Context(), owner, webtool.BrowseOpenName, json.RawMessage(`{"url":"https://8.8.8.8/form"}`), "browser-review")
 	if !open.Success {
 		t.Fatalf("production browser session did not open: %s", open.Stored)
 	}
-	authority, err := web.BrowserAuthority(t.Context(), owner, webtool.BrowseOpenName, json.RawMessage(`{"url":"https://example.com/form"}`))
-	if err != nil || authority.ProviderAccountID != kernel.ID || authority.URL != "https://example.com/form" {
+	authority, err := web.BrowserAuthority(t.Context(), owner, webtool.BrowseOpenName, json.RawMessage(`{"url":"https://8.8.8.8/form"}`))
+	if err != nil || authority.ProviderAccountID != kernel.ID || authority.URL != "https://8.8.8.8/form" {
 		t.Fatalf("browser session authority = %#v, %v", authority, err)
 	}
-	if !web.CurrentBrowserAuthority(t.Context(), authority, json.RawMessage(`{"url":"https://example.com/form"}`)) {
+	if !web.CurrentBrowserAuthority(t.Context(), authority, json.RawMessage(`{"url":"https://8.8.8.8/form"}`)) {
 		t.Fatal("browser authority changed without a route or credential change")
 	}
 	// Read the real session context through the production route. Review-only

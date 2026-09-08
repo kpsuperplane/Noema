@@ -93,7 +93,7 @@ func TestRustRuntime_background_task_reads_are_bounded_and_exact(t *testing.T) {
 
 func TestRustRuntime_background_capture_inherits_scope_and_excludes_routing_fields(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/task_tool/catalog.rs::background_capture_inherits_scope_and_excludes_routing_fields.
-	tool := generationToolByName(taskToolSpecs, taskCaptureName)
+	tool := generationToolByName(taskExecutionTools("executor"), taskCaptureName)
 	if tool == nil || !strings.Contains(string(tool.InputSchema), "schedule") || strings.Contains(string(tool.InputSchema), "executor_agent_id") || strings.Contains(string(tool.InputSchema), "cwd_override") {
 		t.Fatalf("scoped Task capture schema = %#v", tool)
 	}

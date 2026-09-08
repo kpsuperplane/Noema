@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -47,17 +48,22 @@ func TestRustRuntime_tool_instruction_changes_replace_visibility_context(t *test
 func TestRustRuntime_project_catalog_renders_exact_metadata_and_replaces_as_one_section(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/model_context.rs::project_catalog_renders_exact_metadata_and_replaces_as_one_section.
 	chat, database, conversation := chatFixture(t)
-	payload, success := chat.executeChatTool(context.Background(), conversation, projectCreateName, json.RawMessage(`{"name":"Alpha","description":"opaque-value-01928","folder":"/workspace/alpha"}`), "project-catalog", "turn:project")
+	folder := filepath.Join(t.TempDir(), "alpha")
+	arguments, err := json.Marshal(map[string]string{"name": "Alpha", "description": "opaque-value-01928", "folder": folder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, success := chat.executeChatTool(context.Background(), conversation, projectCreateName, arguments, "project-catalog", "turn:project")
 	if !success {
 		t.Fatalf("project create = %s", payload)
 	}
 	value := mustToolValue(t, payload)
 	project := value["project"].(map[string]any)
-	if project["name"] != "Alpha" || project["description"] != "opaque-value-01928" || project["folder"] != "/workspace/alpha" {
+	if project["name"] != "Alpha" || project["description"] != "opaque-value-01928" || project["folder"] != folder {
 		t.Fatalf("project metadata = %#v", project)
 	}
 	chatValue, err := chat.projectContext(context.Background())
-	if err != nil || !strings.Contains(chatValue, "opaque-value-01928") || !strings.Contains(chatValue, "/workspace/alpha") || !strings.Contains(chatValue, `"has_more":false`) {
+	if err != nil || !strings.Contains(chatValue, "opaque-value-01928") || !strings.Contains(chatValue, folder) || !strings.Contains(chatValue, `"has_more":false`) {
 		t.Fatalf("project context = %q, %v", chatValue, err)
 	}
 	if conversation.ID == "" || database == nil {
@@ -146,8 +152,15 @@ func TestRustRuntime_memory_instructions_make_known_page_navigation_primary(t *t
 	if !strings.Contains(string(readMemoryPageSchema), `"page"`) || !strings.Contains(string(searchMemorySchema), `"query"`) {
 		t.Fatal("memory tool schemas lost page navigation or search input")
 	}
-	if !strings.Contains(localChatTools()[2].Description, "exact path or ID") {
-		t.Fatalf("read memory page description = %q", localChatTools()[2].Description)
+	var readDescription string
+	for _, tool := range localChatTools() {
+		if tool.Name == noemamemory.ReadPageToolName {
+			readDescription = tool.Description
+			break
+		}
+	}
+	if !strings.Contains(readDescription, "exact path or ID") {
+		t.Fatalf("read memory page description = %q", readDescription)
 	}
 }
 

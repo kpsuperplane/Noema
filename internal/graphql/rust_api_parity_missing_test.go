@@ -129,6 +129,11 @@ func rustAPIPortNotificationBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
 	taskStore, err := store.Open(ctx, paths.Database())
 	if err != nil {
 		t.Fatal(err)

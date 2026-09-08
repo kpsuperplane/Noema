@@ -145,6 +145,65 @@ func (r *TaskExecution) createTaskArtifact(ctx context.Context, task store.Task,
 	return boundedModelToolPayload(payload, modelToolResultLimit), true
 }
 
+func (c *Chat) createConversationArtifact(ctx context.Context, conversation store.Conversation, turnID, sourceItemID string, raw json.RawMessage) (json.RawMessage, bool) {
+	if c.artifacts == nil {
+		return toolFailure("unavailable", "Artifact service is unavailable"), false
+	}
+	fields, err := strictProjectFields(raw)
+	if err != nil || !onlyProjectFields(fields, "title", "description", "artifact_kind", "filename", "media_type", "versions") {
+		return toolFailure("invalid_input", "Artifact arguments are invalid"), false
+	}
+	title, titleOK := taskString(fields, "title", true, 160)
+	kind, kindOK := taskString(fields, "artifact_kind", true, 80)
+	filename, filenameOK := taskString(fields, "filename", true, 160)
+	description, descriptionOK := taskOptionalString(fields, "description", 1000)
+	mediaType, mediaOK := taskOptionalString(fields, "media_type", 120)
+	var rawVersions []json.RawMessage
+	if rawValue, exists := fields["versions"]; !exists || json.Unmarshal(rawValue, &rawVersions) != nil || len(rawVersions) < 1 || len(rawVersions) > 5 ||
+		!titleOK || !kindOK || !filenameOK || !descriptionOK || !mediaOK || strings.TrimSpace(title) == "" || strings.TrimSpace(kind) == "" || artifact.SafeFilename(filename) != nil {
+		return toolFailure("invalid_input", "Artifact arguments are invalid"), false
+	}
+	type versionInput struct {
+		Title   *string
+		Content string
+	}
+	versions := make([]versionInput, 0, len(rawVersions))
+	for _, rawVersion := range rawVersions {
+		versionFields, parseErr := strictProjectFields(rawVersion)
+		if parseErr != nil || !onlyProjectFields(versionFields, "title", "content") {
+			return toolFailure("invalid_input", "Artifact version arguments are invalid"), false
+		}
+		content, contentOK := taskString(versionFields, "content", true, 200_000)
+		versionTitle, versionTitleOK := taskOptionalString(versionFields, "title", 160)
+		if !contentOK || !versionTitleOK || content == "" {
+			return toolFailure("invalid_input", "Artifact version arguments are invalid"), false
+		}
+		versions = append(versions, versionInput{Title: versionTitle, Content: content})
+	}
+	source := store.ArtifactSource{ConversationID: conversation.ID, TurnID: turnID, ItemID: sourceItemID}
+	created, err := c.artifacts.CreateLocal(ctx, artifact.LocalInput{
+		Owner: store.ArtifactOwner{ObjectType: "conversation", ObjectID: conversation.ID},
+		Title: strings.TrimSpace(title), Description: description, Kind: strings.TrimSpace(kind), Filename: filename,
+		Bytes: []byte(versions[0].Content), MediaType: mediaType, CreatedByActorID: store.PrimaryAgentID,
+		Source: source, Metadata: map[string]any{"created_by_tool": artifactCreateLocalName, "conversation_id": conversation.ID, "filename": filename},
+	})
+	if err != nil {
+		return toolFailure("unavailable", "Artifact could not be created"), false
+	}
+	for _, version := range versions[1:] {
+		if _, err := c.artifacts.AppendLocal(ctx, created.Artifact.ID, filename, []byte(version.Content), version.Title,
+			mediaType, store.PrimaryAgentID, source, nil); err != nil {
+			return toolFailure("unavailable", "Artifact version could not be created"), false
+		}
+	}
+	created, err = c.database.ArtifactWithVersionsByID(ctx, created.Artifact.ID)
+	if err != nil {
+		return toolFailure("unavailable", "Artifact is unavailable"), false
+	}
+	payload, _ := json.Marshal(artifactValue(created, true))
+	return boundedModelToolPayload(payload, modelToolResultLimit), true
+}
+
 func (r *TaskExecution) readTaskArtifact(ctx context.Context, task store.Task, name string, fields map[string]json.RawMessage) (json.RawMessage, bool) {
 	allowed := []string{"artifact_id", "artifact_version_id"}
 	if name == taskParseArtifactName {

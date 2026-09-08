@@ -189,7 +189,10 @@ func summarizeModelContext(ctx context.Context, request modelContextRequest,
 ) (string, error) {
 	rendered, _ := json.Marshal(messages)
 	current := string(rendered)
-	chunkRunes := max(1_000, int(available)*2)
+	// Start with one generous chunk. The fit check below still splits genuinely
+	// oversized inputs, while ordinary single-message history gets one summary
+	// request instead of an avoidable multi-pass compaction.
+	chunkRunes := max(1_000, int(available)*4)
 	for pass := 0; pass < 4; pass++ {
 		parts := contextChunks(current, chunkRunes)
 		summaries := make([]string, 0, len(parts))

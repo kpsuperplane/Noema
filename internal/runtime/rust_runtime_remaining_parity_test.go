@@ -174,7 +174,7 @@ func TestRustRuntime_parser_rejects_invalid_source_indexes_and_provenance(t *tes
 	}{
 		{"Missing a marker.", "item:human"},
 		{"Named marker.[^name]", "item:human"},
-		{"Duplicate sources.[^1]", "item:human"},
+		{"Duplicate sources.[^1][^1]", "item:human"},
 		{"Unknown source.[^1]", "item:unknown"},
 	} {
 		payload := `{"upserts":[{"path":"root.md","title":"Momo","icon":"user","body":` + strconvQuote(candidate.body) + `,"citations":[{"sources":[` + strconvQuote(candidate.source) + `]}]}],"metadata_updates":[],"deletes":[]}`
@@ -383,6 +383,13 @@ func TestRustRuntime_reviewer_finish_accepts_current_decision_and_feedback(t *te
 func TestRustRuntime_source_request_uses_exact_authenticated_human_item(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/task_run_context.rs::source_request_uses_exact_authenticated_human_item.
 	chat, database, conversation := chatFixture(t)
+	prior, _, err := database.BeginConversationTurn(context.Background(), conversation.ID, "Earlier question.", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CompleteConversationTurn(context.Background(), prior, "Earlier answer.", "", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	turn, _, err := database.BeginConversationTurn(context.Background(), conversation.ID, "Find me a walk-in restaurant.", nil, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -396,7 +403,7 @@ func TestRustRuntime_source_request_uses_exact_authenticated_human_item(t *testi
 		t.Fatal(err)
 	}
 	messages, ok := authority["messages"].([]map[string]any)
-	if !ok || len(messages) != 2 || messages[0]["item_id"] == messages[1]["item_id"] {
+	if !ok || len(messages) < 2 || messages[len(messages)-1]["item_id"] == messages[len(messages)-2]["item_id"] {
 		t.Fatalf("authorization source messages = %#v", authority["messages"])
 	}
 	if messages[len(messages)-1]["role"] != "human" || messages[len(messages)-1]["text"] != "Find me a walk-in restaurant." {
@@ -443,8 +450,11 @@ func TestRustRuntime_initial_task_prompt_supplies_files_and_an_empty_support_man
 		t.Fatal(err)
 	}
 	joined := joinRuntimeMessageText(messages)
-	if !strings.Contains(joined, "Injected Task files") || !strings.Contains(joined, "Prior review") || !strings.Contains(joined, "Current result") {
+	if !strings.Contains(joined, "Injected Task files") {
 		t.Fatalf("initial Task prompt = %s", joined)
+	}
+	if strings.Contains(joined, "Prior review") || strings.Contains(joined, "Current result") {
+		t.Errorf("planner prompt exposed result files: %s", joined)
 	}
 	if strings.Contains(joined, "<SUPPORT_FILE_MANIFEST>") {
 		t.Errorf("Go prompt has no explicit empty support manifest")
@@ -583,7 +593,7 @@ func TestRustRuntime_browser_route_digest_fences_capability_state_changes(t *tes
 	if err := database.SaveBrowserProviderRoute(context.Background(), []string{kernel.ID, "provider_account:obscura:system"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	arguments := json.RawMessage(`{"url":"https://example.test"}`)
+	arguments := json.RawMessage(`{"url":"https://8.8.8.8"}`)
 	authority, err := service.BrowserAuthority(context.Background(), "conversation:test", webtool.BrowseOpenName, arguments)
 	if err != nil {
 		t.Fatal(err)
@@ -606,7 +616,23 @@ func TestRustRuntime_browser_route_digest_fences_capability_state_changes(t *tes
 func rustRuntimeRunningTask(t *testing.T) (*Chat, *store.Store, store.Task, store.TaskRun) {
 	t.Helper()
 	chat, database, _ := chatFixture(t)
-	createQueuedRuntimeTask(t, database, chat.home, "Runtime task")
+	id, err := store.NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.CreateTaskWithOptions(context.Background(), id, "Runtime task",
+		runtimeTaskCommand("create_task", id), store.TaskCreateOptions{
+			InitialRunKind: "executor", ExecutionComplexity: "simple",
+		}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := home.CreatePendingTaskDocument(chat.home, id, "Runtime task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(chat.home, id); err != nil {
+		t.Fatal(err)
+	}
 	queuedTask, run, found, err := database.ClaimTaskExecution(context.Background(), time.Now())
 	if err != nil || !found {
 		t.Fatalf("claim Task run = %#v %t %v", run, found, err)
@@ -1057,8 +1083,8 @@ func TestRustRuntime_malformed_terminal_is_repaired_in_the_same_executor_run(t *
 	if err := home.WriteTaskFile(chat.home, task.ID, "RESULT.md", "Repaired result"); err != nil {
 		t.Fatal(err)
 	}
-	if _, success, terminal, _ := execution.executeTaskTool(context.Background(), task, run, taskFinishExecution, json.RawMessage(`{}`), true); !success || !terminal {
-		t.Fatal("valid terminal was not accepted after repair")
+	if payload, success, terminal, wrote := execution.executeTaskTool(context.Background(), task, run, taskFinishExecution, json.RawMessage(`{}`), true); !success || !terminal {
+		t.Fatalf("valid terminal was not accepted after repair: payload=%s success=%t terminal=%t wrote=%t", payload, success, terminal, wrote)
 	}
 }
 
@@ -1215,7 +1241,7 @@ func TestRustRuntime_foreground_context_compaction_failure_blocks_turn_with_reco
 		requests++
 		return provider.GenerationResult{}, errors.New("compaction provider failed")
 	})
-	_, compacted, err := prepareModelContext(context.Background(), modelContextRequest{database: database, generator: generator, accountID: "provider_account:openrouter:context-test", providerKind: "openrouter", model: "test", completed: []provider.GenerationMessage{{Role: "assistant", Content: strings.Repeat("older context ", 400)}}, active: []provider.GenerationMessage{{Role: "user", Content: "current turn"}}, outputReserve: 512})
+	_, compacted, err := prepareModelContext(context.Background(), modelContextRequest{database: database, generator: generator, accountID: "provider_account:openrouter:context-test", providerKind: "openrouter", model: "test", completed: []provider.GenerationMessage{{Role: "assistant", Content: strings.Repeat("older context ", 1_200)}}, active: []provider.GenerationMessage{{Role: "user", Content: "current turn"}}, outputReserve: 512})
 	if err == nil || compacted || requests == 0 || !strings.Contains(err.Error(), "compaction") {
 		t.Fatalf("compaction failure = compacted %t requests=%d err=%v", compacted, requests, err)
 	}

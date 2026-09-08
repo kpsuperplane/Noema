@@ -249,6 +249,15 @@ func TestTaskWorkEventsReconcileDurableAttention(t *testing.T) {
 	if err := database.StartTaskExecution(ctx, executor.ID, executor.Generation, testTime); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := home.CreatePendingTaskDocument(root, completed.ID, "Complete the task."); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(root, completed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.WriteTaskFile(root, completed.ID, "RESULT.md", "Completed result."); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.FinishTaskExecution(ctx, executor.ID, executor.Generation, false, testTime); err != nil {
 		t.Fatal(err)
 	}

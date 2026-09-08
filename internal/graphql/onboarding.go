@@ -215,6 +215,11 @@ func (r *Resolver) ensurePrimaryConversation(
 	if err != nil {
 		return nil, err
 	}
+	if r.Chat != nil {
+		if err := r.Chat.StartPrimaryConversation(ctx, conversation.ID); err != nil {
+			return nil, err
+		}
+	}
 	return r.primaryConversationModel(ctx, conversation)
 }
 

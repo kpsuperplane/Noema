@@ -208,7 +208,7 @@ func (s *Service) BrowserAvailable(ctx context.Context) bool {
 }
 
 func (s *Service) BrowserAuthority(ctx context.Context, owner, name string, raw json.RawMessage) (BrowserAuthority, error) {
-	command, err := parseBrowserCommand(ctx, name, raw)
+	command, err := parseBrowserCommandTarget(ctx, name, raw)
 	if err != nil {
 		return BrowserAuthority{}, err
 	}
@@ -636,6 +636,9 @@ func (s *Service) browserRoute(ctx context.Context) ([]provider.Account, string,
 		if err != nil || account.ProviderKind != "obscura" && account.ProviderKind != kernelProvider {
 			return nil, "", errors.New("browser provider route is unavailable")
 		}
+		if !account.IsActive || !hasCapability(account, browseCapability) {
+			continue
+		}
 		route = append(route, account)
 		key.WriteString(account.ID)
 		key.WriteByte('\x00')
@@ -709,6 +712,14 @@ func (s *Service) executeBrowserProvider(ctx context.Context, session *browserSe
 }
 
 func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage) (map[string]any, uint64, string, error) {
+	return parseBrowserArgumentsMode(ctx, name, raw, true)
+}
+
+func parseBrowserArgumentsTarget(ctx context.Context, name string, raw json.RawMessage) (map[string]any, uint64, string, error) {
+	return parseBrowserArgumentsMode(ctx, name, raw, false)
+}
+
+func parseBrowserArgumentsMode(ctx context.Context, name string, raw json.RawMessage, resolveTarget bool) (map[string]any, uint64, string, error) {
 	var object map[string]json.RawMessage
 	if err := decodeExact(raw, &object); err != nil {
 		if name == BrowseWaitName && err.Error() == "arguments do not match the web tool schema" {
@@ -779,7 +790,11 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 		if err != nil {
 			return nil, 0, "", err
 		}
-		target, err = normalizePublicURL(ctx, value)
+		if resolveTarget {
+			target, err = normalizePublicURL(ctx, value)
+		} else {
+			target, err = normalizePublicURLTarget(value)
+		}
 		if err != nil {
 			return nil, 0, "", err
 		}
@@ -874,7 +889,22 @@ func parseBrowserArguments(ctx context.Context, name string, raw json.RawMessage
 
 // parseBrowserCommand validates one operation and preserves its typed fields.
 func parseBrowserCommand(ctx context.Context, name string, raw json.RawMessage) (browserCommand, error) {
-	arguments, _, target, err := parseBrowserArguments(ctx, name, raw)
+	return parseBrowserCommandMode(ctx, name, raw, true)
+}
+
+func parseBrowserCommandTarget(ctx context.Context, name string, raw json.RawMessage) (browserCommand, error) {
+	return parseBrowserCommandMode(ctx, name, raw, false)
+}
+
+func parseBrowserCommandMode(ctx context.Context, name string, raw json.RawMessage, resolveTarget bool) (browserCommand, error) {
+	var arguments map[string]any
+	var target string
+	var err error
+	if resolveTarget {
+		arguments, _, target, err = parseBrowserArguments(ctx, name, raw)
+	} else {
+		arguments, _, target, err = parseBrowserArgumentsTarget(ctx, name, raw)
+	}
 	if err != nil {
 		return browserCommand{}, err
 	}

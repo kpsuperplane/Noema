@@ -66,6 +66,7 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	bindings, _ := service.Bindings(t.Context())
+	binding := runtimeDiscoveredMCPBinding(t, bindings)
 	unauthorized.Store(true)
 	task := createQueuedRuntimeTask(t, database, chat.home, "Send the approved message.")
 	roleCalls := map[string]int{}
@@ -81,10 +82,10 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 		case "executor":
 			switch roleCalls[role] {
 			case 1:
-				if !taskRequestHasTool(request.Tools, bindings[0].Name) {
+				if !taskRequestHasTool(request.Tools, binding.Name) {
 					t.Fatal("Task MCP tool was not advertised")
 				}
-				return taskToolResult("send", bindings[0].Name, map[string]any{"text": "approved"}), nil
+				return taskToolResult("send", binding.Name, map[string]any{"text": "approved"}), nil
 			case 2:
 				return taskToolResult("progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Task\n\nMessage sent.\n"}), nil
 			case 3:
@@ -207,9 +208,10 @@ func TestTaskExecutionCreatesReviewedPrivatePacketAndUploadsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	bindings, err := mcpService.Bindings(t.Context())
-	if err != nil || len(bindings) != 1 {
+	if err != nil || len(bindings) < 2 {
 		t.Fatalf("MCP bindings = %#v, %v", bindings, err)
 	}
+	binding := runtimeDiscoveredMCPBinding(t, bindings)
 	task := createQueuedRuntimeTask(t, database, chat.home, "Prepare the private invoice packet and upload it once.\n\n"+packet)
 	roleCalls := map[string]int{}
 	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
@@ -249,7 +251,7 @@ func TestTaskExecutionCreatesReviewedPrivatePacketAndUploadsOnce(t *testing.T) {
 					"artifact_version_id": versionID, "packet_markdown": packet})
 				return provider.GenerationResult{ID: "response:packet-upload", Model: "model-a", FinishReason: "tool_calls",
 					ToolCalls: []provider.GenerationToolCall{{ProviderItemID: "item:packet-upload", ProviderCallID: "call:packet-upload",
-						ProviderName: bindings[0].Name, Name: bindings[0].Name, Payload: payload}}}, nil
+						ProviderName: binding.Name, Name: binding.Name, Payload: payload}}}, nil
 			case 3:
 				return taskToolResult("packet-progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": packet + "\nStatus: uploaded once.\n"}), nil
 			case 4:
@@ -1206,10 +1208,10 @@ func TestCancelledTaskKeepsLateMCPWriteUncertain(t *testing.T) {
 		t.Fatal(err)
 	}
 	bindings, err := service.Bindings(t.Context())
-	if err != nil || len(bindings) != 1 {
+	if err != nil || len(bindings) < 2 {
 		t.Fatalf("bindings = %#v, %v", bindings, err)
 	}
-	binding := bindings[0]
+	binding := runtimeDiscoveredMCPBinding(t, bindings)
 	task := createQueuedRuntimeTask(t, database, chat.home, "Write the audit value once.")
 	_, planner, found, err := database.ClaimTaskExecution(t.Context(), time.Now())
 	if err != nil || !found {

@@ -708,6 +708,11 @@ func newAuthTest(t *testing.T, devNoAuth bool) (*Server, *store.Store, home.Path
 	if err != nil {
 		t.Fatal(err)
 	}
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
 	config, recovery, err := LoadConfig(paths, "127.0.0.1:3737")
 	if err != nil {
 		t.Fatal(err)

@@ -91,7 +91,7 @@ func parseA2UIArguments(raw json.RawMessage) (string, error) {
 		return "", errors.New("A2UI arguments are invalid")
 	}
 	value.JSONL = strings.TrimSpace(value.JSONL)
-	if value.JSONL == "" {
+	if value.JSONL == "" || len(value.JSONL) > a2uiInputLimit {
 		return "", errors.New("A2UI arguments are invalid")
 	}
 	return value.JSONL, nil
@@ -125,11 +125,11 @@ func reduceA2UI(conversationID, jsonl string) (*a2uiBatch, *a2uiRepair) {
 		var message any
 		decoder := json.NewDecoder(strings.NewReader(raw))
 		if decoder.Decode(&message) != nil {
-			return nil, a2uiError("invalid_jsonl", line, "", "invalid JSON")
+			return nil, a2uiError("invalid_json", line, "", "invalid JSON")
 		}
 		var extra any
 		if decoder.Decode(&extra) != io.EOF {
-			return nil, a2uiError("invalid_jsonl", line, "", "invalid JSON")
+			return nil, a2uiError("invalid_json", line, "", "invalid JSON")
 		}
 		if failure := validateA2UIBounds(message, 0, line); failure != nil {
 			return nil, failure

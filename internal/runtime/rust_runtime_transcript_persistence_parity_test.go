@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -48,7 +49,14 @@ func TestRustRuntime_web_search_tool_call_display_shows_visible_query(t *testing
 
 func TestRustRuntime_memory_search_display_describes_lexical_page_matches(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/transcript_persistence/tests.rs::memory_search_display_describes_lexical_page_matches.
-	if !strings.Contains(string(searchMemorySchema), "query") || !strings.Contains(localChatTools()[3].Description, "Search Memory") {
+	var searchDescription string
+	for _, tool := range localChatTools() {
+		if tool.Name == noemamemory.SearchToolName {
+			searchDescription = tool.Description
+			break
+		}
+	}
+	if !strings.Contains(string(searchMemorySchema), "query") || !strings.Contains(searchDescription, "Search Memory") {
 		t.Fatal("memory search display lost lexical query authority")
 	}
 }

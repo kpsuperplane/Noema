@@ -425,6 +425,11 @@ func TestRustServer_capacity_rejects_new_sessions_without_evicting_active_sessio
 	if err != nil {
 		t.Fatal(err)
 	}
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
 	config, recovery, err := LoadConfig(paths, "127.0.0.1:3737")
 	if err != nil {
 		t.Fatal(err)
@@ -684,6 +689,11 @@ func TestRustServer_authority_session_and_removed_bootstrap_boundary(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	secureRoot, err := securePaths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = secureRoot.Close() })
 	secureConfig, recovery, err := LoadConfig(securePaths, "127.0.0.1:3737")
 	if err != nil {
 		t.Fatal(err)

@@ -435,6 +435,11 @@ func newExternalAuthTest(t *testing.T, devNoAuth bool) (*noemaauth.Server, *stor
 	if err != nil {
 		t.Fatal(err)
 	}
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
 	config, recovery, err := noemaauth.LoadConfig(paths, "127.0.0.1:3737")
 	if err != nil {
 		t.Fatal(err)

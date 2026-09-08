@@ -323,7 +323,7 @@ func projectValue(value store.Project, folder bool) map[string]any {
 }
 
 func projectCommandValue(result store.ProjectResult) map[string]any {
-	return map[string]any{"project": projectValue(result.Project, false),
+	return map[string]any{"project": projectValue(result.Project, true),
 		"event_id": result.Event.EventID, "event_sequence": result.Event.ID}
 }
 

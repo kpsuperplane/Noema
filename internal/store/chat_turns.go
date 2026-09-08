@@ -261,6 +261,167 @@ WHERE conversation_id = ?`, millis(now), conversationID); err != nil {
 	return ConversationTurn{ID: turnID, ConversationID: conversationID, TurnIndex: turnIndex, Status: "running"}, nil
 }
 
+// BeginAgentConversationTurn starts one durable agent-initiated turn without a
+// human transcript item. It is used for startup messages that introduce the
+// agent before the user sends the first request.
+func (s *Store) BeginAgentConversationTurn(
+	ctx context.Context,
+	conversationID string,
+	now time.Time,
+) (ConversationTurn, error) {
+	turnID, err := newID("turn")
+	if err != nil {
+		return ConversationTurn{}, err
+	}
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return ConversationTurn{}, fmt.Errorf("begin agent conversation turn: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireConversationTx(ctx, tx, conversationID); err != nil {
+		return ConversationTurn{}, err
+	}
+	var active bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+SELECT 1 FROM conversation_turns
+WHERE conversation_id = ? AND status IN ('input_received', 'running', 'waiting_for_tool')
+)`, conversationID).Scan(&active); err != nil {
+		return ConversationTurn{}, fmt.Errorf("check active agent conversation turn: %w", err)
+	}
+	if active {
+		return ConversationTurn{}, ErrConversationTurnActive
+	}
+	var turnIndex int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(CAST(json_extract(metadata_json, '$.turn_index') AS INTEGER)), 0) + 1
+FROM conversation_turns WHERE conversation_id = ?`, conversationID).Scan(&turnIndex); err != nil {
+		return ConversationTurn{}, fmt.Errorf("select agent conversation turn index: %w", err)
+	}
+	metadata, _ := json.Marshal(map[string]any{"turn_index": turnIndex, "source": "agent_onboarding"})
+	if _, err := tx.ExecContext(ctx, `INSERT INTO conversation_turns (
+turn_id, conversation_id, status, metadata_json, started_at_ms, created_at_ms, updated_at_ms
+) VALUES (?, ?, 'running', ?, ?, ?, ?)`, turnID, conversationID, string(metadata), millis(now), millis(now), millis(now)); err != nil {
+		return ConversationTurn{}, fmt.Errorf("create agent conversation turn: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE conversations SET agent_status = 'thinking', updated_at_ms = ? WHERE conversation_id = ?`, millis(now), conversationID); err != nil {
+		return ConversationTurn{}, fmt.Errorf("set agent conversation status: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ConversationTurn{}, fmt.Errorf("commit agent conversation turn: %w", err)
+	}
+	return ConversationTurn{ID: turnID, ConversationID: conversationID, TurnIndex: turnIndex, Status: "running"}, nil
+}
+
+// CompleteAgentConversationTurn persists one or more assistant bubbles for an
+// agent-initiated turn and closes that turn without creating a user item.
+func (s *Store) CompleteAgentConversationTurn(
+	ctx context.Context,
+	turn ConversationTurn,
+	providerKind, model string,
+	texts []string,
+	usage *ProviderUsage,
+	now time.Time,
+) ([]ConversationItem, error) {
+	if len(texts) == 0 {
+		return nil, errors.New("agent response contains no assistant text")
+	}
+	for _, text := range texts {
+		if strings.TrimSpace(text) == "" || !utf8.ValidString(text) || len(text) > maxConversationText {
+			return nil, errors.New("agent response contains invalid assistant text")
+		}
+	}
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return nil, fmt.Errorf("begin agent conversation completion: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status, conversationProvider string
+	if err := tx.QueryRowContext(ctx, `SELECT conversation_turns.status, conversations.provider
+FROM conversation_turns JOIN conversations ON conversations.conversation_id = conversation_turns.conversation_id
+WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`, turn.ID, turn.ConversationID).Scan(&status, &conversationProvider); err != nil {
+		return nil, errors.New("agent conversation turn not found")
+	}
+	if status != "running" && status != "input_received" {
+		return nil, errors.New("agent conversation turn is already final")
+	}
+	if strings.TrimSpace(providerKind) == "" {
+		providerKind = conversationProvider
+	}
+	if err := finishConversationTurnRecordsTx(ctx, tx, turn.ID, "completed", now); err != nil {
+		return nil, fmt.Errorf("close agent conversation turn: %w", err)
+	}
+	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ConversationItem, 0, len(texts))
+	for index, text := range texts {
+		metadata := map[string]any{
+			"turn_index": turn.TurnIndex, "response_index": index, "output_index": 0,
+			"provider": providerKind, "model": model, "phase": "final_answer", "source": "agent_onboarding",
+		}
+		if usage != nil {
+			metadata["provider_usage"] = map[string]any{
+				"provider": usage.Provider, "model": usage.Model, "phase": "initial",
+				"response_index": index, "output_index": 0, "input_tokens": usage.InputTokens,
+				"output_tokens": usage.OutputTokens, "total_tokens": usage.TotalTokens,
+				"cached_input_tokens": usage.CachedInputTokens, "web_search_requests": usage.WebSearchRequests,
+			}
+		}
+		item := ConversationItem{
+			ID:             stableConversationOutputID(turn.ID, "agent_onboarding", 0, index),
+			ConversationID: turn.ConversationID, TurnID: turn.ID, Sequence: sequence,
+			Kind: ConversationAssistantText, Status: "completed", AuthorActorID: "agent:primary",
+			ContentText: text, Payload: map[string]any{}, Metadata: metadata, CreatedAt: now,
+		}
+		encodedMetadata, _ := json.Marshal(metadata)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO conversation_items (
+item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id,
+content_text, provider_content_text, payload_json, metadata_json, created_at_ms, updated_at_ms
+) VALUES (?, ?, ?, ?, 'assistant_text', 'completed', 'agent:primary', ?, ?, '{}', ?, ?, ?)`,
+			item.ID, item.ConversationID, item.TurnID, sequence, item.ContentText, nil,
+			string(encodedMetadata), millis(now), millis(now)); err != nil {
+			return nil, fmt.Errorf("persist agent assistant text: %w", err)
+		}
+		items = append(items, item)
+		sequence++
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE conversation_turns SET status = 'completed', completed_at_ms = ?, updated_at_ms = ? WHERE turn_id = ?`, millis(now), millis(now), turn.ID); err != nil {
+		return nil, fmt.Errorf("complete agent conversation turn: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE conversations SET agent_status = 'idle', updated_at_ms = ? WHERE conversation_id = ?`, millis(now), turn.ConversationID); err != nil {
+		return nil, fmt.Errorf("restore agent conversation status: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit agent conversation completion: %w", err)
+	}
+	return items, nil
+}
+
+// FailAgentConversationTurn closes one failed agent-initiated turn without
+// adding an ordinary error message to the visible conversation.
+func (s *Store) FailAgentConversationTurn(ctx context.Context, turn ConversationTurn, now time.Time) error {
+	now = now.UTC()
+	result, err := s.db.ExecContext(ctx, `UPDATE conversation_turns
+SET status = 'failed', completed_at_ms = ?, updated_at_ms = ?
+WHERE turn_id = ? AND conversation_id = ? AND status IN ('input_received', 'running')`, millis(now), millis(now), turn.ID, turn.ConversationID)
+	if err != nil {
+		return fmt.Errorf("fail agent conversation turn: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect failed agent conversation turn: %w", err)
+	}
+	if changed != 1 {
+		return errors.New("agent conversation turn is already final")
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE conversations SET agent_status = 'error', updated_at_ms = ? WHERE conversation_id = ?`, millis(now), turn.ConversationID); err != nil {
+		return fmt.Errorf("set failed agent conversation status: %w", err)
+	}
+	return nil
+}
+
 // SetConversationAgentStatus saves one current Chat status.
 func (s *Store) SetConversationAgentStatus(
 	ctx context.Context,

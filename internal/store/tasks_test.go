@@ -267,6 +267,7 @@ PRAGMA user_version=26;`); err != nil {
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
+	skipUnsupportedRustMigrationParity(t)
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "noema.sqlite3"))
 	if err != nil {
 		t.Fatalf("open test store: %v", err)

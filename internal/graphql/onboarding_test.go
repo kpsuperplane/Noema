@@ -254,7 +254,7 @@ mutation Confirm($input: ConfirmOnboardingModelSelectionsInput!) {
 
 func TestRemovedModelSelectionReturnsToSetup(t *testing.T) {
 	resolver := readyAgentTestResolver(t)
-	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(resolver.home.Name(), "noema.sqlite3")))
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(resolver.home.Name(), "db", "noema.sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
