@@ -27,7 +27,8 @@ development instance and inspected before the next case starts.
 | PA-014 — Meeting preparation | Pass | [Case evidence](PA-014/) |
 | PA-015 — Audience updates | Pass | [Case evidence](PA-015/) |
 | PA-016 — Meeting follow-through | Pass | [Case evidence](PA-016/) |
-| PA-017–PA-100 | Not run | The operator will run each case in order. |
+| PA-017 — Relationship brief | Pass | [Case evidence](PA-017/) |
+| PA-018–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
