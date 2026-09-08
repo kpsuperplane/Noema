@@ -40,6 +40,9 @@ PA-007 passes after a synthetic one-hour delay, draft inspection, and unchanged
 rerun. Noema moved dependent work, preserved fixed commitments, drafted an
 unsent team notice, and made no duplicate update when the records stayed the
 same. Evidence: `docs/validation/evidence/personal-assistant-live/PA-007/`.
+PA-008 passes after separate bounded Calendar reads and a full Project and Task
+review. Noema separated completed outcomes, carried deadlines, and reconciled
+leave, overlaps, and next-week capacity. Evidence: `docs/validation/evidence/personal-assistant-live/PA-008/`.
 `ConversationAuthorizationContext` now follows continuation trigger items to
 the original human turn, with a focused store regression test.
 The memory updater now omits nested browser screenshots and internal Task-list results. A live update completed at sequence 1881 and saved the 16:00 weekday

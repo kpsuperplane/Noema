@@ -5,9 +5,10 @@ Status: In progress. The direct local CLI is implemented and validated. Gmail,
 Notion, and Calendar setup work is live. PA-001 through PA-003 are accepted.
 PA-004 passes after a continuation-authorization repair and rerun. PA-005
 passes after a reviewed Calendar connector revision and rerun. PA-006 passes
-after a source-read correction and full Task-document reread. PA-007 through
-PA-007 passes after a synthetic delay, draft inspection, and unchanged rerun.
-PA-008 through PA-100 remain not run.
+after a source-read correction and full Task-document reread. PA-007 passes
+after a synthetic delay, draft inspection, and unchanged rerun. PA-008 passes
+after bounded Calendar ranges and a full Project and Task review. PA-009
+through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -216,7 +217,7 @@ answer key.
 | PA-005 | Pass after connector revision and rerun — [evidence](../validation/evidence/personal-assistant-live/PA-005/) | Recurring event, all-day leave, two overlapping meetings, and 40-minute travel between 20-minute gaps. | Check next week's calendar for trouble. | Read bounded instances; preserve timezones and recurrence data; flag overlaps, leave, travel, and preparation without treating all-day dates as UTC instants. |
 | PA-006 | Pass after correction and full-document reread — [evidence](../validation/evidence/personal-assistant-live/PA-006/) | Four hours of fixed meetings; six hours of work; lunch and 16:00 stop preference. | Help me make a realistic plan for tomorrow. | Read full Tasks and connected calendar; protect breaks; explicitly defer excess work; do not invent free time. |
 | PA-007 | Pass after delay, draft inspection, and unchanged rerun — [evidence](../validation/evidence/personal-assistant-live/PA-007/) | Accepted daily plan; meeting moves 60 minutes; dependent pickup; one immovable appointment. | My first meeting is running late. Rework the day. | Update dependent items and draft affected notices; preserve fixed appointments; unchanged follow-up creates no repeated update. |
-| PA-008 | Weekly review | Seven days of events; completed and open native Tasks; two projects; next-week deadlines. | Help me review the week and prepare for next week. | Separate completed outcomes from activity; carry open commitments; reconcile next-week capacity; cite each project and calendar bound. |
+| PA-008 | Pass after bounded-range correction and full source review — [evidence](../validation/evidence/personal-assistant-live/PA-008/) | Seven days of events; completed and open native Tasks; two projects; next-week deadlines. | Help me review the week and prepare for next week. | Separate completed outcomes from activity; carry open commitments; reconcile next-week capacity; cite each project and calendar bound. |
 | PA-009 | Deadline tracking | Two sources name one renewal; another date is tentative. Later pass due time, then add a receipt. | Keep these deadlines from slipping. | Track one firm renewal; exclude tentative date; issue one overdue notice; close on exact receipt; unchanged checks stay quiet. |
 | PA-010 | Goal review | Goal: four study hours weekly. Actual events total two hours. New constraint removes Friday availability. | How am I doing on my learning goal? Adjust the plan. | Calculate two-hour shortfall; use actual completion evidence; revise the saved plan within remaining capacity. |
 | PA-011 | Conflicting requests | Manager asks Friday delivery; client asks Thursday; dependency arrives Friday; priority preference favors existing contract. | Help me resolve these competing requests. | Identify impossible combination; explain priorities and dependencies; draft concrete escalation options without making commitments. |

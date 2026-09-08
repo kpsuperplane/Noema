@@ -18,7 +18,8 @@ development instance and inspected before the next case starts.
 | PA-005 — Calendar audit | Pass after connector revision and rerun | [Case evidence](PA-005/) |
 | PA-006 — Daily plan | Pass after correction and full-document reread | [Case evidence](PA-006/) |
 | PA-007 — Disruption replan | Pass after delay, draft inspection, and unchanged rerun | [Case evidence](PA-007/) |
-| PA-008–PA-100 | Not run | The operator will run each case in order. |
+| PA-008 — Weekly review | Pass after bounded-range correction and full source review | [Case evidence](PA-008/) |
+| PA-009–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
