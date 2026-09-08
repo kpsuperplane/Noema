@@ -177,7 +177,7 @@ func definitionHelp() map[string]any {
 		"oauth_authentication_example":          json.RawMessage(`{"kind":"oauth2_authorization_code_pkce","profile_digest":"` + googleProfileDigest + `"}`),
 		"oauth_operation_authorization_example": json.RawMessage(`{"kind":"oauth_scopes","accepted_scope_sets":[["scope.read"]]}`),
 		"nested_json_body_example":              json.RawMessage(`{"arguments":[{"name":"response_status","description":"Attendance response to apply.","location":"json_body","type":"string","required":true,"enum_values":["accepted","tentative","declined"]}],"json_body_template":{"attendees":[{"responseStatus":{"$argument":"response_status"}}]}}`),
-		"response_token_pagination_example":     json.RawMessage(`{"kind":"response_token","response_pointer":"/next_cursor","request_argument":"cursor","page_size":{"request_argument":"page_size","value":8},"request_argument_is_runtime_only":true}`),
+		"response_token_pagination_example":     json.RawMessage(`{"kind":"response_token","response_pointer":"/next_cursor","request_argument":"cursor","page_size":{"request_argument":"page_size","value":8}}`),
 		"enums": map[string][]string{
 			"authentication.kind":          {"none", "credential", "oauth2_authorization_code_pkce"},
 			"operation.authorization.kind": {"none", "oauth_scopes"},

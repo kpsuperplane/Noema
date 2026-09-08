@@ -2581,7 +2581,7 @@ func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payload
 	if err := json.Unmarshal(help["response_token_pagination_example"].(json.RawMessage), &pagination); err != nil {
 		t.Fatal(err)
 	}
-	wantPagination := map[string]any{"kind": "response_token", "response_pointer": "/next_cursor", "request_argument": "cursor", "page_size": map[string]any{"request_argument": "page_size", "value": float64(8)}, "request_argument_is_runtime_only": true}
+	wantPagination := map[string]any{"kind": "response_token", "response_pointer": "/next_cursor", "request_argument": "cursor", "page_size": map[string]any{"request_argument": "page_size", "value": float64(8)}}
 	if !reflect.DeepEqual(pagination, wantPagination) {
 		t.Errorf("pagination help = %#v, want %#v", pagination, wantPagination)
 	}
