@@ -42,6 +42,17 @@ WHERE executor_backend='provider' AND status IN ('leased','running') AND run_id 
 WHERE state='running' AND current_run_id IN (SELECT run_id FROM task_runs WHERE status='queued')`, millis(now)); err != nil {
 		return err
 	}
+	if _, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='cancelled',ended_at_ms=?,updated_at_ms=?
+WHERE executor_backend='provider' AND status='queued' AND NOT EXISTS (
+    SELECT 1 FROM tasks WHERE current_run_id=task_runs.run_id AND generation=task_runs.task_generation
+)`, millis(now), millis(now)); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE task_run_items SET status=CASE
+WHEN item_kind='assistant_output' THEN 'cancelled' ELSE 'failed' END, updated_at_ms=?
+WHERE status='running' AND run_id IN (SELECT run_id FROM task_runs WHERE status='cancelled')`, millis(now)); err != nil {
+		return err
+	}
 	if err = tx.Commit(); err == nil {
 		s.NotifyWork()
 	}
@@ -517,7 +528,7 @@ func (s *Store) FinishTaskPlanning(ctx context.Context, runID string, generation
 	if complexity != "simple" && complexity != "medium" && complexity != "difficult" {
 		return errors.New("invalid Task complexity")
 	}
-	return s.completeTaskRun(ctx, runID, generation, "planner", now, func(tx bun.Tx, task *Task, run TaskRun) error {
+	return s.completeTaskRun(ctx, runID, generation, "planner", false, now, func(tx bun.Tx, task *Task, run TaskRun) error {
 		task.ExecutionComplexity = complexity
 		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET execution_complexity=? WHERE task_id=?`, complexity, task.ID); err != nil {
 			return err
@@ -528,7 +539,7 @@ func (s *Store) FinishTaskPlanning(ctx context.Context, runID string, generation
 
 // FinishTaskExecution completes an Executor and queues review or continuation.
 func (s *Store) FinishTaskExecution(ctx context.Context, runID string, generation int64, continueRun bool, now time.Time) error {
-	return s.completeTaskRun(ctx, runID, generation, "executor", now, func(tx bun.Tx, task *Task, run TaskRun) error {
+	return s.completeTaskRun(ctx, runID, generation, "executor", true, now, func(tx bun.Tx, task *Task, run TaskRun) error {
 		kind, review := "reviewer", max64(run.ReviewRound, 1)
 		if continueRun {
 			kind, review = "executor", run.ReviewRound
@@ -543,7 +554,7 @@ func (s *Store) FinishTaskReview(ctx context.Context, runID string, generation i
 	if decision != "approve" && decision != "request_changes" && decision != "needs_human" || feedback == "" || len(feedback) > 20_000 {
 		return errors.New("invalid Task review")
 	}
-	return s.completeTaskRun(ctx, runID, generation, "reviewer", now, func(tx bun.Tx, task *Task, run TaskRun) error {
+	return s.completeTaskRun(ctx, runID, generation, "reviewer", true, now, func(tx bun.Tx, task *Task, run TaskRun) error {
 		switch decision {
 		case "approve":
 			task.Revision++
@@ -635,26 +646,56 @@ WHERE run_id=? AND status IN ('leased','running','waiting_for_approval')`, milli
 		"unsafe_effect_uncertain", "executor", now)
 }
 
-func (s *Store) completeTaskRun(ctx context.Context, runID string, generation int64, kind string, now time.Time, next func(bun.Tx, *Task, TaskRun) error) error {
-	return s.taskRunTransaction(ctx, runID, generation, "running", func(tx bun.Tx, task *Task, run *TaskRun) error {
-		if run.Kind != kind {
-			return ErrInvalidTransition
-		}
-		changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='completed',ended_at_ms=?,updated_at_ms=? WHERE run_id=? AND status='running'`, millis(now), millis(now), run.ID)
-		if err != nil {
-			return err
-		}
-		if count, _ := changed.RowsAffected(); count != 1 {
-			return ErrStaleRun
-		}
-		if err := finishTaskRunItemsTx(ctx, tx, run.ID, "completed", now); err != nil {
-			return err
-		}
-		if err := appendTaskExecutionEvent(ctx, tx, *task, *run, "run.completed", map[string]any{"run_kind": run.Kind}, now); err != nil {
-			return err
-		}
-		return next(tx, task, *run)
-	})
+func (s *Store) completeTaskRun(ctx context.Context, runID string, generation int64, kind string, idempotent bool, now time.Time, next func(bun.Tx, *Task, TaskRun) error) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	run, err := taskRunTx(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
+	if run.Generation != generation {
+		return ErrStaleRun
+	}
+	if run.Kind != kind {
+		return ErrInvalidTransition
+	}
+	if idempotent && run.Status == "completed" {
+		return nil
+	}
+	if run.Status != "running" {
+		return ErrStaleRun
+	}
+	task, err := taskTx(ctx, tx, run.TaskID)
+	if err != nil {
+		return err
+	}
+	if task.Generation != generation || task.CurrentRunID != run.ID {
+		return ErrStaleRun
+	}
+	changed, err := tx.ExecContext(ctx, `UPDATE task_runs SET status='completed',ended_at_ms=?,updated_at_ms=? WHERE run_id=? AND status='running'`, millis(now), millis(now), run.ID)
+	if err != nil {
+		return err
+	}
+	if count, _ := changed.RowsAffected(); count != 1 {
+		return ErrStaleRun
+	}
+	if err := finishTaskRunItemsTx(ctx, tx, run.ID, "completed", now); err != nil {
+		return err
+	}
+	if err := appendTaskExecutionEvent(ctx, tx, task, run, "run.completed", map[string]any{"run_kind": run.Kind}, now); err != nil {
+		return err
+	}
+	if err := next(tx, &task, run); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.NotifyWork()
+	return nil
 }
 
 // finishTaskRunItemsTx closes transcript records that were still active when

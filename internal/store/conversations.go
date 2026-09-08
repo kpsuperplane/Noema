@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +22,41 @@ type Conversation struct {
 	CWD       string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ConversationWorkingDirectory returns and persists one Conversation's safe
+// working directory. An explicit existing directory replaces the stored value.
+func (s *Store) ConversationWorkingDirectory(ctx context.Context, conversationID, requested string) (string, error) {
+	conversation, err := s.Conversation(ctx, conversationID)
+	if err != nil {
+		return "", err
+	}
+	explicit := strings.TrimSpace(requested)
+	path := conversation.CWD
+	if explicit != "" {
+		path = explicit
+	} else if path == "" {
+		path = filepath.Join(s.homeRoot, "conversations", conversationID)
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve conversation working directory: %w", err)
+	}
+	if explicit != "" {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return "", fmt.Errorf("conversation working directory is unavailable: %w", statErr)
+		}
+		if !info.IsDir() {
+			return "", errors.New("conversation working directory is not a directory")
+		}
+	} else if err := os.MkdirAll(path, 0o700); err != nil {
+		return "", fmt.Errorf("create conversation working directory: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE conversations SET cwd=?,updated_at_ms=? WHERE conversation_id=?`, path, millis(time.Now().UTC()), conversationID); err != nil {
+		return "", fmt.Errorf("persist conversation working directory: %w", err)
+	}
+	return path, nil
 }
 
 // PrimaryConversation returns the local human's active primary Chat.

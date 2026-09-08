@@ -485,7 +485,10 @@ func fencedTaskTx(ctx context.Context, tx bun.Tx, id string, revision, generatio
 	if err != nil {
 		return Task{}, err
 	}
-	if task.Revision != revision || task.Generation != generation {
+	if task.Generation != generation {
+		return Task{}, ErrStaleGeneration
+	}
+	if task.Revision != revision {
 		return Task{}, ErrStaleRevision
 	}
 	return task, nil

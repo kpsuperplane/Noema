@@ -133,8 +133,12 @@ WHERE conversation_id=? AND kind='task_reference' AND json_extract(payload_json,
 			}
 			if previous.Valid {
 				var messages int
+				messageEnd := sequence
+				// The notification text was appended above. Exclude that new
+				// message when measuring the gap after the prior reference.
+				messageEnd--
 				err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_items WHERE conversation_id=?
-				AND sequence_index>? AND sequence_index<? AND kind IN ('user_text','assistant_text','multiple_choice_prompt','multiple_choice_selection')`, current.ID, previous.Int64, sequence).Scan(&messages)
+				AND sequence_index>? AND sequence_index<? AND kind IN ('user_text','assistant_text','multiple_choice_prompt','multiple_choice_selection')`, current.ID, previous.Int64, messageEnd).Scan(&messages)
 				if err != nil {
 					return nil, err
 				}

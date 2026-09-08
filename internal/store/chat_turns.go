@@ -480,6 +480,11 @@ UPDATE conversation_items SET status = 'cancelled', updated_at_ms = ?
 WHERE turn_id = ? AND status IN ('pending', 'running')`, millis(now), turn.ID); err != nil {
 		return fmt.Errorf("cancel conversation turn items: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE runtime_debug_spans
+	SET status='cancelled', duration_ms=MAX(0, ?-started_at_ms), ended_at_ms=?
+	WHERE conversation_turn_id=? AND status='running'`, millis(now), millis(now), turn.ID); err != nil {
+		return fmt.Errorf("cancel conversation turn spans: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE conversations SET agent_status = 'idle', updated_at_ms = ?
 WHERE conversation_id = ?`, millis(now), turn.ConversationID); err != nil {
@@ -522,6 +527,14 @@ WHERE status IN ('pending', 'running') AND turn_id IN (
     )
 )`, millis(now)); err != nil {
 		return 0, fmt.Errorf("cancel recovered conversation items: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE runtime_debug_spans
+	SET status='cancelled', duration_ms=MAX(0, ?-started_at_ms), ended_at_ms=?
+	WHERE status='running' AND conversation_turn_id IN (
+    SELECT turn_id FROM conversation_turns
+    WHERE status IN ('input_received', 'running', 'waiting_for_tool')
+)`, millis(now), millis(now)); err != nil {
+		return 0, fmt.Errorf("cancel recovered conversation spans: %w", err)
 	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE conversation_turns
@@ -585,9 +598,11 @@ WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`
 	if err != nil {
 		return ConversationItem{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-UPDATE conversation_items SET status = 'failed', updated_at_ms = ?
-WHERE turn_id = ? AND status IN ('pending', 'running')`, millis(now), turn.ID); err != nil {
+	turnStatus, agentStatus := "completed", "idle"
+	if kind == ConversationErrorNotice {
+		turnStatus, agentStatus = "failed", "error"
+	}
+	if err := finishConversationTurnRecordsTx(ctx, tx, turn.ID, turnStatus, now); err != nil {
 		return ConversationItem{}, fmt.Errorf("close unfinished conversation items: %w", err)
 	}
 	sequence, err := nextConversationSequenceTx(ctx, tx, turn.ConversationID)
@@ -652,10 +667,6 @@ INSERT INTO conversation_items (
 		millis(now), millis(now)); err != nil {
 		return ConversationItem{}, fmt.Errorf("create final conversation item: %w", err)
 	}
-	turnStatus, agentStatus := "completed", "idle"
-	if kind == ConversationErrorNotice {
-		turnStatus, agentStatus = "failed", "error"
-	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE conversation_turns SET status = ?, completed_at_ms = ?, updated_at_ms = ? WHERE turn_id = ?`,
 		turnStatus, millis(now), millis(now), turn.ID); err != nil {
@@ -681,6 +692,34 @@ UPDATE conversations SET agent_status = ?, updated_at_ms = ? WHERE conversation_
 		return ConversationItem{}, fmt.Errorf("commit conversation turn completion: %w", err)
 	}
 	return item, nil
+}
+
+func finishConversationTurnRecordsTx(ctx context.Context, tx bun.Tx, turnID, turnStatus string, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `UPDATE conversation_items AS call SET status = (
+SELECT CASE result.status WHEN 'completed' THEN 'completed' WHEN 'cancelled' THEN 'cancelled'
+WHEN 'interrupted' THEN 'interrupted' ELSE 'failed' END
+FROM conversation_items AS result
+WHERE result.turn_id = call.turn_id AND result.kind = 'tool_result'
+  AND result.parent_item_id = call.item_id AND result.status NOT IN ('pending','running')
+ORDER BY result.sequence_index DESC LIMIT 1), updated_at_ms=?
+WHERE call.turn_id=? AND call.kind='tool_call' AND call.status IN ('pending','running')
+  AND EXISTS (SELECT 1 FROM conversation_items AS result
+    WHERE result.turn_id=call.turn_id AND result.kind='tool_result'
+      AND result.parent_item_id=call.item_id AND result.status NOT IN ('pending','running'))`, millis(now), turnID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE conversation_items SET status = CASE
+WHEN ?='completed' AND kind IN ('tool_call','tool_result') THEN 'failed'
+ELSE ? END, updated_at_ms=?
+WHERE turn_id=? AND status IN ('pending','running')`, turnStatus, turnStatus, millis(now), turnID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE runtime_debug_spans
+	SET status=?, duration_ms=MAX(0, ?-started_at_ms), ended_at_ms=?
+	WHERE conversation_turn_id=? AND status='running'`, turnStatus, millis(now), millis(now), turnID)
+	return err
 }
 
 func conversationTurnParentTx(ctx context.Context, tx bun.Tx, turn ConversationTurn) (string, error) {

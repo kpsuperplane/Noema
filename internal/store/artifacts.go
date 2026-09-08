@@ -13,7 +13,10 @@ import (
 	"github.com/uptrace/bun"
 )
 
-var ErrArtifactNotFound = errors.New("artifact not found")
+var (
+	ErrArtifactNotFound            = errors.New("artifact not found")
+	ErrInvalidArtifactVersionIndex = errors.New("invalid version index")
+)
 
 const (
 	ArtifactLocalFile        = "local_file"
@@ -157,6 +160,31 @@ func (s *Store) AppendArtifactVersion(
 	version ArtifactVersion,
 	now time.Time,
 ) (ArtifactVersion, error) {
+	return s.appendArtifactVersion(ctx, artifactID, nil, version, now)
+}
+
+// AppendArtifactVersionAtIndex appends one version when the caller's expected
+// next index is positive and still current.
+func (s *Store) AppendArtifactVersionAtIndex(
+	ctx context.Context,
+	artifactID string,
+	expectedIndex int64,
+	version ArtifactVersion,
+	now time.Time,
+) (ArtifactVersion, error) {
+	if expectedIndex < 1 {
+		return ArtifactVersion{}, fmt.Errorf("%w: %d", ErrInvalidArtifactVersionIndex, expectedIndex)
+	}
+	return s.appendArtifactVersion(ctx, artifactID, &expectedIndex, version, now)
+}
+
+func (s *Store) appendArtifactVersion(
+	ctx context.Context,
+	artifactID string,
+	expectedIndex *int64,
+	version ArtifactVersion,
+	now time.Time,
+) (ArtifactVersion, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return ArtifactVersion{}, fmt.Errorf("begin Artifact version append: %w", err)
@@ -173,6 +201,9 @@ GROUP BY artifacts.artifact_id`, artifactID).Scan(&storageKind, &next); err != n
 			return ArtifactVersion{}, ErrArtifactNotFound
 		}
 		return ArtifactVersion{}, fmt.Errorf("inspect Artifact append: %w", err)
+	}
+	if expectedIndex != nil && next != *expectedIndex {
+		return ArtifactVersion{}, fmt.Errorf("artifact version append conflict: expected %d, current %d", *expectedIndex, next)
 	}
 	if err := validateArtifactVersion(version, artifactID, next, storageKind); err != nil {
 		return ArtifactVersion{}, err

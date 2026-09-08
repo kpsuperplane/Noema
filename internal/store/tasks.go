@@ -18,6 +18,8 @@ var (
 	ErrTaskNotFound = errors.New("task not found")
 	// ErrStaleRun means another run owns the current task state.
 	ErrStaleRun = errors.New("stale task run")
+	// ErrStaleGeneration means a task was reopened or cancelled after a caller's snapshot.
+	ErrStaleGeneration = errors.New("stale task generation")
 )
 
 // TaskState is a stored Task lifecycle state.

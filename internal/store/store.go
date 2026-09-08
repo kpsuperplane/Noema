@@ -36,6 +36,7 @@ const schemaVersion = len(migrations)
 // Store is one open Noema database.
 type Store struct {
 	db                  *bun.DB
+	homeRoot            string
 	workMu              sync.Mutex
 	taskScheduleMu      sync.Mutex
 	workSubscribers     map[chan struct{}]struct{}
@@ -83,7 +84,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	orm := bun.NewDB(db, sqlitedialect.New())
 	configureMillisecondFields(orm)
 	store := &Store{
-		db: orm, workSubscribers: make(map[chan struct{}]struct{}),
+		db: orm, homeRoot: storeHomeRoot(path), workSubscribers: make(map[chan struct{}]struct{}),
 		sessionRevocations: make(map[chan [32]byte]struct{}),
 		sessionCapacity:    browserSessionCapacity,
 	}
@@ -92,6 +93,14 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func storeHomeRoot(databasePath string) string {
+	parent := filepath.Dir(filepath.Clean(databasePath))
+	if filepath.Base(parent) == "db" {
+		return filepath.Dir(parent)
+	}
+	return parent
 }
 
 // Close closes the database.

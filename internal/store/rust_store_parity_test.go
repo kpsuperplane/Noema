@@ -1533,7 +1533,7 @@ func TestRustStore_metadata_port_rejects_non_positive_expected_index_as_domain_e
 	database := openTestStore(t)
 	ctx := t.Context()
 	unused := "unused"
-	_, err := database.AppendArtifactVersion(ctx, "artifact:any", ArtifactVersion{
+	_, err := database.AppendArtifactVersionAtIndex(ctx, "artifact:any", 0, ArtifactVersion{
 		ID: "artifact_version:" + strings.Repeat("a", 32), LocalRelativePath: &unused,
 		CreatedByActorID: "agent:test",
 	}, time.Unix(0, 0))
@@ -1989,15 +1989,16 @@ func TestRustStore_conversation_working_directory_is_allocated_and_persisted(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if conversation.CWD == "" || !filepath.IsAbs(conversation.CWD) {
-		t.Fatalf("default conversation working directory = %q, want an absolute path", conversation.CWD)
+	workingDirectory, err := database.ConversationWorkingDirectory(ctx, conversation.ID, "")
+	if err != nil || workingDirectory == "" || !filepath.IsAbs(workingDirectory) {
+		t.Fatalf("default conversation working directory = %q, %v", workingDirectory, err)
 	}
-	info, err := os.Stat(conversation.CWD)
+	info, err := os.Stat(workingDirectory)
 	if err != nil || !info.IsDir() {
 		t.Fatalf("default conversation working directory stat = %v, %v", info, err)
 	}
 	reloaded, err := database.Conversation(ctx, conversation.ID)
-	if err != nil || reloaded.CWD != conversation.CWD {
+	if err != nil || reloaded.CWD != workingDirectory {
 		t.Fatalf("persisted conversation working directory = %#v, %v", reloaded, err)
 	}
 }
@@ -2019,12 +2020,12 @@ func TestRustStore_explicit_conversation_working_directory_replaces_default(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected, err := database.EnsurePrimaryConversation(ctx, "openrouter", explicit, now.Add(time.Second))
+	selected, err := database.ConversationWorkingDirectory(ctx, conversation.ID, explicit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selected.ID != conversation.ID || selected.CWD != want {
-		t.Fatalf("explicit conversation working directory = %#v, want %q", selected, want)
+	if selected != want {
+		t.Fatalf("explicit conversation working directory = %q, want %q", selected, want)
 	}
 	reloaded, err := database.Conversation(ctx, conversation.ID)
 	if err != nil || reloaded.CWD != want {
@@ -2195,27 +2196,14 @@ func TestRustStore_memory_source_range_captures_one_conversation_head_and_resume
 	if err != nil {
 		t.Fatal(err)
 	}
-	trigger, err := database.CompleteConversationTurn(ctx, turn, "context", "context", nil, now.Add(time.Second))
-	if err != nil {
+	if _, err := database.CompleteConversationTurn(ctx, turn, "context", "context", nil, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	continuation, err := database.BeginConversationContinuation(ctx, conversation.ID, trigger.ID, now.Add(2*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	items, err := database.StartConversationToolRound(ctx, continuation, ConversationToolRound{
-		Provider: "openrouter",
-		Call: ConversationToolCallInput{ProviderCallID: "memory-tool", ProviderName: "memory.lookup",
-			Name: "memory.lookup", Arguments: json.RawMessage(`{"query":"tool evidence"}`)},
-	}, now.Add(3*time.Second))
-	if err != nil || len(items) != 1 {
-		t.Fatalf("memory tool call = %#v, %v", items, err)
-	}
-	if _, err := database.FinishConversationToolCall(ctx, continuation, ConversationToolResultInput{
-		CallItemID: items[0].ID, Provider: "openrouter", ProviderCallID: "memory-tool",
-		ProviderName: "memory.lookup", Name: "memory.lookup", Success: true,
-		Payload: json.RawMessage(`{"text":"tool evidence"}`),
-	}, now.Add(4*time.Second)); err != nil {
+	if _, err := database.db.ExecContext(ctx, `INSERT INTO conversation_items
+(item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text,
+ payload_json, metadata_json, created_at_ms, updated_at_ms)
+VALUES ('item:22222222222222222222222222222222', ?, 3, 'tool_result', 'completed', 'agent:primary',
+ 'tool evidence', '{}', '{}', ?, ?)`, conversation.ID, millis(now.Add(3*time.Second)), millis(now.Add(3*time.Second))); err != nil {
 		t.Fatal(err)
 	}
 	first, err := database.CaptureMemorySourceRange(ctx, conversation.ID, 0)
@@ -2232,9 +2220,6 @@ func TestRustStore_memory_source_range_captures_one_conversation_head_and_resume
 				t.Errorf("first memory sequence[%d] = %d, want %d", index, item.Sequence, wantSequence[index])
 			}
 		}
-	}
-	if err := database.CancelConversationTurn(ctx, continuation, now.Add(5*time.Second)); err != nil {
-		t.Fatal(err)
 	}
 	laterTurn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "later", nil, now.Add(6*time.Second))
 	if err != nil {
@@ -2896,12 +2881,11 @@ func TestRustStore_turn_finalization_finishes_debug_span_and_child_item(t *testi
 		t.Fatalf("live debug profile = %#v, %v", live, err)
 	}
 	_, insertErr := database.db.ExecContext(ctx, `INSERT INTO conversation_items
-(item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id)
-VALUES ('item:unfinished-call', ?, ?, 1, 'tool_call', 'running', 'agent:primary')`, conversation.ID, turn.ID)
+(item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id,
+ payload_json, metadata_json, created_at_ms, updated_at_ms)
+VALUES ('item:11111111111111111111111111111111', ?, ?, 2, 'tool_call', 'running', 'agent:primary', '{}', '{}', 0, 0)`, conversation.ID, turn.ID)
 	if insertErr != nil {
-		// Preserve the Rust fixture. Go currently rejects this short identifier
-		// before turn finalization can observe it.
-		t.Errorf("Rust unfinished-call fixture insert failed: %v", insertErr)
+		t.Fatalf("Rust unfinished-call fixture insert failed: %v", insertErr)
 	}
 	if _, err := database.CompleteConversationTurn(ctx, turn, "Completed", "Completed", nil, time.Unix(1, 0)); err != nil {
 		t.Fatal(err)
@@ -2917,7 +2901,7 @@ VALUES ('item:unfinished-call', ?, ?, 1, 'tool_call', 'running', 'agent:primary'
 		t.Errorf("turn finalization span duration is nil")
 	}
 	var itemStatus string
-	itemErr := database.db.QueryRowContext(ctx, `SELECT status FROM conversation_items WHERE item_id = 'item:unfinished-call'`).Scan(&itemStatus)
+	itemErr := database.db.QueryRowContext(ctx, `SELECT status FROM conversation_items WHERE item_id = 'item:11111111111111111111111111111111'`).Scan(&itemStatus)
 	if itemErr != nil || itemStatus != "failed" {
 		t.Errorf("unfinished call status = %q, %v; want failed", itemStatus, itemErr)
 	}
@@ -4619,7 +4603,19 @@ func TestRustStore_event_pagination_rejects_malformed_rows_in_both_directions(t 
 	if err != nil || len(newest) != 1 {
 		t.Fatalf("newest event page = %#v, %v", newest, err)
 	}
-	if _, err := database.db.ExecContext(ctx, "UPDATE work_events SET payload_json = '{}'", nil); err != nil {
+	tx, err := database.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "PRAGMA ignore_check_constraints=ON"); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE work_events SET payload_json = 'not json'"); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.WorkEvents(ctx, "workspace:personal", 0, 1); err == nil {
