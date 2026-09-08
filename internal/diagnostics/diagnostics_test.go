@@ -33,8 +33,8 @@ func TestWriterPreservesOrdinaryTechnicalValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got struct {
-		Event  string            `json:"event"`
-		Fields map[string]string `json:"fields"`
+		Event  string            `json:"category"`
+		Fields map[string]string `json:"context"`
 	}
 	if bytes.Count(contents, []byte{'\n'}) != 1 || json.Unmarshal(contents, &got) != nil ||
 		got.Event != "provider.request_failed" || got.Fields["task_id"] != "tsk_01JZY8EXACTopaque" ||

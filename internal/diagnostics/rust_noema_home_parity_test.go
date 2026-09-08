@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -43,17 +42,10 @@ func TestRustHome_appends_jsonl_events_without_overwriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Write("first_failure",
-		Field{name: "message", value: "first failure"},
-		Field{name: "context", value: `{"provider_kind":"test"}`},
-		Field{name: "raw", value: `{"provider_text":"line one\nline two"}`},
-	); err != nil {
+	if err := writer.WriteEvent(Event{Category: "first_failure", Message: "first failure", Context: map[string]any{"provider_kind": "test"}, Raw: map[string]any{"provider_text": "line one\nline two"}}); err != nil {
 		t.Fatalf("first append: %v", err)
 	}
-	if err := writer.Write("second_failure",
-		Field{name: "message", value: "second failure"},
-		Field{name: "error_chain", value: `["outer","inner"]`},
-	); err != nil {
+	if err := writer.WriteEvent(Event{Category: "second_failure", Message: "second failure", ErrorChain: []string{"outer", "inner"}}); err != nil {
 		t.Fatalf("second append: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -107,10 +99,7 @@ func TestRustHome_rotates_one_bounded_backup(t *testing.T) {
 		t.Fatal(err)
 	}
 	for sequence := 0; sequence < 20; sequence++ {
-		if err := writer.Write("bounded_failure",
-			Field{name: "message", value: strings.Repeat("x", 80)},
-			Field{name: "context", value: fmt.Sprintf(`{"sequence":%d}`, sequence)},
-		); err != nil {
+		if err := writer.writeWithLimits(Event{Category: "bounded_failure", Message: strings.Repeat("x", 80), Context: map[string]any{"sequence": sequence}}, 512, 256); err != nil {
 			t.Fatalf("bounded append %d: %v", sequence, err)
 		}
 	}
@@ -140,11 +129,11 @@ func TestRustHome_replaces_oversized_raw_data_and_preserves_small_raw_data(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Write("small_failure", Field{name: "raw", value: `{"ordinary_value":"preserved"}`}); err != nil {
+	if err := writer.WriteEvent(Event{Category: "small_failure", Message: "small", Raw: map[string]any{"ordinary_value": "preserved"}}); err != nil {
 		t.Fatal(err)
 	}
 	large := strings.Repeat("x", 64*1024)
-	if err := writer.Write("large_failure", Field{name: "raw", value: `{"content":"` + large + `"}`}); err != nil {
+	if err := writer.WriteEvent(Event{Category: "large_failure", Message: "large", Raw: map[string]any{"content": large}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
@@ -176,10 +165,7 @@ func TestRustHome_rejects_an_event_larger_than_the_file_limit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = writer.Write("large_failure", Field{
-		name:  "message",
-		value: strings.Repeat("x", 512),
-	})
+	err = writer.writeWithLimits(Event{Category: "large_failure", Message: strings.Repeat("x", 512)}, 512, 256)
 	if err == nil || !strings.Contains(err.Error(), "maximum is 256") {
 		t.Errorf("oversized diagnostic error = %v, want EventTooLarge maximum 256", err)
 	}
