@@ -208,7 +208,14 @@ func (s *CodexService) StartAuth(
 	if closed {
 		return AuthAttempt{}, ErrProviderUnavailable
 	}
+	gate := s.accounts.gate(accountID)
+	gate.Lock()
 	account, err := s.accounts.LoadAccount(ctx, accountID)
+	if errors.Is(err, ErrAccountNotFound) {
+		account, err = s.accounts.persistence.CreateProviderAccount(ctx,
+			builtinAccount("codex", "Codex", AuthOAuthDeviceCode, time.Now().UTC()))
+	}
+	gate.Unlock()
 	if err != nil {
 		return AuthAttempt{}, err
 	}

@@ -53,20 +53,43 @@ func TestBuiltinMetadataAndDeletionProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(accounts) != 7 || accounts[0].ProviderKind != "codex" || accounts[4].ProviderKind != "local_models" {
+	if len(accounts) != 4 {
 		t.Fatalf("initial built-ins = %#v", accounts)
 	}
-	var openAI provider.Account
 	for _, account := range accounts {
-		if account.ProviderKind == "openai" {
-			openAI = account
+		if account.ProviderKind != "direct_http" && account.ProviderKind != "duckduckgo_public" &&
+			account.ProviderKind != "firecrawl" && account.ProviderKind != "obscura" {
+			t.Fatalf("unexpected initial provider account: %#v", account)
 		}
-	}
-	if openAI.AuthMethod != provider.AuthExternalManual {
-		t.Fatalf("OpenAI auth method = %q", openAI.AuthMethod)
 	}
 	if _, err := database.DeleteProviderAccount(ctx, accounts[0].ID); !errors.Is(err, provider.ErrProtectedAccount) {
 		t.Fatalf("built-in delete error = %v", err)
+	}
+}
+
+func TestBuiltinInitializationPreservesConfiguredModelAccount(t *testing.T) {
+	database := openTestStore(t)
+	ctx := context.Background()
+	now := time.Unix(1_700_000_000, 0).UTC()
+	account := provider.BuiltinAccounts(now)[0]
+	account.DisplayName = "My configured account"
+	account.Status = provider.StatusAuthenticated
+	account.Metadata = provider.AccountMetadata{"credentialRevision": json.RawMessage(`7`)}
+	created, err := database.CreateProviderAccount(ctx, account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureBuiltinProviderAccounts(ctx, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := database.ProviderAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := json.Marshal(created)
+	got, _ := json.Marshal(stored)
+	if string(got) != string(want) {
+		t.Fatalf("configured account changed: got %s, want %s", got, want)
 	}
 }
 

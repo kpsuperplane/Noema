@@ -280,14 +280,12 @@ func BuiltinAccounts(now time.Time) []Account {
 // InitialBuiltinAccounts returns built-ins created before interactive setup.
 func InitialBuiltinAccounts(now time.Time) []Account {
 	now = now.UTC()
-	accounts := BuiltinAccounts(now)[:2]
-	return append(accounts,
-		builtinNoAuthAccount("local_models", "default", "Local models", StatusUnknown, now),
+	return []Account{
 		builtinNoAuthAccount("duckduckgo_public", "system", "DuckDuckGo public search", StatusAuthenticated, now),
 		builtinNoAuthAccount("direct_http", "system", "Direct HTTP web fetch", StatusAuthenticated, now),
 		builtinNoAuthAccount("obscura", "system", "Obscura interactive browser", StatusAuthenticated, now),
 		builtinNoAuthAccount("firecrawl", "public", "Firecrawl Keyless", StatusAuthenticated, now),
-	)
+	}
 }
 
 func builtinNoAuthAccount(kind string, key string, displayName string, status AccountStatus, now time.Time) Account {

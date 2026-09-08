@@ -54,6 +54,8 @@ func TestCodexDeviceAuthPreservesWirePollingAndProtectedTokens(t *testing.T) {
 	}))
 	t.Cleanup(remote.Close)
 	service, accounts, tokenPath := codexTestService(t, remote.URL, 20*time.Millisecond, time.Second)
+	persistence := accounts.persistence.(*memoryAccountPersistence)
+	delete(persistence.accounts, "provider_account:codex:default")
 	production, err := NewCodexService(accounts)
 	if err != nil {
 		t.Fatal(err)
