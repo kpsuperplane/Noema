@@ -96,7 +96,7 @@ func rustCompilerManifest() Manifest {
 		{Name: "limit", Description: "Maximum item count.", Location: "query", Type: "integer"},
 		{Name: "kind", Description: "Item kind to return.", Location: "query", Type: "string", Required: true, EnumValues: []string{"b", "a"}},
 	}
-	operation.Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function(response) return nil end"}, OutputSchema: OutputSchema{Type: "null"}}
+	operation.Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function(response) return nil end"}, OutputSchema: OutputSchema{Type: "null"}}
 	return manifest
 }
 
@@ -240,7 +240,7 @@ func TestRustAdapters_compiler_rejects_unknown_fields_bounds_and_unsafe_authorit
 	invalid.Operations[0].FixedHeaders = map[string]string{"Authorization": "secret"}
 	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "authority_header")
 	invalid = rustCompilerManifest()
-	invalid.Authentication = Authentication{Kind: "credential", Setup: &CredentialSetup{CredentialType: "API key", SetupURL: "https://developers.example.test/keys", Instructions: []string{"Create an API key."}, Input: CredentialInput{Kind: "document", MediaType: "text/plain", Fields: []CredentialField{{ID: "api_key", Label: "API key"}}, Normalize: &Transform{Language: "lua", Source: "return function(input) return {api_key=input.document} end"}}}, RequestAuth: &Transform{Language: "lua", Source: "return function(input) return {} end"}}
+	invalid.Authentication = Authentication{Kind: "credential", Setup: &CredentialSetup{CredentialType: "API key", SetupURL: "https://developers.example.test/keys", Instructions: []string{"Create an API key."}, Input: CredentialInput{Kind: "document", MediaType: "text/plain", Fields: []CredentialField{{ID: "api_key", Label: "API key"}}, Normalize: &Transform{Language: "luau", Source: "return function(input) return {api_key=input.document} end"}}}, RequestAuth: &Transform{Language: "luau", Source: "return function(input) return {} end"}}
 	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "unsupported", "credential_document_media_type")
 }
 
@@ -305,7 +305,7 @@ func TestRustAdapters_response_contract_is_closed_compilable_and_semantic(t *tes
 	manifest := rustCompilerManifest()
 	limit := 128
 	closed := false
-	manifest.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function(response) return json.decode(response.body) end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"id": {Type: "string", MaxBytes: &limit}}, Required: []string{"id"}, AdditionalProperties: &closed}}
+	manifest.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function(response) return json.decode(response.body) end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"id": {Type: "string", MaxBytes: &limit}}, Required: []string{"id"}, AdditionalProperties: &closed}}
 	baseline, err := Compile(rustCompilerManifest())
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +336,7 @@ func TestRustAdapters_response_contract_is_closed_compilable_and_semantic(t *tes
 	raw, _ := json.Marshal(document)
 	requireCompileError(t, func() error { _, err := CompileJSON(raw); return err }(), "adapter manifest is invalid")
 	invalid = rustCompilerManifest()
-	invalid.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function(response) return response.body end"}, OutputSchema: OutputSchema{Type: "string"}}
+	invalid.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function(response) return response.body end"}, OutputSchema: OutputSchema{Type: "string"}}
 	requireCompileCategory(t, func() error { _, err := Compile(invalid); return err }(), "invalid", "response_schema")
 	large := 5500
 	invalid.Operations[0].Response.OutputSchema.MaxBytes = &large
@@ -361,7 +361,7 @@ func TestRustAdapters_compiler_rejects_ambiguous_paths_unsupported_workflows_and
 	}
 	invalid = rustCompilerManifest()
 	closed := false
-	invalid.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function(response) return {} end"}, OutputSchema: OutputSchema{Type: "object", AdditionalProperties: &closed}}
+	invalid.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function(response) return {} end"}, OutputSchema: OutputSchema{Type: "object", AdditionalProperties: &closed}}
 	invalid.Operations[0].Pagination = Pagination{Kind: "response_token", ResponsePointer: "/next", RequestArgument: "page", PageSize: &PageSize{RequestArgument: "maxResults", Value: 25}}
 	definition, err := Compile(invalid)
 	if err != nil {
@@ -457,7 +457,7 @@ func TestRustAdapters_fixed_query_is_reviewed_and_cannot_collide_with_dynamic_qu
 	collision = rustCloneManifest(t, manifest)
 	collision.Operations[0].Pagination = Pagination{Kind: "response_token", ResponsePointer: "/next", RequestArgument: "pageToken"}
 	closed := false
-	collision.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function(response) return {} end"}, OutputSchema: OutputSchema{Type: "object", AdditionalProperties: &closed}}
+	collision.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function(response) return {} end"}, OutputSchema: OutputSchema{Type: "object", AdditionalProperties: &closed}}
 	collision.Operations[0].FixedQuery["pageToken"] = "1"
 	if _, err := Compile(collision); err == nil {
 		t.Fatal("fixed query colliding with pagination authority was accepted")
@@ -540,7 +540,7 @@ func rustSeedCursorFixture(t *testing.T, service *Service) (Binding, string) {
 	manifest.Operations[0].Arguments = nil
 	manifest.Operations[0].Pagination = Pagination{Kind: "response_token", ResponsePointer: "/next", RequestArgument: "pageToken"}
 	closed := false
-	manifest.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function(response) return response.body end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"id": {Type: "string", MaxBytes: ptrInt(64)}}, Required: []string{"id"}, AdditionalProperties: &closed}}
+	manifest.Operations[0].Response = Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function(response) return response.body end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"id": {Type: "string", MaxBytes: ptrInt(64)}}, Required: []string{"id"}, AdditionalProperties: &closed}}
 	definition, err := service.files.installDefinition(manifest, "https://api.example.test/", nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -888,7 +888,7 @@ func TestRustAdapters_quarantine_conflict_preserves_different_active_and_quarant
 func TestRustAdapters_transform_decodes_json_and_preserves_explicit_empty_shapes(t *testing.T) {
 	limit := 1024
 	closed := false
-	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: `return function(response) local profile=json.decode(response.body); return {email=profile.emailAddress, empty=json.object(), missing=json.null} end`}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"email": {Type: "string", MaxBytes: &limit}, "empty": {Type: "object", AdditionalProperties: &closed}, "missing": {Type: "null"}}, Required: []string{"email", "empty", "missing"}, AdditionalProperties: &closed}}
+	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: `return function(response) local profile=json.decode(response.body); return {email=profile.emailAddress, empty=json.object(), missing=json.null} end`}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"email": {Type: "string", MaxBytes: &limit}, "empty": {Type: "object", AdditionalProperties: &closed}, "missing": {Type: "null"}}, Required: []string{"email", "empty", "missing"}, AdditionalProperties: &closed}}
 	value, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{"emailAddress":"person@example.test"}`)}, contract)
 	if err != nil {
 		t.Fatal(err)
@@ -930,7 +930,7 @@ func TestRustAdapters_sandbox_has_no_ambient_authority_or_cross_call_state(t *te
 func TestRustAdapters_response_text_truncation_is_utf8_safe_and_profile_scoped(t *testing.T) {
 	limit := 64
 	closed := false
-	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function() return {ascii=text.truncate_utf8('abcdef',3), unicode=text.truncate_utf8('éclair',3), boundary=text.truncate_utf8('éclair',1), unchanged=text.truncate_utf8('ok',8)} end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"ascii": {Type: "string", MaxBytes: &limit}, "unicode": {Type: "string", MaxBytes: &limit}, "boundary": {Type: "string", MaxBytes: &limit}, "unchanged": {Type: "string", MaxBytes: &limit}}, Required: []string{"ascii", "unicode", "boundary", "unchanged"}, AdditionalProperties: &closed}}
+	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function() return {ascii=text.truncate_utf8('abcdef',3), unicode=text.truncate_utf8('éclair',3), boundary=text.truncate_utf8('éclair',1), unchanged=text.truncate_utf8('ok',8)} end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"ascii": {Type: "string", MaxBytes: &limit}, "unicode": {Type: "string", MaxBytes: &limit}, "boundary": {Type: "string", MaxBytes: &limit}, "unchanged": {Type: "string", MaxBytes: &limit}}, Required: []string{"ascii", "unicode", "boundary", "unchanged"}, AdditionalProperties: &closed}}
 	value, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{}`)}, contract)
 	if err != nil {
 		t.Fatal(err)
@@ -944,12 +944,12 @@ func TestRustAdapters_response_text_truncation_is_utf8_safe_and_profile_scoped(t
 	if _, err = decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{}`)}, contract); err == nil {
 		t.Fatal("oversized truncation was accepted")
 	}
-	credentialSetup := CredentialSetup{Input: CredentialInput{Kind: "document", Fields: []CredentialField{{ID: "value"}}, Normalize: &Transform{Language: "lua", Source: "return function(input) return {value=tostring(text ~= nil)} end"}}}
+	credentialSetup := CredentialSetup{Input: CredentialInput{Kind: "document", Fields: []CredentialField{{ID: "value"}}, Normalize: &Transform{Language: "luau", Source: "return function(input) return {value=tostring(text ~= nil)} end"}}}
 	credential, credentialErr := normalizeCredential(credentialSetup, CredentialInputValue{Document: []byte(`{"value":"fixture"}`)})
 	if credentialErr != nil || credential["value"] != "false" {
 		t.Fatalf("credential profile visibility = %#v, %v", credential, credentialErr)
 	}
-	auth := Authentication{RequestAuth: &Transform{Language: "lua", Source: "return function(input) return {headers={['X-Text-Available']=tostring(text ~= nil)}} end"}}
+	auth := Authentication{RequestAuth: &Transform{Language: "luau", Source: "return function(input) return {headers={['X-Text-Available']=tostring(text ~= nil)}} end"}}
 	request := encodedRequest{method: "GET", rawURL: "https://api.example.test/v1/items", headers: map[string]string{}}
 	_, _, requestErr := applyCredentialAuth(auth, map[string]string{"value": "fixture"}, CompiledOperation{Operation: Operation{OperationID: "lookup"}}, &request)
 	if requestErr != nil || request.headers["X-Text-Available"] != "false" {
@@ -961,7 +961,7 @@ func TestRustAdapters_response_text_truncation_is_utf8_safe_and_profile_scoped(t
 func TestRustAdapters_response_base64url_text_decoding_is_bounded_and_fails_closed(t *testing.T) {
 	limit := 16
 	closed := false
-	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: "return function() return {decoded=text.decode_base64url_utf8('aGVsbG8',8), bounded=text.decode_base64url_utf8('w6ljbGFpcg',3)} end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"decoded": {Type: "string", MaxBytes: &limit}, "bounded": {Type: "string", MaxBytes: &limit}}, Required: []string{"decoded", "bounded"}, AdditionalProperties: &closed}}
+	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: "return function() return {decoded=text.decode_base64url_utf8('aGVsbG8',8), bounded=text.decode_base64url_utf8('w6ljbGFpcg',3)} end"}, OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"decoded": {Type: "string", MaxBytes: &limit}, "bounded": {Type: "string", MaxBytes: &limit}}, Required: []string{"decoded", "bounded"}, AdditionalProperties: &closed}}
 	value, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{}`)}, contract)
 	if err != nil {
 		t.Fatal(err)
@@ -1212,7 +1212,7 @@ func TestRustAdapters_reviewed_luau_decorates_only_safe_sensitive_headers_and_qu
 	}
 	for _, candidate := range cases {
 		manifest := rustRequestDefinition(t)
-		manifest.Manifest.Authentication = Authentication{Kind: "credential", RequestAuth: &Transform{Language: "lua", Source: candidate.source}}
+		manifest.Manifest.Authentication = Authentication{Kind: "credential", RequestAuth: &Transform{Language: "luau", Source: candidate.source}}
 		request, _, err := encodeRequest(manifest, manifest.Operations[0], json.RawMessage(`{"item_id":"one","label":"two"}`), "")
 		if err != nil {
 			t.Fatal(err)
@@ -1240,7 +1240,7 @@ func TestRustAdapters_reviewed_luau_decorates_only_safe_sensitive_headers_and_qu
 		`return function(input) return {query={label=input.credentials.key}} end`,
 	} {
 		manifest := rustRequestDefinition(t)
-		manifest.Manifest.Authentication = Authentication{Kind: "credential", RequestAuth: &Transform{Language: "lua", Source: source}}
+		manifest.Manifest.Authentication = Authentication{Kind: "credential", RequestAuth: &Transform{Language: "luau", Source: source}}
 		request, _, err := encodeRequest(manifest, manifest.Operations[0], json.RawMessage(`{"item_id":"one","label":"two"}`), "")
 		if err != nil {
 			t.Fatal(err)
@@ -1290,7 +1290,7 @@ func rustProposalOperation(id string) operationProposal {
 		Idempotent:    true,
 		OpenWorld:     true,
 		Pagination:    Pagination{Kind: "none"},
-		Response:      json.RawMessage(`{"kind":"custom","accepted_content_types":["application/json"],"transform":{"language":"lua","source":"return function(response) return json.decode(response.body) end"},"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":32}},"required":["id"],"additionalProperties":false}}`),
+		Response:      json.RawMessage(`{"kind":"custom","accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) return json.decode(response.body) end"},"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":32}},"required":["id"],"additionalProperties":false}}`),
 	}
 }
 
@@ -2480,7 +2480,7 @@ func rustSetupProposalValue() map[string]any {
 			"response": map[string]any{
 				"kind":                   "custom",
 				"accepted_content_types": []any{"application/json"},
-				"transform":              map[string]any{"language": "lua", "source": "return function(response) local body=json.decode(response.body) return {id=body.id} end"},
+				"transform":              map[string]any{"language": "luau", "source": "return function(response) local body=json.decode(response.body) return {id=body.id} end"},
 				"output_schema":          map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "maxBytes": 256}}, "required": []any{"id"}, "additionalProperties": false},
 			},
 		}},
@@ -2766,7 +2766,7 @@ func TestRustAdapters_proposal_requires_mutation_response_transform_before_persi
 		"manifest_path": "operations[0].response.transform",
 		"operation_id":  "create_event",
 	})
-	response["transform"] = map[string]any{"language": "lua", "source": "return function(response) local body=json.decode(response.body) return {id=body.id} end"}
+	response["transform"] = map[string]any{"language": "luau", "source": "return function(response) local body=json.decode(response.body) return {id=body.id} end"}
 	payload, ok := service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(proposal))
 	if !ok {
 		t.Errorf("mutation with a response transform was rejected: %s", payload)
@@ -2963,7 +2963,7 @@ func TestRustAdapters_proposal_compile_errors_identify_operations_and_response_b
 		"reason":        "response_size",
 		"manifest_path": "operations[0].response.output_schema",
 		"operation_id":  "list_events",
-		"details":       map[string]any{"maximum_serialized_bytes": float64(33002), "limit_bytes": float64(32768)},
+		"details":       map[string]any{"maximum_serialized_bytes": json.Number("33002"), "limit_bytes": json.Number("32768")},
 	})
 	if message, _ := value["message"].(string); !strings.Contains(message, "computed constraint, not a manifest field") {
 		t.Errorf("response budget message = %q", message)

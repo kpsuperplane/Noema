@@ -98,11 +98,12 @@ type File struct {
 
 // Service binds Artifact metadata to one rooted Noema home.
 type Service struct {
-	root   *os.Root
-	store  metadataStore
-	errors *diagnostics.Writer
-	mu     sync.Mutex
-	now    func() time.Time
+	root     *os.Root
+	rootPath string
+	store    metadataStore
+	errors   *diagnostics.Writer
+	mu       sync.Mutex
+	now      func() time.Time
 	// These hooks are nil in production. Tests use them to reproduce the
 	// deterministic operation allocation and publication interruption points
 	// covered by the Rust filesystem contract.
@@ -135,7 +136,7 @@ func newService(root *os.Root, database metadataStore, errorLog *diagnostics.Wri
 	if root == nil || database == nil {
 		return nil, errors.New("Artifact dependencies are unavailable")
 	}
-	service := &Service{root: root, store: database, errors: errorLog, now: time.Now}
+	service := &Service{root: root, rootPath: root.Name(), store: database, errors: errorLog, now: time.Now}
 	if err := service.CleanupStaging(); err != nil {
 		return nil, err
 	}
@@ -232,7 +233,7 @@ func (s *Service) AppendLocal(
 	if err != nil {
 		return store.ArtifactVersion{}, err
 	}
-	version, err := s.store.AppendArtifactVersion(ctx, artifactID, store.ArtifactVersion{
+	version, err := s.appendArtifactVersion(ctx, artifactID, next, store.ArtifactVersion{
 		ID: versionID, Index: next, Title: title, LocalRelativePath: &publication.relativePath,
 		MediaType: mediaType, ByteSize: &publication.byteSize, ContentSHA256: &publication.digest,
 		CreatedByActorID: actor, Source: source, Metadata: metadata,
@@ -243,8 +244,25 @@ func (s *Service) AppendLocal(
 	return version, nil
 }
 
+func (s *Service) appendArtifactVersion(ctx context.Context, artifactID string, expected int64, version store.ArtifactVersion, now time.Time) (store.ArtifactVersion, error) {
+	value, err := s.store.AppendArtifactVersion(ctx, artifactID, version, now)
+	if err == nil {
+		return value, nil
+	}
+	// The Rust metadata port reports the compare-and-swap target that lost a
+	// concurrent append. The Go store keeps that check inside its transaction,
+	// so recover the committed target only for this diagnostic category.
+	if strings.Contains(err.Error(), "invalid Artifact version target") {
+		err = fmt.Errorf("artifact append target changed: expected_next_version_index=%d actual_next_version_index=%d: %w", expected, expected+1, err)
+	}
+	return store.ArtifactVersion{}, err
+}
+
 // Read verifies one local version against its owner path, size, and digest.
 func (s *Service) Read(artifact store.Artifact, version store.ArtifactVersion) (File, error) {
+	if err := s.verifyRootIdentity(); err != nil {
+		return File{}, ErrUnavailable
+	}
 	if artifact.ID != version.ArtifactID || artifact.StorageKind != store.ArtifactLocalFile ||
 		version.LocalRelativePath == nil || version.ByteSize == nil || version.ContentSHA256 == nil {
 		if version.LocalRelativePath != nil && (version.ByteSize == nil || version.ContentSHA256 == nil) {
@@ -321,6 +339,9 @@ type publication struct {
 func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index int64, filename string, bytes []byte) (publication, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.verifyRootIdentity(); err != nil {
+		return publication{}, categorize(ErrFilesystem, err)
+	}
 	if err := s.cleanupStaging(s.now()); err != nil {
 		return publication{}, categorize(ErrFilesystem, err)
 	}
@@ -393,6 +414,21 @@ func (s *Service) publish(owner store.ArtifactOwner, artifactID string, index in
 		relativePath: filepath.ToSlash(finalPath), directory: finalDir, filename: filename,
 		byteSize: int64(len(bytes)), digest: hex.EncodeToString(digest[:]),
 	}, nil
+}
+
+func (s *Service) verifyRootIdentity() error {
+	if s == nil || s.root == nil || s.rootPath == "" {
+		return errors.New("Artifact root is unavailable")
+	}
+	ambient, err := os.Lstat(s.rootPath)
+	if err != nil || ambient.Mode()&os.ModeSymlink != 0 || !ambient.IsDir() {
+		return errors.New("Artifact root changed after initialization")
+	}
+	retained, err := s.root.Stat(".")
+	if err != nil || !os.SameFile(ambient, retained) {
+		return errors.New("Artifact root changed after initialization")
+	}
+	return nil
 }
 
 type publicationResult struct {

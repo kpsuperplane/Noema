@@ -85,7 +85,7 @@ func definitionModel(value adapter.Definition, snapshot adapter.ServiceSnapshot)
 		if operation.Response.Transform != nil {
 			digest := sha256.Sum256([]byte(operation.Response.Transform.Source))
 			out, _ := json.Marshal(operation.Response.OutputSchema)
-			transform = &model.AdapterResponseTransform{Language: "lua", SourceDigest: hex.EncodeToString(digest[:]), Source: operation.Response.Transform.Source,
+			transform = &model.AdapterResponseTransform{Language: "luau", SourceDigest: hex.EncodeToString(digest[:]), Source: operation.Response.Transform.Source,
 				AcceptedContentTypes: operation.Response.AcceptedContentTypes, OutputSchemaJSON: string(out)}
 		}
 		readOnly, repeatSafe, destructive, openWorld := operation.Behavior.ReadOnly, operation.Behavior.RepeatSafe, operation.Behavior.Destructive, operation.Behavior.OpenWorld
@@ -155,7 +155,7 @@ func credentialSetupValue(setup *adapter.CredentialSetup, request *adapter.Trans
 			return nil
 		}
 		digest := sha256.Sum256([]byte(value.Source))
-		return &model.AdapterCredentialTransform{Language: "lua", SourceDigest: hex.EncodeToString(digest[:]), Source: value.Source}
+		return &model.AdapterCredentialTransform{Language: "luau", SourceDigest: hex.EncodeToString(digest[:]), Source: value.Source}
 	}
 	if setup.Input.Kind == "document" {
 		media := setup.Input.MediaType

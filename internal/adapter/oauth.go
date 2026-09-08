@@ -939,7 +939,7 @@ func parseOAuthTokenWithPolicy(status int, body []byte, expected []string, refre
 		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	if refresh && !scopeSubset(expected, scopes) {
-		return oauthGrantToken{}, errOAuthScopeMismatch
+		return oauthGrantToken{}, errOAuthInvalidResponse
 	}
 	expiry := int64(0)
 	if value.ExpiresIn != nil {

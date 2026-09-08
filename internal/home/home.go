@@ -50,9 +50,9 @@ func (p Paths) Root() string {
 	return p.root
 }
 
-// Database returns the Go server database path.
+// Database returns the canonical SQLite database path.
 func (p Paths) Database() string {
-	return filepath.Join(p.root, "noema.sqlite3")
+	return filepath.Join(p.root, "db", "noema.sqlite3")
 }
 
 // LocalModelImportPartialPath returns the path for one model import transfer.
@@ -195,16 +195,18 @@ func (p Paths) Open() (*os.Root, error) {
 	if p.root == "" {
 		return nil, errors.New("home is not resolved")
 	}
-	if _, err := os.Lstat(filepath.Join(p.root, "db", "noema.sqlite3")); err == nil {
-		return nil, errors.New("Rust-created NOEMA_HOME is unsupported")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect NOEMA_HOME: %w", err)
-	}
 	if err := os.MkdirAll(p.root, 0o700); err != nil {
 		return nil, fmt.Errorf("create Noema home: %w", err)
 	}
 	if err := protectDirectory(p.root); err != nil {
 		return nil, fmt.Errorf("protect Noema home: %w", err)
+	}
+	databaseDirectory := filepath.Dir(p.Database())
+	if err := os.MkdirAll(databaseDirectory, 0o700); err != nil {
+		return nil, fmt.Errorf("create Noema database directory: %w", err)
+	}
+	if err := protectDirectory(databaseDirectory); err != nil {
+		return nil, fmt.Errorf("protect Noema database directory: %w", err)
 	}
 
 	root, err := os.OpenRoot(p.root)

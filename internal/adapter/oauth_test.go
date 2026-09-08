@@ -160,7 +160,7 @@ func TestReviewedOAuthProfileSelectsProvider(t *testing.T) {
 
 func TestOAuthProfileRejectsUnsupportedContracts(t *testing.T) {
 	for _, change := range []func(*OAuthProfile){
-		func(p *OAuthProfile) { p.ClientAuthentication = "none" },
+		func(p *OAuthProfile) { p.ClientAuthentication = "private_key_jwt" },
 		func(p *OAuthProfile) { p.AuthorizationParameters["state"] = "replacement" },
 		func(p *OAuthProfile) { p.TokenEndpoint = "http://mail.example/token" },
 		func(p *OAuthProfile) { p.PreserveRefreshTokenOnExpansion = false },

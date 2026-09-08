@@ -17,7 +17,7 @@ func TestAdapterDefinitionProjectsTransformSourceAndStableTransition(t *testing.
 		Operations: []adapter.Operation{{OperationID: "lookup", Description: "Look up one record.", Method: "GET", Path: "/lookup",
 			Authorization: adapter.Authorization{Kind: "none"}, Behavior: adapter.BehaviorHints{ReadOnly: hint(truth), Idempotent: hint(truth), Destructive: hint(false), OpenWorld: hint(truth)},
 			Retry: "transport_safe_read", Pagination: adapter.Pagination{Kind: "none"}, Response: adapter.Response{AcceptedContentTypes: []string{"application/json"},
-				Transform: &adapter.Transform{Language: "lua", Source: source}, OutputSchema: adapter.OutputSchema{Type: "object", Properties: map[string]adapter.OutputSchema{"name": {Type: "string", MaxBytes: &limit}}, Required: []string{"name"}, AdditionalProperties: &closed}}}},
+				Transform: &adapter.Transform{Language: "luau", Source: source}, OutputSchema: adapter.OutputSchema{Type: "object", Properties: map[string]adapter.OutputSchema{"name": {Type: "string", MaxBytes: &limit}}, Required: []string{"name"}, AdditionalProperties: &closed}}}},
 	}
 	definition, err := adapter.Compile(manifest)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestCredentialDefinitionProjectsSetupWithoutSecretValues(t *testing.T) {
 	hint := func(value bool) adapter.Hint { copy := value; return adapter.Hint{Value: &copy, Source: &source} }
 	authSource := `return function(input) return {headers={Authorization="Bearer "..input.credentials.token}} end`
 	manifest := adapter.Manifest{SchemaVersion: 9, DefinitionID: "private-example", AdapterID: "private", DisplayName: "Private API", DefinitionRevision: "v1", Reviewed: true,
-		Origin: "https://api.example.com/", Authentication: adapter.Authentication{Kind: "credential", Setup: &adapter.CredentialSetup{CredentialType: "API key", SetupURL: "https://example.com/keys", Instructions: []string{"Create one key."}, Input: adapter.CredentialInput{Kind: "fields", Fields: []adapter.CredentialField{{ID: "token", Label: "API key"}}}}, RequestAuth: &adapter.Transform{Language: "lua", Source: authSource}},
+		Origin: "https://api.example.com/", Authentication: adapter.Authentication{Kind: "credential", Setup: &adapter.CredentialSetup{CredentialType: "API key", SetupURL: "https://example.com/keys", Instructions: []string{"Create one key."}, Input: adapter.CredentialInput{Kind: "fields", Fields: []adapter.CredentialField{{ID: "token", Label: "API key"}}}}, RequestAuth: &adapter.Transform{Language: "luau", Source: authSource}},
 		Operations: []adapter.Operation{{OperationID: "lookup", Description: "Look up one record.", Method: "GET", Path: "/lookup", Authorization: adapter.Authorization{Kind: "none"}, Behavior: adapter.BehaviorHints{ReadOnly: hint(truth), Idempotent: hint(truth), Destructive: hint(false), OpenWorld: hint(truth)}, Retry: "transport_safe_read", Pagination: adapter.Pagination{Kind: "none"}, Response: adapter.Response{AcceptedContentTypes: []string{"application/json"}, OutputSchema: adapter.OutputSchema{Type: "object", Properties: map[string]adapter.OutputSchema{"name": {Type: "string", MaxBytes: &limit}}, Required: []string{"name"}, AdditionalProperties: &closed}}}},
 	}
 	definition, err := adapter.Compile(manifest)

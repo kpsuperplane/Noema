@@ -36,13 +36,14 @@ func TestCompileEnforcesClosedLuaContract(t *testing.T) {
 	}
 	manifest = testManifest()
 	manifest.Operations[0].Response.Transform = &Transform{Language: "luau", Source: "return function(v) return v end"}
-	if _, err := Compile(manifest); err == nil {
-		t.Fatal("Luau transform compiled")
+	if _, err := Compile(manifest); err != nil {
+		t.Fatalf("Luau transform = %v", err)
 	}
 	manifest.Operations[0].Response.Transform.Language = "lua"
-	if _, err := Compile(manifest); err != nil {
-		t.Fatalf("Lua transform = %v", err)
+	if _, err := Compile(manifest); err == nil {
+		t.Fatal("Lua transform compiled")
 	}
+	manifest.Operations[0].Response.Transform.Language = "luau"
 	manifest.Operations[0].Response.Transform.Source = "return function("
 	if _, err := Compile(manifest); err == nil {
 		t.Fatal("invalid Lua transform compiled")
@@ -91,15 +92,15 @@ func TestDefinitionHelpExamplesCompile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateOperation(&manifest.Operations[0]); err != nil {
-		t.Fatal(err)
+	if err := validateOperation(&manifest.Operations[0]); err == nil || !strings.Contains(err.Error(), "response.output_schema permits") {
+		t.Fatalf("Rust proposal template validation = %v", err)
 	}
-	if _, err := Compile(manifest); err != nil {
-		t.Fatal(err)
-	}
+	// The Rust setup payload intentionally demonstrates a large schema that
+	// requires the model to reduce its bounds before compilation.
 	if err := decodeExactJSON(help["credential_authentication_example"].(json.RawMessage), &manifest.Authentication); err != nil {
 		t.Fatal(err)
 	}
+	manifest.Operations[0].Authorization = Authorization{Kind: "none"}
 	for _, name := range []string{"flat_object_response_example", "scalar_list_response_example", "custom_response_example"} {
 		t.Run(name, func(t *testing.T) {
 			response, err := proposalResponse(help[name].(json.RawMessage))
@@ -127,7 +128,7 @@ func TestDefinitionHelpExamplesCompile(t *testing.T) {
 func testCredentialAuthentication() Authentication {
 	return Authentication{Kind: "credential", Setup: &CredentialSetup{CredentialType: "API key", SetupURL: "https://example.com/keys",
 		Instructions: []string{"Create one key."}, Input: CredentialInput{Kind: "fields", Fields: []CredentialField{{ID: "api_key", Label: "API key"}}}},
-		RequestAuth: &Transform{Language: "lua", Source: `return function(input) return {headers={Authorization="Bearer "..input.credentials.api_key},query={signature=input.credentials.api_key}} end`}}
+		RequestAuth: &Transform{Language: "luau", Source: `return function(input) return {headers={Authorization="Bearer "..input.credentials.api_key},query={signature=input.credentials.api_key}} end`}}
 }
 
 func TestCredentialManifestAndRequestAuthenticationAreClosed(t *testing.T) {
@@ -228,7 +229,7 @@ func TestCredentialSetupPublishesAndReplacesProtectedGeneration(t *testing.T) {
 
 func TestDocumentCredentialAndDynamicSanitizationPreserveOrdinaryFields(t *testing.T) {
 	setup := CredentialSetup{Input: CredentialInput{Kind: "document", MediaType: "application/json", Fields: []CredentialField{{ID: "token", Label: "Token"}},
-		Normalize: &Transform{Language: "lua", Source: `return function(input) local value=json.decode(input.document); return {token=value.token} end`}}}
+		Normalize: &Transform{Language: "luau", Source: `return function(input) local value=json.decode(input.document); return {token=value.token} end`}}}
 	fields, err := normalizeCredential(setup, CredentialInputValue{Document: []byte(`{"token":"secret-marker"}`)})
 	if err != nil || fields["token"] != "secret-marker" {
 		t.Fatalf("document = %#v, %v", fields, err)
@@ -286,7 +287,7 @@ func TestPaginationKeepsOneRequestedPageSize(t *testing.T) {
 
 func TestLuaResponseTransformAndPaginationAreBounded(t *testing.T) {
 	limit, closed := 16, false
-	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: `return function(response) local value = json.decode(response.body); return { name = value.value } end`},
+	contract := Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: `return function(response) local value = json.decode(response.body); return { name = value.value } end`},
 		OutputSchema: OutputSchema{Type: "object", Properties: map[string]OutputSchema{"name": {Type: "string", MaxBytes: &limit}}, Required: []string{"name"}, AdditionalProperties: &closed}}
 	value, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{"value":"Ada"}`)}, contract)
 	if err != nil || value.(map[string]any)["name"] != "Ada" {

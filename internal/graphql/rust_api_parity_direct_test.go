@@ -1363,7 +1363,7 @@ func rustAPIPortAdapterAuthRevision(t *testing.T) {
 		t.Fatalf("initial authentication connection = %#v, %v", snapshot.Connections, err)
 	}
 	connectionID := snapshot.Connections[0].ConnectionID
-	replacement := installAdapterParityDefinition(t, service, "v2", approved.SemanticDigest, map[string]any{"kind": "credential", "setup": map[string]any{"credential_type": "API key", "setup_url": "https://example.com/keys", "instructions": []string{"Create a key."}, "input": map[string]any{"kind": "fields", "fields": []any{map[string]any{"id": "token", "label": "API key"}}}}, "request_auth": map[string]any{"language": "lua", "source": "return function(input) return {} end"}}, "lookup")
+	replacement := installAdapterParityDefinition(t, service, "v2", approved.SemanticDigest, map[string]any{"kind": "credential", "setup": map[string]any{"credential_type": "API key", "setup_url": "https://example.com/keys", "instructions": []string{"Create a key."}, "input": map[string]any{"kind": "fields", "fields": []any{map[string]any{"id": "token", "label": "API key"}}}}, "request_auth": map[string]any{"language": "luau", "source": "return function(input) return {} end"}}, "lookup")
 	if _, err := service.Approve(context.Background(), replacement.SemanticDigest); err != nil {
 		t.Fatal(err)
 	}

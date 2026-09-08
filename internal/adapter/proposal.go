@@ -507,7 +507,7 @@ func generatedResponse(kind, sourcePointer, outputName string, maxItems int, fie
 	default:
 		return Response{}, errors.New("response recipe kind is invalid")
 	}
-	return Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "lua", Source: base}, OutputSchema: schema}, nil
+	return Response{AcceptedContentTypes: []string{"application/json"}, Transform: &Transform{Language: "luau", Source: base}, OutputSchema: schema}, nil
 }
 
 func luaValue(source, kind string, max *int, truncate bool) string {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // DefaultConfigYAML is the host's first-run configuration document.
@@ -52,6 +53,13 @@ func Initialize(paths Paths, initialConfig []byte) error {
 	}
 	if err := protectDirectory(paths.Root()); err != nil {
 		return fmt.Errorf("protect Noema home: %w", err)
+	}
+	databaseDirectory := filepath.Dir(paths.Database())
+	if err := os.MkdirAll(databaseDirectory, 0o700); err != nil {
+		return fmt.Errorf("create Noema database directory: %w", err)
+	}
+	if err := protectDirectory(databaseDirectory); err != nil {
+		return fmt.Errorf("protect Noema database directory: %w", err)
 	}
 	runPath := paths.Root() + string(os.PathSeparator) + "run"
 	if err := os.MkdirAll(runPath, 0o700); err != nil {

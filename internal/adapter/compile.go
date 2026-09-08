@@ -339,7 +339,7 @@ func validateAuthentication(value Authentication) error {
 }
 
 func validTransformWithProfile(value *Transform, profile script.SandboxProfile) bool {
-	return value != nil && (value.Language == "lua" || value.Language == "luau") && len(value.Source) > 0 && len(value.Source) <= 32<<10 &&
+	return value != nil && value.Language == "luau" && len(value.Source) > 0 && len(value.Source) <= 32<<10 &&
 		strings.IndexFunc(value.Source, func(r rune) bool { return r < ' ' && r != '\n' && r != '\t' }) < 0 && script.ValidateFunctionWithProfile(value.Source, profile) == nil
 }
 

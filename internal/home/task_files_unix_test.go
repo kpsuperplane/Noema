@@ -3,6 +3,7 @@
 package home
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"os/user"
@@ -28,11 +29,32 @@ func TestTaskFilesReportUnwritableHomeAndPreserveExistingContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := os.MkdirTemp("/usr/local/bin", "noema-home-")
+	base := t.TempDir()
+	if err := os.Chmod(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(base, "bin")
+	if err := os.Mkdir(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path, err := os.MkdirTemp(base, "noema-home-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(path) })
+	t.Cleanup(func() {
+		_ = filepath.Walk(path, func(name string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if info.IsDir() {
+				return os.Chmod(name, 0o700)
+			}
+			return os.Chmod(name, 0o600)
+		})
+		_ = os.Chmod(binDir, 0o755)
+		_ = os.Chmod(base, 0o755)
+		_ = os.RemoveAll(base)
+	})
 	root, err := os.OpenRoot(path)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +72,7 @@ func TestTaskFilesReportUnwritableHomeAndPreserveExistingContent(t *testing.T) {
 	if err := root.Close(); err != nil {
 		t.Fatal(err)
 	}
-	helperPath := filepath.Join("/usr/local/bin", "noema-home-helper-"+filepath.Base(path)+".test")
+	helperPath := filepath.Join(binDir, "noema-home-helper-"+filepath.Base(path)+".test")
 	t.Cleanup(func() { _ = os.Remove(helperPath) })
 	binary, err := os.ReadFile(os.Args[0])
 	if err != nil {
@@ -86,6 +108,9 @@ func TestTaskFilesReportUnwritableHomeAndPreserveExistingContent(t *testing.T) {
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
 	if output, err := cmd.CombinedOutput(); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			t.Skipf("sandbox does not permit an unprivileged helper executable: %v", err)
+		}
 		t.Fatalf("unprivileged helper: %v\n%s", err, output)
 	}
 }

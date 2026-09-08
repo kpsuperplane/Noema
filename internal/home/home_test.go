@@ -97,23 +97,21 @@ func TestOpenConfinesFileAccess(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsRustHomeBeforeWritingGoState(t *testing.T) {
+func TestOpenCreatesCanonicalDatabaseDirectory(t *testing.T) {
 	root := t.TempDir()
-	legacyDatabase := filepath.Join(root, "db", "noema.sqlite3")
-	if err := os.MkdirAll(filepath.Dir(legacyDatabase), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(legacyDatabase, []byte("legacy"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	paths, err := FromRoot(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := paths.Open(); err == nil {
-		t.Fatal("Rust-created home was accepted")
+	opened, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	if _, err := os.Stat(filepath.Dir(paths.Database())); err != nil {
+		t.Fatalf("database directory was not created: %v", err)
 	}
 	if _, err := os.Stat(paths.Database()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Go database exists after rejection: %v", err)
+		t.Fatalf("database file exists before store open: %v", err)
 	}
 }

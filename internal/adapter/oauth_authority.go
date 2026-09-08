@@ -118,8 +118,8 @@ func googleOAuthProfile() OAuthProfile {
 	p := OAuthProfile{SchemaVersion: 1, ProfileID: "google", DisplayName: "Google", AuthorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth", TokenEndpoint: "https://oauth2.googleapis.com/token", ClientAuthentication: "client_secret_post",
 		AuthorizationParameters: map[string]string{"access_type": "offline", "include_granted_scopes": "true"}, AccountSelectionParameters: map[string]string{"prompt": "select_account"}, GrantAudience: "google-apis", OmittedScopePolicy: "requested_scopes", PreserveRefreshTokenOnExpansion: true}
 	p.Setups = []OAuthSetup{
-		{CallbackMode: "loopback", Setup: CredentialSetup{CredentialType: "Desktop app OAuth client", SetupURL: "https://console.cloud.google.com/apis/credentials", Instructions: []string{"Create one Desktop app OAuth client.", "Download its JSON document."}, Input: CredentialInput{Kind: "document", MediaType: "application/json", Fields: fields(false), Normalize: &Transform{Language: "lua", Source: "return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id, client_secret = d.installed.client_secret } end"}}}},
-		{CallbackMode: "hosted", Setup: CredentialSetup{CredentialType: "Web application OAuth client", SetupURL: "https://console.cloud.google.com/apis/credentials", Instructions: []string{"Create one Web application OAuth client.", "Add the shown redirect URI.", "Download its JSON document."}, Input: CredentialInput{Kind: "document", MediaType: "application/json", Fields: fields(true), Normalize: &Transform{Language: "lua", Source: "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id, client_secret = d.web.client_secret, redirect_uris = json.encode(d.web.redirect_uris) } end"}}}},
+		{CallbackMode: "loopback", Setup: CredentialSetup{CredentialType: "Desktop app OAuth client", SetupURL: "https://console.cloud.google.com/apis/credentials", Instructions: []string{"Create one Desktop app OAuth client.", "Download its JSON document."}, Input: CredentialInput{Kind: "document", MediaType: "application/json", Fields: fields(false), Normalize: &Transform{Language: "luau", Source: "return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id, client_secret = d.installed.client_secret } end"}}}},
+		{CallbackMode: "hosted", Setup: CredentialSetup{CredentialType: "Web application OAuth client", SetupURL: "https://console.cloud.google.com/apis/credentials", Instructions: []string{"Create one Web application OAuth client.", "Add the shown redirect URI.", "Download its JSON document."}, Input: CredentialInput{Kind: "document", MediaType: "application/json", Fields: fields(true), Normalize: &Transform{Language: "luau", Source: "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id, client_secret = d.web.client_secret, redirect_uris = json.encode(d.web.redirect_uris) } end"}}}},
 	}
 	raw, _ := json.Marshal(p)
 	var canonical any
@@ -159,7 +159,7 @@ func validateOAuthProfile(p OAuthProfile) error {
 			return errors.New("adapter OAuth profile setup is invalid")
 		}
 		modes[entry.CallbackMode] = true
-		auth := Authentication{Kind: "credential", Setup: &entry.Setup, RequestAuth: &Transform{Language: "lua", Source: "return function(input) return {} end"}}
+		auth := Authentication{Kind: "credential", Setup: &entry.Setup, RequestAuth: &Transform{Language: "luau", Source: "return function(input) return {} end"}}
 		if validateAuthentication(auth) != nil {
 			return errors.New("adapter OAuth profile setup is invalid")
 		}
