@@ -4,7 +4,8 @@ Date: 2026-09-06
 Status: In progress. The direct local CLI is implemented and validated. Gmail,
 Notion, and Calendar setup work is live. PA-001 through PA-003 are accepted.
 PA-004 passes after a continuation-authorization repair and rerun. PA-005
-through PA-100 remain not run.
+passes after a reviewed Calendar connector revision and rerun. PA-006 through
+PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -210,7 +211,7 @@ answer key.
 | PA-002 | Pass | Three promises with owners and dates; one repeated email. Later extend one date and supply one completion receipt. | Keep track of what I owe people and what they owe me. | Save three promises with sources; preserve the date replacement; close only the receipted promise; unchanged check creates no duplicate. [Evidence](../validation/evidence/personal-assistant-live/PA-002/) |
 | PA-003 | Pass | Email and Notion repeat one agreed action; another paragraph only proposes a date. | Pick out what I need to do from these updates. | Create one native Task and one agreed calendar item; exclude speculation; repeated intake creates neither again. [Evidence](../validation/evidence/personal-assistant-live/PA-003/) |
 | PA-004 | Pass after repair and rerun — [evidence](../validation/evidence/personal-assistant-live/PA-004/) | Five threads: urgent client ask, overdue promise, friend, newsletter, resolved request. Later add an inbound correction. | Help me get through my replies. | Order by urgency and relationship; draft correct replies; preserve the correction; close only after mock send receipts; unchanged check stays quiet. |
-| PA-005 | Calendar audit | Recurring event, all-day leave, two overlapping meetings, and 40-minute travel between 20-minute gaps. | Check next week's calendar for trouble. | Read bounded instances; preserve timezones and recurrence IDs; flag overlaps, leave, travel, and preparation without treating all-day dates as UTC instants. |
+| PA-005 | Pass after connector revision and rerun — [evidence](../validation/evidence/personal-assistant-live/PA-005/) | Recurring event, all-day leave, two overlapping meetings, and 40-minute travel between 20-minute gaps. | Check next week's calendar for trouble. | Read bounded instances; preserve timezones and recurrence data; flag overlaps, leave, travel, and preparation without treating all-day dates as UTC instants. |
 | PA-006 | Daily plan | Four hours of fixed meetings; six hours of work; lunch and 16:00 stop preference. | Help me make a realistic plan for tomorrow. | Read full Tasks and connected calendar; protect breaks; explicitly defer excess work; do not invent free time. |
 | PA-007 | Disruption replan | Accepted daily plan; meeting moves 60 minutes; dependent pickup; one immovable appointment. | My first meeting is running late. Rework the day. | Update dependent items and draft affected notices; preserve fixed appointments; unchanged follow-up creates no repeated update. |
 | PA-008 | Weekly review | Seven days of events; completed and open native Tasks; two projects; next-week deadlines. | Help me review the week and prepare for next week. | Separate completed outcomes from activity; carry open commitments; reconcile next-week capacity; cite each project and calendar bound. |

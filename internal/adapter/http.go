@@ -478,7 +478,7 @@ func sanitizeSensitiveOutputWithQueryNames(value any, sensitive, querySensitive 
 					continue
 				}
 				if text, ok := child.(string); ok && (strings.EqualFold(key, "url") || strings.EqualFold(key, "location")) {
-					if parsed, err := url.Parse(text); err == nil {
+					if parsed, err := url.Parse(text); err == nil && parsed.Scheme != "" && parsed.Host != "" {
 						query := parsed.Query()
 						for name := range query {
 							if querySensitive[strings.ToLower(name)] {

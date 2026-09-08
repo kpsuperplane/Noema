@@ -27,6 +27,11 @@ PA-004 passes after a continuation-authorization repair and rerun. Noema ranked
 the reply queue, preserved an inbound deadline correction, sent four approved
 synthetic replies on existing threads, and kept the unchanged check quiet.
 Evidence: `docs/validation/evidence/personal-assistant-live/PA-004/`.
+PA-005 passes after a reviewed Calendar connector revision and rerun. Noema
+fetched six bounded events across three pages, preserved time zones, date-only
+leave, and recurrence data, and found the overlap, leave conflict, preparation
+needs, and unknown travel gap. A narrow adapter sanitization fix preserves
+ordinary street addresses. Evidence: `docs/validation/evidence/personal-assistant-live/PA-005/`.
 `ConversationAuthorizationContext` now follows continuation trigger items to
 the original human turn, with a focused store regression test.
 The memory updater now omits nested browser screenshots and internal Task-list results. A live update completed at sequence 1881 and saved the 16:00 weekday
@@ -176,7 +181,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   Executors can list bounded workspace Tasks. Executors and Reviewers can inspect one exact Task and its current documents.
 - Delegated daily briefs, planning, and weekly reviews passed live with these reads.
 - The reviewed event adapter exposes one bounded instance operation.
-  It requires both time bounds and preserves recurrence, all-day dates, attendees, locations, and continuation.
+  It requires both time bounds and preserves recurrence, all-day dates, attendees, locations, and continuation. The current synthetic Calendar revision returns up to six events per page.
 - The reviewed message adapter uses an explicit empty JSON array for absent message results.
   Empty results and a two-page continuation passed live after revision.
 - All 14 Milestone 1 main paths pass in the current provider setup.

@@ -234,8 +234,8 @@ func TestDocumentCredentialAndDynamicSanitizationPreserveOrdinaryFields(t *testi
 	if err != nil || fields["token"] != "secret-marker" {
 		t.Fatalf("document = %#v, %v", fields, err)
 	}
-	value := sanitizeSensitiveOutput(map[string]any{"ordinary_id": "ordinary-value", "token": "secret-marker", "debug": "echo Bearer secret-marker", "url": "https://example.com/a?keep=ordinary&token=secret-marker"}, map[string]bool{"token": true}, []string{"Bearer secret-marker", "secret-marker"}).(map[string]any)
-	if value["ordinary_id"] != "ordinary-value" || value["token"] != "[REDACTED]" || value["debug"] != "echo [REDACTED]" || value["url"] != "https://example.com/a?keep=ordinary" {
+	value := sanitizeSensitiveOutputWithQueryNames(map[string]any{"ordinary_id": "ordinary-value", "token": "secret-marker", "debug": "echo Bearer secret-marker", "url": "https://example.com/a?keep=ordinary&token=secret-marker", "location": "100 Main Street, San Francisco"}, map[string]bool{"token": true}, map[string]bool{"token": true}, []string{"Bearer secret-marker", "secret-marker"}).(map[string]any)
+	if value["ordinary_id"] != "ordinary-value" || value["token"] != "[REDACTED]" || value["debug"] != "echo [REDACTED]" || value["url"] != "https://example.com/a?keep=ordinary" || value["location"] != "100 Main Street, San Francisco" {
 		t.Fatalf("sanitized result = %#v", value)
 	}
 }
