@@ -46,7 +46,8 @@ development instance and inspected before the next case starts.
 | PA-033 — Topic monitoring | Pass | [Case evidence](PA-033/) |
 | PA-034 — Literature review | Pass after a focused projection revision, live reads from two indexes, deduplication, retraction handling, and a saved evidence table | [Case evidence](PA-034/) |
 | PA-035 — Fact-checking | Pass after documented connection setup, source-linked five-claim review, and a saved report | [Case evidence](PA-035/) |
-| PA-036–PA-100 | Not run | The operator will run each case in order. |
+| PA-036 — Mixed inventory | Pass after five bounded connector revisions, explicit nullable-serial handling, and independent artifact inspection | [Case evidence](PA-036/) |
+| PA-037–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
