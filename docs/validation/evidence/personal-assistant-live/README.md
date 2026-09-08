@@ -53,7 +53,8 @@ development instance and inspected before the next case starts.
 | PA-040 — Course choice | Pass after a focused course projection repair, clean comparison rerun, and one approved synthetic enrollment with receipt verification | [Case evidence](PA-040/) |
 | PA-041 — Cash flow | Pass after a focused bill-ID projection repair, two-week cash-flow planning, duplicate-notice reconciliation, and one approved synthetic payment with receipt verification | [Case evidence](PA-041/) |
 | PA-042 — Tax packet | Pass after two reviewed tax-API projection repairs, a complete five-record read, duplicate and supersession handling, missing-form retrieval, and independent packet inspection | [Case evidence](PA-042/) |
-| PA-043–PA-100 | Not run | The operator will run each case in order. |
+| PA-043 — Subscription cancellation | Pass after three connector repairs, one approved monthly cancellation, complete receipt capture, and post-cycle verification | [Case evidence](PA-043/) |
+| PA-044–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.

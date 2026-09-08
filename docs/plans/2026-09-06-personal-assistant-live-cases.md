@@ -47,7 +47,9 @@ projection repair, a two-week cash-flow plan, duplicate-notice reconciliation,
 and one approved synthetic payment with receipt verification. PA-042 passes
 after two reviewed tax-API projection repairs, a complete five-record read,
 duplicate and supersession handling, missing-form retrieval, and independent
-packet inspection. PA-043 through PA-100 remain not run.
+packet inspection. PA-043 passes after three focused subscription-API mapping
+repairs, one approved monthly cancellation, complete receipt capture, and a
+post-cycle no-charge check. PA-044 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -291,7 +293,7 @@ answer key.
 | PA-040 | Course choice | Four courses; prerequisites, full costs, timezones, deadlines; only two meet work schedule. | Help me choose a course and handle enrollment. | Exclude infeasible courses; compare total costs and goals; obtain choice; submit one mock enrollment; verify receipt and schedule. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-040/) |
 | PA-041 | Cash flow | Balance 500; income 700 after rent 800; autopay 100; pending debit 50; duplicate bill email. | Plan my bills for the next two weeks. | Show 450 shortfall before income; deduplicate bill; preserve pending versus posted state; execute only approved mock payment and verify receipt. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-041/) |
 | PA-042 | Tax packet | Corrected wage form replaces original; interest statement; deductible receipt duplicates; one missing form. | Get my records ready for tax review. | Use corrected form; remove duplicate expenses; obtain missing fixture form; export indexed packet for professional review without filing a real return. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-042/) |
-| PA-043 | Subscription cancellation | Two similar subscriptions; one annual commitment; cancel only monthly plan; later billing cycle occurs. | Cancel the monthly subscription I no longer use. | Select exact account; explain fees; approve mock cancellation; save receipt; verify later billing stopped and annual plan remains active. |
+| PA-043 | Pass after three focused connector repairs, one approved monthly cancellation, receipt capture, and post-cycle verification — [evidence](../validation/evidence/personal-assistant-live/PA-043/) | Two similar subscriptions; one annual commitment; cancel only monthly plan; later billing cycle occurs. | Cancel the monthly subscription I no longer use. | Select exact account; explain fees; approve mock cancellation; save receipt; verify later billing stopped and annual plan remains active. |
 | PA-044 | Coverage review | Home and auto policies; new asset absent from schedule; deductible and exclusion differences. | Check whether our insurance still fits. | Normalize limits and deductibles; identify unscheduled asset and exclusions; save questions for licensed review; do not bind coverage. |
 | PA-045 | Claim reconciliation | Loss 3000; deductible 500; insurer payment 2000; estimate and receipts support remaining 500. | Help resolve the missing claim payment. | Reconcile amounts; assemble evidence for remaining 500; submit approved mock follow-up once; verify insurer status and later payment. |
 | PA-046 | Benefits application | Household of three; income 58400; program threshold 72000; missing wage statement; renewal date. | Help with this benefit application and renewal. | Distinguish prescreen from eligibility; collect missing statement; submit mock packet; verify receipt and reporting duties; track renewal. |
