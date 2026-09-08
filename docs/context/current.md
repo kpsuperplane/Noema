@@ -33,9 +33,8 @@ Controlled TLS API checks pass empty results, pagination retry, operation and ar
 
 The Go server uses a fresh home. It does not open or convert a Rust home. INFO-02 passes through a controlled reviewed MCP disclosure binding. JOURNEY-05 passes through the supported Task Artifact route; the Chat route still refuses because it cannot create or publish Artifacts.
 The Go server is the production authority. Rust remains only for retained support targets.
-
-The Go evidence gate passed. The replacement now uses Go schema version 35.
-It includes authentication, onboarding, Chat, Projects, Agents, Artifacts, Task lifecycle, integrations, and notifications.
+Rust behavior is the default target; the [divergence review](../validation/2026-09-08-rust-go-divergence-review.md) records exceptions and test gaps.
+The Go server includes authentication, onboarding, Chat, Projects, Agents, Artifacts, Task lifecycle, integrations, and notifications.
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
 Migration 33 removes Apple model accounts and selections. Historical conversation and Task records remain intact.
@@ -289,7 +288,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
-- Go owns schema version 35, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
+- Go owns schema version 38, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
 - Desktop launches a Go sidecar. The former Rust backend and evaluation dependency closure are removed.
 - Obscura uses upstream releases without Cargo. Public Linux installation, executable reuse, direct worker lifecycle, and stalled-worker recovery pass. The exact live Chat `example.com` lifecycle now passes after reviewed continuations preserve the provider response and continuation tool rounds accept their running state. AUDIT-11 records an old snapshot executing a changed button. AUDIT-12 records protected control values in snapshots. AUDIT-13 records a repeated declined effect becoming claimable. Use synthetic form values during further checks. Product selection remains pending. Native Windows WAL stress remains a cutover gate.
 

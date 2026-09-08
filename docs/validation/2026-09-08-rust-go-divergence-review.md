@@ -10,13 +10,13 @@ These counts describe the September 7 run, before the changes discussed below.
 
 ## Decisions supplied by the user
 
-- Rust behavior is the default target. Review each divergence before changing it.
+- Rust behavior is the default target. Areas 7–10 are approved; report remaining differences and test limitations.
 - Onboarding creates no model-provider account until the human configures one. Built-in browser and web service records remain.
 - Rust database compatibility is not required. Migration numbers and identical SQL tables are not acceptance requirements.
 - Preserve exact Rust response contracts, prompts, tool names, ordering, and visibility.
 - Tests must use deterministic mocks.
 - Remove ACP support for now.
-- Review MCP, task lifecycle, concurrency, and filesystem differences in detail.
+- The user approved Rust behavior for areas 7–10. Verify equivalent test setup before assigning a product defect.
 
 Recommendation for GraphQL tests: create authenticated test sessions. Preserve production authentication checks.
 The user confirmed this onboarding distinction after reviewing the meaning of credential-free accounts.
@@ -68,7 +68,7 @@ Do not add duplicate production checks merely to satisfy a test at the wrong bou
 | Deletion | The credential directory remains after deletion. | Remove the directory. This failure alone does not establish that credential files remain. |
 | OAuth timeout | A one-millisecond test gets an unavailable error instead of deadline exceeded. | The test contacts an external hostname. Replace this with a controlled stalled mock before classifying the result. |
 
-Review choices: schema budgets, exact metadata format, shutdown catalog behavior, and the secret-store directory lifecycle.
+Approved target: Rust schema budgets, metadata format, shutdown behavior, and credential-directory lifecycle, subject to equivalent test setup.
 Credential rollback and actual secret exclusion are correctness requirements under the current contract.
 Public client IDs and authorized ordinary text must remain intact.
 
@@ -86,7 +86,7 @@ Public client IDs and authorized ordinary text must remain intact.
 | Notifications | The expected notification ledger table is absent. | Different SQL storage is allowed. Test delivery and duplicate suppression through the public path. |
 | Results and stale documents | Direct store tests accept operations that higher layers reject. | These are misplaced tests, not established user-visible regressions. |
 
-Review choice: preserve Rust's repeated-command result and exact delegation semantics.
+Approved target: preserve Rust's repeated-command result and exact delegation semantics.
 Prompt fidelity is settled. Repair blocked tests before claiming lost task behavior.
 ACP-specific task expectations are retired by the user's removal decision.
 
@@ -103,7 +103,7 @@ ACP-specific task expectations are retired by the user's removal decision.
 | Cancellation cleanup | A replacement run can start before the cancelled provider finishes cleanup. | The focused test reproduces this before ACP removal: 5 failures in 20 runs at `8751da56`. This is an existing race. |
 | Document updates | The direct store test accepts a digest that the public path rejects. | Repair the test boundary; no lost-update conclusion is established. |
 
-Review choice: preserve exact conflict categories, repeated-checkpoint success, event validation, and repeated-notification suppression.
+Approved target: preserve exact conflict categories, repeated-checkpoint success, event validation, and repeated-notification suppression.
 The existing request to match Rust response contracts already covers error categories.
 
 ## 10. Filesystem and diagnostics
@@ -114,11 +114,11 @@ The existing request to match Rust response contracts already covers error categ
 | Conversation directory | Direct store creation retains an empty working directory. | The Rust store test expects an allocated absolute directory. Verify the product creation path before changing ownership. |
 | Artifact root replacement | Artifact creation succeeds after the original root is renamed and replaced. | Rust rejects the operation when root identity changes. Success does not by itself prove a path escape. |
 | Diagnostics structure | Records use `event`, nested string fields, and `time`. | Rust expects fields such as `category`, `severity`, and structured context. |
-| Diagnostics rotation | A test configured for 512 bytes retains a 4,029-byte file. | Rust enforces the configured limit and one bounded backup. |
-| Large diagnostics | Oversized raw details cause an error; another oversized event is accepted. | Rust substitutes bounded raw details and rejects an event larger than the file budget before writing. |
+| Diagnostics rotation | The writer has no rotation. The test asserts 512 bytes but omitted that custom limit. | Rust enforces its configured limit and keeps one bounded backup. Correct the test setup before comparing sizes. |
+| Large diagnostics | Oversized raw details cause an error; another oversized event is accepted. | Rust bounds raw details and rejects events above the event budget before writing. The Go test also omitted this custom limit. |
 | Unwritable home | Test setup attempts to write under `/usr/local/bin` and fails. | This is an environment-dependent fixture. It has not tested preservation of existing content. |
 
-Review choices: database location, automatic conversation directories, root-replacement rejection, and exact diagnostic format and limits.
+Approved target: Rust filesystem behavior and diagnostic format and limits. Verify public creation paths before changing directory ownership.
 No Rust database upgrade support is needed. This does not authorize resetting an existing Go database.
 Deterministic fixture repair is already approved.
 
@@ -145,3 +145,66 @@ The main server command and provider packages pass.
 Unchanged successful package results were reused by Go's test cache.
 The only newly named failure against September 7 is the independently reproduced pre-existing cancellation race.
 The earlier progress-finalization timeout did not recur in this run.
+
+## Approved corrections
+
+The user confirmed Rust behavior as the general target for areas 7–10.
+The onboarding, database compatibility, ACP, and current information-handling exceptions remain.
+
+- `43ca3ee3` preserves previous MCP credentials when replacement discovery fails.
+  The merge now copies credential maps before changing them.
+  The focused test checks credentials, revision, connection status, and ordinary settings.
+  This additional regression does not replace the omitted Rust authentication lifecycle assertions.
+- `9f65a9dc` excludes tasks with unfinished provider cleanup during run admission.
+  Other tasks remain eligible. Channel-controlled checks cover both outcomes.
+  The cancellation checks passed 20 iterations targeting the previously observed race.
+
+The earlier 512-byte log example used an invalid comparison.
+The Go test omitted the custom limits supplied by its Rust original.
+The missing rotation is confirmed independently in the writer implementation.
+
+- `4c344f3f` executes valid calls in delegation batches and rejects mixed batches before execution.
+  The corrected test uses two valid tasks and one invalid call, as Rust does.
+  Five focused scenarios pass, including both batch cases and existing continuation behavior.
+  Go still combines Rust’s two narration items into one message. Exact narration parity remains open.
+- `e1600b56` restores structured diagnostics, Rust limits, and one rotated backup.
+  `ccdf9294` corrects character encoding that otherwise changed size decisions.
+  Diagnostics tests and static checks pass.
+  Go still validates the directory during `Open`; Rust validates it during append.
+
+A read-only adversarial review found no further introduced production defect after the diagnostic correction.
+This is a bounded correction, not completion of all Rust assertion ports.
+The original cancellation lifecycle test still uses a timed absence check.
+The added admission check uses deterministic channel barriers.
+
+Size against `99808551`: production +242/−125; tests +194/−44; generated GraphQL unchanged.
+Inclusive change: +436/−169, net +267 lines.
+Tracked Go totals: production 90,523; tests 65,374; generated 78,987; inclusive 234,884.
+Production is 52.03% of the migration baseline. Inclusive size is 97.94%.
+The inherited inclusive size exceeds the 80% target. The requested full test port retains duplicate tests for later review.
+
+## Combined validation of approved corrections
+
+Tested `4c344f3f` with the existing unrelated fixture and documentation changes.
+Command: `CGO_ENABLED=0 go test ./cmd/... ./internal/... -timeout 2m`.
+Result: 17 packages passed, 7 failed, and 6 contained no tests.
+There were 182 top-level failures and no package timeouts.
+No new failure names appeared against the preceding 192-failure run.
+All eight focused failure names addressed by these corrections are absent.
+Two additional prior failures did not recur; this run alone does not prove those defects fixed.
+`CGO_ENABLED=0 go vet ./cmd/... ./internal/...` passed.
+Unchanged successful package results were reused by Go’s test cache.
+Logs: `/var/tmp/noema-go-rust-approved.log` and `/var/tmp/noema-go-rust-approved-vet.log`.
+
+| Failing package | Top-level failures |
+| --- | ---: |
+| adapter | 5 |
+| artifact | 3 |
+| graphql | 7 |
+| home | 2 |
+| mcp | 13 |
+| runtime | 46 |
+| store | 106 |
+
+The remaining failures still require faithful fixture and assertion review before product changes.
+The approved target remains Rust behavior, with the explicit exceptions recorded above.
