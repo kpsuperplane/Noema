@@ -299,6 +299,12 @@ func (c *Chat) SendTurn(ctx context.Context, input SendTurnInput) (TurnAccepted,
 	if err != nil {
 		return TurnAccepted{}, err
 	}
+	if conversation.CWD == "" {
+		conversation.CWD, err = c.database.ConversationWorkingDirectory(ctx, conversation.ID, "")
+		if err != nil {
+			return TurnAccepted{}, err
+		}
+	}
 	location := time.UTC
 	if input.ClientTimeZone != nil {
 		if *input.ClientTimeZone == "" {

@@ -2068,6 +2068,12 @@ func TestRustAdapters_reviewed_enablement_restores_one_disabled_adapter_tool(t *
 	if _, _, invokeErr := service.Invoke(t.Context(), Invocation{InvokerKey: AdapterInvokerKey, Operation: disabled[0].Name, OperationToken: disabled[0].OperationToken, Arguments: json.RawMessage(`{}`)}); invokeErr == nil {
 		t.Fatal("enablement invocation bypassed review")
 	}
+	if err := service.Validate(disabled[0], json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("enablement arguments were rejected before review: %v", err)
+	}
+	if err := service.Validate(disabled[0], json.RawMessage(`{"id":"item-1"}`)); err == nil {
+		t.Fatal("enablement accepted operation arguments")
+	}
 	snapshot, err = service.Snapshot()
 	if err != nil {
 		t.Fatal(err)

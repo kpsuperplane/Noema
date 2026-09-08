@@ -136,6 +136,39 @@ func TestChatSerializesDetachedTurnsAndPublishesOrderedEvents(t *testing.T) {
 	}
 }
 
+func TestChatSendTurnAllocatesMissingConversationWorkingDirectory(t *testing.T) {
+	chat, database, conversation := chatFixtureAt(t, "")
+	chat.openRouter = generatorFunc(func(
+		context.Context, provider.GenerateRequest, func(provider.StreamEvent),
+	) (provider.GenerationResult, error) {
+		return provider.GenerationResult{Model: "openai/gpt-5.6-luna", Text: "Ready."}, nil
+	})
+	events, err := chat.Subscribe(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready := <-events; ready.Kind != EventSubscriptionReady {
+		t.Fatalf("first event = %s", ready.Kind)
+	}
+	if _, err := chat.SendTurn(context.Background(), SendTurnInput{
+		ConversationID: conversation.ID, Input: "Hello",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+
+	stored, err := database.Conversation(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.CWD == "" || !filepath.IsAbs(stored.CWD) {
+		t.Fatalf("conversation working directory = %q", stored.CWD)
+	}
+	if info, err := os.Stat(stored.CWD); err != nil || !info.IsDir() {
+		t.Fatalf("conversation working directory stat = %v, %v", info, err)
+	}
+}
+
 func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
 	ctx := context.Background()

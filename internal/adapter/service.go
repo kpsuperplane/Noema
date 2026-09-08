@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -1104,6 +1105,13 @@ func (s *Service) Validate(authority Binding, raw json.RawMessage) error {
 	if err != nil || !sameBinding(current, authority) {
 		return errors.New("adapter call authority changed")
 	}
+	if strings.HasPrefix(current.Name, "enable.") {
+		var arguments map[string]json.RawMessage
+		if decodeExactJSON(raw, &arguments) != nil || len(arguments) != 0 {
+			return errors.New("adapter enablement arguments are invalid")
+		}
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	definition, err := s.files.loadDefinition(current.SemanticDigest)
@@ -1384,7 +1392,15 @@ func continuationReference(raw json.RawMessage) string {
 	return text
 }
 func sameBinding(left, right Binding) bool {
-	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.InvokerKey == right.InvokerKey && left.OperationToken == right.OperationToken && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.CredentialRevision == right.CredentialRevision && left.GrantID == right.GrantID && left.AccountID == right.AccountID && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && string(left.InputSchema) == string(right.InputSchema)
+	return left.Name == right.Name && left.ConnectionID == right.ConnectionID && left.DefinitionID == right.DefinitionID && left.SemanticDigest == right.SemanticDigest && left.OperationID == right.OperationID && left.OperationDigest == right.OperationDigest && left.InvokerKey == right.InvokerKey && left.OperationToken == right.OperationToken && left.ConnectionRevision == right.ConnectionRevision && left.PolicyRevision == right.PolicyRevision && left.ToolPolicyRevision == right.ToolPolicyRevision && left.CredentialRevision == right.CredentialRevision && left.GrantID == right.GrantID && left.AccountID == right.AccountID && left.Behavior == right.Behavior && left.ReviewRoute == right.ReviewRoute && sameJSON(left.InputSchema, right.InputSchema)
+}
+
+func sameJSON(left, right json.RawMessage) bool {
+	var leftValue, rightValue any
+	if json.Unmarshal(left, &leftValue) != nil || json.Unmarshal(right, &rightValue) != nil {
+		return false
+	}
+	return reflect.DeepEqual(leftValue, rightValue)
 }
 
 func (s *Service) putCursor(value Cursor) error {

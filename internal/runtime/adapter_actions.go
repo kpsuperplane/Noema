@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"time"
 
@@ -78,7 +79,7 @@ func (c *Chat) executeReviewedAdapter(action store.ActionRequest) (json.RawMessa
 	}
 	var binding adapter.Binding
 	if json.Unmarshal(mustJSON(action.AuthorizationContext["adapter_binding"]), &binding) != nil || action.OperationToken != binding.Name ||
-		action.CapabilityName != binding.Name || action.Behavior != binding.Behavior || string(mustJSON(action.InputSchema)) != string(binding.InputSchema) {
+		action.CapabilityName != binding.Name || action.Behavior != binding.Behavior || !sameJSON(mustJSON(action.InputSchema), binding.InputSchema) {
 		action, err := c.database.SupersedeActionRequest(c.ctx, action.ID, action.Revision, "action_authority_changed", time.Now())
 		if err != nil {
 			return nil, false, nil, err
@@ -109,6 +110,14 @@ func (c *Chat) executeReviewedAdapter(action store.ActionRequest) (json.RawMessa
 	}
 	_, err = c.database.FinishActionRequest(c.ctx, claimed.ID, claimed.Revision, state, payload, failure, time.Now())
 	return payload, state == store.ActionSucceeded, nil, err
+}
+
+func sameJSON(left, right json.RawMessage) bool {
+	var leftValue, rightValue any
+	if json.Unmarshal(left, &leftValue) != nil || json.Unmarshal(right, &rightValue) != nil {
+		return false
+	}
+	return reflect.DeepEqual(leftValue, rightValue)
 }
 
 func (c *Chat) createChatAdapterAuth(conversation store.Conversation, turn store.ConversationTurn, call store.ConversationItem,
