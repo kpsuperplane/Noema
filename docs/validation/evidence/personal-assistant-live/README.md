@@ -25,7 +25,8 @@ development instance and inspected before the next case starts.
 | PA-012 — Conversation monitoring | Pass after resolved and overdue branches | [Case evidence](PA-012/) |
 | PA-013 — Meeting coordination | Pass after reviewed synthetic write setup and read-back | [Case evidence](PA-013/) |
 | PA-014 — Meeting preparation | Pass | [Case evidence](PA-014/) |
-| PA-015–PA-100 | Not run | The operator will run each case in order. |
+| PA-015 — Audience updates | Pass | [Case evidence](PA-015/) |
+| PA-016–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
