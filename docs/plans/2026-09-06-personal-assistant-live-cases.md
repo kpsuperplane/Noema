@@ -34,7 +34,9 @@ handling, mixed-evidence synthesis, and a saved evidence table. PA-035 passes
 after documented connection setup, a source-linked five-claim review, and a
 saved fact-check report. PA-036 passes after five bounded connector revisions,
 explicit nullable-serial handling, a full 20-record read, and independent
-artifact inspection. PA-037 through PA-100 remain not run.
+artifact inspection. PA-037 passes after a profile contract repair, a complete
+ledger read, duplicate and refund reconciliation, equivalent-period analysis,
+and independent artifact inspection. PA-038 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -272,7 +274,7 @@ answer key.
 | PA-034 | Literature review | 12 papers across two mock indexes; three duplicate records; one retraction; conflicting study designs. | Build an evidence review of this question. | Produce nine unique works; mark retraction; compare methods and contradictions; save evidence table with source IDs and search bounds. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-034/) |
 | PA-035 | Fact-checking | Five claims: supported, false, outdated, ambiguous definition, and unsupported; primary sources contain answer key. | Check these claims and explain what is uncertain. | Assign all five appropriate outcomes; cite primary evidence and dates; preserve definition ambiguity; do not treat absent evidence as disproof. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-035/) |
 | PA-036 | Mixed inventory | 20 PDF, image, email, and spreadsheet records represent 15 items; two serials unreadable. | Build an inventory from these records. | Export 15 items; retain source locators; flag two unreadable serials; merge only proved duplicates; verify artifact rows independently. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-036/) |
-| PA-037 | Personal analysis | 90-day spending file; duplicate row; refund; missing category; expected net total 2400. | Explain where my spending changed. | Clean duplicate; account for refund; total 2400; expose missing category; compare equivalent periods; save readable chart and table. |
+| PA-037 | Personal analysis | 90-day spending file; duplicate row; refund; missing category; expected net total 2400. | Explain where my spending changed. | Clean duplicate; account for refund; total 2400; expose missing category; compare equivalent periods; save readable chart and table. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-037/) |
 | PA-038 | Reading digest | 12 newsletters cover five topics; preference favors two topics; 10-minute reading budget. | Give me a useful reading digest. | Deduplicate stories; prioritize preferred topics; fit reading budget; link originals; changed edition adds only new information. |
 | PA-039 | Adaptive learning | Eight-week plan; failed prerequisite quiz; two missed sessions; three-hour weekly limit. | Adjust my learning plan based on how I am doing. | Address prerequisite gap; reschedule within limit; save revised plan; later progress changes pacing; unchanged check creates no revision. |
 | PA-040 | Course choice | Four courses; prerequisites, full costs, timezones, deadlines; only two meet work schedule. | Help me choose a course and handle enrollment. | Exclude infeasible courses; compare total costs and goals; obtain choice; submit one mock enrollment; verify receipt and schedule. |
