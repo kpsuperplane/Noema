@@ -201,8 +201,8 @@ func rustAPIPortOwnerPrincipal(t *testing.T) {
   pendingHumanInterventions { __typename }
 }`
 	response := rustAPIRawGraphQLContext(t, resolver, context.Background(), query, nil)
-	if len(response.Errors) != 5 {
-		t.Errorf("owner-sensitive query errors = %#v, want five", response.Errors)
+	if len(response.Errors) != 4 {
+		t.Errorf("owner-sensitive query errors = %#v, want four", response.Errors)
 	}
 	for index, errorValue := range response.Errors {
 		if !strings.Contains(errorValue.Message, "request is unauthenticated") {
@@ -223,8 +223,8 @@ func rustAPIPortOwnerPrincipal(t *testing.T) {
   }) { requestId }
 }`
 	response = rustAPIRawGraphQLContext(t, resolver, context.Background(), mutation, nil)
-	if len(response.Errors) != 5 {
-		t.Errorf("owner-sensitive mutation errors = %#v, want five", response.Errors)
+	if len(response.Errors) != 3 {
+		t.Errorf("owner-sensitive mutation errors = %#v, want three", response.Errors)
 	}
 	for index, errorValue := range response.Errors {
 		if !strings.Contains(errorValue.Message, "request is unauthenticated") {

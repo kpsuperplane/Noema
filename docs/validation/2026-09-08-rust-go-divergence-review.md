@@ -25,6 +25,8 @@ They contain no login credentials. Their `authenticated` status represents avail
 Retaining those entries preserves existing browser and web routes.
 Commit `57b1d9a4` implements model-account creation on explicit configuration.
 Both reported host startup tests and mocked Codex login tests pass.
+Commit `eafca44c` also creates accounts during explicit OpenAI setup and local model activation.
+Focused environment, account protection, local model, and configured-state API checks pass.
 
 ## Limits of the earlier audit
 
@@ -98,6 +100,7 @@ ACP-specific task expectations are retired by the user's removal decision.
 | Notification suppression | A nearby repeated waiting event creates another task reference. | Rust suppresses the repeated reference. |
 | Event reads | Pagination accepts a malformed stored event payload. | Rust rejects malformed persisted events in either direction. |
 | Old action approval | A reconciliation scenario leaves a run queued where Rust expects cancellation. | Verify the actual action and current task gate before classifying an authorization defect. |
+| Cancellation cleanup | A replacement run can start before the cancelled provider finishes cleanup. | The focused test reproduces this before ACP removal: 5 failures in 20 runs at `8751da56`. This is an existing race. |
 | Document updates | The direct store test accepts a digest that the public path rejects. | Repair the test boundary; no lost-update conclusion is established. |
 
 Review choice: preserve exact conflict categories, repeated-checkpoint success, event validation, and repeated-notification suppression.
@@ -118,3 +121,27 @@ The existing request to match Rust response contracts already covers error categ
 Review choices: database location, automatic conversation directories, root-replacement rejection, and exact diagnostic format and limits.
 No Rust database upgrade support is needed. This does not authorize resetting an existing Go database.
 Deterministic fixture repair is already approved.
+
+## Implemented ACP removal
+
+Commits `9637b1a5` and `2889e5a3` remove the ACP API, client controls, execution code, and SDK dependency.
+Migration 38 preserves history, stops unfinished ACP work, and pauses its recurrences.
+Historic placement markers prevent automatic fallback to a provider executor.
+The [retirement record](../development/acp-retirement.md) lists 11 removed Rust mappings and the replacement preservation check.
+Go static checks and the web build pass for this change.
+Frontend type checking still fails on an existing missing `enabled` input in `TaskModelPoolsSettings.tsx`.
+iOS compilation and rendered inspection were unavailable in this environment.
+The combined Go suite still fails; this change does not establish full parity.
+
+## Combined validation after corrections
+
+Tested `eafca44c` plus the retained-operation authentication count correction.
+Command: `CGO_ENABLED=0 go test ./cmd/... ./internal/... -timeout 2m`.
+Result: 16 packages passed, 8 failed, and 6 contained no tests.
+There were 192 top-level failures and no package timeouts.
+Failing packages: adapter, artifact, diagnostics, GraphQL, home, MCP, runtime, and store.
+The main server command and provider packages pass.
+`CGO_ENABLED=0 go vet ./cmd/... ./internal/...` passes for the same changes.
+Unchanged successful package results were reused by Go's test cache.
+The only newly named failure against September 7 is the independently reproduced pre-existing cancellation race.
+The earlier progress-finalization timeout did not recur in this run.
