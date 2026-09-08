@@ -3,8 +3,6 @@ module github.com/kpsuperplane/noema
 go 1.26.6
 
 require (
-	github.com/google/uuid v1.6.0
-	github.com/urfave/cli/v3 v3.11.0
 	codeberg.org/readeck/go-readability/v2 v2.1.2
 	github.com/99designs/gqlgen v0.17.95
 	github.com/Clownsw/xls v0.0.0-20260814025520-9f01d46e32fa
@@ -13,7 +11,6 @@ require (
 	github.com/adhocore/gronx v1.20.3
 	github.com/andybalholm/cascadia v1.3.4
 	github.com/arnodel/golua v0.1.2
-	github.com/coder/acp-go-sdk v0.13.5
 	github.com/coder/websocket v1.8.15
 	github.com/ergochat/webpush-go/v2 v2.0.0
 	github.com/fyne-io/image v0.1.1
@@ -22,6 +19,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/jsonschema-go v0.4.3
+	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/ncruces/go-sqlite3 v0.35.4
 	github.com/pelletier/go-toml/v2 v2.4.3
@@ -29,6 +27,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
+	github.com/urfave/cli/v3 v3.11.0
 	github.com/vektah/gqlparser/v2 v2.5.37
 	github.com/xuri/excelize/v2 v2.11.0
 	github.com/yuin/goldmark v1.8.6

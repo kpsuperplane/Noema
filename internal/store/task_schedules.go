@@ -631,6 +631,9 @@ func (s *Store) SetTaskRecurrenceLifecycle(
 			if !valid {
 				return ErrInvalidTransition
 			}
+			if next == RecurrenceActive && value.ExecutorAcpConnectionRevision != nil {
+				return ErrUnsupportedTaskExecutor
+			}
 			if next == RecurrenceActive && value.MissedRunPolicy == schedule.MissedRunSkip &&
 				value.NextRunAt != nil && value.NextRunAt.Before(now) {
 				slotAuthority := *value
@@ -1045,6 +1048,9 @@ func materializeOccurrenceTx(
 	ctx context.Context, tx bun.Tx, value *TaskRecurrence, id string, due time.Time, trigger string,
 	release bool, actor, correlation string, now time.Time,
 ) (Task, WorkEvent, error) {
+	if value.ExecutorAcpConnectionRevision != nil {
+		return Task{}, WorkEvent{}, ErrUnsupportedTaskExecutor
+	}
 	var err error
 	if id == "" {
 		id, err = newID("task")
@@ -1176,23 +1182,21 @@ WHERE project_id = ? AND workspace_id = 'workspace:personal'`, id).Scan(&archive
 	return nil
 }
 
+var ErrUnsupportedTaskExecutor = errors.New("Task executor is no longer supported")
+
 func validateTaskExecutorTx(ctx context.Context, tx bun.Tx, id string) (*int64, error) {
 	var role sql.NullString
-	var enabled sql.NullBool
-	var revision sql.NullInt64
-	err := tx.QueryRowContext(ctx, `SELECT a.system_role, c.enabled, c.connection_revision
-FROM agents a LEFT JOIN acp_agents c ON c.agent_id = a.agent_id WHERE a.agent_id = ?`, id).
-		Scan(&role, &enabled, &revision)
+	err := tx.QueryRowContext(ctx, "SELECT system_role FROM agents WHERE agent_id = ?", id).Scan(&role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAgentNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !role.Valid && (!enabled.Valid || !enabled.Bool) {
-		return nil, ErrInvalidAcpAgent
+	if !role.Valid {
+		return nil, ErrUnsupportedTaskExecutor
 	}
-	return nullIntPointer(revision), nil
+	return nil, nil
 }
 
 func applyScheduleToTask(task *Task, value *schedule.Schedule) {

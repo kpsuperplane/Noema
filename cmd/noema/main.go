@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kpsuperplane/noema/internal/acp"
 	noemaadapter "github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
@@ -37,9 +36,6 @@ import (
 )
 
 func main() {
-	if handled, status := acp.RunTaskMCPIfRequested(os.Args, os.Stdin, os.Stdout); handled {
-		os.Exit(status)
-	}
 	if handled, status := noemaruntime.RunFileParseWorkerIfRequested(); handled {
 		os.Exit(status)
 	}

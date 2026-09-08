@@ -546,33 +546,6 @@ func TestDueSchedulesRespectDaylightSavingTransitions(t *testing.T) {
 	}
 }
 
-func TestTaskPlacementSnapshotsAcpRevisionAndGuardsDeletion(t *testing.T) {
-	database := openTestStore(t)
-	ctx := context.Background()
-	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
-	agent, err := database.CreateAcpAgent(ctx, "Local", "agent", nil, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, _ := NewTaskID()
-	first := now.Add(time.Hour)
-	value := normalizedTestSchedule(t, first, schedule.MissedRunOnce, schedule.OverlapAllow)
-	created, err := database.CreateTaskWithOptions(ctx, id, "Placed", testTaskCommand("placed-create"),
-		TaskCreateOptions{ExecutorAgentID: agent.AgentID, Schedule: &value}, now)
-	if err != nil || created.Task.ExecutorAcpConnectionRevision == nil ||
-		*created.Task.ExecutorAcpConnectionRevision != agent.ConnectionRevision {
-		t.Fatalf("placed Task = %#v, %v", created.Task, err)
-	}
-	recurrence, _ := database.TaskRecurrence(ctx, created.RecurrenceID)
-	if recurrence.ExecutorAcpConnectionRevision == nil ||
-		*recurrence.ExecutorAcpConnectionRevision != agent.ConnectionRevision {
-		t.Fatalf("recurrence executor = %#v", recurrence)
-	}
-	if _, err := database.DeleteAcpAgent(ctx, agent.AgentID, agent.ConnectionRevision); !errors.Is(err, ErrAcpAgentInUse) {
-		t.Fatalf("delete referenced Agent error = %v", err)
-	}
-}
-
 func normalizedTestSchedule(
 	t *testing.T, first time.Time, missed schedule.MissedRunPolicy, overlap schedule.OverlapPolicy,
 ) schedule.Schedule {

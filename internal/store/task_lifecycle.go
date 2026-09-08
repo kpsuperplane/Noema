@@ -46,8 +46,6 @@ type TaskRun struct {
 	ExecutorBackend    string
 	ExecutorAgentID    string
 	EffectiveCwd       *string
-	AcpLaunch          *AcpLaunch `bun:"-"`
-	AcpSessionID       *string    `bun:"-"`
 	ErrorCode          *string
 	ErrorMessage       *string
 	ProviderCallCount  int64
@@ -62,13 +60,6 @@ type TaskRun struct {
 	UpdatedAt          time.Time           `bun:"updated_at_ms"`
 	StartedAt          *time.Time          `bun:"started_at_ms"`
 	EndedAt            *time.Time          `bun:"ended_at_ms"`
-}
-
-// AcpLaunch is the immutable process selection saved with one ACP Executor run.
-type AcpLaunch struct {
-	ConnectionRevision int64    `json:"connection_revision"`
-	Command            string   `json:"command"`
-	Arguments          []string `json:"arguments"`
 }
 
 // TaskGate is one durable human gate.
@@ -515,6 +506,9 @@ func finishTaskLifecycleTx(ctx context.Context, tx bun.Tx, task Task, command Ta
 }
 
 func insertQueuedTaskRun(ctx context.Context, tx bun.Tx, task Task, kind string, parent *TaskRun, now time.Time) (TaskRun, error) {
+	if task.ExecutorAcpConnectionRevision != nil {
+		return TaskRun{}, ErrUnsupportedTaskExecutor
+	}
 	id, err := newID("run")
 	if err != nil {
 		return TaskRun{}, err
@@ -527,14 +521,6 @@ func insertQueuedTaskRun(ctx context.Context, tx bun.Tx, task Task, kind string,
 		attempt, review, parentID = parent.AttemptIndex+1, parent.ReviewRound, parent.ID
 	}
 	backend := "provider"
-	var acpLaunch *AcpLaunch
-	if kind == "executor" && task.ExecutorAcpConnectionRevision != nil {
-		backend = "acp"
-		acpLaunch, err = resolveAcpLaunchTx(ctx, tx, task)
-		if err != nil {
-			return TaskRun{}, err
-		}
-	}
 	effectiveCwd := cloneString(task.CwdOverride)
 	if kind == "executor" {
 		effectiveCwd, err = taskRunEffectiveCwdTx(ctx, tx, task)
@@ -581,10 +567,6 @@ VALUES (?,?,?,?,?,'queued',?,?,?,NULLIF(?,''),?,?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,
 		run.ProviderKind, run.ProviderAccountID, run.SelectionMode, nullableString(run.ModelProfile), nullableString(run.ReasoningEffort), run.FastMode,
 		run.ExecutorBackend, run.ExecutorAgentID, nullableString(run.EffectiveCwd), policy.MaxProviderContinuations, policy.MaxToolCalls,
 		policy.MaxActiveMinutes, policy.ProgressAuditInterval, policy.MaxAutomaticRetries, policy.MaxReviewRounds, millis(now), millis(now), millis(now))
-	if err == nil && acpLaunch != nil {
-		run.AcpLaunch = acpLaunch
-		err = insertAcpLaunchTx(ctx, tx, run.ID, *acpLaunch, now)
-	}
 	return run, err
 }
 
@@ -767,11 +749,6 @@ func (s *Store) TaskRuns(ctx context.Context, taskID string, limit int) ([]TaskR
 		Order("created_at_ms DESC", "run_id DESC").Limit(limit).Scan(ctx); err != nil {
 		return nil, err
 	}
-	for index := range values {
-		if err := hydrateAcpRun(ctx, s.db, &values[index]); err != nil {
-			return nil, err
-		}
-	}
 	return values, nil
 }
 func (s *Store) TaskMessages(ctx context.Context, taskID string, limit int) ([]TaskMessage, error) {
@@ -824,9 +801,6 @@ func taskRunTx(ctx context.Context, q bun.IDB, id string) (TaskRun, error) {
 	var run TaskRun
 	err := q.NewSelect().Model(&run).Where("run_id = ?", id).Scan(ctx)
 	if err != nil {
-		return TaskRun{}, err
-	}
-	if err := hydrateAcpRun(ctx, q, &run); err != nil {
 		return TaskRun{}, err
 	}
 	return run, nil

@@ -28,7 +28,7 @@ var migrations = [...]string{
 	schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL,
 	schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL, schemaV23SQL, schemaV24SQL,
 	schemaV25SQL, schemaV26SQL, schemaV27SQL, schemaV28SQL, schemaV29SQL, schemaV30SQL,
-	schemaV31SQL, schemaV32SQL, schemaV33SQL, schemaV34SQL, schemaV35SQL, schemaV36SQL, schemaV37SQL,
+	schemaV31SQL, schemaV32SQL, schemaV33SQL, schemaV34SQL, schemaV35SQL, schemaV36SQL, schemaV37SQL, schemaV38SQL,
 }
 
 const schemaVersion = len(migrations)
@@ -125,9 +125,6 @@ func (s *Store) initialize(ctx context.Context) error {
 	}
 	if _, err := tx.ExecContext(ctx, ensureBuiltInAgentsSQL); err != nil {
 		return fmt.Errorf("repair built-in Agents: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, recoverAcpAuthenticationSQL); err != nil {
-		return fmt.Errorf("recover ACP authentication: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, recoverMcpOAuthSQL); err != nil {
 		return fmt.Errorf("recover MCP OAuth: %w", err)
@@ -632,23 +629,6 @@ VALUES
 ON CONFLICT(agent_id) DO UPDATE SET
     system_role = excluded.system_role,
     updated_at_ms = excluded.updated_at_ms;
-`
-
-const recoverAcpAuthenticationSQL = `
-UPDATE acp_agents
-SET auth_status = 'failed',
-    last_error = 'Authentication stopped when the server restarted.',
-    updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-WHERE EXISTS (
-    SELECT 1 FROM acp_auth_attempts a
-    WHERE a.agent_id = acp_agents.agent_id AND a.state = 'pending'
-);
-
-UPDATE acp_auth_attempts
-SET state = 'failed',
-    safe_message = 'Authentication stopped when the server restarted.',
-    completed_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-WHERE state = 'pending';
 `
 
 const recoverMcpOAuthSQL = `

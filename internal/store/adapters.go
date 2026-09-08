@@ -73,7 +73,7 @@ func (s *Store) AdapterIndexCounts(ctx context.Context) (int, int, error) {
 	return definitions, connections, nil
 }
 
-// HasAdapterReferences reports whether current ACP configuration names one adapter definition.
+// HasAdapterReferences reports whether current configuration names one adapter definition.
 func (s *Store) HasAdapterReferences(ctx context.Context, definitionID string) (bool, error) {
 	if definitionID == "" {
 		return false, errors.New("adapter definition is required")
