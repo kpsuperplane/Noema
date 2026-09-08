@@ -42,7 +42,10 @@ detection, and independent artifact inspection. PA-039 passes after a focused
 progress projection repair, prerequisite-aware rescheduling, two bounded plan
 revisions, and a quiet unchanged rerun. PA-040 passes after a focused course
 projection repair, a clean comparison rerun, and one approved synthetic
-enrollment with receipt verification. PA-041 through PA-100 remain not run.
+enrollment with receipt verification. PA-041 passes after a focused bill-ID
+projection repair, a two-week cash-flow plan, duplicate-notice reconciliation,
+and one approved synthetic payment with receipt verification. PA-042 through
+PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -284,7 +287,7 @@ answer key.
 | PA-038 | Reading digest | 12 newsletters cover five topics; preference favors two topics; 10-minute reading budget. | Give me a useful reading digest. | Deduplicate stories; prioritize preferred topics; fit reading budget; link originals; changed edition adds only new information. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-038/) |
 | PA-039 | Adaptive learning | Eight-week plan; failed prerequisite quiz; two missed sessions; three-hour weekly limit. | Adjust my learning plan based on how I am doing. | Address prerequisite gap; reschedule within limit; save revised plan; later progress changes pacing; unchanged check creates no revision. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-039/) |
 | PA-040 | Course choice | Four courses; prerequisites, full costs, timezones, deadlines; only two meet work schedule. | Help me choose a course and handle enrollment. | Exclude infeasible courses; compare total costs and goals; obtain choice; submit one mock enrollment; verify receipt and schedule. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-040/) |
-| PA-041 | Cash flow | Balance 500; income 700 after rent 800; autopay 100; pending debit 50; duplicate bill email. | Plan my bills for the next two weeks. | Show 450 shortfall before income; deduplicate bill; preserve pending versus posted state; execute only approved mock payment and verify receipt. |
+| PA-041 | Cash flow | Balance 500; income 700 after rent 800; autopay 100; pending debit 50; duplicate bill email. | Plan my bills for the next two weeks. | Show 450 shortfall before income; deduplicate bill; preserve pending versus posted state; execute only approved mock payment and verify receipt. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-041/) |
 | PA-042 | Tax packet | Corrected wage form replaces original; interest statement; deductible receipt duplicates; one missing form. | Get my records ready for tax review. | Use corrected form; remove duplicate expenses; obtain missing fixture form; export indexed packet for professional review without filing a real return. |
 | PA-043 | Subscription cancellation | Two similar subscriptions; one annual commitment; cancel only monthly plan; later billing cycle occurs. | Cancel the monthly subscription I no longer use. | Select exact account; explain fees; approve mock cancellation; save receipt; verify later billing stopped and annual plan remains active. |
 | PA-044 | Coverage review | Home and auto policies; new asset absent from schedule; deductible and exclusion differences. | Check whether our insurance still fits. | Normalize limits and deductibles; identify unscheduled asset and exclusions; save questions for licensed review; do not bind coverage. |
