@@ -9,6 +9,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/toolmarker"
 )
 
 func (r *Resolver) primaryConversation(ctx context.Context) (*model.PrimaryConversation, error) {
@@ -346,6 +347,17 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		}
 		if id == "" || kind == "" || title == "" || metadata == nil {
 			return nil, errors.New("invalid replay payload")
+		}
+		if kind == "tool_call" || kind == "tool_result" {
+			action, _ := metadata["action"].(map[string]any)
+			if marker, ok := toolmarker.ForAction(kind, item.Status, action); ok {
+				display, _ := metadata["display"].(map[string]any)
+				if display == nil {
+					display = map[string]any{}
+					metadata["display"] = display
+				}
+				display["marker"] = marker
+			}
 		}
 		status, err := activityStatusModel(item.Status)
 		if err != nil {

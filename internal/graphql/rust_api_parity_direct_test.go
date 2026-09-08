@@ -903,12 +903,16 @@ func rustAPIPortConversationReplay(t *testing.T) {
 	if value, ok := choice.(model.MultipleChoicePrompt); !ok || len(value.Options) != 1 || value.Options[0].ID != "ship" {
 		t.Fatalf("choice replay = %#v", choice)
 	}
-	activity, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationToolCall, Status: "cancelled", Payload: map[string]any{"id": "tool_call:conversation_1:0:1", "activity_kind": "tool_call", "title": "Tool call: search_memory", "summary": "provider id call_1", "metadata": map[string]any{"action": map[string]any{"name": "search_memory"}, "display": map[string]any{"marker": map[string]any{"status": "cancelled"}}}}})
+	activity, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationToolCall, Status: "cancelled", Payload: map[string]any{"id": "tool_call:conversation_1:0:1", "activity_kind": "tool_call", "title": "Tool call: search_memory", "summary": "provider id call_1", "metadata": map[string]any{"action": map[string]any{"name": "search_memory", "payload": map[string]any{"query": "Noema"}}, "display": map[string]any{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, ok := activity.(model.Activity); !ok || value.Status != model.TurnActivityStatusFailed || value.Metadata["display"].(map[string]any)["marker"].(map[string]any)["status"] != "cancelled" {
+	if value, ok := activity.(model.Activity); !ok || value.Status != model.TurnActivityStatusFailed {
 		t.Fatalf("cancelled activity replay = %#v", activity)
+	}
+	marker := activity.(model.Activity).Metadata["display"].(map[string]any)["marker"].(map[string]any)
+	if marker["identity"] != "Search memory" || marker["summary"] != "Cancelled: searching memory for “Noema”" || marker["status"] != "cancelled" {
+		t.Fatalf("replayed tool marker = %#v", marker)
 	}
 	artifact, err := transcriptItemModel(store.ConversationItem{Kind: store.ConversationArtifactReference, Payload: map[string]any{"artifact_id": "artifact_1", "artifact_version_id": "artifact_version_1", "title": "Noema notes", "artifact_kind": "document", "storage_kind": "external_url", "external_url": "https://example.com/notes", "media_type": "text/html"}})
 	if err != nil {

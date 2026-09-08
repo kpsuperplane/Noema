@@ -21,6 +21,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/project"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/toolmarker"
 	"github.com/kpsuperplane/noema/internal/webtool"
 )
 
@@ -657,6 +658,9 @@ func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.Con
 		displayName, access = "Downloaded File", "Downloads a public file into the working directory"
 	}
 	display := map[string]any{"name": displayName, "access": access}
+	if marker, ok := toolmarker.Build(event.Name, "running", false, nil, nil); ok {
+		display["marker"] = marker
+	}
 	item := store.ConversationItem{
 		ID:             "transient:" + activityID,
 		ConversationID: turn.ConversationID,

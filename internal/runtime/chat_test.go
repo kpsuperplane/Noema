@@ -326,6 +326,7 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 			Body: io.NopCloser(strings.NewReader(hostedStream)),
 		}, nil
 	}))
+	var liveHostedMarkers int
 	for index, input := range []string{"Find current trains", "Check again"} {
 		if _, err := chat.SendTurn(ctx, SendTurnInput{ConversationID: conversation.ID, Input: input}); err != nil {
 			t.Fatal(err)
@@ -335,7 +336,18 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 			if event.Item != nil && event.Item.Kind == store.ConversationErrorNotice {
 				t.Fatalf("turn %d failed: %#v", index, event.Item)
 			}
+			if event.Item != nil && event.Item.Kind == store.ConversationToolCall {
+				metadata, _ := event.Item.Payload["metadata"].(map[string]any)
+				display, _ := metadata["display"].(map[string]any)
+				marker, _ := display["marker"].(map[string]any)
+				if marker["kind"] == "web.search" {
+					liveHostedMarkers++
+				}
+			}
 		}
+	}
+	if liveHostedMarkers != 2 {
+		t.Fatalf("live hosted web markers = %d", liveHostedMarkers)
 	}
 	firstRequest, secondRequest := <-requests, <-requests
 	if len(firstRequest["tools"].([]any)) != 36 {
@@ -367,8 +379,8 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 		case store.ConversationToolCall:
 			calls++
 			display := item.Payload["metadata"].(map[string]any)["display"].(map[string]any)
-			if display["marker"].(map[string]any)["kind"] != "web.search" {
-				t.Fatalf("hosted web marker = %#v", display)
+			if _, exists := display["marker"]; exists {
+				t.Fatalf("stored hosted web marker was not deferred to replay = %#v", display)
 			}
 			action := item.Payload["metadata"].(map[string]any)["action"].(map[string]any)
 			correlations[action["id"].(string)] = false

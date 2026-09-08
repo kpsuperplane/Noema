@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/uptrace/bun"
+
+	"github.com/kpsuperplane/noema/internal/toolmarker"
 )
 
 // ConversationToolCallInput is one validated provider call for durable storage.
@@ -548,6 +550,9 @@ UPDATE conversations SET agent_status = 'idle', updated_at_ms = ? WHERE conversa
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit conversation tool round: %w", err)
 	}
+	for index := range items {
+		decorateConversationToolMarker(&items[index], nil)
+	}
 	return items, nil
 }
 
@@ -584,6 +589,27 @@ func (s *Store) FinishConversationToolCall(
 	status := "failed"
 	if result.Success {
 		status = "completed"
+	}
+	var resultMarker map[string]any
+	if marker, ok := toolmarker.Build(result.Name, status, true, nil, payloadValue); ok {
+		resultMarker = marker
+	}
+	if resultMarker == nil && result.Name == "web.browse.open" {
+		var callPayloadJSON string
+		if queryErr := s.db.QueryRowContext(ctx, `
+SELECT payload_json FROM conversation_items
+WHERE item_id = ? AND conversation_id = ?`, result.CallItemID, turn.ConversationID).Scan(&callPayloadJSON); queryErr == nil {
+			var callPayload map[string]any
+			if json.Unmarshal([]byte(callPayloadJSON), &callPayload) == nil {
+				if callMetadata, ok := callPayload["metadata"].(map[string]any); ok {
+					if callAction, ok := callMetadata["action"].(map[string]any); ok {
+						if marker, ok := toolmarker.ForAction("tool_call", status, callAction); ok {
+							resultMarker = marker
+						}
+					}
+				}
+			}
+		}
 	}
 	now = now.UTC()
 	resultID := stableConversationOutputID(turn.ID, "tool_result", result.ProviderRound, result.OutputIndex)
@@ -632,6 +658,7 @@ FROM conversation_items WHERE item_id = ? AND conversation_id = ?`,
 		if err := tx.Commit(); err != nil {
 			return ConversationItem{}, err
 		}
+		decorateConversationToolMarker(&item, resultMarker)
 		return item, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -678,6 +705,7 @@ UPDATE conversation_items SET status = ?, updated_at_ms = ? WHERE item_id = ?`,
 	if err := tx.Commit(); err != nil {
 		return ConversationItem{}, fmt.Errorf("commit conversation tool result: %w", err)
 	}
+	decorateConversationToolMarker(&item, resultMarker)
 	return item, nil
 }
 

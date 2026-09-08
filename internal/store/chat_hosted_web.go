@@ -163,6 +163,9 @@ WHERE turn_id = ? AND kind IN ('user_text', 'multiple_choice_selection') ORDER B
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit hosted web search storage: %w", err)
 	}
+	for index := range items {
+		decorateConversationToolMarker(&items[index], nil)
+	}
 	return items, nil
 }
 
@@ -251,7 +254,6 @@ func hostedCallDisplay(name string, arguments map[string]any) map[string]any {
 	} else if target, ok := arguments["url"].(string); ok && strings.TrimSpace(target) != "" {
 		display["target"] = hostedDisplayURL(target)
 	}
-	display["marker"] = hostedMarker(identity, name, "complete", display["target"])
 	return display
 }
 
@@ -356,39 +358,10 @@ func hostedResultDisplay(
 	success bool,
 ) map[string]any {
 	display := hostedCallDisplay(name, arguments)
-	status := "complete"
-	if !success {
-		status = "error"
-	}
-	display["marker"] = hostedMarker(display["name"].(string), name, status, display["target"])
 	if summary, ok := result["summary"].(string); ok && strings.TrimSpace(summary) != "" {
 		display["result"] = strings.TrimSpace(summary)
 	}
 	return display
-}
-
-func hostedMarker(identity, kind, status string, target any) map[string]any {
-	summary := identity
-	if value, ok := target.(string); ok && value != "" {
-		summary = value
-	}
-	detail := "Used " + identity
-	if status == "error" {
-		detail = identity + " failed"
-	}
-	marker := map[string]any{
-		"identity": identity, "summary": summary, "detailTitle": detail,
-		"status": status, "kind": kind,
-	}
-	if value, ok := target.(string); ok && value != "" {
-		marker["subject"] = value
-		if kind == "web.search" {
-			marker["subjectLabel"] = "Search"
-		} else {
-			marker["subjectLabel"] = "Page"
-		}
-	}
-	return marker
 }
 
 func optionalHostedValue(value string) any {

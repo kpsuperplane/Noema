@@ -1383,10 +1383,19 @@ func TestRustRuntime_runtime_turn_streams_tool_call_started_before_durable_respo
 	if replayedID, _ := replayedTool.Payload["id"].(string); replayedID != transientActivity.Payload["id"] {
 		t.Fatalf("durable call did not replace transient activity: durable=%q transient=%#v", replayedID, transientActivity.Payload)
 	}
+	durableMetadata, _ := durableTool.Payload["metadata"].(map[string]any)
+	durableDisplay, _ := durableMetadata["display"].(map[string]any)
+	durableMarker, _ := durableDisplay["marker"].(map[string]any)
+	if durableMarker["identity"] != "Search memory" || durableMarker["summary"] != "Searching memory for “trains”" || durableMarker["status"] != "running" || durableMarker["subject"] != "trains" {
+		t.Fatalf("live durable tool marker = %#v", durableMarker)
+	}
 	metadata, _ := replayedTool.Payload["metadata"].(map[string]any)
 	display, _ := metadata["display"].(map[string]any)
 	if display["description"] != "Searching memory." {
 		t.Fatalf("durable tool display = %#v", display)
+	}
+	if _, exists := display["marker"]; exists {
+		t.Fatalf("stored tool marker was not deferred to replay = %#v", display)
 	}
 }
 
