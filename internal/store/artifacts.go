@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -396,6 +397,12 @@ func scanArtifactVersion(row rowScanner) (ArtifactVersion, error) {
 	value.Metadata, err = decodeArtifactMetadata(metadata)
 	if err != nil {
 		return ArtifactVersion{}, err
+	}
+	if value.ExternalURL != nil {
+		parsed, parseErr := url.Parse(*value.ExternalURL)
+		if parseErr != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return ArtifactVersion{}, errors.New("stored Artifact external URL is invalid")
+		}
 	}
 	if size.Valid {
 		value.ByteSize = &size.Int64

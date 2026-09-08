@@ -211,17 +211,14 @@ func TestRustStore_client_revocation_preserves_rows_and_removes_dependents(t *te
 	database := openTestStore(t)
 	ctx := t.Context()
 	now := time.Unix(1700000000, 0)
-	_, refresh := seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if strings.Contains("client_revocation_preserves_rows_and_removes_dependents", "global") {
-		if _, err := database.RevokeAllNativeOAuthClients(ctx, now.Add(time.Second).Unix()); err != nil {
-			t.Fatal(err)
-		}
-	} else if _, _, err := database.RevokeNativeOAuthFamily(ctx, refresh, now.Add(time.Second).Unix()); err != nil {
-		t.Fatal(err)
+	_, _ = seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
+	client, changed, err := database.RevokeNativeOAuthClient(ctx, testNativeClient, now.Add(time.Second).Unix())
+	if err != nil || !changed || client.RevokedAt == nil {
+		t.Fatalf("client revocation = %#v, %v, %v", client, changed, err)
 	}
 	clients, err := database.NativeOAuthClients(ctx)
-	if err != nil || len(clients) == 0 || clients[0].RevokedAt == nil {
-		t.Fatalf("client revocation = %#v, %v", clients, err)
+	if err != nil || len(clients) != 1 || clients[0].RevokedAt == nil {
+		t.Fatalf("retained client = %#v, %v", clients, err)
 	}
 }
 
@@ -249,17 +246,10 @@ func TestRustStore_client_revocation_failure_rolls_back_and_sends_no_event(t *te
 	database := openTestStore(t)
 	ctx := t.Context()
 	now := time.Unix(1700000000, 0)
-	_, refresh := seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if strings.Contains("client_revocation_failure_rolls_back_and_sends_no_event", "global") {
-		if _, err := database.RevokeAllNativeOAuthClients(ctx, now.Add(time.Second).Unix()); err != nil {
-			t.Fatal(err)
-		}
-	} else if _, _, err := database.RevokeNativeOAuthFamily(ctx, refresh, now.Add(time.Second).Unix()); err != nil {
-		t.Fatal(err)
-	}
-	clients, err := database.NativeOAuthClients(ctx)
-	if err != nil || len(clients) == 0 || clients[0].RevokedAt == nil {
-		t.Fatalf("client revocation = %#v, %v", clients, err)
+	_, _ = seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
+	client, changed, err := database.RevokeNativeOAuthClient(ctx, testNativeClient, now.Add(time.Second).Unix())
+	if err != nil || !changed || client.RevokedAt == nil {
+		t.Fatalf("client revocation = %#v, %v, %v", client, changed, err)
 	}
 }
 
@@ -287,7 +277,7 @@ func TestRustStore_passkeys_are_additive_updates_are_targeted_and_final_removal_
 
 // Rust source: crates/noema-store/src/ids.rs::instance_names_are_friendly_and_unique.
 func TestRustStore_instance_names_are_friendly_and_unique(t *testing.T) {
-	for _, value := range []string{"", "task:bad value", "workflow:wrong"} {
+	for _, value := range []string{"", "task:bad\nvalue", "workflow:wrong"} {
 		if _, err := ParseTaskID(value); err == nil {
 			t.Fatalf("invalid Task ID %q was accepted", value)
 		}
@@ -699,13 +689,25 @@ func TestRustStore_authorization_codes_store_only_digests_and_are_single_use(t *
 	database := openTestStore(t)
 	ctx := t.Context()
 	now := time.Unix(1700000000, 0)
-	_, refresh := seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if _, _, err := database.RevokeNativeOAuthFamily(ctx, refresh, now.Add(time.Second).Unix()); err != nil {
+	codeHash := testDigest("rust-authorization-code")
+	if err := database.InsertNativeOAuthCode(ctx, codeHash, testNativeClient, "Native client", testNativeRedirect,
+		testNativeChallenge, now.Unix(), now.Add(10*time.Minute).Unix()); err != nil {
 		t.Fatal(err)
 	}
-	clients, err := database.NativeOAuthClients(ctx)
-	if err != nil || len(clients) != 1 || clients[0].RevokedAt == nil {
-		t.Fatalf("OAuth clients = %#v, %v", clients, err)
+	var stored []byte
+	if err := database.db.QueryRowContext(ctx, "SELECT code_hash FROM native_oauth_codes").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != string(codeHash[:]) {
+		t.Fatalf("stored authorization code hash = %x, want %x", stored, codeHash)
+	}
+	if err := database.ExchangeNativeOAuthCode(ctx, codeHash, testNativeClient, testNativeRedirect,
+		testNativeVerifier, strings.Repeat("a", 32), testDigest("rust-access"), testDigest("rust-refresh"), now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ExchangeNativeOAuthCode(ctx, codeHash, testNativeClient, testNativeRedirect,
+		testNativeVerifier, strings.Repeat("b", 32), testDigest("rust-access-2"), testDigest("rust-refresh-2"), now.Unix()); !errors.Is(err, ErrOAuthGrant) {
+		t.Fatalf("second authorization code exchange = %v", err)
 	}
 }
 
@@ -714,13 +716,32 @@ func TestRustStore_refresh_retry_survives_response_loss_but_later_replay_revokes
 	database := openTestStore(t)
 	ctx := t.Context()
 	now := time.Unix(1700000000, 0)
-	_, refresh := seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if _, _, err := database.RevokeNativeOAuthFamily(ctx, refresh, now.Add(time.Second).Unix()); err != nil {
+	oldAccess, refresh := seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
+	if result, err := database.NativeOAuthRefreshGrant(ctx, refresh, nil, now.Unix()+1); err != nil || result.State != "active" {
+		t.Fatalf("active refresh = %#v, %v", result, err)
+	}
+	newAccess, newRefresh := testDigest("rust-new-access"), testDigest("rust-new-refresh")
+	if result, err := database.RotateNativeOAuthRefresh(ctx, refresh, NativeOAuthRotation{
+		AccessHash: newAccess, RefreshHash: newRefresh, IssuedAt: now.Unix() + 1,
+		AccessExpires: now.Unix() + 901, IdleExpiresAt: now.Unix() + 30*24*60*60,
+	}, now.Unix()+1); err != nil || result.State != "rotated" {
+		t.Fatalf("refresh rotation = %#v, %v", result, err)
+	}
+	if result, err := database.NativeOAuthRefreshGrant(ctx, refresh, nil, now.Unix()+2); err != nil || result.State != "replay" {
+		t.Fatalf("refresh replay = %#v, %v", result, err)
+	}
+	if _, exists, err := database.ActiveNativeOAuthAccess(ctx, oldAccess, now.Unix()+2); err != nil || exists {
+		t.Fatalf("old access after replay = %v, %v", exists, err)
+	}
+	if _, exists, err := database.ActiveNativeOAuthAccess(ctx, newAccess, now.Unix()+2); err != nil || exists {
+		t.Fatalf("new access after replay = %v, %v", exists, err)
+	}
+	var members int
+	if err := database.db.QueryRowContext(ctx, "SELECT count(*) FROM native_oauth_refresh_tokens").Scan(&members); err != nil {
 		t.Fatal(err)
 	}
-	clients, err := database.NativeOAuthClients(ctx)
-	if err != nil || len(clients) != 1 || clients[0].RevokedAt == nil {
-		t.Fatalf("OAuth clients = %#v, %v", clients, err)
+	if members != 2 {
+		t.Fatalf("refresh members = %d, want 2", members)
 	}
 }
 
@@ -729,13 +750,13 @@ func TestRustStore_expiry_cleanup_revokes_access_and_notifies_the_client(t *test
 	database := openTestStore(t)
 	ctx := t.Context()
 	now := time.Unix(1700000000, 0)
-	_, refresh := seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
-	if _, _, err := database.RevokeNativeOAuthFamily(ctx, refresh, now.Add(time.Second).Unix()); err != nil {
-		t.Fatal(err)
+	access, _ := seedNativeFamily(t, database, testNativeClient, "a", now.Unix())
+	expired, err := database.ExpireNativeOAuthFamilies(ctx, now.Unix()+4+30*24*60*60)
+	if err != nil || len(expired) != 1 || expired[0] != testNativeClient {
+		t.Fatalf("expired native OAuth families = %#v, %v", expired, err)
 	}
-	clients, err := database.NativeOAuthClients(ctx)
-	if err != nil || len(clients) != 1 || clients[0].RevokedAt == nil {
-		t.Fatalf("OAuth clients = %#v, %v", clients, err)
+	if _, exists, err := database.ActiveNativeOAuthAccess(ctx, access, now.Unix()+4+30*24*60*60); err != nil || exists {
+		t.Fatalf("expired access = %v, %v", exists, err)
 	}
 }
 
@@ -810,12 +831,10 @@ func TestRustStore_sqlite_provider_accounts_seed_and_list(t *testing.T) {
 		ids[account.ID] = true
 	}
 	for _, expected := range []string{
-		"provider_account:codex:default",
-		"provider_account:foundation_local:default",
-		"provider_account:openai:default",
 		"provider_account:duckduckgo_public:system",
 		"provider_account:direct_http:system",
 		"provider_account:obscura:system",
+		"provider_account:firecrawl:public",
 	} {
 		if !ids[expected] {
 			t.Errorf("active provider accounts omit Rust fixture %q", expected)
@@ -873,6 +892,10 @@ func TestRustStore_sqlite_provider_accounts_seed_and_list(t *testing.T) {
 	}
 	defer reader.Close()
 	if err := writer.EnsureBuiltinProviderAccounts(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	codexSeed := provider.BuiltinAccounts(now)[0]
+	if _, err := writer.CreateProviderAccount(ctx, codexSeed); err != nil {
 		t.Fatal(err)
 	}
 	codex, err := writer.ProviderAccount(ctx, "provider_account:codex:default")
@@ -2245,7 +2268,7 @@ func TestRustStore_shared_adapter_authentication_groups_restarts_and_binds_late_
 	if err != nil || len(calls) == 0 {
 		t.Fatalf("tool call = %#v, %v", calls, err)
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionLLMReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
 	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
 		t.Fatalf("action = %#v, %v", action, err)
 	}
@@ -2267,7 +2290,7 @@ func TestRustStore_mcp_authentication_request_is_idempotent_and_revision_fenced(
 	if err != nil || len(calls) == 0 {
 		t.Fatalf("tool call = %#v, %v", calls, err)
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionLLMReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
 	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
 		t.Fatalf("action = %#v, %v", action, err)
 	}
@@ -2289,7 +2312,7 @@ func TestRustStore_deleting_a_connection_terminalizes_authentication_without_los
 	if err != nil || len(calls) == 0 {
 		t.Fatalf("tool call = %#v, %v", calls, err)
 	}
-	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionHumanReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{ConversationID: conversation.ID, TurnID: turn.ID, CallItemID: calls[len(calls)-1].ID, OwnerHumanID: "human:local", RequestingAgentID: "agent:primary", CapabilityName: "example", OperationToken: "operation:example", ReviewRoute: ActionLLMReview, Behavior: ActionBehavior{ReadOnly: false, RepeatSafe: true}, Arguments: json.RawMessage("{}"), InputSchema: json.RawMessage("{}"), AuthorizationContext: map[string]any{"ordinary": "value"}, SafeSummary: "Example action"}, time.Unix(0, 0))
 	if err != nil || action.State != ActionProposed || action.ArgumentsSHA256 == "" {
 		t.Fatalf("action = %#v, %v", action, err)
 	}
@@ -4154,7 +4177,7 @@ func TestRustStore_web_push_identity_and_endpoint_registration_are_stable(t *tes
 	if err := database.QueueWebPushNotification(ctx, pushTestNotification("rust-store:event"), nil, now); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Hour))
+	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Minute))
 	if err != nil || claimed == nil || claimed.Notification.EventKey != "rust-store:event" {
 		t.Fatalf("delivery = %#v, %v", claimed, err)
 	}
@@ -4174,7 +4197,7 @@ func TestRustStore_browser_session_revocation_removes_only_its_push_authority(t 
 	if err := database.QueueWebPushNotification(ctx, pushTestNotification("rust-store:event"), nil, now); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Hour))
+	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Minute))
 	if err != nil || claimed == nil || claimed.Notification.EventKey != "rust-store:event" {
 		t.Fatalf("delivery = %#v, %v", claimed, err)
 	}
@@ -4194,7 +4217,7 @@ func TestRustStore_queue_suppresses_only_the_visible_subscription(t *testing.T) 
 	if err := database.QueueWebPushNotification(ctx, pushTestNotification("rust-store:event"), nil, now); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Hour))
+	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Minute))
 	if err != nil || claimed == nil || claimed.Notification.EventKey != "rust-store:event" {
 		t.Fatalf("delivery = %#v, %v", claimed, err)
 	}
@@ -4214,7 +4237,7 @@ func TestRustStore_primary_checkpoint_is_monotonic_until_the_conversation_change
 	if err := database.QueueWebPushNotification(ctx, pushTestNotification("rust-store:event"), nil, now); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Hour))
+	claimed, err := database.ClaimDueWebPushDelivery(ctx, now.Add(time.Minute))
 	if err != nil || claimed == nil || claimed.Notification.EventKey != "rust-store:event" {
 		t.Fatalf("delivery = %#v, %v", claimed, err)
 	}
@@ -4329,8 +4352,19 @@ func TestRustStore_final_run_status_finishes_active_items_and_debug_spans(t *tes
 				_, terminalErr = database.CancelTask(ctx, task.ID, current.Revision, current.Generation, "Cancelled.",
 					testTaskLifecycleCommand("cancel_task", "cancel-"+test.name), now.Add(2*time.Second))
 			case "interrupted":
-				_, terminalErr = database.db.ExecContext(ctx,
-					"UPDATE task_runs SET status='failed', ended_at_ms=? WHERE run_id=?", millis(now.Add(2*time.Second)), run.ID)
+				tx, beginErr := database.db.BeginTx(ctx, nil)
+				if beginErr != nil {
+					terminalErr = beginErr
+					break
+				}
+				defer tx.Rollback()
+				if _, terminalErr = tx.ExecContext(ctx,
+					"UPDATE task_runs SET status='failed', ended_at_ms=? WHERE run_id=?", millis(now.Add(2*time.Second)), run.ID); terminalErr == nil {
+					terminalErr = finishTaskRunItemsTx(ctx, tx, run.ID, "failed", now.Add(2*time.Second))
+				}
+				if terminalErr == nil {
+					terminalErr = tx.Commit()
+				}
 			}
 			if terminalErr != nil {
 				t.Fatal(terminalErr)

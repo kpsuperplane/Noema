@@ -37,7 +37,15 @@ WHERE state_id=1 AND primary_task_notification_event_id < ?`, eventID, eventID)
 		return err
 	}
 	changed, _ := result.RowsAffected()
-	if changed != 1 {
+	if changed == 0 {
+		var current int64
+		if err := s.db.QueryRowContext(ctx, `SELECT primary_task_notification_event_id
+FROM local_human_state WHERE state_id=1`).Scan(&current); err != nil {
+			return err
+		}
+		if current >= eventID {
+			return nil
+		}
 		return errors.New("primary notification cursor changed")
 	}
 	return nil

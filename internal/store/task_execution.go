@@ -467,9 +467,18 @@ func isTaskExecutionControlItem(item TaskRunItem) bool {
 
 func itemContent(item TaskRunItem) string {
 	if item.Content == nil {
+		if name, ok := item.Payload["name"].(string); ok {
+			return name
+		}
 		return ""
 	}
-	return *item.Content
+	if strings.TrimSpace(*item.Content) != "" {
+		return *item.Content
+	}
+	if name, ok := item.Payload["name"].(string); ok {
+		return name
+	}
+	return ""
 }
 
 // continuationLineageOrder presents each completed tool action in the same
@@ -594,6 +603,9 @@ func (s *Store) FailTaskExecution(ctx context.Context, runID string, generation 
 		if err != nil {
 			return err
 		}
+		if err := finishTaskRunItemsTx(ctx, tx, run.ID, "failed", now); err != nil {
+			return err
+		}
 		if retryable && run.AttemptIndex < run.ExecutionPolicy.MaxAutomaticRetries {
 			return queueTaskExecutionChild(ctx, tx, task, *run, run.Kind, run.AttemptIndex+1, run.ReviewRound, now)
 		}
@@ -635,11 +647,49 @@ func (s *Store) completeTaskRun(ctx context.Context, runID string, generation in
 		if count, _ := changed.RowsAffected(); count != 1 {
 			return ErrStaleRun
 		}
+		if err := finishTaskRunItemsTx(ctx, tx, run.ID, "completed", now); err != nil {
+			return err
+		}
 		if err := appendTaskExecutionEvent(ctx, tx, *task, *run, "run.completed", map[string]any{"run_kind": run.Kind}, now); err != nil {
 			return err
 		}
 		return next(tx, task, *run)
 	})
+}
+
+// finishTaskRunItemsTx closes transcript records that were still active when
+// the run reached a terminal state. Tool calls never become successful merely
+// because their parent run completed.
+func finishTaskRunItemsTx(ctx context.Context, tx bun.Tx, runID, runStatus string, now time.Time) error {
+	itemStatus := "failed"
+	if runStatus == "completed" {
+		itemStatus = "completed"
+	}
+	if runStatus == "cancelled" {
+		itemStatus = "cancelled"
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE task_run_items SET status=CASE
+WHEN item_kind='assistant_output' AND ?='completed' THEN 'completed'
+WHEN item_kind='assistant_output' AND ?='cancelled' THEN 'cancelled'
+ELSE ? END, updated_at_ms=?
+WHERE run_id=? AND status='running'`, runStatus, runStatus, itemStatus, millis(now.UTC()), runID)
+	return err
+}
+
+func finishTaskRunItemsForTaskTx(ctx context.Context, tx bun.Tx, taskID, runStatus string, now time.Time) error {
+	itemStatus := "failed"
+	if runStatus == "completed" {
+		itemStatus = "completed"
+	}
+	if runStatus == "cancelled" {
+		itemStatus = "cancelled"
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE task_run_items SET status=CASE
+WHEN item_kind='assistant_output' AND ?='completed' THEN 'completed'
+WHEN item_kind='assistant_output' AND ?='cancelled' THEN 'cancelled'
+ELSE ? END, updated_at_ms=?
+WHERE run_id IN (SELECT run_id FROM task_runs WHERE task_id=?) AND status='running'`, runStatus, runStatus, itemStatus, millis(now.UTC()), taskID)
+	return err
 }
 
 func (s *Store) taskRunTransaction(ctx context.Context, runID string, generation int64, status string, change func(bun.Tx, *Task, *TaskRun) error) error {

@@ -322,6 +322,9 @@ WHERE task_id=? AND status IN ('queued','leased','running','waiting_for_approval
 		if err != nil {
 			return TaskCommandResult{}, err
 		}
+		if err := finishTaskRunItemsForTaskTx(ctx, tx, id, "cancelled", now); err != nil {
+			return TaskCommandResult{}, err
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE task_gates SET gate_state='superseded', resolved_by='actor:human:local', resolved_at_ms=?
 WHERE gate_id=? AND gate_state='open'`, millis(now), task.ActiveGateID)
 		if err != nil {

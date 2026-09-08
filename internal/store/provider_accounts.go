@@ -217,6 +217,11 @@ func (s *Store) SetProviderAccountStatus(
 	default:
 		return errors.New("provider account status is unsupported")
 	}
+	// Decode the current row before changing its status. A malformed persisted
+	// account is an invariant failure and must not be hidden by a status write.
+	if _, err := s.ProviderAccount(ctx, id); err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(ctx, `UPDATE provider_accounts
 SET status=?, last_checked_at_ms=?,
     last_authenticated_at_ms=CASE WHEN ?='authenticated' THEN ? ELSE last_authenticated_at_ms END,

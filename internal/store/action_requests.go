@@ -655,27 +655,49 @@ ORDER BY a.created_at_ms DESC, a.action_id DESC LIMIT ?`, humanID, conversationI
 
 // ConversationAuthorizationContext returns the bounded human authority for a turn.
 func (s *Store) ConversationAuthorizationContext(ctx context.Context, conversationID, turnID string) (map[string]any, error) {
+	var anchorSequence int64
+	var anchorKind, anchorAuthor string
+	err := s.db.QueryRowContext(ctx, `
+SELECT sequence_index, kind, author_actor_id
+FROM conversation_items
+WHERE conversation_id = ? AND turn_id = ? AND deleted_at_ms IS NULL
+  AND status = 'completed'
+  AND kind IN ('user_text', 'multiple_choice_selection')
+ORDER BY sequence_index DESC LIMIT 1`, conversationID, turnID).
+		Scan(&anchorSequence, &anchorKind, &anchorAuthor)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errors.New("action authorization source is unavailable")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if anchorAuthor != "human:local" || (anchorKind != "user_text" && anchorKind != "multiple_choice_selection") {
+		return nil, errors.New("action authorization source is unavailable")
+	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT item_id, kind, content_text FROM conversation_items
+SELECT item_id, kind, author_actor_id, content_text FROM conversation_items
 WHERE conversation_id = ? AND deleted_at_ms IS NULL AND status = 'completed'
-  AND content_text IS NOT NULL AND kind IN ('user_text','assistant_text','multiple_choice_selection')
-  AND sequence_index <= (SELECT sequence_index FROM conversation_items
-    WHERE conversation_id = ? AND turn_id = ? AND kind IN ('user_text','multiple_choice_selection')
-    ORDER BY sequence_index DESC LIMIT 1)
-ORDER BY sequence_index DESC LIMIT 7`, conversationID, conversationID, turnID)
+  AND content_text IS NOT NULL AND kind IN ('user_text','assistant_text','multiple_choice_prompt','multiple_choice_selection')
+  AND sequence_index <= ?
+ORDER BY sequence_index DESC LIMIT 7`, conversationID, anchorSequence)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	messages := make([]map[string]any, 0, 7)
 	for rows.Next() {
-		var id, kind, text string
-		if err := rows.Scan(&id, &kind, &text); err != nil {
+		var id, kind, author, text string
+		if err := rows.Scan(&id, &kind, &author, &text); err != nil {
 			return nil, err
 		}
 		role := "assistant"
 		if kind == "user_text" || kind == "multiple_choice_selection" {
+			if author != "human:local" {
+				return nil, errors.New("action authorization source is unavailable")
+			}
 			role = "human"
+		} else if kind != "assistant_text" && kind != "multiple_choice_prompt" {
+			return nil, errors.New("action authorization source is unavailable")
 		}
 		messages = append(messages, map[string]any{"item_id": id, "role": role, "text": text})
 	}

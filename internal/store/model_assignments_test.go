@@ -210,6 +210,9 @@ func createReadyModelAccount(t *testing.T, database *Store) provider.Account {
 	profiles, err := json.Marshal([]provider.ModelProfile{
 		{ID: "model-a", Label: "Model A", ReasoningEfforts: []string{"low"}},
 		{ID: "model-b", Label: "Model B", ReasoningEfforts: []string{"low"}},
+		{ID: "model-rust-store", Label: "Rust Store Model", ReasoningEfforts: []string{"low"}},
+		{ID: "model-rust-command", Label: "Rust Command Model", ReasoningEfforts: []string{"low"}},
+		{ID: "model-rust-records", Label: "Rust Records Model", ReasoningEfforts: []string{"low"}},
 	})
 	if err != nil {
 		t.Fatal(err)
