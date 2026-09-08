@@ -48,7 +48,8 @@ development instance and inspected before the next case starts.
 | PA-035 — Fact-checking | Pass after documented connection setup, source-linked five-claim review, and a saved report | [Case evidence](PA-035/) |
 | PA-036 — Mixed inventory | Pass after five bounded connector revisions, explicit nullable-serial handling, and independent artifact inspection | [Case evidence](PA-036/) |
 | PA-037 — Personal spending analysis | Pass after a profile contract repair, duplicate and refund reconciliation, period comparison, and artifact inspection | [Case evidence](PA-037/) |
-| PA-038–PA-100 | Not run | The operator will run each case in order. |
+| PA-038 — Newsletter reading digest | Pass after bounded API setup, budgeted selection, changed-story detection, and artifact inspection | [Case evidence](PA-038/) |
+| PA-039–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
