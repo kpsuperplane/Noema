@@ -124,7 +124,10 @@ VALUES (?,?,'completed',?,?,?,?,?) ON CONFLICT(turn_id) DO NOTHING`, turnID, cur
 	}
 	if write.Task != nil {
 		suppress := false
-		if write.Text != "" {
+		notificationKind, _ := write.Metadata["notification_kind"].(string)
+		waitingNotification := notificationKind == "task_waiting" ||
+			notificationKind == "" && write.Event.Kind == "task.started"
+		if write.Text != "" && waitingNotification {
 			var previous sql.NullInt64
 			err = tx.QueryRowContext(ctx, `SELECT MAX(sequence_index) FROM conversation_items
 WHERE conversation_id=? AND kind='task_reference' AND json_extract(payload_json,'$.task_id')=?`, current.ID, write.Task.ID).Scan(&previous)
