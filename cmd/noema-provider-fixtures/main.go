@@ -8,13 +8,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -25,7 +28,7 @@ import (
 )
 
 const (
-	fixtureVersion = "2026-09-07-gmail-v1-notion-mcp-v6"
+	fixtureVersion = "2026-09-08-gmail-v1-notion-mcp-v7"
 	accountAToken  = "fixture-account-a"
 	accountBToken  = "fixture-account-b"
 )
@@ -47,6 +50,7 @@ type fixture struct {
 	calendar           map[string][]calendarEvent
 	gmailData          map[string]gmailAccount
 	obligationsStage   int
+	repliesStage       int
 }
 
 func (f *fixture) trace(r *http.Request, status int) {
@@ -205,8 +209,14 @@ func gmailAccounts() map[string]gmailAccount {
 	account := accounts["account-a"]
 	account.Messages = append(account.Messages, gmailObligationMessages()...)
 	account.Messages = append(account.Messages, gmailActionMessages()...)
+	account.Messages = append(account.Messages, gmailReplyMessages()...)
 	account.Threads["a-thread-obligations"] = []string{"a-msg-008", "a-msg-009", "a-msg-010", "a-msg-011"}
 	account.Threads["a-thread-actions"] = []string{"a-msg-014", "a-msg-015", "a-msg-016"}
+	account.Threads["a-thread-replies-client"] = []string{"a-msg-017"}
+	account.Threads["a-thread-replies-overdue"] = []string{"a-msg-018"}
+	account.Threads["a-thread-replies-friend"] = []string{"a-msg-019"}
+	account.Threads["a-thread-replies-newsletter"] = []string{"a-msg-020"}
+	account.Threads["a-thread-replies-resolved"] = []string{"a-msg-021", "a-msg-022"}
 	accounts["account-a"] = account
 	return accounts
 }
@@ -234,6 +244,21 @@ func gmailActionMessages() []gmailMessage {
 		gmailMessageFor("a-msg-015", "a-thread-actions", []string{"INBOX"}, "Launch metrics follow-up reminder", "Reminder of the agreed action: Kevin will send the launch metrics to Priya by 2026-09-17.", "2026-09-03T12:00:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Launch metrics follow-up reminder\n\nReminder of the agreed action: Kevin will send the launch metrics to Priya by 2026-09-17."),
 		gmailMessageFor("a-msg-016", "a-thread-actions", []string{"INBOX"}, "Possible wider review", "Proposal only: we could schedule a wider review on 2026-09-18 if needed.", "2026-09-04T12:00:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Possible wider review\n\nProposal only: we could schedule a wider review on 2026-09-18 if needed."),
 	}
+}
+
+func gmailReplyMessages() []gmailMessage {
+	return []gmailMessage{
+		gmailMessageFor("a-msg-017", "a-thread-replies-client", []string{"INBOX", "IMPORTANT"}, "Urgent: confirm launch support today", "Please confirm the launch support window by 17:00 today before the client handoff.", "2026-09-08T08:15:00Z", "From: client@example.test\nTo: alex@example.test\nSubject: Urgent: confirm launch support today\n\nPlease confirm the launch support window by 17:00 today before the client handoff."),
+		gmailMessageFor("a-msg-018", "a-thread-replies-overdue", []string{"INBOX", "IMPORTANT"}, "Overdue: launch report", "The launch report I promised yesterday is still outstanding. Please send it by 2026-09-09.", "2026-09-07T16:00:00Z", "From: priya@example.test\nTo: alex@example.test\nSubject: Overdue: launch report\n\nThe launch report I promised yesterday is still outstanding. Please send it by 2026-09-09."),
+		gmailMessageFor("a-msg-019", "a-thread-replies-friend", []string{"INBOX"}, "Dinner next Wednesday", "Are you free for dinner next Wednesday?", "2026-09-07T18:00:00Z", "From: friend@example.test\nTo: alex@example.test\nSubject: Dinner next Wednesday\n\nAre you free for dinner next Wednesday?"),
+		gmailMessageFor("a-msg-020", "a-thread-replies-newsletter", []string{"INBOX"}, "Weekly product newsletter", "This week's product newsletter: three updates from the product team.", "2026-09-08T07:00:00Z", "From: newsletter@example.test\nTo: alex@example.test\nSubject: Weekly product newsletter\n\nThis week's product newsletter: three updates from the product team."),
+		gmailMessageFor("a-msg-021", "a-thread-replies-resolved", []string{"INBOX"}, "Contract copy", "Could you send the signed contract?", "2026-09-06T09:00:00Z", "From: vendor@example.test\nTo: alex@example.test\nSubject: Contract copy\n\nCould you send the signed contract?"),
+		gmailMessageFor("a-msg-022", "a-thread-replies-resolved", []string{"INBOX"}, "Re: Contract copy", "Thanks, I received the contract. No further action is needed.", "2026-09-07T09:00:00Z", "From: vendor@example.test\nTo: alex@example.test\nSubject: Re: Contract copy\n\nThanks, I received the contract. No further action is needed."),
+	}
+}
+
+func gmailReplyCorrection() gmailMessage {
+	return gmailMessageFor("a-msg-023", "a-thread-replies-client", []string{"INBOX", "IMPORTANT"}, "Correction: launch support deadline", "Correction: the client moved the deadline to 18:00 tomorrow; no need to confirm by 17:00 today.", "2026-09-08T10:00:00Z", "From: client@example.test\nTo: alex@example.test\nSubject: Correction: launch support deadline\n\nCorrection: the client moved the deadline to 18:00 tomorrow; no need to confirm by 17:00 today.")
 }
 
 func (f *fixture) gmailAccount(account string) gmailAccount {
@@ -312,8 +337,21 @@ func (f *fixture) gmail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"code": 401, "message": "Login Required", "errors": []map[string]string{{"domain": "global", "reason": "authError", "message": "Login Required"}}}})
 		return
 	}
-	data := f.gmailAccount(account)
 	path := strings.TrimPrefix(r.URL.Path, "/gmail/v1/users/me/")
+	requiredScope := fixtureScope
+	if r.Method == http.MethodPost && path == "messages/send" {
+		requiredScope = fixtureGmailSendScope
+	}
+	if !f.gmailTokenHasScope(r, requiredScope) {
+		f.trace(r, http.StatusForbidden)
+		writeJSON(w, http.StatusForbidden, gmailError(http.StatusForbidden, "Insufficient Permission"))
+		return
+	}
+	if r.Method == http.MethodPost && path == "messages/send" {
+		f.gmailSend(w, r, account)
+		return
+	}
+	data := f.gmailAccount(account)
 	if r.Method != http.MethodGet {
 		f.trace(r, http.StatusMethodNotAllowed)
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": map[string]any{"code": 405, "message": "Method Not Allowed"}})
@@ -345,6 +383,70 @@ func (f *fixture) gmail(w http.ResponseWriter, r *http.Request) {
 		f.trace(r, http.StatusNotFound)
 		writeJSON(w, http.StatusNotFound, gmailError(404, "Requested entity was not found."))
 	}
+}
+
+func (f *fixture) gmailTokenHasScope(r *http.Request, required string) bool {
+	raw := strings.TrimPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer ")
+	if raw == accountAToken || raw == accountBToken {
+		return required == fixtureScope
+	}
+	f.mu.Lock()
+	token, ok := f.oauth.tokens[raw]
+	f.mu.Unlock()
+	return ok && time.Now().Before(token.expires) && gmailScopeIncludes(token.scope, required)
+}
+
+func (f *fixture) gmailSend(w http.ResponseWriter, r *http.Request, account string) {
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var input struct {
+		Raw      string `json:"raw"`
+		ThreadID string `json:"threadId"`
+	}
+	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Raw) == "" || strings.TrimSpace(input.ThreadID) == "" {
+		f.trace(r, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, gmailError(http.StatusBadRequest, "Request requires raw and threadId"))
+		return
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(input.Raw)
+	if err != nil {
+		raw, err = base64.URLEncoding.DecodeString(input.Raw)
+	}
+	if err != nil || len(raw) == 0 || len(raw) > 24<<10 {
+		f.trace(r, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, gmailError(http.StatusBadRequest, "raw must be base64url encoded message data"))
+		return
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil || strings.TrimSpace(parsed.Header.Get("To")) == "" || strings.TrimSpace(parsed.Header.Get("Subject")) == "" {
+		f.trace(r, http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, gmailError(http.StatusBadRequest, "raw must contain To and Subject headers"))
+		return
+	}
+	f.mu.Lock()
+	if f.gmailData == nil {
+		f.gmailData = gmailAccounts()
+	}
+	data := f.gmailData[account]
+	if _, ok := data.Threads[input.ThreadID]; !ok {
+		f.mu.Unlock()
+		f.trace(r, http.StatusNotFound)
+		writeJSON(w, http.StatusNotFound, gmailError(http.StatusNotFound, "Requested thread was not found."))
+		return
+	}
+	sentID := fmt.Sprintf("%s-sent-%d", account, len(data.Messages)+1)
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	body, _ := io.ReadAll(io.LimitReader(parsed.Body, 16<<10))
+	snippet := strings.TrimSpace(string(body))
+	if len(snippet) > 160 {
+		snippet = snippet[:160]
+	}
+	message := gmailMessageFor(sentID, input.ThreadID, []string{"SENT"}, parsed.Header.Get("Subject"), snippet, timestamp, string(raw))
+	data.Messages = append(data.Messages, message)
+	data.Threads[input.ThreadID] = append(data.Threads[input.ThreadID], sentID)
+	f.gmailData[account] = data
+	f.mu.Unlock()
+	f.trace(r, http.StatusOK)
+	writeJSON(w, http.StatusOK, message)
 }
 
 func (f *fixture) gmailList(w http.ResponseWriter, r *http.Request, account gmailAccount) {
@@ -396,7 +498,7 @@ func gmailMatches(message gmailMessage, query string) bool {
 		return true
 	}
 	terms := strings.Fields(strings.Trim(query, `"`))
-	search := strings.ToLower(message.Snippet + " " + message.PayloadHeader("Subject"))
+	search := strings.ToLower(message.Snippet + " " + message.PayloadHeader("From") + " " + message.PayloadHeader("To") + " " + message.PayloadHeader("Subject") + " " + strings.Join(message.LabelIDs, " "))
 	messageTime := time.UnixMilli(0)
 	if millis, err := strconv.ParseInt(message.InternalDate, 10, 64); err == nil {
 		messageTime = time.UnixMilli(millis).UTC()
@@ -421,6 +523,26 @@ func gmailMatches(message gmailMessage, query string) bool {
 			if parts[0] == "before" && !messageTime.Before(bound.UTC()) {
 				return false
 			}
+			continue
+		}
+		for _, field := range []struct {
+			prefix string
+			value  string
+		}{
+			{prefix: "from:", value: message.PayloadHeader("From")},
+			{prefix: "to:", value: message.PayloadHeader("To")},
+			{prefix: "subject:", value: message.PayloadHeader("Subject")},
+			{prefix: "label:", value: strings.Join(message.LabelIDs, " ")},
+		} {
+			if strings.HasPrefix(term, field.prefix) {
+				if !strings.Contains(strings.ToLower(field.value), strings.TrimPrefix(term, field.prefix)) {
+					return false
+				}
+				term = ""
+				break
+			}
+		}
+		if term == "" {
 			continue
 		}
 		if !strings.Contains(search, term) {
@@ -797,6 +919,11 @@ func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
 	case "obligations_receipt":
 		f.appendGmailMessageLocked(gmailObligationReceipt())
 		f.obligationsStage = 2
+	case "replies_correction":
+		f.appendGmailMessageLocked(gmailReplyCorrection())
+		if f.repliesStage < 1 {
+			f.repliesStage = 1
+		}
 	default:
 		f.mu.Unlock()
 		f.trace(r, http.StatusBadRequest)
@@ -805,9 +932,10 @@ func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
 	}
 	required := f.notionAuthRequired
 	stage = f.obligationsStage
+	repliesStage := f.repliesStage
 	f.mu.Unlock()
 	f.trace(r, http.StatusOK)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notion_auth_required": required, "obligations_stage": stage})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notion_auth_required": required, "obligations_stage": stage, "replies_stage": repliesStage})
 }
 
 func notionBlockChildren(blocks []notionBlock) []map[string]any {
@@ -886,8 +1014,8 @@ var gmailDocs = `# Gmail API fixture
 
 Contract: ` + fixtureVersion + ` (Gmail API v1-shaped read contract).
 
-This service exposes a narrow, read-only subset of the Gmail API for the Noema
-acceptance cases. The wire format follows Google's Gmail API v1 resources.
+This service exposes a narrow subset of the Gmail API for the Noema acceptance
+cases. The wire format follows Google's Gmail API v1 resources.
 
 Official references:
 
@@ -896,12 +1024,16 @@ Official references:
 - https://developers.google.com/gmail/api/reference/rest/v1/users.messages/get
 - https://developers.google.com/gmail/api/reference/rest/v1/users.threads/get
 - https://developers.google.com/gmail/api/reference/rest/v1/users.messages.attachments/get
+- https://developers.google.com/gmail/api/reference/rest/v1/users.messages/send
 
 ## Base URL and authentication
 
 The public base URL is ` + "`https://noema.kevinpei.com/__pa-replay/gmail/v1`" + `.
 Every API request needs ` + "`Authorization: Bearer <access token>`" + `.
-The required scope is ` + "`https://www.googleapis.com/auth/gmail.readonly`" + `.
+Read operations require ` + "`https://www.googleapis.com/auth/gmail.readonly`" + `.
+The send operation requires ` + "`https://www.googleapis.com/auth/gmail.send`" + `.
+An access token may contain both scopes when a connection uses read and send
+operations together.
 Use OAuth authorization code with PKCE (S256) and client_secret_post.
 The authorization endpoint is https://noema.kevinpei.com/__pa-replay/oauth/authorize.
 The token endpoint is https://noema.kevinpei.com/__pa-replay/oauth/token.
@@ -938,6 +1070,16 @@ full ` + "`messages`" + ` in conversation order.
 
 The fixture has two synthetic accounts. Their records and IDs are separate.
 The token's account determines which records are visible.
+
+## Send operation
+
+` + "`POST /users/me/messages/send`" + ` accepts a JSON body with ` + "`raw`" + `,
+a base64url-encoded RFC 2822 message, and ` + "`threadId`" + `, the existing thread
+to which the reply belongs. The decoded message must include ` + "`To`" + ` and
+` + "`Subject`" + ` headers. The response is a Gmail ` + "`Message`" + ` with a stable
+` + "`id`" + `, the supplied ` + "`threadId`" + `, the ` + "`SENT`" + ` label, and the
+encoded MIME payload. Only existing synthetic threads can receive a message.
+The fixture returns 400 for invalid message data and 404 for an unknown thread.
 `
 
 var notionDocs = `# Notion MCP fixture

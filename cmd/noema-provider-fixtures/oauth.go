@@ -14,6 +14,7 @@ import (
 const fixtureClientID = "noema-synthetic-gmail"
 const fixtureCallback = "https://noema.kevinpei.com/adapter/oauth/callback"
 const fixtureScope = "https://www.googleapis.com/auth/gmail.readonly"
+const fixtureGmailSendScope = "https://www.googleapis.com/auth/gmail.send"
 const fixtureNotionClientID = "noema-synthetic-notion"
 const fixtureNotionScope = "notion.read"
 const fixtureNotionCallback = "https://noema.kevinpei.com/mcp/oauth/callback"
@@ -35,11 +36,16 @@ type fixtureToken struct {
 	expires time.Time
 }
 
+type fixtureRefresh struct {
+	account string
+	scope   string
+}
+
 type fixtureOAuth struct {
 	secret          string
 	codes           map[string]fixtureCode
 	tokens          map[string]fixtureToken
-	refresh         map[string]string
+	refresh         map[string]fixtureRefresh
 	notionRedirects map[string]struct{}
 }
 
@@ -68,7 +74,7 @@ func (f *fixture) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	challenge, err := base64.RawURLEncoding.DecodeString(q.Get("code_challenge"))
-	if q.Get("client_id") != fixtureClientID || q.Get("redirect_uri") != fixtureCallback || q.Get("response_type") != "code" || q.Get("scope") != fixtureScope || q.Get("state") == "" || len(q.Get("state")) > 1024 || q.Get("code_challenge_method") != "S256" || err != nil || len(challenge) != 32 {
+	if q.Get("client_id") != fixtureClientID || q.Get("redirect_uri") != fixtureCallback || q.Get("response_type") != "code" || !gmailScopeValid(q.Get("scope")) || q.Get("state") == "" || len(q.Get("state")) > 1024 || q.Get("code_challenge_method") != "S256" || err != nil || len(challenge) != 32 {
 		writeJSON(w, 400, map[string]string{"error": "invalid_request"})
 		return
 	}
@@ -101,7 +107,7 @@ func (f *fixture) authorize(w http.ResponseWriter, r *http.Request) {
 		if f.oauth.codes == nil {
 			f.oauth.codes = map[string]fixtureCode{}
 		}
-		f.oauth.codes[code] = fixtureCode{account: account, challenge: q.Get("code_challenge"), redirect: fixtureCallback, scope: fixtureScope, expires: time.Now().Add(5 * time.Minute)}
+		f.oauth.codes[code] = fixtureCode{account: account, challenge: q.Get("code_challenge"), redirect: fixtureCallback, scope: q.Get("scope"), expires: time.Now().Add(5 * time.Minute)}
 		f.mu.Unlock()
 		result.Set("code", code)
 	}
@@ -217,6 +223,30 @@ func notionScopeValid(raw string) bool {
 	return len(values) == 1 || values[1] == "offline_access"
 }
 
+func gmailScopeValid(raw string) bool {
+	values := strings.Fields(raw)
+	if len(values) < 1 || len(values) > 2 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value != fixtureScope && value != fixtureGmailSendScope || seen[value] {
+			return false
+		}
+		seen[value] = true
+	}
+	return true
+}
+
+func gmailScopeIncludes(raw, required string) bool {
+	for _, value := range strings.Fields(raw) {
+		if value == required {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *fixture) token(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != "POST" {
@@ -236,13 +266,10 @@ func (f *fixture) token(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	clientID := q.Get("client_id")
-	scope := fixtureScope
+	scope := ""
 	if clientID != fixtureClientID && clientID != fixtureNotionClientID || f.oauth.secret == "" || q.Get("client_secret") != f.oauth.secret {
 		writeJSON(w, 401, map[string]string{"error": "invalid_client"})
 		return
-	}
-	if clientID == fixtureNotionClientID {
-		scope = fixtureNotionScope
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -253,12 +280,23 @@ func (f *fixture) token(w http.ResponseWriter, r *http.Request) {
 		code, ok := f.oauth.codes[q.Get("code")]
 		delete(f.oauth.codes, q.Get("code"))
 		challenge := sha256.Sum256([]byte(q.Get("code_verifier")))
-		if ok && time.Now().Before(code.expires) && code.scope != "" && strings.HasPrefix(code.scope, scope) && q.Get("redirect_uri") == code.redirect && len(q.Get("code_verifier")) >= 43 && len(q.Get("code_verifier")) <= 128 && base64.RawURLEncoding.EncodeToString(challenge[:]) == code.challenge {
+		validCode := ok && time.Now().Before(code.expires) && code.scope != "" && q.Get("redirect_uri") == code.redirect && len(q.Get("code_verifier")) >= 43 && len(q.Get("code_verifier")) <= 128 && base64.RawURLEncoding.EncodeToString(challenge[:]) == code.challenge
+		if clientID == fixtureClientID {
+			validCode = validCode && gmailScopeValid(code.scope)
+			scope = code.scope
+		} else {
+			validCode = validCode && notionScopeValid(code.scope)
+			scope = fixtureNotionScope
+		}
+		if validCode {
 			account = code.account
 			refresh = fixtureRandom()
 		}
 	case "refresh_token":
-		account = f.oauth.refresh[q.Get("refresh_token")]
+		value, ok := f.oauth.refresh[q.Get("refresh_token")]
+		if ok {
+			account, scope = value.account, value.scope
+		}
 	default:
 		writeJSON(w, 400, map[string]string{"error": "unsupported_grant_type"})
 		return
@@ -269,13 +307,13 @@ func (f *fixture) token(w http.ResponseWriter, r *http.Request) {
 	}
 	if f.oauth.tokens == nil {
 		f.oauth.tokens = map[string]fixtureToken{}
-		f.oauth.refresh = map[string]string{}
+		f.oauth.refresh = map[string]fixtureRefresh{}
 	}
 	access := fixtureRandom()
 	f.oauth.tokens[access] = fixtureToken{account: account, scope: scope, expires: time.Now().Add(2 * time.Minute)}
 	response := map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": 120, "scope": scope}
 	if refresh != "" {
-		f.oauth.refresh[refresh] = account
+		f.oauth.refresh[refresh] = fixtureRefresh{account: account, scope: scope}
 		response["refresh_token"] = refresh
 	}
 	// Refresh omits refresh_token, as providers may retain the original token.

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -39,14 +40,14 @@ func TestGmailListHasThreeCompletePages(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != 14 {
+	if len(seen) != 20 {
 		t.Fatalf("message count = %d", len(seen))
 	}
 }
 
 func TestObligationControlAddsDateRevisionAndReceipt(t *testing.T) {
 	f := &fixture{}
-	if got := len(f.gmailAccount("account-a").Messages); got != 14 {
+	if got := len(f.gmailAccount("account-a").Messages); got != 20 {
 		t.Fatalf("initial account-a message count = %d", got)
 	}
 	for _, action := range []string{"obligations_extend", "obligations_receipt"} {
@@ -58,7 +59,7 @@ func TestObligationControlAddsDateRevisionAndReceipt(t *testing.T) {
 		}
 	}
 	data := f.gmailAccount("account-a")
-	if len(data.Messages) != 16 || len(data.Threads["a-thread-obligations"]) != 6 {
+	if len(data.Messages) != 22 || len(data.Threads["a-thread-obligations"]) != 6 {
 		t.Fatalf("updated obligation records = %d messages, %d thread entries", len(data.Messages), len(data.Threads["a-thread-obligations"]))
 	}
 	if len(f.gmailAccount("account-b").Messages) != 1 {
@@ -71,6 +72,64 @@ func TestObligationControlAddsDateRevisionAndReceipt(t *testing.T) {
 		if strings.Contains(page.ID, "obligations") {
 			t.Fatalf("obligation page crossed the Notion account boundary: %s", page.ID)
 		}
+	}
+}
+
+func TestReplyFixtureSeedsFiveClassesAndCorrection(t *testing.T) {
+	f := &fixture{}
+	data := f.gmailAccount("account-a")
+	threads := []string{"a-thread-replies-client", "a-thread-replies-overdue", "a-thread-replies-friend", "a-thread-replies-newsletter", "a-thread-replies-resolved"}
+	for _, thread := range threads {
+		if len(data.Threads[thread]) == 0 {
+			t.Fatalf("reply thread %s is empty", thread)
+		}
+	}
+	if len(data.Threads["a-thread-replies-resolved"]) != 2 || len(data.Messages) != 20 {
+		t.Fatalf("reply seed count = %d, resolved thread = %#v", len(data.Messages), data.Threads["a-thread-replies-resolved"])
+	}
+	correction := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/fixture/control", strings.NewReader(`{"action":"replies_correction"}`))
+	f.operatorControl(correction, request)
+	if correction.Code != http.StatusOK {
+		t.Fatalf("correction status = %d, body = %s", correction.Code, correction.Body)
+	}
+	data = f.gmailAccount("account-a")
+	if len(data.Messages) != 21 || len(data.Threads["a-thread-replies-client"]) != 2 || data.Threads["a-thread-replies-client"][1] != "a-msg-023" {
+		t.Fatalf("correction records = %d, client thread = %#v", len(data.Messages), data.Threads["a-thread-replies-client"])
+	}
+	correction = httptest.NewRecorder()
+	f.operatorControl(correction, httptest.NewRequest(http.MethodPost, "/fixture/control", strings.NewReader(`{"action":"replies_correction"}`)))
+	if correction.Code != http.StatusOK || len(f.gmailAccount("account-a").Messages) != 21 {
+		t.Fatal("correction control was not idempotent")
+	}
+	if len(f.gmailAccount("account-b").Messages) != 1 {
+		t.Fatal("reply records crossed the account boundary")
+	}
+}
+
+func TestGmailSendReturnsReceiptAndAddsToExistingThread(t *testing.T) {
+	f := &fixture{oauth: fixtureOAuth{tokens: map[string]fixtureToken{
+		"send-token": {account: "account-a", scope: fixtureScope + " " + fixtureGmailSendScope, expires: time.Now().Add(time.Minute)},
+	}}}
+	body := "From: alex@example.test\nTo: client@example.test\nSubject: Re: Urgent: confirm launch support today\n\nI confirm the launch support window."
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(body))
+	request := httptest.NewRequest(http.MethodPost, "/gmail/v1/users/me/messages/send", strings.NewReader(`{"raw":"`+encoded+`","threadId":"a-thread-replies-client"}`))
+	request.Header.Set("Authorization", "Bearer send-token")
+	recorder := httptest.NewRecorder()
+	f.gmail(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("send status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	var sent gmailMessage
+	if json.Unmarshal(recorder.Body.Bytes(), &sent) != nil || sent.ID == "" || sent.ThreadID != "a-thread-replies-client" || len(sent.LabelIDs) != 1 || sent.LabelIDs[0] != "SENT" {
+		t.Fatalf("send receipt = %#v", sent)
+	}
+	threadRequest := httptest.NewRequest(http.MethodGet, "/gmail/v1/users/me/threads/a-thread-replies-client", nil)
+	threadRequest.Header.Set("Authorization", "Bearer send-token")
+	threadRecorder := httptest.NewRecorder()
+	f.gmail(threadRecorder, threadRequest)
+	if threadRecorder.Code != http.StatusOK || !strings.Contains(threadRecorder.Body.String(), sent.ID) {
+		t.Fatalf("thread did not include sent message: status %d, body %s", threadRecorder.Code, threadRecorder.Body)
 	}
 }
 
@@ -100,7 +159,7 @@ func TestActionFixtureSeedsAgreementAndProposalSeparately(t *testing.T) {
 
 func TestGmailListSupportsDateBounds(t *testing.T) {
 	f := &fixture{}
-	request := httptest.NewRequest("GET", "/gmail/v1/users/me/messages?q=after:2026/09/06%20before:2026/09/08&maxResults=100", nil)
+	request := httptest.NewRequest("GET", "/gmail/v1/users/me/messages?q=after:2026/09/06%20before:2026/09/08%20launch%20support&maxResults=100", nil)
 	request.Header.Set("Authorization", "Bearer "+accountAToken)
 	recorder := httptest.NewRecorder()
 	f.gmailList(recorder, request, gmailAccounts()["account-a"])
