@@ -148,6 +148,11 @@ func TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing(t *testing.T) {
 	if status.Code != http.StatusOK || !bytes.Contains(status.Body.Bytes(), []byte(`"setup_ready"`)) {
 		t.Fatalf("setup status = %d %s", status.Code, status.Body.String())
 	}
+	for _, path := range []string{"/adapter/oauth/callback", "/mcp/oauth/callback"} {
+		if response := serve(handler, authRequest(http.MethodGet, path, nil)); response.Code != http.StatusNoContent {
+			t.Fatalf("setup OAuth callback %s = %d %s", path, response.Code, response.Body.String())
+		}
+	}
 	policy := status.Header().Get("Content-Security-Policy")
 	if !strings.Contains(policy, "; font-src 'self' data:;") || !strings.Contains(policy, "; script-src 'self';") {
 		t.Fatalf("embedded fonts need permission without extending script sources: %q", policy)

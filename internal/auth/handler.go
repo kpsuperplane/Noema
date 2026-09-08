@@ -642,6 +642,9 @@ func setupPathAllowed(method string, path string) bool {
 	if method == http.MethodGet && (path == "/" || path == "/auth/status") {
 		return true
 	}
+	if method == http.MethodGet && (path == "/adapter/oauth/callback" || path == "/mcp/oauth/callback") {
+		return true
+	}
 	if method == http.MethodPost && (path == "/auth/recovery" ||
 		path == "/auth/passkey/register/start" ||
 		path == "/auth/passkey/register/finish") {
