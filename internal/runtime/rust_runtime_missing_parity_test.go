@@ -728,10 +728,24 @@ func TestRustRuntime_failed_initial_name_onboarding_logs_runtime_invariant(t *te
 func TestRustRuntime_runtime_rejects_mixed_delegation_batch_without_executing_any_call(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/replay_and_tools.rs::runtime_rejects_mixed_delegation_batch_without_executing_any_call.
 	chat, database, conversation := chatFixture(t)
-	chat.openRouter = generatorFunc(func(_ context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{
-			{Index: 0, ProviderCallID: "call_task_mixed", ProviderName: taskDelegateName, Name: taskDelegateName, Payload: json.RawMessage(`{"title":"Mixed","task_document":"Do not run","project":{"kind":"none"}}`)},
-			{Index: 1, ProviderCallID: "call_name_mixed", ProviderName: updateOwnNameToolName, Name: updateOwnNameToolName, Payload: json.RawMessage(`{"name":"Unexpected"}`)},
+	calls := 0
+	chat.openRouter = generatorFunc(func(_ context.Context, req provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		calls++
+		if calls > 1 {
+			results := 0
+			for _, message := range req.Messages {
+				if message.ToolResult != nil {
+					results++
+				}
+			}
+			if results != 2 {
+				t.Errorf("continuation received %d tool results", results)
+			}
+			return provider.GenerationResult{Text: "I could not combine delegation with another tool."}, nil
+		}
+		return provider.GenerationResult{Text: "I started the task and renamed myself.", ToolCalls: []provider.GenerationToolCall{
+			{Index: 0, ProviderCallID: "call_task_mixed", ProviderName: taskDelegateName, Name: taskDelegateName, Payload: json.RawMessage(`{"title":"Mixed task","task_document":"Complete Mixed task and report the result.","project":{"kind":"none"},"execution_intent":{"request_markdown":"Complete Mixed task and report the result.","complexity":"simple"}}`)},
+			{Index: 1, ProviderCallID: "call_name_mixed", ProviderName: updateOwnNameToolName, Name: updateOwnNameToolName, Payload: json.RawMessage(`{"name":"Mira"}`)},
 		}}, nil
 	})
 	events, err := chat.Subscribe(context.Background(), conversation.ID)
@@ -742,18 +756,43 @@ func TestRustRuntime_runtime_rejects_mixed_delegation_batch_without_executing_an
 	if _, err := chat.SendTurn(context.Background(), SendTurnInput{ConversationID: conversation.ID, Input: "Delegate the task and rename yourself."}); err != nil {
 		t.Fatal(err)
 	}
-	collectCompletedTurns(t, events, 1)
+	all := collectCompletedTurns(t, events, 1)
 	page, err := database.ConversationItemPage(context.Background(), conversation.ID, "", 40)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range page.Items {
-		if item.Kind == store.ConversationToolResult && item.Status == "failed" && strings.Contains(string(mustJSON(item.Payload)), "mixed") {
-			return
+	tasks, err := database.ListTasks(context.Background(), store.TaskListFilter{Scope: "all"}, 100, nil)
+	if err != nil || len(tasks.Tasks) != 0 {
+		t.Fatalf("mixed batch created tasks: %#v, %v", tasks, err)
+	}
+	agent, err := database.Agent(context.Background(), "agent:primary")
+	if err != nil || agent.DisplayName != nil {
+		t.Errorf("mixed batch changed agent: %#v, %v", agent, err)
+	}
+	for _, event := range all {
+		if event.Item != nil && strings.HasPrefix(event.Item.ID, "transient:tool_call:") {
+			t.Error("mixed batch published a tool start")
 		}
 	}
-	// This assertion intentionally exposes a runtime that executes mixed calls individually.
-	t.Errorf("mixed delegation batch was not rejected before execution: %#v", page.Items)
+	var texts []string
+	failed := 0
+	for _, item := range page.Items {
+		if item.Kind == store.ConversationAssistantText {
+			texts = append(texts, item.ContentText)
+		}
+		if item.Kind == store.ConversationToolResult && item.Status == "failed" {
+			failed++
+			action, _ := nestedAction(item.Payload)
+			payload, _ := action["payload"].(map[string]any)
+			if payload["error"] != "task_delegate_mixed_tool_batch" {
+				t.Errorf("wrong rejection: %#v", item.Payload)
+			}
+		}
+	}
+	if failed != 2 || len(texts) != 1 || texts[0] != "I could not combine delegation with another tool." {
+		t.Errorf("mixed batch results: %d failures, texts=%q", failed, texts)
+	}
+
 }
 
 func TestRustRuntime_runtime_actor_persists_provider_tool_items_before_turn_failure(t *testing.T) {
@@ -800,15 +839,20 @@ func TestRustRuntime_runtime_executes_every_homogeneous_delegation_and_uses_prov
 	// Rust source: crates/noema-runtime/src/daemon/tests/replay_and_tools.rs::runtime_executes_every_homogeneous_delegation_and_uses_provider_handoff_narration.
 	chat, database, conversation := chatFixture(t)
 	var calls int
-	delegate := func(id, title string) provider.GenerationToolCall {
-		return provider.GenerationToolCall{Index: calls, ProviderCallID: id, ProviderName: taskDelegateName, Name: taskDelegateName, Payload: json.RawMessage(`{"title":"` + title + `","task_document":"Research ` + title + `","project":{"kind":"none"}}`)}
+	delegate := func(index int, id, title string) provider.GenerationToolCall {
+		return provider.GenerationToolCall{Index: index, ProviderCallID: id, ProviderName: taskDelegateName, Name: taskDelegateName, Payload: mustToolJSON(t, map[string]any{
+			"title": title, "task_document": "Complete " + title + " and report the result.", "project": map[string]any{"kind": "none"},
+			"execution_intent": map[string]any{"request_markdown": "Complete " + title + " and report the result.", "complexity": "simple"},
+		})}
 	}
-	chat.openRouter = generatorFunc(func(_ context.Context, _ provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+	chat.openRouter = generatorFunc(func(_ context.Context, _ provider.GenerateRequest, emit func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		calls++
-		if calls == 1 {
-			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{delegate("call_task_canada", "Canada"), delegate("call_task_usa", "USA"), delegate("call_task_invalid", "Invalid")}}, nil
-		}
-		return provider.GenerationResult{Text: "I started all three background tasks. They are underway."}, nil
+		emit(provider.StreamEvent{Kind: provider.TextDelta, Delta: "I started all three background tasks. They are underway."})
+		// Go combines Rust's two text items. Separate reply items remain an open port gap.
+		return provider.GenerationResult{Text: "I started all three background tasks. They are underway.", ToolCalls: []provider.GenerationToolCall{
+			delegate(0, "call_task_canada", "Research Canada"), delegate(1, "call_task_usa", "Research USA"),
+			{Index: 2, ProviderCallID: "call_task_invalid", ProviderName: taskDelegateName, Name: taskDelegateName, Payload: json.RawMessage(`{"title":"Invalid task"}`)},
+		}}, nil
 	})
 	events, err := chat.Subscribe(context.Background(), conversation.ID)
 	if err != nil {
@@ -830,9 +874,25 @@ func TestRustRuntime_runtime_executes_every_homogeneous_delegation_and_uses_prov
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Tasks) != 3 {
+	if len(list.Tasks) != 2 {
 		t.Errorf("homogeneous delegation created %d tasks, page=%#v", len(list.Tasks), page.Items)
 	}
+	if calls != 1 {
+		t.Errorf("delegation requested %d provider responses", calls)
+	}
+	created := map[string]bool{}
+	for _, task := range list.Tasks {
+		created[task.SourceToolCallID] = true
+	}
+	if !created["call_task_canada"] || !created["call_task_usa"] || created["call_task_invalid"] {
+		t.Errorf("creation calls: %#v", created)
+	}
+	for _, item := range page.Items {
+		if item.Kind == "task_reference" || item.Metadata["source"] == "task_delegation_receipt" {
+			t.Errorf("unexpected receipt: %#v", item)
+		}
+	}
+
 }
 
 func TestRustRuntime_runtime_actor_allocates_distinct_conversation_ids(t *testing.T) {

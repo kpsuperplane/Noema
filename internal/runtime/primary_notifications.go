@@ -93,6 +93,9 @@ func (c *Chat) primaryNotification(conversation store.Conversation, event store.
 		return write, "", false, err
 	}
 	if event.Kind == "task.captured" {
+		if task.Source.ConversationID == conversation.ID && task.SourceToolCallID != "" {
+			return write, "", false, nil
+		}
 		write.Source, write.Task = "work_notification", &task
 		write.Metadata = map[string]any{"notification_kind": "task_created", "work_notification": map[string]any{"task_id": task.ID}}
 		return write, "", true, nil

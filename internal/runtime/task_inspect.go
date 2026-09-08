@@ -562,6 +562,40 @@ func (c *Chat) executeChatToolRounds(
 			c.finishGeneratedTurn(request.input, turn, assignment, result, providerRound, usage)
 			return
 		}
+		delegations := 0
+		for _, call := range result.ToolCalls {
+			if call.Name == taskDelegateName {
+				delegations++
+			}
+		}
+		if delegations > 0 {
+			mixed := delegations != len(result.ToolCalls)
+			messages, err := c.persistDelegationBatch(request, turn, assignment, result, providerRound, mixed)
+			if err != nil {
+				c.failTurn(request.input, turn, err)
+				return
+			}
+			if !mixed {
+				c.finishGeneratedTurn(request.input, turn, assignment, result, providerRound, usage)
+				return
+			}
+			stopReason := ""
+			if providerRound >= providerRoundLimit {
+				stopReason = "maximum provider tool continuations reached"
+			}
+			var finalizing bool
+			result, finalizing, err = c.generateChatToolContinuation(request, turn, assignment, generator,
+				providerRound+1, stopReason, memoryContext, result.ID, hostedState, messages[0], nil, messages[1:]...)
+			if err != nil {
+				c.failTurn(request.input, turn, err)
+				return
+			}
+			if (stopReason != "" || finalizing) && len(result.ToolCalls) != 0 {
+				c.failTurn(request.input, turn, errors.New("provider returned a tool call during finalization"))
+				return
+			}
+			continue
+		}
 		if len(result.ToolCalls) != 1 || !c.supportsChatTool(c.ctx, result.ToolCalls[0].Name) {
 			c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
 			return
@@ -688,6 +722,57 @@ func (c *Chat) executeChatToolRounds(
 			return
 		}
 	}
+}
+
+func (c *Chat) persistDelegationBatch(request queuedTurn, turn store.ConversationTurn,
+	assignment store.ModelAssignment, generation provider.GenerationResult, round int, mixed bool,
+) ([]provider.GenerationMessage, error) {
+	messages := make([]provider.GenerationMessage, 0, len(generation.ToolCalls))
+	for index, call := range generation.ToolCalls {
+		var reasoning []json.RawMessage
+		if index == 0 {
+			reasoning = generationReasoning(generation)
+		}
+		items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
+			Provider: assignment.ProviderKind, Reasoning: reasoning,
+			Call: store.ConversationToolCallInput{ProviderRound: round, OutputIndex: call.Index,
+				ProviderItemID: call.ProviderItemID, ProviderCallID: call.ProviderCallID,
+				ProviderName: call.ProviderName, Name: call.Name, Arguments: call.Payload},
+		}, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		var callID string
+		for i := range items {
+			if items[i].Kind == store.ConversationToolCall {
+				callID = items[i].ID
+			}
+			c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+				ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &items[i]})
+		}
+		payload := json.RawMessage(`{"error":"task_delegate_mixed_tool_batch"}`)
+		success := false
+		if !mixed {
+			payload, success = c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload,
+				call.ProviderCallID, turn.ID, taskToolDetails(request))
+		}
+		item, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
+			CallItemID: callID, Provider: assignment.ProviderKind, ProviderRound: round, OutputIndex: call.Index,
+			ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName, Name: call.Name,
+			Success: success, Payload: payload,
+		}, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		c.publish(Event{Kind: EventConversationItem, ConversationID: turn.ConversationID,
+			ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &item})
+		turn.Status = "running"
+		messages = append(messages, provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{
+			ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName, Name: call.Name,
+			Arguments: call.Payload, Success: success, Payload: payload,
+		}})
+	}
+	return messages, nil
 }
 
 func (c *Chat) persistChatToolRound(
@@ -988,7 +1073,9 @@ func (c *Chat) generateChatToolContinuation(
 	hostedState bool,
 	incremental provider.GenerationMessage,
 	expectedCredentialRevision *uint64,
+	additionalResults ...provider.GenerationMessage,
 ) (provider.GenerationResult, bool, error) {
+	incrementalMessages := append([]provider.GenerationMessage{incremental}, additionalResults...)
 	contextState, err := c.database.ConversationProviderContext(c.ctx, turn.ConversationID,
 		assignment.ProviderKind, assignment.ModelProfile)
 	if err != nil {
@@ -1033,7 +1120,7 @@ func (c *Chat) generateChatToolContinuation(
 	continuingResponse := responseContinuation && previousResponseID != "" && (!isSession || continuingSession)
 	continuing := continuingResponse || continuingSession
 	if !continuing {
-		currentCompleted, currentActive := splitActiveHistory(active, []provider.GenerationMessage{incremental})
+		currentCompleted, currentActive := splitActiveHistory(active, incrementalMessages)
 		currentThrough := completedTurnThrough(contextState.Items, turn.ID)
 		if currentThrough > through {
 			completed = append(completed, currentCompleted...)
@@ -1072,7 +1159,7 @@ func (c *Chat) generateChatToolContinuation(
 			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
 	}
 	if continuing {
-		messages = []provider.GenerationMessage{incremental}
+		messages = append([]provider.GenerationMessage(nil), incrementalMessages...)
 		if requestProjectContext != "" {
 			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})
 		}
@@ -1159,7 +1246,7 @@ func (c *Chat) generateChatToolContinuation(
 	hostedWeb = false
 	if continuingSession {
 		sessionReplay = messages
-		messages = []provider.GenerationMessage{incremental}
+		messages = append([]provider.GenerationMessage(nil), incrementalMessages...)
 		if stopReason != "" {
 			messages = append(messages, provider.GenerationMessage{
 				Role: "developer", Content: toolFinalizationInstruction(stopReason),
