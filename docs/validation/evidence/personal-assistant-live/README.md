@@ -22,7 +22,8 @@ development instance and inspected before the next case starts.
 | PA-009 — Deadline tracking | Pass after source disambiguation, one approved overdue notice, and restart recovery | [Case evidence](PA-009/) |
 | PA-010 — Goal review | Pass after week-boundary correction | [Case evidence](PA-010/) |
 | PA-011 — Conflicting requests | Pass | [Case evidence](PA-011/) |
-| PA-012–PA-100 | Not run | The operator will run each case in order. |
+| PA-012 — Conversation monitoring | Pass after resolved and overdue branches | [Case evidence](PA-012/) |
+| PA-013–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
