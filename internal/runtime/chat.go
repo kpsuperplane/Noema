@@ -647,7 +647,7 @@ func hostedWebSearchEnabled(providerKind string, transport provider.ToolTranspor
 // streaming. The durable call is persisted after Generate returns.
 func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.ConversationTurn, event provider.StreamEvent) {
 	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ConversationID, turn.TurnIndex, event.Index)
-	displayName, access := event.Name, "Uses a connected tool"
+	displayName, access := toolmarker.ReadableName(event.Name), "Uses a connected tool"
 	switch event.Name {
 	case noemamemory.SearchToolName:
 		displayName, access = "Search memory", "Reads memory"

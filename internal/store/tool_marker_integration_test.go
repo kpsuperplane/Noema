@@ -108,3 +108,23 @@ func conversationToolMarker(t *testing.T, item ConversationItem) map[string]any 
 	}
 	return marker
 }
+
+func TestConnectedToolDisplayPreservesRoutingName(t *testing.T) {
+	const name = "synthetic_expense_api_personal-d4d0e0fd.submit_reimbursement"
+	for _, kind := range []string{"tool_call", "tool_result"} {
+		item := ConversationItem{Kind: ConversationToolCall, Status: "running", Payload: map[string]any{
+			"activity_kind": kind, "metadata": map[string]any{"action": map[string]any{"name": name}, "display": map[string]any{"name": name}},
+		}}
+		if kind == "tool_result" {
+			item.Kind, item.Status = ConversationToolResult, "completed"
+		}
+		decorateConversationToolMarker(&item, nil)
+		metadata := item.Payload["metadata"].(map[string]any)
+		if metadata["display"].(map[string]any)["name"] != "Submit reimbursement" {
+			t.Fatal("raw routing name remains visible")
+		}
+		if metadata["action"].(map[string]any)["name"] != name {
+			t.Fatal("routing name changed")
+		}
+	}
+}

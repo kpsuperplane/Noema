@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"errors"
+	"github.com/kpsuperplane/noema/internal/toolmarker"
 	"strings"
 	"time"
 
@@ -515,6 +516,23 @@ func taskMessageModel(value store.TaskMessage) *model.TaskMessage {
 	return &model.TaskMessage{MessageID: value.ID, BodyMarkdown: value.Body, Author: value.Author, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
 }
 func taskRunItemModel(v store.TaskRunItem) *model.TaskRunItem {
+	if v.Kind == "tool_call" || v.Kind == "tool_result" {
+		if name, _ := v.Payload["name"].(string); name != "" {
+			payload := make(map[string]any, len(v.Payload)+1)
+			for key, value := range v.Payload {
+				payload[key] = value
+			}
+			display := map[string]any{}
+			if existing, ok := payload["display"].(map[string]any); ok {
+				for key, value := range existing {
+					display[key] = value
+				}
+			}
+			display["name"] = toolmarker.ReadableName(name)
+			payload["display"] = display
+			v.Payload = payload
+		}
+	}
 	return &model.TaskRunItem{ItemID: v.ID, RunID: v.RunID, SequenceIndex: int(v.Sequence), RoundIndex: int(v.Round), Kind: model.TaskRunItemKind(strings.ToUpper(v.Kind)), Status: model.TaskRunItemStatus(strings.ToUpper(v.Status)), CorrelationID: v.CorrelationID, ParentItemID: v.ParentID, ContentText: v.Content, Payload: v.Payload, CreatedAt: v.CreatedAt.Format(time.RFC3339Nano), UpdatedAt: v.UpdatedAt.Format(time.RFC3339Nano)}
 }
 func formatOptionalTime(value *time.Time) *string {

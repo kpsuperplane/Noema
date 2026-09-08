@@ -350,6 +350,14 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 		}
 		if kind == "tool_call" || kind == "tool_result" {
 			action, _ := metadata["action"].(map[string]any)
+			if name, _ := action["name"].(string); name != "" {
+				display, _ := metadata["display"].(map[string]any)
+				if display == nil {
+					display = map[string]any{}
+					metadata["display"] = display
+				}
+				display["name"] = toolmarker.ReadableName(name)
+			}
 			if marker, ok := toolmarker.ForAction(kind, item.Status, action); ok {
 				display, _ := metadata["display"].(map[string]any)
 				if display == nil {

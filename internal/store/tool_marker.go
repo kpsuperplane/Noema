@@ -17,9 +17,6 @@ func decorateConversationToolMarker(item *ConversationItem, marker map[string]an
 		action, _ := metadata["action"].(map[string]any)
 		marker, _ = toolmarker.ForAction(activityKind, item.Status, action)
 	}
-	if marker == nil {
-		return
-	}
 	metadata, _ := item.Payload["metadata"].(map[string]any)
 	if metadata == nil {
 		metadata = map[string]any{}
@@ -30,5 +27,11 @@ func decorateConversationToolMarker(item *ConversationItem, marker map[string]an
 		display = map[string]any{}
 		metadata["display"] = display
 	}
-	display["marker"] = marker
+	action, _ := metadata["action"].(map[string]any)
+	if name, _ := action["name"].(string); name != "" {
+		display["name"] = toolmarker.ReadableName(name)
+	}
+	if marker != nil {
+		display["marker"] = marker
+	}
 }

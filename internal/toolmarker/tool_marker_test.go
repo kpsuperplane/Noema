@@ -155,3 +155,16 @@ func stringValue(value any) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }
+
+func TestRustReadableConnectedToolName(t *testing.T) {
+	// Rust 4d29f6ba transcript_persistence/display_labels.rs::readable_tool_name.
+	for name, want := range map[string]string{
+		"synthetic_expense_api_personal-d4d0e0fd.submit_reimbursement": "Submit reimbursement",
+		"mcp.connection-123.GET__invoice-status":                       "Get invoice status",
+		"mcp.connection.ÉTAT_日本語":                                      "État 日本語",
+	} {
+		if got := ReadableName(name); got != want {
+			t.Errorf("%s: got %q, want %q", name, got, want)
+		}
+	}
+}

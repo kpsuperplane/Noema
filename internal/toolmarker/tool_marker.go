@@ -686,3 +686,39 @@ func nonNilField(value any, key string) bool {
 	field, exists := object[key]
 	return exists && field != nil
 }
+
+// ReadableName preserves Rust's connected-tool display label.
+func ReadableName(name string) string {
+	switch name {
+	case "search_memory":
+		return "Search memory"
+	case "update_own_name":
+		return "Save name"
+	case "web.search":
+		return "Web Search"
+	case "web.fetch":
+		return "Fetched Web Page"
+	case "file.parse":
+		return "Parsed File"
+	case "file.download":
+		return "Downloaded File"
+	}
+	last := name[strings.LastIndex(name, ".")+1:]
+	if strings.HasPrefix(name, "web.browse.") {
+		return "Browser " + last
+	}
+	parts := strings.FieldsFunc(last, func(r rune) bool { return r == '_' || r == '-' })
+	for i, part := range parts {
+		chars := []byte(part)
+		for j, ch := range chars {
+			if ch >= 'A' && ch <= 'Z' {
+				chars[j] += 'a' - 'A'
+			}
+		}
+		if i == 0 && len(chars) > 0 && chars[0] >= 'a' && chars[0] <= 'z' {
+			chars[0] -= 'a' - 'A'
+		}
+		parts[i] = string(chars)
+	}
+	return strings.Join(parts, " ")
+}
