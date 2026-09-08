@@ -22,7 +22,9 @@ PA-029 passes after a working-directory repair, two validated synthetic
 application packets, four saved PDFs, two reviewed synthetic submissions, and
 idempotent retries. PA-030 passes after a synthetic offers connector was
 trimmed, accepted, policy-configured, and used for a fresh read before the
-comparison. PA-031 through PA-100 remain not run.
+comparison. PA-031 passes after four focused synthetic products connector
+revisions, fresh reads, landed-cost comparison, and a saved recommendation.
+PA-032 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -254,7 +256,7 @@ answer key.
 | PA-028 | Pass after connector revision, Go adapter enablement repair, and synthetic end-to-end rerun — [evidence](../validation/evidence/personal-assistant-live/PA-028/) | Five jobs; two violate location constraint; three applications with different stages; one changed deadline. | Organize my job search and next steps. | Exclude unsuitable roles; save three distinct stages and next actions; update deadline; verify mock follow-up receipt without duplicate submission. |
 | PA-029 | Pass after working-directory repair and synthetic end-to-end rerun — [evidence](../validation/evidence/personal-assistant-live/PA-029/) | Verified resume, two job descriptions, contradictory old resume, required PDF fields. | Prepare applications for these two roles. | Use verified experience; tailor two packets without invented claims; validate required fields and exported PDFs; submit only scoped mock applications. |
 | PA-030 | Pass after connector policy setup and fresh API read — [evidence](../validation/evidence/personal-assistant-live/PA-030/) | Offer A: 100000 salary plus 10000 bonus; B: 108000 salary; different commute, leave, and uncertain equity. | Help me compare these offers and negotiate. | Separate guaranteed and uncertain compensation; quantify commute and leave tradeoffs; apply preferences; draft questions and negotiation without accepting. |
-| PA-031 | Purchase comparison | Three products; 600 total budget; required compatibility; shipping and tax make cheapest sticker price exceed budget. | Find the best option for me. | Compute landed costs; reject incompatibility and over-budget choice; cite current mock listings; save recommendation and uncertainty. |
+| PA-031 | Pass after four connector projection revisions and fresh API reads — [evidence](../validation/evidence/personal-assistant-live/PA-031/) | Three products; 600 total budget; required compatibility; shipping and tax make cheapest sticker price exceed budget. | Find the best option for me. | Compute landed costs; reject incompatibility and over-budget choice; cite current mock listings; save recommendation and uncertainty. |
 | PA-032 | Research brief | Six dated mock sources: primary report, correction, two summaries, dissent, and outdated article. | Bring me up to speed on this issue. | Read primary evidence and correction; separate dates and interpretations; explain dissent and coverage; cite material claims. |
 | PA-033 | Topic monitoring | Baseline three sources; later duplicate article, then material rule change. | Watch this topic for changes that affect me. | Save baseline; suppress duplicate coverage; issue one relevant change notice with changed facts; unchanged check stays quiet. |
 | PA-034 | Literature review | 12 papers across two mock indexes; three duplicate records; one retraction; conflicting study designs. | Build an evidence review of this question. | Produce nine unique works; mark retraction; compare methods and contradictions; save evidence table with source IDs and search bounds. |
