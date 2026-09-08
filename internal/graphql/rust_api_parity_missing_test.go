@@ -2589,8 +2589,8 @@ func rustAPIPortLiveActivityPayload(t *testing.T) {
 	if delivery.Payload["route"] != "task" {
 		t.Errorf("Live Activity route = %#v, want %q", delivery.Payload["route"], "task")
 	}
-	if delivery.Payload["taskId"] != "task:focus" {
-		t.Errorf("Live Activity taskId = %#v, want %q", delivery.Payload["taskId"], "task:focus")
+	if delivery.Payload["taskId"] != focusRun.TaskID {
+		t.Errorf("Live Activity taskId = %#v, want %q", delivery.Payload["taskId"], focusRun.TaskID)
 	}
 	if aps["attributes-type"] != "NoemaTasksActivityAttributes" {
 		t.Errorf("Live Activity attributes type = %#v, want %q", aps["attributes-type"], "NoemaTasksActivityAttributes")
@@ -2625,16 +2625,28 @@ func rustAPIPortLiveActivityPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	update, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
-	if err != nil || update == nil {
-		t.Fatalf("Live Activity update delivery = %#v, %v", update, err)
-	}
-	updateAPS, _ := update.Payload["aps"].(map[string]any)
-	if update.Payload["taskId"] != "task:one" {
-		t.Errorf("Live Activity alert taskId = %#v, want %q", update.Payload["taskId"], "task:one")
-	}
-	updateAlert, _ := updateAPS["alert"].(map[string]any)
-	if updateAlert["body"] != "Review Focus" {
-		t.Errorf("Live Activity alert body = %#v, want %q", updateAlert["body"], "Review Focus")
+	for attempts := 0; ; attempts++ {
+		if err != nil || update == nil {
+			t.Fatalf("Live Activity update delivery = %#v, %v", update, err)
+		}
+		updateAPS, _ := update.Payload["aps"].(map[string]any)
+		updateAlert, _ := updateAPS["alert"].(map[string]any)
+		if updateAlert["body"] == "Review Focus" {
+			if update.Payload["taskId"] != focusRun.TaskID {
+				t.Errorf("Live Activity alert taskId = %#v, want %q", update.Payload["taskId"], focusRun.TaskID)
+			}
+			if err := resolver.Store.FinishLiveActivityDelivery(ctx, *update, store.APNSDelivered, "", "payload-alert", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+		if attempts == 8 {
+			t.Fatalf("Live Activity alert was not queued: %#v", update.Payload)
+		}
+		if err := resolver.Store.FinishLiveActivityDelivery(ctx, *update, store.APNSDelivered, "", "payload-intermediate", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		update, err = resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
 	}
 }
 
@@ -2671,11 +2683,23 @@ func rustAPIPortLiveActivityPriority(t *testing.T) {
 		t.Fatal(err)
 	}
 	ordinaryUpdate, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
-	if err != nil || ordinaryUpdate == nil {
-		t.Fatalf("priority ordinary update = %#v, %v", ordinaryUpdate, err)
+	for attempts := 0; ; attempts++ {
+		if err != nil || ordinaryUpdate == nil {
+			t.Fatalf("priority ordinary update = %#v, %v", ordinaryUpdate, err)
+		}
+		if ordinaryUpdate.Urgency == "normal" {
+			break
+		}
+		if attempts == 8 {
+			t.Fatalf("priority ordinary update was not queued: %#v", ordinaryUpdate)
+		}
+		if err := resolver.Store.FinishLiveActivityDelivery(ctx, *ordinaryUpdate, store.APNSDelivered, "", "priority-intermediate", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		ordinaryUpdate, err = resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
 	}
-	if ordinaryUpdate.Urgency != "normal" {
-		t.Errorf("Live Activity ordinary update urgency = %q, want %q", ordinaryUpdate.Urgency, "normal")
+	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *ordinaryUpdate, store.APNSDelivered, "", "priority-update", time.Now()); err != nil {
+		t.Fatal(err)
 	}
 	digest := sha256.Sum256([]byte(activity.ActivityID))
 	collapseID := hex.EncodeToString(digest[:])
@@ -2691,9 +2715,6 @@ func rustAPIPortLiveActivityPriority(t *testing.T) {
 	if collapseID != hex.EncodeToString(digest[:]) {
 		t.Errorf("ordinary update collapse ID was not stable: %q", collapseID)
 	}
-	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *ordinaryUpdate, store.APNSDelivered, "", "priority-update", time.Now()); err != nil {
-		t.Fatal(err)
-	}
 	if err := resolver.Store.BlockTaskExecution(ctx, run.ID, run.Generation, "approval", "Immediate update", "Immediate update", []string{"approve"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -2701,11 +2722,20 @@ func rustAPIPortLiveActivityPriority(t *testing.T) {
 		t.Fatal(err)
 	}
 	immediateUpdate, err := resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
-	if err != nil || immediateUpdate == nil {
-		t.Fatalf("priority immediate update = %#v, %v", immediateUpdate, err)
-	}
-	if immediateUpdate.Urgency != "high" {
-		t.Errorf("Live Activity immediate update urgency = %q, want %q", immediateUpdate.Urgency, "high")
+	for attempts := 0; ; attempts++ {
+		if err != nil || immediateUpdate == nil {
+			t.Fatalf("priority immediate update = %#v, %v", immediateUpdate, err)
+		}
+		if immediateUpdate.Urgency == "high" {
+			break
+		}
+		if attempts == 8 {
+			t.Fatalf("priority immediate update was not high priority: %#v", immediateUpdate)
+		}
+		if err := resolver.Store.FinishLiveActivityDelivery(ctx, *immediateUpdate, store.APNSDelivered, "", "priority-immediate-intermediate", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		immediateUpdate, err = resolver.Store.ClaimDueLiveActivityDelivery(ctx, time.Now().Add(time.Minute))
 	}
 	if err := resolver.Store.FinishLiveActivityDelivery(ctx, *immediateUpdate, store.APNSDelivered, "", "priority-immediate", time.Now()); err != nil {
 		t.Fatal(err)

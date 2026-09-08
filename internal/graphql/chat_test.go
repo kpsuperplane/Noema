@@ -35,7 +35,7 @@ func TestPrimaryConversationServesEmptyReadyChat(t *testing.T) {
 	if conversation.LatestTranscriptPage == nil || len(conversation.LatestTranscriptPage.Items) != 0 {
 		t.Fatalf("latest transcript = %#v", conversation.LatestTranscriptPage)
 	}
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	result := postGraphQL(t, server.URL, `
 query ReadyChat($input: ConversationTranscriptPageInput!) {

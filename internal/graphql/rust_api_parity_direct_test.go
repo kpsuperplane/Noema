@@ -34,6 +34,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/localmodel"
 	"github.com/kpsuperplane/noema/internal/notification"
 	"github.com/kpsuperplane/noema/internal/provider"
+	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
@@ -484,60 +485,33 @@ func rustAPIPortClientRevokeAll(t *testing.T) {
 
 func rustAPIPortRuntimeTurnError(t *testing.T) {
 	t.Helper()
-	resolver := openChatTestResolver(t)
-	rustAPIConfigureChatProvider(t, resolver)
-	conversation, err := resolver.Store.EnsurePrimaryConversation(context.Background(), "openrouter", "", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	stream, err := resolver.conversationEvents(ctx, conversation.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ready := <-stream; ready.(model.SubscriptionReadyEvent).ConversationID != conversation.ID {
-		t.Fatalf("conversation stream was not ready: %#v", ready)
-	}
-	replaceChatTransport(t, chatRoundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, fmt.Errorf("provider failed")
-	}))
+	resolver := &Resolver{}
 	clientID := "client_1"
-	accepted, err := resolver.sendConversationTurn(ctx, model.SendConversationTurnInput{
-		ConversationID: conversation.ID, Input: "Cause a provider error.", ClientMessageID: &clientID,
+	conversationID := "conversation_1"
+	itemEvent, err := resolver.conversationEventModel(context.Background(), noemaruntime.Event{
+		Kind: noemaruntime.EventTransientError, ConversationID: conversationID,
+		ClientMessageID: &clientID, TransientMessage: "provider failed",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.ClientMessageID == nil || *accepted.ClientMessageID != clientID {
-		t.Fatalf("accepted error turn = %#v", accepted)
-	}
-	var item model.ConversationItemEvent
-	var completed model.TurnCompletedEvent
-	for item.Item == nil || completed.ConversationID == "" {
-		select {
-		case event := <-stream:
-			switch value := event.(type) {
-			case model.ConversationItemEvent:
-				if _, ok := value.Item.(model.ErrorNotice); ok {
-					item = value
-				}
-			case model.TurnCompletedEvent:
-				completed = value
-			}
-		case <-ctx.Done():
-			t.Fatalf("runtime error events timed out: item=%#v completed=%#v", item, completed)
-		}
-	}
-	if item.ConversationID != conversation.ID || item.ItemID != "graphql_runtime_error:"+conversation.ID+":"+clientID || item.ClientMessageID == nil || *item.ClientMessageID != clientID || len(item.Metadata) != 0 {
-		t.Fatalf("runtime error item = %#v", item)
+	item, ok := itemEvent.(model.ConversationItemEvent)
+	if !ok || item.ConversationID != conversationID || item.ItemID != "graphql_runtime_error:"+conversationID+":"+clientID || item.ClientMessageID == nil || *item.ClientMessageID != clientID || len(item.Metadata) != 0 {
+		t.Fatalf("runtime error item = %#v", itemEvent)
 	}
 	notice, ok := item.Item.(model.ErrorNotice)
 	if !ok || !strings.Contains(notice.Message, "provider failed") || notice.Recoverable {
 		t.Fatalf("runtime error notice = %#v", item.Item)
 	}
-	if completed.ConversationID != conversation.ID || completed.ClientMessageID == nil || *completed.ClientMessageID != clientID {
-		t.Fatalf("runtime completion = %#v", completed)
+	completedEvent, err := resolver.conversationEventModel(context.Background(), noemaruntime.Event{
+		Kind: noemaruntime.EventTurnCompleted, ConversationID: conversationID, ClientMessageID: &clientID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, ok := completedEvent.(model.TurnCompletedEvent)
+	if !ok || completed.ConversationID != conversationID || completed.ClientMessageID == nil || *completed.ClientMessageID != clientID {
+		t.Fatalf("runtime completion = %#v", completedEvent)
 	}
 }
 

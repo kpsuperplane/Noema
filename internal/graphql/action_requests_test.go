@@ -70,7 +70,7 @@ func TestPendingHumanInterventionsReturnsGovernedActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	result := postGraphQL(t, server.URL, `
 query Pending($conversationId: String!) {

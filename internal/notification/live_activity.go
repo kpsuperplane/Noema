@@ -29,6 +29,10 @@ type liveProjection struct {
 	FocusedTaskID string
 }
 
+type liveActivityAlert struct {
+	Title, Body, TaskID string
+}
+
 type projectedTask struct {
 	Task store.Task
 	Run  *store.TaskRun
@@ -64,7 +68,83 @@ func (s *Service) reconcileLiveActivitiesLocked(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return s.reconcileLiveTaskAlerts(ctx, targets, projection)
+}
+
+func (s *Service) reconcileLiveTaskAlerts(ctx context.Context, targets []store.LiveActivityTarget, fallback *liveProjection) error {
+	for {
+		events, err := s.database.WorkEvents(ctx, "workspace:personal", s.liveTaskSequence, 100)
+		if err != nil {
+			return err
+		}
+		if len(events) == 0 {
+			return nil
+		}
+		for _, event := range events {
+			var alert *liveActivityAlert
+			switch event.Kind {
+			case "gate.opened":
+				gateID, _ := event.Payload["gate_id"].(string)
+				task, taskErr := s.database.Task(ctx, event.TaskID)
+				if taskErr != nil {
+					return taskErr
+				}
+				if gateID == "" || task.StageKey != "waiting" || task.ActiveGateID != gateID || task.Generation != taskEventGeneration(event) {
+					break
+				}
+				gate, gateErr := s.database.TaskGate(ctx, gateID)
+				if gateErr != nil {
+					return gateErr
+				}
+				title := "Task waiting"
+				if gate.Kind == "recovery" {
+					title = "Task recovery needed"
+				}
+				alert = &liveActivityAlert{Title: title, Body: gate.Prompt, TaskID: task.ID}
+			case "task.completed":
+				notify, _ := event.Payload["notify_human"].(bool)
+				if !notify {
+					break
+				}
+				task, taskErr := s.database.Task(ctx, event.TaskID)
+				if taskErr != nil {
+					return taskErr
+				}
+				if task.StageKey == "done" && task.Generation == taskEventGeneration(event) {
+					alert = &liveActivityAlert{Title: "Task completed", Body: "Task completed.", TaskID: task.ID}
+				}
+			}
+			alertDelivered := true
+			if alert != nil {
+				alertDelivered = false
+				for _, target := range targets {
+					activity := target.Activity
+					if activity == nil || activity.Lifecycle != "active" || len(activity.UpdateToken) == 0 {
+						continue
+					}
+					projection := fallback
+					if projection == nil || projection.Content == nil {
+						projection = &liveProjection{Content: activity.Projection, Signature: activity.ProjectionSignature, FocusedTaskID: activity.FocusedTaskID}
+					}
+					if projection.Content == nil || projection.FocusedTaskID == "" {
+						continue
+					}
+					if err := s.queueLiveActivity(ctx, target, *activity, store.LiveActivityUpdate,
+						fmt.Sprintf("live:alert:%d", event.ID), projection, alert, 86400); err != nil {
+						return err
+					}
+					alertDelivered = true
+				}
+			}
+			if !alertDelivered {
+				return nil
+			}
+			s.liveTaskSequence = event.ID
+		}
+		if len(events) < 100 {
+			return nil
+		}
+	}
 }
 
 func (s *Service) liveProjection(ctx context.Context) (*liveProjection, error) {
@@ -250,7 +330,7 @@ func (s *Service) applyLiveProjection(ctx context.Context, target store.LiveActi
 		}
 		if len(activity.UpdateToken) > 0 && terminal != nil && target.Registration.Environment != nil {
 			if err := s.queueLiveActivity(ctx, target, activity, store.LiveActivityEnd,
-				"live:end:"+activity.TaskSessionID, terminal, 600); err != nil {
+				"live:end:"+activity.TaskSessionID, terminal, nil, 600); err != nil {
 				return err
 			}
 			_, err = s.database.MarkClientTaskActivityEnding(ctx, target.Registration.ClientID, activity.ActivityID, time.Now())
@@ -290,11 +370,11 @@ func (s *Service) applyLiveProjection(ctx context.Context, target store.LiveActi
 	}
 	if activity.Lifecycle == "active" && len(activity.UpdateToken) > 0 {
 		return s.queueLiveActivity(ctx, target, activity, store.LiveActivityUpdate,
-			"live:update:"+projection.Signature, projection, 3600)
+			"live:update:"+projection.Signature, projection, nil, 3600)
 	}
 	if activity.Lifecycle == "starting" && len(target.Registration.PushToStartToken) > 0 {
 		return s.queueLiveActivity(ctx, target, activity, store.LiveActivityStart,
-			"live:start:"+activity.TaskSessionID, projection, 3600)
+			"live:start:"+activity.TaskSessionID, projection, nil, 3600)
 	}
 	return nil
 }
@@ -473,7 +553,7 @@ func liveActivityText(value string) string {
 func epoch(value time.Time) float64 { return float64(value.UnixMilli()) / 1000 }
 
 func (s *Service) queueLiveActivity(ctx context.Context, target store.LiveActivityTarget, activity store.ClientTaskActivity,
-	event store.LiveActivityEvent, key string, projection *liveProjection, ttl int) error {
+	event store.LiveActivityEvent, key string, projection *liveProjection, alert *liveActivityAlert, ttl int) error {
 	if target.Registration.Environment == nil {
 		return nil
 	}
@@ -481,9 +561,9 @@ func (s *Service) queueLiveActivity(ctx context.Context, target store.LiveActivi
 	if event == store.LiveActivityStart {
 		token = target.Registration.PushToStartToken
 	}
-	payload := liveActivityPayload(event, target.Registration.ClientID, activity.ActivityID, s.origin, projection)
+	payload := liveActivityPayload(event, target.Registration.ClientID, activity.ActivityID, s.origin, projection, alert)
 	urgency := "normal"
-	if event == store.LiveActivityStart {
+	if event == store.LiveActivityStart || alert != nil {
 		urgency = "high"
 	}
 	return s.database.QueueLiveActivityDelivery(ctx, store.NewLiveActivityDelivery{
@@ -493,7 +573,7 @@ func (s *Service) queueLiveActivity(ctx context.Context, target store.LiveActivi
 	}, time.Now())
 }
 
-func liveActivityPayload(event store.LiveActivityEvent, clientID, activityID, origin string, projection *liveProjection) map[string]any {
+func liveActivityPayload(event store.LiveActivityEvent, clientID, activityID, origin string, projection *liveProjection, alert *liveActivityAlert) map[string]any {
 	aps := map[string]any{
 		"timestamp": projection.Content["updatedAtEpoch"], "event": string(event),
 		"content-state": projection.Content,
@@ -505,7 +585,12 @@ func liveActivityPayload(event store.LiveActivityEvent, clientID, activityID, or
 		}
 		aps["alert"] = map[string]any{"title": "Noema Tasks", "body": projection.Content["focusTitle"]}
 	}
-	return map[string]any{"aps": aps, "route": "task", "taskId": projection.FocusedTaskID, "version": 1}
+	taskID := projection.FocusedTaskID
+	if alert != nil {
+		aps["alert"] = map[string]any{"title": notificationText(alert.Title), "body": notificationText(alert.Body)}
+		taskID = alert.TaskID
+	}
+	return map[string]any{"aps": aps, "route": "task", "taskId": taskID, "version": 1}
 }
 
 func (s *Service) drainLiveActivities(ctx context.Context) error {

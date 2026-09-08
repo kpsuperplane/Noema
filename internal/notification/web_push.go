@@ -44,17 +44,18 @@ const (
 
 // Service owns one installation's Web Push signing key and visibility leases.
 type Service struct {
-	database       *store.Store
-	paths          home.Paths
-	origin         string
-	keys           *webpush.VAPIDKeys
-	apns           *http.Client
-	visible        map[string]int
-	clients        map[string]int
-	taskSequence   int64
-	mu             sync.Mutex
-	liveActivityMu sync.Mutex
-	wake           chan struct{}
+	database         *store.Store
+	paths            home.Paths
+	origin           string
+	keys             *webpush.VAPIDKeys
+	apns             *http.Client
+	visible          map[string]int
+	clients          map[string]int
+	taskSequence     int64
+	liveTaskSequence int64
+	mu               sync.Mutex
+	liveActivityMu   sync.Mutex
+	wake             chan struct{}
 }
 
 type vapidFile struct {

@@ -29,7 +29,7 @@ import (
 
 func TestCaptureAndReadTask(t *testing.T) {
 	resolver := openTestResolver(t)
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	document := "## Objective\n\nAudit every server dependency.\n"
 	digest := sha256.Sum256([]byte(document))
@@ -109,7 +109,7 @@ func TestArtifactGraphQLOperations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(NewHandler(resolver))
+	server := httptest.NewServer(rustAPIAuthenticatedHandler(resolver))
 	t.Cleanup(server.Close)
 	external := postGraphQL(t, server.URL, `mutation External($input: CreateConversationExternalArtifactInput!) {
   createConversationExternalArtifact(input: $input) {
