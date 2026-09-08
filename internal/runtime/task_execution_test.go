@@ -336,9 +336,9 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 		case "planner":
 			if call == 1 {
 				if !taskRequestHasTool(request.Tools, fileParseName) ||
-					len(request.Messages) < 2 || request.Messages[0].Role != "system" ||
+					len(request.Messages) < 3 || request.Messages[0].Role != "system" || !request.Messages[0].Instructions || request.Messages[1].Instructions || request.Messages[1].Role != "system" ||
 					strings.Contains(request.Messages[0].Content, "Complete the exact work.") ||
-					request.Messages[1].Role != "user" || !strings.Contains(request.Messages[1].Content, "Complete the exact work.") {
+					request.Messages[2].Role != "user" || !strings.Contains(request.Messages[2].Content, "Complete the exact work.") {
 					mu.Lock()
 					requestProblem = "Task request did not preserve the tool, search, or data-role contract"
 					mu.Unlock()
@@ -1028,6 +1028,9 @@ func TestTaskMessagesSeparateRequestAndCurrentClocks(t *testing.T) {
 			if tc.scheduleZone != "" {
 				task.ScheduledFor, task.RecurrenceScheduledFor = &occurrence, &occurrence
 			}
+			if err := home.WriteTaskFile(chat.home, task.ID, "RESULT.md", "Current result"); err != nil {
+				t.Fatal(err)
+			}
 			runtime := &TaskExecution{database: database, root: chat.home}
 			for _, role := range []string{"planner", "executor", "reviewer"} {
 				before := time.Now().Truncate(time.Second)
@@ -1069,10 +1072,10 @@ func TestTaskMessagesSeparateRequestAndCurrentClocks(t *testing.T) {
 					t.Fatalf("clock offset = %d; want %d", actualOffset, expectedOffset)
 				}
 				sourceLocation, _ := time.LoadLocation(tc.sourceZone)
-				if !strings.Contains(data, requested.In(sourceLocation).Format(time.RFC3339)) || !strings.Contains(data, "café 日本語") {
+				if !strings.Contains(data, "date="+requested.In(sourceLocation).Format("2006-01-02")+", time="+requested.In(sourceLocation).Format("2006-01-02T15:04:05-07:00")) || !strings.Contains(data, "café 日本語") {
 					t.Fatalf("original request time or Task text missing: %s", data)
 				}
-				if tc.scheduleZone != "" && !strings.Contains(system, "occurrence_execution_time: "+strconv.Quote(occurrence.In(location).Format(time.RFC3339))) {
+				if tc.scheduleZone != "" && role != "reviewer" && !strings.Contains(data, "Noema started this scheduled task for "+occurrence.UTC().Format(time.RFC3339)) {
 					t.Fatalf("occurrence cutoff missing: %s", system)
 				}
 			}
@@ -1105,7 +1108,7 @@ func TestTaskReviewCorrectionUsesCurrentFiles(t *testing.T) {
 						data += message.Content
 					}
 				}
-				for _, required := range []string{planned, "<RESULT.md>\nalpha\n", feedback} {
+				for _, required := range []string{planned, "<RESULT_DOCUMENT>\nalpha\n", feedback} {
 					if !strings.Contains(data, required) {
 						t.Errorf("correction context omits %q: %s", required, data)
 					}
@@ -1136,7 +1139,7 @@ func TestTaskReviewCorrectionUsesCurrentFiles(t *testing.T) {
 			if call > 1 {
 				expectedResult = "alpha\ncafé 日本語\n"
 			}
-			if !strings.Contains(data, planned) || !strings.Contains(data, "<RESULT.md>\n"+expectedResult+"\n</RESULT.md>") {
+			if !strings.Contains(data, planned) || !strings.Contains(data, "<RESULT_DOCUMENT>\n"+expectedResult+"\n</RESULT_DOCUMENT>") {
 				t.Errorf("Reviewer did not receive current request and result: %s", data)
 			}
 			if call == 1 {

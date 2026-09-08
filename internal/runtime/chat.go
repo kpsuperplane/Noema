@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -575,7 +574,7 @@ func (c *Chat) execute(request queuedTurn) {
 		store.RuntimeDebugMetadata{Phase: "initial"}, runtimeStarted)
 	providerMessages, _, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database, generator: contextGenerator,
 		accountID: assignment.ProviderAccountID, providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
-		base: developerMessages(environment, memoryContext, projectContext, hostedWeb), completed: completed, active: active,
+		base: append(developerMessages(environment, memoryContext, projectContext, hostedWeb), toolVisibilityMessage(tools, provider.ToolTransportNative, hostedWeb)), completed: completed, active: active,
 		tools: tools, hostedWeb: hostedWeb, outputReserve: *outputTokens,
 		persist: func(summary string, recent []provider.GenerationMessage) error {
 			return c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
@@ -855,12 +854,12 @@ func runtimeEnvironment(conversation store.Conversation, location *time.Location
 	local := now.In(location)
 	cwd := "null"
 	if conversation.CWD != "" {
-		cwd = strconv.Quote(conversation.CWD)
+		cwd = promptJSONString(conversation.CWD)
 	}
 	return fmt.Sprintf(
 		"Runtime environment:\n- current_date: %s\n- current_time: %s\n- timezone: %s\n- cwd: %s\nFor the human's current date, weekday, time, and relative-date reasoning, these values are authoritative and override any provider, platform, server, or UTC clock. Treat cwd as a location hint, not as user intent or permission to access files.",
-		strconv.Quote(local.Format(time.DateOnly)), strconv.Quote(local.Format(time.RFC3339)),
-		strconv.Quote(location.String()), cwd,
+		promptJSONString(local.Format(time.DateOnly)), promptJSONString(local.Format("2006-01-02T15:04:05-07:00")),
+		promptJSONString(location.String()), cwd,
 	)
 }
 

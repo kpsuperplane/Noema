@@ -480,6 +480,7 @@ func codexGenerationStatusError(status int) error {
 type codexGenerationPayload struct {
 	Model                string                       `json:"model"`
 	Input                []any                        `json:"input"`
+	Instructions         *string                      `json:"instructions,omitempty"`
 	MaxOutputTokens      *uint32                      `json:"max_output_tokens,omitempty"`
 	PreviousResponseID   string                       `json:"previous_response_id,omitempty"`
 	Temperature          *float32                     `json:"temperature,omitempty"`
@@ -579,10 +580,15 @@ func prepareResponsesGeneration(
 		}
 	}
 	input := make([]any, 0, len(request.Messages)*2)
+	var instructions []string
 	for index, message := range request.Messages {
 		lowered, err := lowerCodexMessage(message, toolNames)
 		if err != nil {
 			return nil, openRouterToolNameMap{}, fmt.Errorf("%s generation history is invalid", profile.providerName)
+		}
+		if message.Role == "system" && message.Instructions {
+			instructions = append(instructions, message.Content)
+			continue
 		}
 		if _, ok := cacheBreakpoints[index]; ok {
 			lowered = []any{map[string]any{
@@ -606,6 +612,10 @@ func prepareResponsesGeneration(
 		Store:                request.StoreResponse,
 		Stream:               profile.stream,
 		Tools:                tools,
+	}
+	if len(instructions) != 0 {
+		content := strings.Join(instructions, "\n\n")
+		payload.Instructions = &content
 	}
 	if explicitPromptCache {
 		payload.PromptCacheOptions = &responsesPromptCacheOptions{Mode: "explicit", TTL: "30m"}

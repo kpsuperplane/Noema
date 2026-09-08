@@ -85,7 +85,7 @@ func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error)
 		return nil, err
 	}
 	for _, binding := range bindings {
-		result = append(result, provider.GenerationTool{Name: binding.ModelName, Description: binding.Binding.Description,
+		result = append(result, provider.GenerationTool{ServiceCatalogRow: binding.Binding.ServiceCatalogRow, ServiceConnectionID: binding.Binding.ServerID, Name: binding.ModelName, Description: binding.Binding.Description,
 			InputSchema: append(json.RawMessage(nil), binding.Binding.InputSchema...)})
 	}
 	return result, nil
@@ -390,8 +390,8 @@ func memoryPageValue(page noemamemory.Page) map[string]any {
 	}
 }
 
-func developerMessages(environment, memoryContext, projectContext string, hostedWeb bool) []provider.GenerationMessage {
-	messages := make([]provider.GenerationMessage, 0, 3)
+func developerMessages(environment []provider.GenerationMessage, memoryContext, projectContext string, hostedWeb bool) []provider.GenerationMessage {
+	messages := []provider.GenerationMessage{{Role: "system", Instructions: true, Content: structuredTurnPrompt}}
 	if strings.TrimSpace(memoryContext) != "" {
 		messages = append(messages, provider.GenerationMessage{
 			Role: "developer", Content: "Native local-human memory (source root page):\n" + memoryContext,
@@ -400,10 +400,7 @@ func developerMessages(environment, memoryContext, projectContext string, hosted
 	if projectContext != "" {
 		messages = append(messages, provider.GenerationMessage{Role: "developer", Content: projectContext})
 	}
-	if hostedWeb {
-		environment += "\n\nAvailable provider tool:\n- provider_native\tweb_search\tSearch the live public web through the active model provider."
-	}
-	return append(messages, provider.GenerationMessage{Role: "developer", Content: environment})
+	return append(messages, environment...)
 }
 
 func (c *Chat) memoryRootContext() string {

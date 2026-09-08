@@ -1,0 +1,4 @@
+Compact Noema conversation context into a durable rolling summary.
+Write plain assistant text only. Target at most {target_tokens} tokens.
+Preserve active user goals, durable decisions, unresolved references, recently active entities, projects, files, tools, and explicit uncertainty.
+Do not invent facts. Do not convert conversation-local details into memory claims.

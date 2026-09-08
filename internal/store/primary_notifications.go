@@ -183,7 +183,7 @@ WHERE state_id=1 AND primary_task_notification_event_id=?`, write.Event.ID, curs
 }
 
 // RecordCapabilityReady appends one idempotent API or MCP readiness event.
-func (s *Store) RecordCapabilityReady(ctx context.Context, kind, name, connectionID, revision string, enabled int, now time.Time) error {
+func (s *Store) RecordCapabilityReady(ctx context.Context, kind, name, connectionID, revision string, scopes []string, enabled int, now time.Time) error {
 	if kind != "api" && kind != "mcp" || name == "" || connectionID == "" || revision == "" || enabled < 0 {
 		return errors.New("capability readiness is invalid")
 	}
@@ -202,7 +202,7 @@ AND json_extract(payload_json,'$.connection_revision')=?)`, kind, connectionID, 
 	_, err = insertWorkEvent(ctx, tx, "workspace:personal", "", "", "", 1, "capability.ready",
 		"actor:human:local", nil, "correlation:capability:"+kind+":"+connectionID,
 		map[string]any{"v": 1, "integration_kind": kind, "integration_name": name,
-			"connection_id": connectionID, "connection_revision": revision, "enabled_tool_count": enabled}, now)
+			"connection_id": connectionID, "connection_revision": revision, "granted_scopes": scopes, "enabled_tool_count": enabled}, now)
 	if err == nil {
 		err = tx.Commit()
 	}

@@ -210,6 +210,9 @@ func (s *Service) oauthHandler(attempt *oauthAttempt, started chan<- string) (*m
 			credentials := &OAuthCredentials{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken,
 				TokenType: token.TokenType, Expiry: token.Expiry, ClientID: cfg.ClientID,
 				ClientSecret: cfg.ClientSecret, TokenURL: cfg.Endpoint.TokenURL, Scopes: append([]string(nil), cfg.Scopes...)}
+			if scope, ok := token.Extra("scope").(string); ok {
+				credentials.Scopes = strings.Fields(scope)
+			}
 			attempt.input.Secrets.OAuth = credentials
 			return cfg.TokenSource(ctx, token), nil
 		},

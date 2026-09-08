@@ -48,7 +48,7 @@ func TestAuditProjectTaskSharedReadsAndFreshContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	taskDir := filepath.Join(folder, strings.TrimPrefix(id, "task:"))
-	if err = os.Symlink(outside, filepath.Join(taskDir, "escape.md")); err != nil {
+	if err = home.WriteTaskFile(chat.home, task.ID, "RESULT.md", "Current result"); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &TaskExecution{database: db, root: chat.home}
@@ -64,7 +64,7 @@ func TestAuditProjectTaskSharedReadsAndFreshContext(t *testing.T) {
 			}
 			found := false
 			for _, message := range messages {
-				if strings.Contains(message.Content, "<PROJECT.md>\n"+current+"\n</PROJECT.md>") {
+				if strings.Contains(message.Content, "<PROJECT_DOCUMENT>\n"+current+"\n</PROJECT_DOCUMENT>") {
 					found = true
 				}
 			}
@@ -81,6 +81,10 @@ func TestAuditProjectTaskSharedReadsAndFreshContext(t *testing.T) {
 			}
 		})
 		t.Run(role+" outside read", func(t *testing.T) {
+			if err := os.Symlink(outside, filepath.Join(taskDir, "escape.md")); err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(filepath.Join(taskDir, "escape.md"))
 			for _, path := range []string{"../../outside.md", "escape.md"} {
 				raw, _ := json.Marshal(map[string]string{"path": path})
 				payload, success, _, _ := runtime.executeTaskTool(ctx, task, store.TaskRun{Kind: role}, taskFilesRead, raw, false)

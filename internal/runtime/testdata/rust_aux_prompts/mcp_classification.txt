@@ -1,0 +1,7 @@
+Classify only these missing tool behavior hints: {missing}.
+Return one strict JSON object using only the corresponding camelCase keys and boolean values.
+readOnly=no environment mutation; idempotent=repeating identical arguments adds no effect; destructive=may overwrite/delete; openWorld=may interact with external entities.
+tool={}
+description={}
+input_fields={}
+output_fields={}

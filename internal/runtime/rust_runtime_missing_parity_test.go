@@ -771,8 +771,8 @@ func TestRustRuntime_failed_initial_name_onboarding_logs_runtime_invariant(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(environment, "update_own_name") || !strings.Contains(environment, "do not have a name") {
-		t.Errorf("unnamed onboarding authority = %q", environment)
+	if !strings.Contains(environment[0].Content, "update_own_name") || !strings.Contains(environment[0].Content, "do not have a name") {
+		t.Errorf("unnamed onboarding authority = %+v", environment)
 	}
 	items, err := database.ConversationProviderItems(context.Background(), conversation.ID)
 	if err != nil {
@@ -1010,13 +1010,13 @@ func TestRustRuntime_capability_setup_completions_narrate_once_per_connection_re
 	}
 	<-events
 	now := time.Now()
-	if err := database.RecordCapabilityReady(context.Background(), "api", "Gmail", "connection:gmail", "revision:one", 2, now); err != nil {
+	if err := database.RecordCapabilityReady(context.Background(), "api", "Gmail", "connection:gmail", "revision:one", nil, 2, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.RecordCapabilityReady(context.Background(), "api", "Gmail", "connection:gmail", "revision:one", 2, now); err != nil {
+	if err := database.RecordCapabilityReady(context.Background(), "api", "Gmail", "connection:gmail", "revision:one", nil, 2, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.RecordCapabilityReady(context.Background(), "mcp", "Notion", "connection:notion", "revision:one", 8, now); err != nil {
+	if err := database.RecordCapabilityReady(context.Background(), "mcp", "Notion", "connection:notion", "revision:one", nil, 8, now); err != nil {
 		t.Fatal(err)
 	}
 	collected := collectCompletedTurns(t, events, 2)
@@ -1061,6 +1061,11 @@ func TestRustRuntime_capability_setup_narration_projects_provider_citation_marke
 func TestRustRuntime_notification_delivery_waits_for_foreground_turn_and_publishes_exact_item(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/runtime_lifecycle.rs::notification_delivery_waits_for_foreground_turn_and_publishes_exact_item.
 	chat, database, conversation := chatFixture(t)
+	// This test owns notification delivery; stop the automatic event consumer.
+	if err := chat.Close(); err != nil {
+		t.Fatal(err)
+	}
+	chat.ctx = context.Background()
 	taskID, err := store.NewTaskID()
 	if err != nil {
 		t.Fatal(err)

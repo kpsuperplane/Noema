@@ -274,6 +274,7 @@ type OperationOverride struct {
 
 // Binding is one immutable model-visible adapter operation authority.
 type Binding struct {
+	ServiceCatalogRow                             string `json:"-"`
 	Name, Description, ConnectionID, DefinitionID string
 	SemanticDigest, OperationID, OperationDigest  string
 	// InvokerKey and OperationToken identify the exact runtime authority used
@@ -381,7 +382,7 @@ type SetupBinding struct {
 func GenerationTools(bindings []Binding) []provider.GenerationTool {
 	result := make([]provider.GenerationTool, len(bindings))
 	for i, binding := range bindings {
-		result[i] = provider.GenerationTool{Name: binding.Name, Description: binding.Description, InputSchema: append(json.RawMessage(nil), binding.InputSchema...)}
+		result[i] = provider.GenerationTool{ServiceCatalogRow: binding.ServiceCatalogRow, ServiceConnectionID: binding.ConnectionID, Name: binding.Name, Description: binding.Description, InputSchema: append(json.RawMessage(nil), binding.InputSchema...)}
 	}
 	return result
 }

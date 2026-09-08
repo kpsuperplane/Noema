@@ -604,7 +604,7 @@ func TestRustRuntime_approved_runtime_browser_action_is_not_treated_as_removed_c
 func TestRustRuntime_web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/local_tools/tests/web.rs::web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model.
 	prompt := webtool.SummaryPrompt("https://example.test/source", "Source", "ordinary", 1_000)
-	if !strings.Contains(prompt, "Summarize") || !strings.Contains(prompt, "ordinary") {
+	if !strings.Contains(prompt, "You are compressing untrusted web page text") || !strings.Contains(prompt, "ordinary") {
 		t.Fatalf("default summary prompt = %q", prompt)
 	}
 }

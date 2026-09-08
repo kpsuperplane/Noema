@@ -70,6 +70,8 @@ type ContinuationSession interface {
 
 // GenerationMessage is one provider-neutral history message.
 type GenerationMessage struct {
+	// Instructions distinguishes the static instruction field from system-role input.
+	Instructions                    bool `json:"-"`
 	Role, Content                   string
 	ToolCalls                       []ReplayToolCall
 	ToolResult                      *ReplayToolResult
@@ -172,9 +174,11 @@ const (
 
 // GenerationTool is one source model-visible function.
 type GenerationTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	ServiceCatalogRow   string          `json:"-"`
+	ServiceConnectionID string          `json:"-"`
+	Name                string          `json:"name"`
+	Description         string          `json:"description"`
+	InputSchema         json.RawMessage `json:"input_schema"`
 }
 
 // ToolSchema preserves one provider-neutral JSON schema without mapping it

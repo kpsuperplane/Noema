@@ -1105,7 +1105,6 @@ func (c *Chat) generateChatToolContinuation(
 	transport := provider.ToolTransportNative
 	requestProjectContext := projectContext
 	if stopReason != "" {
-		environment += "\n\n" + toolFinalizationInstruction(stopReason)
 		messages = compactToolFinalizationMessages(messages, modelToolPayloadLimit)
 		completed, active = nil, messages
 		tools = nil
@@ -1114,6 +1113,12 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, transport) && (c.web == nil || !c.web.Explicit(c.ctx))
 	developer := developerMessages(environment, memoryContext, requestProjectContext, hostedWeb)
+	developer = append(developer, toolVisibilityMessage(tools, transport, hostedWeb))
+	instructions := localToolContinuationPrompt(providerRound >= 3)
+	if stopReason != "" {
+		instructions = toolFinalizationInstruction(stopReason)
+	}
+	developer[0].Content = instructions
 	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
 	continuingSession := continuationReady(generator, previousResponseID)
 	_, isSession := generator.(provider.GenerationSession)
@@ -1159,14 +1164,11 @@ func (c *Chat) generateChatToolContinuation(
 			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
 	}
 	if continuing {
-		messages = append([]provider.GenerationMessage(nil), incrementalMessages...)
+		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}}, incrementalMessages...)
+		messages = append(messages, environment...)
+		messages = append(messages, toolVisibilityMessage(tools, transport, hostedWeb))
 		if requestProjectContext != "" {
 			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})
-		}
-		if stopReason != "" {
-			messages = append(messages, provider.GenerationMessage{
-				Role: "developer", Content: toolFinalizationInstruction(stopReason),
-			})
 		}
 	}
 	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
@@ -1237,21 +1239,21 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	if stopReason == "" {
 		stopReason = "provider replay limit reached"
-		environment += "\n\n" + toolFinalizationInstruction(stopReason)
 	}
 	messages = compactToolFinalizationMessages(replayMessages[len(developer):], payloadLimit)
-	messages = append(developerMessages(environment, memoryContext, "", false), messages...)
+	instructions = toolFinalizationInstruction(stopReason)
+	finalDeveloper := developerMessages(environment, memoryContext, "", false)
+	finalDeveloper[0].Content = instructions
+	finalDeveloper = append(finalDeveloper, toolVisibilityMessage(nil, provider.ToolTransportNone, false))
+	messages = append(finalDeveloper, messages...)
 	tools = nil
 	transport = provider.ToolTransportNone
 	hostedWeb = false
 	if continuingSession {
 		sessionReplay = messages
-		messages = append([]provider.GenerationMessage(nil), incrementalMessages...)
-		if stopReason != "" {
-			messages = append(messages, provider.GenerationMessage{
-				Role: "developer", Content: toolFinalizationInstruction(stopReason),
-			})
-		}
+		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}}, incrementalMessages...)
+		messages = append(messages, environment...)
+		messages = append(messages, toolVisibilityMessage(nil, provider.ToolTransportNone, false))
 	}
 	result, err = generate()
 	return result, true, err
@@ -1322,11 +1324,7 @@ func boundedUTF8(value string, limit int) string {
 }
 
 func toolFinalizationInstruction(reason string) string {
-	prefix := "The tool loop must stop now."
-	if reason != "success" && reason != "failed" && reason != "approved" && strings.TrimSpace(reason) != "" {
-		prefix += " Provider summary: " + reason + "."
-	}
-	return prefix + " Give one concise final answer from the saved results. Do not call tools."
+	return "The tool-continuation loop must stop now because: " + reason + ".\nDeliver one concise final message to the user using only gathered context.\nDo not call tools. Explain what was accomplished and what remains.\n" + primaryUserFacingFilePolicy + "\nWhen the reason is \"background task handoff completed\", briefly confirm the handoff and say that you will automatically share the results when they are ready. Do not ask the user to reply, check back, or continue later.\nFor other stop reasons, explain any required next step in plain language without mentioning internal conversation boundaries such as turns.\nReturn one ordinary plain-text assistant message."
 }
 
 func addProviderUsage(total *provider.Usage, next provider.Usage) error {

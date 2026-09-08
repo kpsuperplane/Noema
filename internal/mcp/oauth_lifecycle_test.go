@@ -117,4 +117,9 @@ func TestOAuthAttemptSurvivesStartingRequestCancellation(t *testing.T) {
 	if err != nil || completed.Status != "completed" || completed.Result == nil || completed.Result.Server == nil {
 		t.Fatalf("completed OAuth attempt = %#v, %v", completed, err)
 	}
+	scopes, err := service.GrantedScopes(t.Context(), completed.Result.Server.ID)
+	if err != nil || len(scopes) != 1 || scopes[0] != "read" {
+		t.Fatalf("public grant scopes = %v, %v", scopes, err)
+	}
+
 }

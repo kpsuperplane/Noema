@@ -87,7 +87,7 @@ func TestPrimaryNotificationsPersistCardsArtifactsAndCursorOnce(t *testing.T) {
 		t.Fatalf("completion cursor = %d", cursor)
 	}
 	for range 2 {
-		if err := database.RecordCapabilityReady(ctx, "mcp", "Files", "connection:files", "revision:one", 3, now); err != nil {
+		if err := database.RecordCapabilityReady(ctx, "mcp", "Files", "connection:files", "revision:one", nil, 3, now); err != nil {
 			t.Fatal(err)
 		}
 	}

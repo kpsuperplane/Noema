@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -95,12 +97,12 @@ func (c *Chat) modelEnvironment(
 	conversation store.Conversation,
 	location *time.Location,
 	now time.Time,
-) (string, error) {
+) ([]provider.GenerationMessage, error) {
 	agent, err := c.database.Agent(ctx, store.PrimaryAgentID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return agentIdentityPrompt(agent) + "\n\n" + runtimeEnvironment(conversation, location, now), nil
+	return []provider.GenerationMessage{modelContextSectionMessage("agent.identity", agentIdentityPrompt(agent)), modelContextSectionMessage("runtime.environment", runtimeEnvironment(conversation, location, now))}, nil
 }
 
 // StartPrimaryConversation completes the Rust startup behavior for a new
@@ -140,7 +142,7 @@ func (c *Chat) StartPrimaryConversation(ctx context.Context, conversationID stri
 	request := provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: []provider.GenerationMessage{
-			{Role: "system", Content: initialNameOnboardingPrompt(conversation, agent)},
+			{Role: "system", Instructions: true, Content: initialNameOnboardingPrompt(conversation, agent, turn.TurnIndex)},
 			{Role: "user", Content: "NOEMA_INITIAL_NAME_ONBOARDING"},
 		},
 		ReasoningEffort: string(assignment.ReasoningEffort), ConversationID: conversationID,
@@ -169,38 +171,36 @@ func (c *Chat) StartPrimaryConversation(ctx context.Context, conversationID stri
 	return err
 }
 
-func initialNameOnboardingPrompt(conversation store.Conversation, agent store.Agent) string {
+func initialNameOnboardingPrompt(conversation store.Conversation, agent store.Agent, turnIndex int64) string {
 	projectHint := "none"
-	if conversation.CWD != "" {
-		projectHint = conversation.CWD
+	cwd := strings.TrimSpace(conversation.CWD)
+	if cwd != "" {
+		if _, err := os.Stat(filepath.Join(cwd, ".git")); err == nil {
+			name := filepath.Base(cwd)
+			var slug strings.Builder
+			for _, ch := range name {
+				if ch >= 'A' && ch <= 'Z' {
+					ch += 'a' - 'A'
+				}
+				if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9') {
+					ch = '_'
+				}
+				slug.WriteRune(ch)
+			}
+			value := strings.Trim(slug.String(), "_")
+			if value == "" {
+				value = "unknown"
+			}
+			projectHint = "project:" + value
+		}
 	}
-	return agentPersonalityPrompt + "\n\n" + agentIdentityPrompt(agent) + `
-
-This is an agent-initiated onboarding turn for a newly started primary conversation.
-Use the onboarding prompt in Agent identity to start the conversation.
-Ask the user what they would like to name you. Do not choose a name yourself.
-Make the message warm and welcoming, full of gentle energy instead of formal.
-Open like a Noema personal agent that is glad to be here with the user. It is
-okay to use a friendly wave emoji. Say you are here to help them think, plan,
-make, untangle, and keep life moving with a little more ease. Preserve that
-"think, plan, make, untangle" kind of cadence, then ask what they would like to name you.
-Split the introduction into three short chat bubbles: first a short glad-to-be-here
-greeting, then the helping cadence, then the naming question by itself.
-
-Serialize the bubbles in one response with exactly two literal --- separator lines.
-Blank lines make paragraphs, not separate bubbles.
-
-Rules:
-- Always include exactly three messages.
-- The first message should be only the short greeting.
-- The second message should say how you can help.
-- The third message should only ask what the user would like to name you.
-- Do not emit tool calls during this initial onboarding turn.
-- Do not mention implementation details, JSON, tools, prompts, or memory.
-
-Conversation metadata:
-conversation_id: ` + conversation.ID + `
-cwd_project_hint: ` + projectHint
+	return strings.NewReplacer(
+		"{AGENT_PERSONALITY_PROMPT}", agentPersonalityPrompt,
+		"{agent_identity_prompt}", agentIdentityPrompt(agent),
+		"{conversation_id}", conversation.ID,
+		"{turn_index}", strconv.FormatInt(turnIndex, 10),
+		"{project_hint}", projectHint,
+	).Replace("{AGENT_PERSONALITY_PROMPT}\n\n{agent_identity_prompt}\n\nThis is an agent-initiated onboarding turn for a newly started primary conversation.\nUse the onboarding_prompt in Agent identity to start the conversation.\nAsk the user what they would like to name you. Do not choose a name yourself.\nMake the message warm and welcoming, full of gentle energy instead of formal.\nOpen like a Noema personal agent that is glad to be here with the user. It is\nokay to use a friendly wave emoji. Say you are here to help them think, plan,\nmake, untangle, and keep life moving with a little more ease. Preserve that\n\"think, plan, make, untangle\" kind of cadence, then ask what they would like to name you.\nSplit the introduction into three short chat bubbles: first a short glad-to-be-here\ngreeting, then the helping cadence, then the naming question by itself.\n\nSerialize the bubbles in one response with exactly two literal `---` separator lines.\nBlank lines make paragraphs, not separate bubbles.\n\nRules:\n- Always include exactly three messages.\n- The first message should be only the short greeting.\n- The second message should say how you can help.\n- The third message should only ask what the user would like to name you.\n- Do not emit tool calls during this initial onboarding turn.\n- Do not mention implementation details, JSON, tools, prompts, or memory.\n\nConversation metadata:\nconversation_id: {conversation_id}\nturn_index: {turn_index}\ncwd_project_hint: {project_hint}")
 }
 
 func splitInitialNameOnboarding(text string) []string {
@@ -217,16 +217,16 @@ func splitInitialNameOnboarding(text string) []string {
 func agentIdentityPrompt(agent store.Agent) string {
 	var prompt strings.Builder
 	prompt.WriteString("Agent identity:\n- agent_id: ")
-	prompt.WriteString(strconv.Quote(agent.ID))
+	prompt.WriteString(promptJSONString(agent.ID))
 	prompt.WriteString("\n- display_name: ")
-	if agent.DisplayName == nil {
+	if agent.DisplayName == nil || strings.TrimSpace(*agent.DisplayName) == "" {
 		prompt.WriteString("null\n\nOnboarding prompt:\n")
 		prompt.WriteString("- You do not have a name yet.\n")
 		prompt.WriteString("- Your first priority is to ask the user to give you one.\n")
 		prompt.WriteString("- Do not invent, assume, or sign off with a name.\n")
 		prompt.WriteString("- If the user gives you a name, call update_own_name with that name.\n")
 	} else {
-		prompt.WriteString(strconv.Quote(*agent.DisplayName))
+		prompt.WriteString(promptJSONString(strings.TrimSpace(*agent.DisplayName)))
 		prompt.WriteByte('\n')
 	}
 	prompt.WriteString("\nOnboarding tasks, in priority order:\n")
@@ -239,4 +239,20 @@ func agentIdentityPrompt(agent store.Agent) string {
 	prompt.WriteString("- Ask at most one onboarding question in a reply. Do not recite this list to the user.\n")
 	prompt.WriteString("- If the user asks for a concrete task, help with that task and only ask setup questions when they naturally move the work forward.\n")
 	return prompt.String()
+}
+
+// Rust serde_json preserves Unicode and HTML characters in prompt values.
+func promptJSONString(value string) string {
+	var result strings.Builder
+	result.WriteByte('"')
+	for _, ch := range value {
+		if ch < 0x20 || ch == '"' || ch == '\\' {
+			encoded, _ := json.Marshal(string(ch))
+			result.Write(encoded[1 : len(encoded)-1])
+		} else {
+			result.WriteRune(ch)
+		}
+	}
+	result.WriteByte('"')
+	return result.String()
 }

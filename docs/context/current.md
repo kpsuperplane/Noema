@@ -4,6 +4,8 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
+Rust prompt text is restored from `4d29f6ba`. See [prompt parity](../validation/rust-prompt-parity.md) for exact reference checks, provider delivery checks, and context-history limits.
+
 The [local CLI](../cli.md) uses the private socket for GraphQL, Tasks, and streaming Chat.
 Linux and macOS enable the socket by default. Public authentication remains separate.
 
@@ -18,31 +20,7 @@ The Go provider fixture now exposes Gmail, Notion MCP, and Calendar contracts un
 Gmail and Notion proposal setup, OAuth callbacks, account boundaries, and live
 read paths work. Calendar proposal acceptance, nested-body writes, and reads
 also work. Full setup recovery and delegated reuse remain open.
-PA-001 passes against the live backend. Evidence: `docs/validation/evidence/personal-assistant-live/PA-001/`.
-PA-002 passes through three Task generations: initial extraction, date replacement,
-and receipt-backed closure. The same Task continued after the live Go process
-restarted. Evidence: `docs/validation/evidence/personal-assistant-live/PA-002/`.
-PA-003 passes after a corrected Calendar proposal and normal rerun. Noema created one action Task and one approved event, excluded the proposed date, and created no duplicates on repeated intake. Evidence: `docs/validation/evidence/personal-assistant-live/PA-003/`.
-PA-004 passes after a continuation-authorization repair and rerun. Noema ranked
-the reply queue, preserved an inbound deadline correction, sent four approved
-synthetic replies on existing threads, and kept the unchanged check quiet.
-Evidence: `docs/validation/evidence/personal-assistant-live/PA-004/`.
-PA-005 passes after a reviewed Calendar connector revision and rerun. Noema
-fetched six bounded events across three pages, preserved time zones, date-only
-leave, and recurrence data, and found the overlap, leave conflict, preparation
-needs, and unknown travel gap. A narrow adapter sanitization fix preserves
-ordinary street addresses. Evidence: `docs/validation/evidence/personal-assistant-live/PA-005/`.
-PA-006 passes after a source-read correction and full Task-document reread.
-Noema read the connected Calendar and all three complete Task documents,
-protected meetings, lunch, and the 16:00 stop, then deferred work that did not
-fit. Evidence: `docs/validation/evidence/personal-assistant-live/PA-006/`.
-PA-007 passes after a synthetic one-hour delay, draft inspection, and unchanged
-rerun. Noema moved dependent work, preserved fixed commitments, drafted an
-unsent team notice, and made no duplicate update when the records stayed the
-same. Evidence: `docs/validation/evidence/personal-assistant-live/PA-007/`.
-PA-008 passes after separate bounded Calendar reads and a full Project and Task
-review. Noema separated completed outcomes, carried deadlines, and reconciled
-leave, overlaps, and next-week capacity. Evidence: `docs/validation/evidence/personal-assistant-live/PA-008/`.
+PA-001 through PA-008 pass. Detailed cases and evidence remain in the active acceptance ledger below.
 `ConversationAuthorizationContext` now follows continuation trigger items to
 the original human turn, with a focused store regression test.
 The memory updater now omits nested browser screenshots and internal Task-list results. A live update completed at sequence 1881 and saved the 16:00 weekday

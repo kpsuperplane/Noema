@@ -1038,7 +1038,7 @@ func (s *Service) bindings() ([]Binding, error) {
 			}
 			route := reviewRoute(connection, behavior)
 			name := definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID
-			binding := Binding{Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, InvokerKey: AdapterInvokerKey, OperationToken: operation.Token, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, AccountID: accountID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route}
+			binding := Binding{ServiceCatalogRow: provider.ServiceCatalogRow(connection.ConnectionID, definition.Manifest.DisplayName, connection.ConnectionLabel, ""), Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, InvokerKey: AdapterInvokerKey, OperationToken: operation.Token, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, AccountID: accountID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route}
 			authorityToken, tokenErr := makeOperationAuthority(binding, connection.ConnectionSlug)
 			if tokenErr != nil {
 				return nil, tokenErr

@@ -40,6 +40,9 @@ func TestPrepareModelContextCompactsOnceAndDisablesTools(t *testing.T) {
 	var summaryRequests, checkpoints int
 	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		summaryRequests++
+		if len(request.Messages) != 2 || request.Messages[0].Role != "system" || request.Messages[0].Content != compactionInstructions(*request.MaxOutputTokens) {
+			t.Fatal("compaction omitted exact Rust system instructions")
+		}
 		if len(request.Tools) != 0 || request.HostedWebSearch || request.StoreResponse ||
 			request.ToolTransport != provider.ToolTransportNone || request.ToolChoice != provider.ToolChoiceNone {
 			t.Fatalf("summary controls = %#v", request)

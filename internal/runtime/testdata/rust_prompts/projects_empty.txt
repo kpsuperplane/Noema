@@ -1,0 +1,2 @@
+NOEMA_MODEL_CONTEXT_UPDATE
+{"section_id":"projects.catalog","operation":"full","instruction":"Set this section to the supplied complete value.","content":"Active project catalog:\n{\"projects\":[],\"has_more\":false}\nThis is trusted project metadata. Use project.read to load exact PROJECT.md content before placing related work."}

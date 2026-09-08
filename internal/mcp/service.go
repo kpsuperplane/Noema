@@ -71,6 +71,7 @@ type SetupResult struct {
 
 // Binding is one immutable model-visible MCP tool authority.
 type Binding struct {
+	ServiceCatalogRow                                   string `json:"-"`
 	Name, Description, ServerID, ToolID, SourceRevision string
 	ConnectionRevision                                  string
 	ServerPolicyRevision, ToolPolicyRevision            int
@@ -443,6 +444,25 @@ func (s *Service) Tools(ctx context.Context, id string) ([]store.MCPTool, error)
 	return s.database.MCPTools(ctx, id)
 }
 
+// GrantedScopes returns only public authorization scope names, never credentials.
+func (s *Service) GrantedScopes(ctx context.Context, id string) ([]string, error) {
+	server, err := s.database.MCPServer(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if server.SecretRevision == "" {
+		return []string{}, nil
+	}
+	material, err := s.secrets.loadConnection(id)
+	if err != nil {
+		return nil, err
+	}
+	if material.OAuth == nil {
+		return []string{}, nil
+	}
+	return append([]string{}, material.OAuth.Scopes...), nil
+}
+
 // SaveConnectionPolicy applies one exact human policy.
 func (s *Service) SaveConnectionPolicy(ctx context.Context, id, revision string, expected int, sharing, unsafe string) (store.MCPServer, error) {
 	return s.database.SaveMCPConnectionPolicy(ctx, id, revision, expected, sharing, unsafe, time.Now())
@@ -589,9 +609,10 @@ func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
 				}
 				disabledName := "mcp." + server.ID + "." + tool.Name
 				enablement := Binding{
-					Name:        "enable." + disabledName,
-					Description: fmt.Sprintf("Ask the human to enable the disabled %s tool (%s). Use this only when that tool is required for the current request.", disabledName, strings.TrimSpace(tool.Description)),
-					ServerID:    server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
+					ServiceCatalogRow: provider.ServiceCatalogRow(server.ID, server.DisplayName, server.ConnectionLabel, server.ServiceDescription),
+					Name:              "enable." + disabledName,
+					Description:       fmt.Sprintf("Ask the human to enable the disabled %s tool (%s). Use this only when that tool is required for the current request.", disabledName, strings.TrimSpace(tool.Description)),
+					ServerID:          server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
 					ConnectionRevision: server.ConnectionRevision, ServerPolicyRevision: server.PolicyRevision,
 					ToolPolicyRevision: tool.PolicyRevision, InvokerKey: "mcp", OperationToken: tool.Name,
 					InputSchema: json.RawMessage(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`),
@@ -627,7 +648,7 @@ func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
 			if inputCheckErr != nil {
 				return BindingCatalogResult{}, ErrInvalidBindingSource
 			}
-			binding := Binding{Name: "mcp." + server.ID + "." + tool.Name, Description: description,
+			binding := Binding{ServiceCatalogRow: provider.ServiceCatalogRow(server.ID, server.DisplayName, server.ConnectionLabel, server.ServiceDescription), Name: "mcp." + server.ID + "." + tool.Name, Description: description,
 				ServerID: server.ID, ToolID: tool.ID, SourceRevision: tool.SourceRevision,
 				ConnectionRevision: server.ConnectionRevision, ServerPolicyRevision: server.PolicyRevision,
 				ToolPolicyRevision: tool.PolicyRevision, InputSchema: append(json.RawMessage(nil), tool.InputSchema...),
@@ -1220,7 +1241,7 @@ func newPrefixedID(prefix string) (string, error) {
 func GenerationTools(bindings []Binding) []provider.GenerationTool {
 	result := make([]provider.GenerationTool, len(bindings))
 	for i, b := range bindings {
-		result[i] = provider.GenerationTool{Name: b.Name, Description: b.Description, InputSchema: append(json.RawMessage(nil), b.InputSchema...)}
+		result[i] = provider.GenerationTool{ServiceCatalogRow: b.ServiceCatalogRow, ServiceConnectionID: b.ServerID, Name: b.Name, Description: b.Description, InputSchema: append(json.RawMessage(nil), b.InputSchema...)}
 	}
 	return result
 }

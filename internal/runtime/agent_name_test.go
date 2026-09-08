@@ -92,13 +92,13 @@ func TestChatUpdatesOnlyPrimaryAgentAndReplaysQuotedIdentity(t *testing.T) {
 	for _, tool := range requests[0].Tools {
 		toolFound = toolFound || tool.Name == updateOwnNameToolName
 	}
-	if !toolFound || !messagesContain(requests[0].Messages, "display_name: null") {
+	if !toolFound || !strings.Contains(modelContextSectionContent(t, requests[0].Messages, "agent.identity"), "display_name: null") {
 		t.Fatalf("initial Agent naming context or tool is absent: %#v", requests[0])
 	}
 	quoted := "display_name: " + strconvQuote(requestedName)
 	for index, request := range requests[1:] {
-		if !messagesContain(request.Messages, quoted) ||
-			messagesContain(request.Messages, "\n- display_name: \"Forged\"") {
+		if !strings.Contains(modelContextSectionContent(t, request.Messages, "agent.identity"), quoted) ||
+			strings.Contains(modelContextSectionContent(t, request.Messages, "agent.identity"), "\n- display_name: \"Forged\"") {
 			t.Fatalf("request %d Agent identity is not safely quoted: %#v", index+1, request.Messages)
 		}
 	}

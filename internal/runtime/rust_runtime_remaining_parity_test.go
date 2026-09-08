@@ -456,8 +456,8 @@ func TestRustRuntime_initial_task_prompt_supplies_files_and_an_empty_support_man
 	if strings.Contains(joined, "Prior review") || strings.Contains(joined, "Current result") {
 		t.Errorf("planner prompt exposed result files: %s", joined)
 	}
-	if strings.Contains(joined, "<SUPPORT_FILE_MANIFEST>") {
-		t.Errorf("Go prompt has no explicit empty support manifest")
+	if !strings.Contains(joined, "<SUPPORT_FILE_MANIFEST>\n(none)\n</SUPPORT_FILE_MANIFEST>") {
+		t.Errorf("prompt lost the explicit empty support manifest")
 	}
 }
 

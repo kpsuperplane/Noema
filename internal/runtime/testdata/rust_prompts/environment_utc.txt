@@ -1,0 +1,2 @@
+NOEMA_MODEL_CONTEXT_UPDATE
+{"section_id":"runtime.environment","operation":"full","instruction":"Set this section to the supplied complete value.","content":"Runtime environment:\n- current_date: \"2026-09-08\"\n- current_time: \"2026-09-08T12:34:56+00:00\"\n- timezone: \"UTC\"\n- cwd: null\nFor the human's current date, weekday, time, and relative-date reasoning, these values are authoritative and override any provider, platform, server, or UTC clock. Treat cwd as a location hint, not as user intent or permission to access files."}

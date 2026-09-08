@@ -63,7 +63,11 @@ func TestRustRuntime_project_catalog_renders_exact_metadata_and_replaces_as_one_
 		t.Fatalf("project metadata = %#v", project)
 	}
 	chatValue, err := chat.projectContext(context.Background())
-	if err != nil || !strings.Contains(chatValue, "opaque-value-01928") || !strings.Contains(chatValue, folder) || !strings.Contains(chatValue, `"has_more":false`) {
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatValue = modelContextSectionContent(t, []provider.GenerationMessage{{Role: "developer", Content: chatValue}}, "projects.catalog")
+	if !strings.Contains(chatValue, "opaque-value-01928") || !strings.Contains(chatValue, folder) || !strings.Contains(chatValue, `"has_more":false`) {
 		t.Fatalf("project context = %q, %v", chatValue, err)
 	}
 	if conversation.ID == "" || database == nil {

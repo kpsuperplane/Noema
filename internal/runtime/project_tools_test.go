@@ -234,20 +234,14 @@ func TestPrimaryChatRefreshesProjectContextForContinuation(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if len(requests) != 2 || !requestProjectContextContains(requests[0], `"projects":[]`) ||
-		!requestProjectContextContains(requests[1], `"name":"Context refresh"`) {
+	if len(requests) != 2 || !requestProjectContextContains(t, requests[0], `"projects":[]`) ||
+		!requestProjectContextContains(t, requests[1], `"name":"Context refresh"`) {
 		t.Fatalf("Project context requests = %#v", requests)
 	}
 }
 
-func requestProjectContextContains(request provider.GenerateRequest, text string) bool {
-	for _, message := range request.Messages {
-		if message.Role == "developer" && strings.Contains(message.Content, "Project placement:") &&
-			strings.Contains(message.Content, text) {
-			return true
-		}
-	}
-	return false
+func requestProjectContextContains(t *testing.T, request provider.GenerateRequest, text string) bool {
+	return strings.Contains(modelContextSectionContent(t, request.Messages, "projects.catalog"), text)
 }
 
 func projectTestArguments(t *testing.T, value any) json.RawMessage {

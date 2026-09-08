@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -34,16 +35,6 @@ var projectToolSpecs = []provider.GenerationTool{
 	{Name: projectReopenName, Description: "Reopen an archived project.", InputSchema: json.RawMessage(`{"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1}},"required":["project_id","expected_revision"],"additionalProperties":false}`)},
 }
 
-const projectPlacementPolicy = `Project placement:
-- The active Project catalog contains up to 100 recently updated active Projects. Archived Projects are excluded from automatic placement.
-- Before creating a Task, inspect likely catalog matches with project.read. Use project.list with its cursor when further discovery is necessary.
-- When exactly one active Project clearly matches the request, place the Task in that Project.
-- When several Projects remain materially plausible, ask the human to choose before placing the Task.
-- When the request clearly starts an ongoing initiative and no Project matches, create a folderless Project and place the Task there.
-- Keep ordinary one-off and unmatched Tasks projectless.
-- Judge Project placement and initiative creation semantically. Never use direct phrase matching as the authority.
-- PROJECT.md can contain private and ordinary Project context. Never place credential material in it.`
-
 func isProjectTool(name string) bool {
 	for _, tool := range projectToolSpecs {
 		if tool.Name == name {
@@ -58,22 +49,17 @@ func (c *Chat) projectContext(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	values := make([]map[string]any, len(page.Projects))
+	values := make([]string, len(page.Projects))
 	for index, value := range page.Projects {
-		values[index] = map[string]any{
-			"project_id": value.ID, "name": value.Name, "description": value.Description,
-			"folder": value.Folder, "revision": value.Revision,
+		folder := "null"
+		if value.Folder != nil {
+			folder = promptJSONString(*value.Folder)
 		}
+		values[index] = `{"project_id":` + promptJSONString(value.ID) + `,"name":` + promptJSONString(value.Name) + `,"description":` + promptJSONString(value.Description) + `,"folder":` + folder + `,"revision":` + strconv.FormatInt(value.Revision, 10) + "}"
 	}
-	encoded, err := json.Marshal(struct {
-		Projects []map[string]any `json:"projects"`
-		HasMore  bool             `json:"has_more"`
-	}{values, page.HasNextPage})
-	if err != nil {
-		return "", err
-	}
-	return projectPlacementPolicy + "\n\nActive Project catalog:\n" + string(encoded) +
-		"\nThis is trusted Project metadata. Use project.read to load exact PROJECT.md content.", nil
+	encoded := `{"projects":[` + strings.Join(values, ",") + `],"has_more":` + strconv.FormatBool(page.HasNextPage) + "}"
+	content := "Active project catalog:\n" + encoded + "\nThis is trusted project metadata. Use project.read to load exact PROJECT.md content before placing related work."
+	return modelContextSectionMessage("projects.catalog", content).Content, nil
 }
 
 func (c *Chat) executeProjectTool(ctx context.Context, name, requestID, correlationID string, arguments json.RawMessage) (json.RawMessage, bool) {

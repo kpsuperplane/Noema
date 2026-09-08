@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -86,11 +87,21 @@ func TestRustCapabilities_classification_fills_only_missing_hints_and_defaults_f
 	}
 
 	chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		if len(request.Tools) != 1 || request.Tools[0].Name != mcpClassificationTool {
-			t.Fatalf("classification tool = %#v", request.Tools)
+		if len(request.Tools) != 0 || len(request.Messages) != 1 || request.Messages[0].Role != "user" {
+			t.Fatalf("Rust classification request = %#v", request)
 		}
-		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: mcpClassificationTool,
-			Payload: json.RawMessage(`{"read_only":true,"idempotent":true,"destructive":false,"open_world":false}`)}}}, nil
+		reference, err := os.ReadFile("testdata/rust_aux_prompts/mcp_classification.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := strings.ReplaceAll(string(reference), "{missing}", "idempotent,openWorld")
+		for _, value := range []string{"read", "Read documents.", "-", "-"} {
+			expected = strings.Replace(expected, "{}", value, 1)
+		}
+		if request.Messages[0].Content != expected {
+			t.Fatalf("MCP prompt differs from Rust: %q", request.Messages[0].Content)
+		}
+		return provider.GenerationResult{Text: `{"idempotent":true,"openWorld":false}`}, nil
 	})
 	tools, err := database.MCPTools(t.Context(), server.ID)
 	if err != nil || len(tools) != 1 {

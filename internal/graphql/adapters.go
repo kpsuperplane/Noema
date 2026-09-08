@@ -1039,8 +1039,19 @@ func (r *Resolver) saveAdapterConnectionPolicy(ctx context.Context, input model.
 		return nil, err
 	}
 	if c.Status == "active" {
+		var scopes []string
+		oauth, err := service.OAuthSnapshot()
+		if err != nil {
+			return nil, err
+		}
+		for _, grant := range oauth.Grants {
+			if grant.GrantID == c.Authentication.GrantID {
+				scopes = grant.GrantedScopes
+				break
+			}
+		}
 		_ = r.Store.RecordCapabilityReady(ctx, "api", adapter.DisplayName(def), c.ConnectionID,
-			fmt.Sprint(c.ConnectionRevision), len(c.AllowedOperations), time.Now())
+			fmt.Sprint(c.ConnectionRevision), scopes, len(c.AllowedOperations), time.Now())
 	}
 	return adapterCapabilityConnection(def, c), nil
 }

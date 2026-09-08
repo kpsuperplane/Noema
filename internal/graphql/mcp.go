@@ -372,8 +372,12 @@ func (r *Resolver) saveMCPConnectionPolicy(ctx context.Context, input model.Save
 	if err != nil {
 		return nil, err
 	}
+	scopes, err := service.GrantedScopes(ctx, server.ID)
+	if err != nil {
+		return nil, err
+	}
 	_ = r.Store.RecordCapabilityReady(ctx, "mcp", server.DisplayName, server.ID,
-		server.ConnectionRevision, server.AvailableToolCount, time.Now())
+		server.ConnectionRevision, scopes, server.AvailableToolCount, time.Now())
 	return mcpConnectionModel(server), nil
 }
 

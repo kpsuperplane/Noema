@@ -536,7 +536,12 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 		!hasGenerationTool(requests[0].Tools, fileDownloadName) {
 		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
 	}
-	initialContext := requests[0].Messages[0].Content
+	var initialContext string
+	for _, message := range requests[0].Messages {
+		if strings.HasPrefix(message.Content, "Native local-human memory") {
+			initialContext = message.Content
+		}
+	}
 	if !strings.Contains(initialContext, ordinary) ||
 		!strings.Contains(initialContext, "People (people.md, memory:human:people.md)") {
 		t.Fatalf("root Memory context = %q", initialContext)
@@ -662,9 +667,8 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		incrementalResult = incrementalResult ||
 			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
 	}
-	if !replayedCall || !incrementalResult || len(requests[1].Messages) != 2 ||
-		requests[1].Messages[1].Role != "developer" ||
-		!strings.Contains(requests[1].Messages[1].Content, "Active Project catalog:") {
+	if !replayedCall || !incrementalResult || !messagesContain(requests[1].Messages, "Active project catalog:") ||
+		requests[1].Messages[0].Role != "system" || requests[1].Messages[0].Content != rustPromptReference(t, "primary") {
 		t.Fatalf("Codex incremental continuation = call %t, result %t, messages %#v",
 			replayedCall, incrementalResult, requests[1].Messages)
 	}
@@ -718,10 +722,9 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		2, "", "", "resp_openai", true, incremental, nil,
 	)
 	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
-		len(openAIRequest.Messages) != 2 || openAIRequest.Messages[0].ToolResult == nil ||
-		openAIRequest.Messages[0].ToolResult.ProviderCallID != "call_openai" ||
-		openAIRequest.Messages[1].Role != "developer" ||
-		!strings.Contains(openAIRequest.Messages[1].Content, "Active Project catalog:") {
+		openAIRequest.Messages[0].Role != "system" || openAIRequest.Messages[1].ToolResult == nil ||
+		openAIRequest.Messages[1].ToolResult.ProviderCallID != "call_openai" ||
+		!messagesContain(openAIRequest.Messages, "Active project catalog:") {
 		t.Fatalf("OpenAI incremental continuation = %#v, %v", openAIRequest, err)
 	}
 	for _, providerKind := range []string{"codex", "openai"} {
@@ -964,7 +967,7 @@ func TestPrimaryNotificationNarrationDisablesToolsAndHostedSearch(t *testing.T) 
 		}
 		return provider.GenerationResult{Text: "Connected.", Model: "test-model"}, nil
 	})
-	if err := database.RecordCapabilityReady(context.Background(), "mcp", "Files", "connection:files", "revision:one", 1, time.Now()); err != nil {
+	if err := database.RecordCapabilityReady(context.Background(), "mcp", "Files", "connection:files", "revision:one", nil, 1, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	<-requests
@@ -1093,7 +1096,8 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 		t.Fatalf("rejected replay finalization advertised tools: %#v", finalRequest)
 	}
 	encoded, _ := json.Marshal(finalRequest["messages"])
-	if len(encoded) >= 4<<10 || !strings.Contains(string(encoded), "provider replay limit reached") {
+	// Exact Rust instructions and identity remain; only gathered result data is compacted.
+	if len(encoded) >= 8<<10 || !strings.Contains(string(encoded), "provider replay limit reached") {
 		t.Fatalf("rejected replay was not compact: %d bytes", len(encoded))
 	}
 }
