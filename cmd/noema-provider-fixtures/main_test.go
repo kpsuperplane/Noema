@@ -39,14 +39,14 @@ func TestGmailListHasThreeCompletePages(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != 11 {
+	if len(seen) != 14 {
 		t.Fatalf("message count = %d", len(seen))
 	}
 }
 
 func TestObligationControlAddsDateRevisionAndReceipt(t *testing.T) {
 	f := &fixture{}
-	if got := len(f.gmailAccount("account-a").Messages); got != 11 {
+	if got := len(f.gmailAccount("account-a").Messages); got != 14 {
 		t.Fatalf("initial account-a message count = %d", got)
 	}
 	for _, action := range []string{"obligations_extend", "obligations_receipt"} {
@@ -58,19 +58,43 @@ func TestObligationControlAddsDateRevisionAndReceipt(t *testing.T) {
 		}
 	}
 	data := f.gmailAccount("account-a")
-	if len(data.Messages) != 13 || len(data.Threads["a-thread-obligations"]) != 6 {
+	if len(data.Messages) != 16 || len(data.Threads["a-thread-obligations"]) != 6 {
 		t.Fatalf("updated obligation records = %d messages, %d thread entries", len(data.Messages), len(data.Threads["a-thread-obligations"]))
 	}
 	if len(f.gmailAccount("account-b").Messages) != 1 {
 		t.Fatal("obligation records crossed the account boundary")
 	}
-	if got := len(f.notionPagesForAccount("account-a")); got != 7 {
+	if got := len(f.notionPagesForAccount("account-a")); got != 8 {
 		t.Fatalf("updated account-a Notion page count = %d", got)
 	}
 	for _, page := range f.notionPagesForAccount("account-b") {
 		if strings.Contains(page.ID, "obligations") {
 			t.Fatalf("obligation page crossed the Notion account boundary: %s", page.ID)
 		}
+	}
+}
+
+func TestActionFixtureSeedsAgreementAndProposalSeparately(t *testing.T) {
+	f := &fixture{}
+	data := f.gmailAccount("account-a")
+	seen := map[string]bool{}
+	for _, message := range data.Messages {
+		if strings.HasPrefix(message.ID, "a-msg-014") || strings.HasPrefix(message.ID, "a-msg-015") || strings.HasPrefix(message.ID, "a-msg-016") {
+			seen[message.ID] = true
+		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("action message IDs = %#v", seen)
+	}
+	pages := f.notionPagesForAccount("account-a")
+	var found bool
+	for _, page := range pages {
+		if page.ID == "notion-page-actions" {
+			found = strings.Contains(page.Content, "Agreed action") && strings.Contains(page.Content, "without agreement")
+		}
+	}
+	if !found {
+		t.Fatal("Notion action page did not preserve both agreement and proposal language")
 	}
 }
 

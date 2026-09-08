@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	fixtureVersion = "2026-09-07-gmail-v1-notion-mcp-v5"
+	fixtureVersion = "2026-09-07-gmail-v1-notion-mcp-v6"
 	accountAToken  = "fixture-account-a"
 	accountBToken  = "fixture-account-b"
 )
@@ -204,7 +204,9 @@ func gmailAccounts() map[string]gmailAccount {
 	}
 	account := accounts["account-a"]
 	account.Messages = append(account.Messages, gmailObligationMessages()...)
+	account.Messages = append(account.Messages, gmailActionMessages()...)
 	account.Threads["a-thread-obligations"] = []string{"a-msg-008", "a-msg-009", "a-msg-010", "a-msg-011"}
+	account.Threads["a-thread-actions"] = []string{"a-msg-014", "a-msg-015", "a-msg-016"}
 	accounts["account-a"] = account
 	return accounts
 }
@@ -224,6 +226,14 @@ func gmailObligationUpdate(id string) gmailMessage {
 
 func gmailObligationReceipt() gmailMessage {
 	return gmailMessageFor("a-msg-013", "a-thread-obligations", []string{"INBOX"}, "Receipt: Sam reimbursed Kevin", "Receipt: Sam paid Kevin $85 for the team dinner on 2026-09-08.", "2026-09-04T08:00:00Z", "From: sam@example.test\nTo: kevin@example.test\nSubject: Receipt: Sam reimbursed Kevin\n\nReceipt: Sam paid Kevin $85 for the team dinner on 2026-09-08.")
+}
+
+func gmailActionMessages() []gmailMessage {
+	return []gmailMessage{
+		gmailMessageFor("a-msg-014", "a-thread-actions", []string{"INBOX", "IMPORTANT"}, "Agreed launch metrics follow-up", "Agreed: Kevin will send the launch metrics to Priya by 2026-09-17. The review is agreed for 2026-09-16 at 11:00 America/Los_Angeles.", "2026-09-02T12:00:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Agreed launch metrics follow-up\n\nAgreed: Kevin will send the launch metrics to Priya by 2026-09-17. The review is agreed for 2026-09-16 at 11:00 America/Los_Angeles."),
+		gmailMessageFor("a-msg-015", "a-thread-actions", []string{"INBOX"}, "Launch metrics follow-up reminder", "Reminder of the agreed action: Kevin will send the launch metrics to Priya by 2026-09-17.", "2026-09-03T12:00:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Launch metrics follow-up reminder\n\nReminder of the agreed action: Kevin will send the launch metrics to Priya by 2026-09-17."),
+		gmailMessageFor("a-msg-016", "a-thread-actions", []string{"INBOX"}, "Possible wider review", "Proposal only: we could schedule a wider review on 2026-09-18 if needed.", "2026-09-04T12:00:00Z", "From: manager@example.test\nTo: alex@example.test\nSubject: Possible wider review\n\nProposal only: we could schedule a wider review on 2026-09-18 if needed."),
+	}
 }
 
 func (f *fixture) gmailAccount(account string) gmailAccount {
@@ -495,6 +505,7 @@ func notionPages() []notionPage {
 			Rows: []map[string]any{{"id": "launch-record-001", "decision": "support window", "status": "open"}, {"id": "launch-record-002", "decision": "rollback owner", "status": "open"}}},
 		{ID: "notion-page-launch-archive", URL: "https://www.notion.so/notion-page-launch-archive", Title: "Launch project archive", Content: "Archived launch notes are retained for reference.", UpdatedAt: "2026-08-30T09:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true},
 		{ID: "notion-page-obligations", URL: "https://www.notion.so/notion-page-obligations", Title: "Personal obligations", Content: "Confirmed obligations involving Kevin:\n- Sam owes Kevin $85 for the team dinner by 2026-09-10.\n- Kevin owes Priya the launch report by 2026-09-14.\n- Kevin owes Jordan $40 for the conference ticket by 2026-09-12.\nThe repeated Sam reminder is the same reimbursement promise.", UpdatedAt: "2026-09-02T09:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true, Owner: "account-a"},
+		{ID: "notion-page-actions", URL: "https://www.notion.so/notion-page-actions", Title: "Agreed follow-through", Content: "Agreed action: Kevin will send the launch metrics to Priya by 2026-09-17. The agreed calendar review is 2026-09-16 at 11:00 America/Los_Angeles. Another paragraph proposes, without agreement, a wider review on 2026-09-18.", UpdatedAt: "2026-09-03T13:00:00.000Z", Parent: "workspace-root", Object: "page", Accessible: true, Owner: "account-a"},
 		{ID: "notion-page-private", URL: "https://www.notion.so/notion-page-private", Title: "Private account page", Content: "This page belongs to the second synthetic account.", UpdatedAt: "2026-09-05T10:00:00.000Z", Parent: "workspace-private", Object: "page", Accessible: true, Owner: "account-b"},
 	}
 }

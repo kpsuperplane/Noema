@@ -13,7 +13,8 @@ development instance and inspected before the next case starts.
 | Calendar prerequisite | In progress | Documentation proposal, accepted revision, account-A read, pagination correction, and no-write rerun work. Full downstream reuse remains. |
 | PA-001 — Daily brief | Pass | [Case evidence](PA-001/) |
 | PA-002 — Promise register | Pass | [Case evidence](PA-002/) |
-| PA-003–PA-100 | Not run | The operator will run each case in order. |
+| PA-003 — Incoming actions | Pass | [Case evidence](PA-003/) |
+| PA-004–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
