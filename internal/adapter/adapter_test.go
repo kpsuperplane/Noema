@@ -546,3 +546,40 @@ func TestOutcomeUncertaintyUsesReviewedBehavior(t *testing.T) {
 		t.Fatal("read-only uncertainty required recovery")
 	}
 }
+
+func TestRevisionLineageIncludesQuarantinedPredecessor(t *testing.T) {
+	service, _, _, _ := rustAdapterService(t)
+
+	old := testManifest()
+	old.DefinitionID, old.AdapterID, old.DefinitionRevision = "definition:lineage", "lineage", "v0"
+	oldDigest, err := Compile(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.files.installDefinition(old, "https://docs.example.test/lineage", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.files.quarantine("definitions", oldDigest.SemanticDigest); err != nil {
+		t.Fatal(err)
+	}
+
+	base := old
+	base.DefinitionRevision = "v1"
+	baseDefinition, err := service.files.installDefinition(base, "https://docs.example.test/lineage", []string{oldDigest.SemanticDigest}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proposal := rustSetupProposalValue()
+	delete(proposal, "new_definition")
+	proposal["source_reference"] = "https://docs.example.test/lineage/v2"
+	proposal["base_semantic_digest"] = baseDefinition.SemanticDigest
+	proposal["revision"] = map[string]any{"definition_revision": "v2"}
+	payload, ok := service.ExecuteSetup(ProposeDefinitionTool, rustSetupRaw(proposal))
+	if !ok {
+		t.Fatalf("revision proposal with quarantined predecessor = %s", payload)
+	}
+	if status := rustSetupPayload(t, payload)["status"]; status != "review_required" {
+		t.Fatalf("revision proposal status = %#v", status)
+	}
+}

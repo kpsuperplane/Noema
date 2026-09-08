@@ -583,7 +583,10 @@ func (s *Service) replacementLineage(replaces []string) (map[string]bool, error)
 		}
 		definition, exists := byDigest[digest]
 		if !exists {
-			return nil, errors.New("adapter revision lineage changed")
+			definition, err = s.files.loadQuarantinedDefinition(digest)
+			if err != nil {
+				return nil, errors.New("adapter revision lineage changed")
+			}
 		}
 		wanted[digest] = true
 		pending = append(pending, definition.Replaces...)

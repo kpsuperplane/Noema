@@ -496,10 +496,20 @@ func writeNewFile(root *os.Root, name string, raw []byte) error {
 }
 
 func (f *fileAuthority) loadDefinition(digest string) (Definition, error) {
+	return f.loadDefinitionAt("adapters/definitions/"+digest, digest)
+}
+
+// loadQuarantinedDefinition reads a historical definition that is no longer
+// callable but may still be named by a reviewed replacement's lineage.
+func (f *fileAuthority) loadQuarantinedDefinition(digest string) (Definition, error) {
+	return f.loadDefinitionAt("adapters/quarantine/definitions/"+digest, digest)
+}
+
+func (f *fileAuthority) loadDefinitionAt(path, digest string) (Definition, error) {
 	if !validDigest(digest) {
 		return Definition{}, errors.New("adapter definition is unavailable")
 	}
-	directory, err := f.root.OpenRoot("adapters/definitions/" + digest)
+	directory, err := f.root.OpenRoot(path)
 	if err != nil {
 		return Definition{}, errors.New("adapter definition is unavailable")
 	}
