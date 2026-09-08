@@ -30,8 +30,9 @@ PA-033 passes after a reviewed synthetic topic-monitor API revision, a saved
 baseline, duplicate suppression, one thresholded change notice, and a quiet
 unchanged rerun. PA-034 passes after a focused literature-index projection
 revision, two live six-record reads, deduplication to nine works, retraction
-handling, mixed-evidence synthesis, and a saved evidence table. PA-035 through
-PA-100 remain not run.
+handling, mixed-evidence synthesis, and a saved evidence table. PA-035 passes
+after documented connection setup, a source-linked five-claim review, and a
+saved fact-check report. PA-036 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -267,7 +268,7 @@ answer key.
 | PA-032 | Pass after four bounded connector revisions and a saved brief — [evidence](../validation/evidence/personal-assistant-live/PA-032/) | Six dated mock sources: primary report, correction, two summaries, dissent, and outdated article. | Bring me up to speed on this issue. | Read primary evidence and correction; separate dates and interpretations; explain dissent and coverage; cite material claims. |
 | PA-033 | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-033/) | Baseline three sources; later duplicate article, then material rule change. | Watch this topic for changes that affect me. | Save baseline; suppress duplicate coverage; issue one relevant change notice with changed facts; unchanged check stays quiet. |
 | PA-034 | Literature review | 12 papers across two mock indexes; three duplicate records; one retraction; conflicting study designs. | Build an evidence review of this question. | Produce nine unique works; mark retraction; compare methods and contradictions; save evidence table with source IDs and search bounds. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-034/) |
-| PA-035 | Fact-checking | Five claims: supported, false, outdated, ambiguous definition, and unsupported; primary sources contain answer key. | Check these claims and explain what is uncertain. | Assign all five appropriate outcomes; cite primary evidence and dates; preserve definition ambiguity; do not treat absent evidence as disproof. |
+| PA-035 | Fact-checking | Five claims: supported, false, outdated, ambiguous definition, and unsupported; primary sources contain answer key. | Check these claims and explain what is uncertain. | Assign all five appropriate outcomes; cite primary evidence and dates; preserve definition ambiguity; do not treat absent evidence as disproof. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-035/) |
 | PA-036 | Mixed inventory | 20 PDF, image, email, and spreadsheet records represent 15 items; two serials unreadable. | Build an inventory from these records. | Export 15 items; retain source locators; flag two unreadable serials; merge only proved duplicates; verify artifact rows independently. |
 | PA-037 | Personal analysis | 90-day spending file; duplicate row; refund; missing category; expected net total 2400. | Explain where my spending changed. | Clean duplicate; account for refund; total 2400; expose missing category; compare equivalent periods; save readable chart and table. |
 | PA-038 | Reading digest | 12 newsletters cover five topics; preference favors two topics; 10-minute reading budget. | Give me a useful reading digest. | Deduplicate stories; prioritize preferred topics; fit reading budget; link originals; changed edition adds only new information. |
