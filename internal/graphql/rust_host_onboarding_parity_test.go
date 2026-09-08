@@ -124,6 +124,7 @@ func TestRustHost_onboarding_does_not_fabricate_an_account_when_none_is_connecte
 func openRustHostCloudResolver(t *testing.T, status provider.AccountStatus) *Resolver {
 	t.Helper()
 	resolver := openProviderTestResolver(t)
+	rustAPIConfigureModelAccount(t, resolver, "codex")
 	ctx := context.Background()
 	accountID := "provider_account:codex:default"
 	account, err := resolver.ProviderAccounts.LoadAccount(ctx, accountID)

@@ -298,10 +298,12 @@ func decodeProviderMetadata(data []byte, metadata *provider.AccountMetadata) err
 
 func validateProviderAccount(account provider.Account) error {
 	entry, ok := provider.CatalogEntryFor(account.ProviderKind)
-	if !ok {
+	externalOpenAI := account.ID == "provider_account:openai:default" && account.ProviderKind == "openai" &&
+		account.AccountKey == "default" && account.AuthMethod == provider.AuthExternalManual
+	if !ok && !externalOpenAI {
 		return provider.ErrUnsupportedProvider
 	}
-	supported := false
+	supported := externalOpenAI
 	for _, method := range entry.SupportedAuthMethods {
 		if account.AuthMethod == method {
 			supported = true

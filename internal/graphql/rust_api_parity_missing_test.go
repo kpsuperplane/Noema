@@ -273,6 +273,7 @@ func rustAPIAssertUnauthenticatedSubscription(t *testing.T, resolver *Resolver, 
 func rustAPIPortAgentErrorSanitization(t *testing.T) {
 	t.Helper()
 	resolver := openProviderTestResolver(t)
+	rustAPIConfigureModelAccount(t, resolver, "local_models")
 	if err := resolver.Store.SetLocalModelAccountStatus(context.Background(), provider.StatusUnavailable,
 		"unsupported_platform", "/Users/alice/.secret/token.txt failed with token abc123", time.Now()); err != nil {
 		t.Fatal(err)
@@ -954,6 +955,7 @@ func rustAPIPortRuntimeDebugSchema(t *testing.T) {
 func rustAPIPortAgentPreference(t *testing.T) {
 	t.Helper()
 	resolver := openProviderTestResolver(t)
+	rustAPIConfigureModelAccount(t, resolver, "codex")
 	ctx := context.Background()
 	profiles := []provider.ModelProfile{
 		{ID: "gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium"},
@@ -3142,6 +3144,7 @@ func rustAPIPortWebToolFiltering(t *testing.T) {
 
 func rustAPIAuthenticateCodexForWebSettings(t *testing.T, resolver *Resolver) {
 	t.Helper()
+	rustAPIConfigureModelAccount(t, resolver, "codex")
 	paths, err := home.FromRoot(resolver.home.Name())
 	if err != nil {
 		t.Fatal(err)
@@ -3201,4 +3204,31 @@ func rustAPIWebOptionByKind(settings map[string]any, kind string) bool {
 		}
 	}
 	return false
+}
+
+// rustAPIConfigureModelAccount prepares an explicitly configured model fixture.
+func rustAPIConfigureModelAccount(t *testing.T, resolver *Resolver, kind string) {
+	t.Helper()
+	method := "oauth_device_code"
+	if kind == "local_models" {
+		method = "none"
+	} else if kind != "codex" {
+		t.Fatalf("unsupported model fixture %q", kind)
+	}
+	paths, err := home.FromRoot(resolver.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := sql.Open("sqlite3", paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	_, err = database.Exec(`INSERT INTO provider_accounts
+ (provider_account_id,provider_kind,account_key,display_name,auth_method,is_active,is_default,status,metadata_json,created_at_ms,updated_at_ms)
+ VALUES (?,?,'default',?,?,1,1,'unknown','{"credentialRevision":0,"secretConfigured":false}',1,1)
+ ON CONFLICT(provider_account_id) DO NOTHING`, "provider_account:"+kind+":default", kind, kind, method)
+	if err != nil {
+		t.Fatal(err)
+	}
 }

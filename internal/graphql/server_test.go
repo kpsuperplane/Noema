@@ -419,7 +419,7 @@ func TestOpenRouterGraphQLStartQueryAndSubscriptionKeepClientShape(t *testing.T)
 }`, nil)
 	catalog := root.Data["providerAccountCatalog"].([]any)
 	accounts := root.Data["providerAccounts"].([]any)
-	if len(catalog) != 6 || len(accounts) != 7 {
+	if len(catalog) != 6 || len(accounts) != 4 {
 		t.Fatalf("provider root sizes = %d catalog, %d accounts", len(catalog), len(accounts))
 	}
 	openRouterCatalog := catalog[1].(map[string]any)

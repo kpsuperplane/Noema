@@ -201,7 +201,11 @@ func (s *Store) ActivateLocalModel(ctx context.Context, id string, assign bool, 
 	if _, err = tx.ExecContext(ctx, `UPDATE local_model_installations SET is_active=CASE WHEN installation_id=? THEN 1 ELSE 0 END,updated_at_ms=?`, id, millis(now.UTC())); err != nil {
 		return LocalModelInstallation{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE provider_accounts SET status='authenticated',last_checked_at_ms=?,last_authenticated_at_ms=?,last_error_code=NULL,last_error_message=NULL,updated_at_ms=? WHERE provider_account_id='provider_account:local_models:default'`, millis(now.UTC()), millis(now.UTC()), millis(now.UTC())); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO provider_accounts
+(provider_account_id,provider_kind,account_key,display_name,auth_method,is_active,is_default,status,metadata_json,created_at_ms,updated_at_ms,last_checked_at_ms,last_authenticated_at_ms)
+VALUES('provider_account:local_models:default','local_models','default','Local models','none',1,1,'authenticated','{"credentialRevision":0,"secretConfigured":false}',?,?,?,?)
+ON CONFLICT(provider_account_id) DO UPDATE SET status='authenticated',last_checked_at_ms=excluded.last_checked_at_ms,
+last_authenticated_at_ms=excluded.last_authenticated_at_ms,last_error_code=NULL,last_error_message=NULL,updated_at_ms=excluded.updated_at_ms`, millis(now.UTC()), millis(now.UTC()), millis(now.UTC()), millis(now.UTC())); err != nil {
 		return LocalModelInstallation{}, err
 	}
 	if assign {

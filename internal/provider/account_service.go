@@ -218,6 +218,11 @@ func (s *AccountService) SaveSecret(
 	if secret.value == "" {
 		return Account{}, errors.New("provider secret cannot be empty")
 	}
+	if id == openAIDefaultAccountID {
+		if _, err := s.ensureOpenAIAccount(ctx, now); err != nil {
+			return Account{}, err
+		}
+	}
 	return s.mutateSecret(ctx, id, 0, AuthSecretInput, true, nil, now, func(path string) error {
 		return writeSecret(path, secret)
 	})
@@ -240,7 +245,7 @@ func (s *AccountService) ImportOpenAISecret(
 	projectID string,
 	now time.Time,
 ) (Account, error) {
-	account, err := s.persistence.ProviderAccount(ctx, openAIDefaultAccountID)
+	account, err := s.ensureOpenAIAccount(ctx, now)
 	if err != nil {
 		return Account{}, err
 	}
@@ -259,6 +264,17 @@ func (s *AccountService) ImportOpenAISecret(
 	return s.mutateSecret(ctx, account.ID, 0, AuthExternalManual, true, metadata, now, func(path string) error {
 		return writeSecret(path, secret)
 	})
+}
+
+func (s *AccountService) ensureOpenAIAccount(ctx context.Context, now time.Time) (Account, error) {
+	gate := s.gate(openAIDefaultAccountID)
+	gate.Lock()
+	defer gate.Unlock()
+	account, err := s.persistence.ProviderAccount(ctx, openAIDefaultAccountID)
+	if errors.Is(err, ErrAccountNotFound) {
+		return s.persistence.CreateProviderAccount(ctx, builtinAccount("openai", "OpenAI", AuthExternalManual, now))
+	}
+	return account, err
 }
 
 // ClearSecret atomically removes one account credential and changes its safe metadata.
@@ -640,6 +656,9 @@ func (s *AccountService) loadSecret(ctx context.Context, id string, expectedRevi
 
 // DeleteAccount removes one user-managed account and its credential directory.
 func (s *AccountService) DeleteAccount(ctx context.Context, id string) (bool, error) {
+	if IsBuiltinAccountID(id) {
+		return false, ErrProtectedAccount
+	}
 	gate := s.gate(id)
 	gate.Lock()
 	defer gate.Unlock()
@@ -649,9 +668,6 @@ func (s *AccountService) DeleteAccount(ctx context.Context, id string) (bool, er
 	}
 	if err != nil {
 		return false, err
-	}
-	if IsBuiltinAccountID(account.ID) {
-		return false, ErrProtectedAccount
 	}
 	original, quarantine, err := s.quarantineAccountHome(account)
 	if err != nil {
