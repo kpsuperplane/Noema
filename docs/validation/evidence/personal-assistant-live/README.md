@@ -34,7 +34,8 @@ development instance and inspected before the next case starts.
 | PA-021 — Decision history | Pass | [Case evidence](PA-021/) |
 | PA-022 — Ambiguous goal | Pass | [Case evidence](PA-022/) |
 | PA-023 — Deliverable assembly | Pass after Gmail attachment capability was added and the packet was revised | [Case evidence](PA-023/) |
-| PA-024–PA-100 | Not run | The operator will run each case in order. |
+| PA-024 — Approval coordination | Pass after synthetic review routing, two v2 approvals, and finalization | [Case evidence](PA-024/) |
+| PA-025–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
