@@ -348,8 +348,41 @@ func TestRustRuntime_complete_catalog_is_stable_for_native_transport(t *testing.
 		}
 	}
 	bindings, err := mcpService.Bindings(t.Context())
-	if err != nil || len(bindings) != 1 || bindings[0].Description != "Read a document." {
-		t.Errorf("MCP production catalog binding = %#v, %v", bindings, err)
+	var discovered []noemamcp.Binding
+	for _, binding := range bindings {
+		if binding.Name != noemamcp.ConnectServiceToolName {
+			discovered = append(discovered, binding)
+		}
+	}
+	if err != nil || len(discovered) != 1 || discovered[0].Description != "Read a document." {
+		t.Errorf("MCP production catalog discovered binding = %#v, %v", discovered, err)
+	}
+}
+
+func TestRustRuntime_empty_mcp_catalog_keeps_setup_tool(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	paths, err := home.FromRoot(chat.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpService, err := noemamcp.NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mcpService.Close)
+	chat.mcp = mcpService
+	tools, err := chat.chatTools(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, tool := range tools {
+		if tool.Name == noemamcp.ConnectServiceToolName {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("empty MCP catalog setup tool count = %d, want 1", count)
 	}
 }
 
