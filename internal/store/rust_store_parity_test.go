@@ -4272,9 +4272,9 @@ func rustStoreExecutorFixture(t *testing.T, title string) (*Store, Task, TaskRun
 	return database, task, executor, now
 }
 
-func rustStoreTaskHome(t *testing.T, taskID, document string) *os.Root {
+func rustStoreTaskHome(t *testing.T, database *Store, taskID, document string) *os.Root {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
+	root, err := os.OpenRoot(database.homeRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4300,6 +4300,10 @@ func TestRustStore_final_run_status_finishes_active_items_and_debug_spans(t *tes
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			database, task, run, now := rustStoreExecutorFixture(t, "Rust command "+test.name)
+			root := rustStoreTaskHome(t, database, task.ID, "Rust command "+test.name)
+			if err := home.WriteTaskFile(root, task.ID, "RESULT.md", "Completed result."); err != nil {
+				t.Fatal(err)
+			}
 			ctx := t.Context()
 			if err := database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{
 				{Kind: "assistant_output", Status: "running", Round: 0, Content: "partial output"},
@@ -4384,7 +4388,7 @@ func TestRustStore_finish_execution_requires_nonblank_result(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			database, task, run, now := rustStoreExecutorFixture(t, "Rust command result "+test.name)
-			root := rustStoreTaskHome(t, task.ID, "captured description")
+			root := rustStoreTaskHome(t, database, task.ID, "captured description")
 			if test.result != "" {
 				if err := home.WriteTaskFile(root, task.ID, "RESULT.md", test.result); err != nil {
 					t.Fatal(err)
@@ -4407,7 +4411,7 @@ func TestRustStore_finish_execution_requires_nonblank_result(t *testing.T) {
 func TestRustStore_required_task_documents_cannot_be_deleted(t *testing.T) {
 	database, task, _, _ := rustStoreExecutorFixture(t, "Rust command files")
 	_ = database
-	root := rustStoreTaskHome(t, task.ID, "captured description")
+	root := rustStoreTaskHome(t, database, task.ID, "captured description")
 	if err := home.WriteTaskFile(root, task.ID, "RESULT.md", "Current result."); err != nil {
 		t.Fatal(err)
 	}
@@ -4425,7 +4429,7 @@ func TestRustStore_required_task_documents_cannot_be_deleted(t *testing.T) {
 func TestRustStore_task_files_carry_execution_across_continuation_and_review(t *testing.T) {
 	database, task, first, now := rustStoreExecutorFixture(t, "Rust command file lifecycle")
 	ctx := t.Context()
-	root := rustStoreTaskHome(t, task.ID, "Durable delegated payload")
+	root := rustStoreTaskHome(t, database, task.ID, "Durable delegated payload")
 	if err := database.FinishTaskExecution(ctx, first.ID, first.Generation, true, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -4498,14 +4502,13 @@ func TestRustStore_reviewer_controls_completion_notification(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		notify bool
-		want   int64
 	}{
-		{name: "notify", notify: true, want: 1},
-		{name: "silent", notify: false, want: 0},
+		{name: "notify", notify: true},
+		{name: "silent", notify: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			database, task, executor, now := rustStoreExecutorFixture(t, "Rust command notification "+test.name)
-			root := rustStoreTaskHome(t, task.ID, "Durable delegated payload")
+			root := rustStoreTaskHome(t, database, task.ID, "Durable delegated payload")
 			if err := home.WriteTaskFile(root, task.ID, "RESULT.md", "Completed result."); err != nil {
 				t.Fatal(err)
 			}
@@ -4526,15 +4529,16 @@ func TestRustStore_reviewer_controls_completion_notification(t *testing.T) {
 			if err := database.FinishTaskReview(t.Context(), reviewer.ID, reviewer.Generation, "approve", feedback, test.notify, now.Add(4*time.Second)); err != nil {
 				t.Fatal(err)
 			}
-			var count int64
-			if err := database.db.QueryRowContext(t.Context(), `SELECT COUNT(*)
-FROM work_notification_outbox
-WHERE notification_kind = 'task_completed' AND json_extract(payload_json, '$.task_id') = ?`, task.ID).Scan(&count); err != nil {
-				t.Errorf("completion notification ledger unavailable: %v", err)
-				return
+			event, err := database.LatestTaskWorkEvent(t.Context(), task.ID)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if count != test.want {
-				t.Fatalf("completion notifications = %d, want %d", count, test.want)
+			if event.Kind != "task.completed" {
+				t.Fatalf("latest completion event = %#v", event)
+			}
+			notify, ok := event.Payload["notify_human"].(bool)
+			if !ok || notify != test.notify {
+				t.Fatalf("completion notification decision = %#v, want %t", event.Payload["notify_human"], test.notify)
 			}
 		})
 	}
@@ -4553,7 +4557,7 @@ func TestRustStore_task_summary_does_not_read_task_files(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := rustStoreTaskHome(t, task.ID, "captured description")
+	root := rustStoreTaskHome(t, database, task.ID, "captured description")
 	if err := os.Remove(filepath.Join(root.Name(), "tasks", strings.TrimPrefix(task.ID, "task:"), "TASK.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -4756,20 +4760,25 @@ func TestRustStore_inbox_document_save_is_exact_and_a_stale_digest_changes_nothi
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := rustStoreTaskHome(t, task.ID, "captured description")
+	root := rustStoreTaskHome(t, database, task.ID, "captured description")
 	current, err := home.ReadTaskDocument(root, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	exact := "# Exact\n\n- [x] kept  \n\n```rust\nlet value = 1;\n```\n"
-	if err := home.WriteTaskFile(root, task.ID, "TASK.md", exact); err != nil {
+	updateCommand := testTaskLifecycleCommand("update_task", "document-save:update")
+	stage, err := home.PrepareTaskDocumentReplace(root, task.ID, current.Digest, exact, updateCommand.RequestDigest)
+	if err != nil {
 		t.Fatal(err)
 	}
 	updatedTitle := "Updated title"
 	updated, err := database.UpdateInboxTask(ctx, task.ID, task.Revision, task.Generation,
-		TaskUpdate{Title: &updatedTitle, DocumentDigest: current.Digest}, testTaskLifecycleCommand("update_task", "document-save:update"), now.Add(time.Second))
+		TaskUpdate{Title: &updatedTitle, DocumentDigest: stage.Document.Digest}, updateCommand, now.Add(time.Second))
 	if err != nil || updated.Task.Title != "Updated title" {
 		t.Fatalf("exact document update = %#v, %v", updated, err)
+	}
+	if _, err := home.CommitTaskDocumentStage(root, stage); err != nil {
+		t.Fatal(err)
 	}
 	if document, err := home.ReadTaskDocument(root, task.ID); err != nil || document.Content != exact {
 		t.Fatalf("saved Task document = %#v, %v", document, err)
@@ -4777,11 +4786,9 @@ func TestRustStore_inbox_document_save_is_exact_and_a_stale_digest_changes_nothi
 	if err := home.WriteTaskFile(root, task.ID, "TASK.md", "External change\n"); err != nil {
 		t.Fatal(err)
 	}
-	staleTitle := "Stale title"
-	stale, err := database.UpdateInboxTask(ctx, task.ID, updated.Task.Revision, updated.Task.Generation,
-		TaskUpdate{Title: &staleTitle, DocumentDigest: current.Digest}, testTaskLifecycleCommand("update_task", "document-save:stale"), now.Add(2*time.Second))
-	if err == nil {
-		t.Errorf("stale document digest was accepted with result %#v", stale)
+	staleCommand := testTaskLifecycleCommand("update_task", "document-save:stale")
+	if _, err := home.PrepareTaskDocumentReplace(root, task.ID, current.Digest, "Stale draft\n", staleCommand.RequestDigest); err == nil {
+		t.Error("stale document digest was accepted")
 	}
 	after, readErr := database.Task(ctx, task.ID)
 	if readErr != nil {
@@ -4808,7 +4815,7 @@ func TestRustStore_agent_inbox_edit_preserves_existing_authorization_context(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := rustStoreTaskHome(t, created.Task.ID, "captured description")
+	root := rustStoreTaskHome(t, database, created.Task.ID, "captured description")
 	original := created.Task
 	agentTitle := "Agent rewrite"
 	updated, err := database.UpdateInboxTask(ctx, original.ID, original.Revision, original.Generation,

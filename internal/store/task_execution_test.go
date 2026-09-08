@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/kpsuperplane/noema/internal/home"
 )
 
 func TestTaskExecutionPolicyUpgradeValidationAndClaimSnapshots(t *testing.T) {
@@ -343,6 +345,10 @@ func TestTaskRolesRecoverSavedProgressAfterStoreReopen(t *testing.T) {
 	if _, err = database.CreateTask(ctx, id, "Restart café 日本語", "correlation:restart", now); err != nil {
 		t.Fatal(err)
 	}
+	root := rustStoreTaskHome(t, database, id, "Restart task")
+	if err := home.WriteTaskFile(root, id, "RESULT.md", "Restart result."); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = database.QueueTask(ctx, id, 1, 1, testTaskLifecycleCommand("queue_task", "restart"), now); err != nil {
 		t.Fatal(err)
 	}
@@ -443,6 +449,10 @@ func TestReviewRecoveryResumesRecordedExecutorOnce(t *testing.T) {
 	now := time.Now()
 	id, _ := NewTaskID()
 	if _, err = database.CreateTask(ctx, id, "Review recovery", "correlation:review-retry", now); err != nil {
+		t.Fatal(err)
+	}
+	root := rustStoreTaskHome(t, database, id, "Review recovery task")
+	if err := home.WriteTaskFile(root, id, "RESULT.md", "Review recovery result."); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = database.QueueTask(ctx, id, 1, 1, testTaskLifecycleCommand("queue_task", "review-retry"), now); err != nil {

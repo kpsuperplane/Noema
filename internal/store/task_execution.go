@@ -6,10 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
+
+	"github.com/kpsuperplane/noema/internal/home"
 )
 
 // TaskRunItemInput is one durable provider or tool transcript item.
@@ -540,12 +544,38 @@ func (s *Store) FinishTaskPlanning(ctx context.Context, runID string, generation
 // FinishTaskExecution completes an Executor and queues review or continuation.
 func (s *Store) FinishTaskExecution(ctx context.Context, runID string, generation int64, continueRun bool, now time.Time) error {
 	return s.completeTaskRun(ctx, runID, generation, "executor", true, now, func(tx bun.Tx, task *Task, run TaskRun) error {
+		if !continueRun {
+			if err := s.validateTaskResult(task.ID); err != nil {
+				return err
+			}
+		}
 		kind, review := "reviewer", max64(run.ReviewRound, 1)
 		if continueRun {
 			kind, review = "executor", run.ReviewRound
 		}
 		return queueTaskExecutionChild(ctx, tx, task, run, kind, 0, review, now)
 	})
+}
+
+// validateTaskResult applies the file-backed completion rule before an
+// Executor can submit a terminal result.
+func (s *Store) validateTaskResult(taskID string) error {
+	root, err := os.OpenRoot(s.homeRoot)
+	if err != nil {
+		return fmt.Errorf("open Task home: %w", err)
+	}
+	defer root.Close()
+	result, err := home.ReadTaskFile(root, taskID, "RESULT.md")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("RESULT.md must contain the submitted result")
+		}
+		return fmt.Errorf("read RESULT.md: %w", err)
+	}
+	if strings.TrimSpace(result) == "" {
+		return errors.New("RESULT.md must contain the submitted result")
+	}
+	return nil
 }
 
 // FinishTaskReview applies one checked Reviewer decision.
