@@ -41,7 +41,19 @@ func gradeEvaluationStep(c EvaluationCase, index int, response provider.Generati
 		return nil, errors.New("tool input is not an object")
 	}
 	for name, expected := range step.exact {
-		if fields[name] != expected {
+		actual, present := fields[name]
+		// Calendar updates are partial patches. The discovered event identity
+		// must remain exact, while omitted mutable fields retain the values
+		// already present on the event.
+		if step.tool == "calendar.update_event" && !present {
+			switch name {
+			case "calendarId", "eventId":
+				return nil, fmt.Errorf("%s omitted the discovered %s", step.tool, name)
+			default:
+				continue
+			}
+		}
+		if actual != expected {
 			return nil, fmt.Errorf("%s changed the discovered %s", step.tool, name)
 		}
 	}
@@ -171,6 +183,10 @@ func gradeEvaluationResponse(expectation string, response provider.GenerationRes
 		case "planner":
 			if fields["complexity"] != "simple" {
 				return errors.New("bounded planning case requires simple complexity")
+			}
+		case "executor":
+			if len(fields) != 0 {
+				return errors.New("executor terminal payload must be empty")
 			}
 		case "review":
 			if fields["decision"] != value {

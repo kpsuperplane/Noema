@@ -31,8 +31,6 @@ var (
 
 func localChatTools() []provider.GenerationTool {
 	result := []provider.GenerationTool{
-		fileParseTool(),
-		taskInspectTool(),
 		{
 			Name:        noemamemory.ReadPageToolName,
 			Description: "Read one Memory page by an exact path or ID from the root or page hierarchy.",
@@ -43,22 +41,22 @@ func localChatTools() []provider.GenerationTool {
 			Description: "Search Memory when no clear page exists or the question spans pages.",
 			InputSchema: append(json.RawMessage(nil), searchMemorySchema...),
 		},
-		fileDownloadTool(),
+		fileParseTool(),
+		updateOwnNameTool(),
+		{Name: artifactCreateLocalName, Description: "Create a durable local file artifact owned by the current conversation.", InputSchema: append(json.RawMessage(nil), artifactCreateLocalSchema...)},
 		luaRunTool(),
+		fileDownloadTool(),
 		presentMultipleChoiceTool(),
 		presentA2UITool(),
-		updateOwnNameTool(),
 	}
 	for _, tool := range taskToolSpecs {
-		if tool.Name != taskInspectName {
-			result = append(result, tool)
-		}
+		result = append(result, tool)
 	}
 	return append(result, projectToolSpecs...)
 }
 
 func supportsLocalChatTool(name string) bool {
-	return isPrimaryTaskTool(name) || isProjectTool(name) || name == updateOwnNameToolName || name == luaRunName || name == presentMultipleChoiceName || name == presentA2UIName || name == fileDownloadName || name == fileParseName ||
+	return isPrimaryTaskTool(name) || isProjectTool(name) || name == updateOwnNameToolName || name == luaRunName || name == artifactCreateLocalName || name == presentMultipleChoiceName || name == presentA2UIName || name == fileDownloadName || name == fileParseName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
