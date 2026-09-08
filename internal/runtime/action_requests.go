@@ -92,9 +92,9 @@ func (c *Chat) executeReviewedMCP(action store.ActionRequest) (json.RawMessage, 
 	var binding noemamcp.Binding
 	decodeErr := json.Unmarshal(mustJSON(action.AuthorizationContext["mcp_binding"]), &binding)
 	validCapabilityName := decodeErr == nil && action.CapabilityName == binding.Name
-	if !validCapabilityName && decodeErr == nil && binding.ServerID != "" {
-		if server, serverErr := c.database.MCPServer(c.ctx, binding.ServerID); serverErr == nil {
-			validCapabilityName = action.CapabilityName == modelMCPBindingName(binding, server.DisplayName)
+	if !validCapabilityName && decodeErr == nil {
+		if resolved, resolveErr := c.modelMCPBinding(c.ctx, action.CapabilityName); resolveErr == nil {
+			validCapabilityName = resolved.Name == binding.Name
 		}
 	}
 	if decodeErr != nil || action.OperationToken != binding.Name || !validCapabilityName ||
