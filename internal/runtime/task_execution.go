@@ -62,7 +62,6 @@ type TaskExecution struct {
 	claimMu                          sync.Mutex
 	activeMu                         sync.Mutex
 	activeTasks                      map[string]struct{}
-	blockedTasks                     map[string]struct{}
 	activeChanged                    chan struct{}
 }
 
@@ -111,7 +110,7 @@ func NewTaskExecution(
 	runtime := &TaskExecution{
 		database: database, root: root, openRouter: openRouter, codex: codex, openAI: openAI, local: localModels,
 		mcp: mcpService, adapters: adapterService, artifacts: artifactService, web: webTools, errors: errorLog,
-		ctx: ctx, cancel: cancel, done: make(chan struct{}), activeTasks: make(map[string]struct{}), blockedTasks: make(map[string]struct{}), activeChanged: make(chan struct{}),
+		ctx: ctx, cancel: cancel, done: make(chan struct{}), activeTasks: make(map[string]struct{}), activeChanged: make(chan struct{}),
 	}
 	actions, err := database.RecoverTaskActionRequests(ctx, time.Now())
 	if err == nil {
@@ -183,13 +182,14 @@ func (r *TaskExecution) run() {
 func (r *TaskExecution) runWorker() {
 	wake := r.database.SubscribeWork(r.ctx)
 	for r.ctx.Err() == nil {
+		activeChanged := r.activeTaskChangeSignal()
 		task, run, found, err := r.claimTaskExecution(r.ctx)
 		if err != nil {
 			select {
 			case <-r.ctx.Done():
 				return
 			case <-wake:
-			case <-r.activeTaskChangeSignal():
+			case <-activeChanged:
 			}
 			continue
 		}
@@ -198,7 +198,7 @@ func (r *TaskExecution) runWorker() {
 			case <-r.ctx.Done():
 				return
 			case <-wake:
-			case <-r.activeTaskChangeSignal():
+			case <-activeChanged:
 			}
 			continue
 		}
@@ -221,7 +221,6 @@ func (r *TaskExecution) runWorker() {
 			case <-wake:
 				current, checkErr := r.database.TaskExecutionIsCurrent(r.ctx, run.ID, run.Generation)
 				if checkErr == nil && !current {
-					r.markBlockedTask(task.ID)
 					cancel()
 				}
 			}
@@ -233,10 +232,13 @@ func (r *TaskExecution) runWorker() {
 func (r *TaskExecution) claimTaskExecution(ctx context.Context) (store.Task, store.TaskRun, bool, error) {
 	r.claimMu.Lock()
 	defer r.claimMu.Unlock()
-	if r.taskAdmissionBlocked() || r.activeTaskHasQueuedSuccessor(ctx) {
-		return store.Task{}, store.TaskRun{}, false, nil
+	r.activeMu.Lock()
+	excluded := make([]string, 0, len(r.activeTasks))
+	for taskID := range r.activeTasks {
+		excluded = append(excluded, taskID)
 	}
-	task, run, found, err := r.database.ClaimTaskExecution(ctx, time.Now())
+	r.activeMu.Unlock()
+	task, run, found, err := r.database.ClaimTaskExecution(ctx, time.Now(), excluded...)
 	if err == nil && found {
 		r.markActiveTask(task.ID)
 	}
@@ -255,28 +257,12 @@ func (r *TaskExecution) markActiveTask(taskID string) {
 func (r *TaskExecution) markInactiveTask(taskID string) {
 	r.activeMu.Lock()
 	delete(r.activeTasks, taskID)
-	delete(r.blockedTasks, taskID)
 	previous := r.activeChanged
 	r.activeChanged = make(chan struct{})
 	r.activeMu.Unlock()
 	if previous != nil {
 		close(previous)
 	}
-}
-
-func (r *TaskExecution) markBlockedTask(taskID string) {
-	r.activeMu.Lock()
-	if r.blockedTasks == nil {
-		r.blockedTasks = make(map[string]struct{})
-	}
-	r.blockedTasks[taskID] = struct{}{}
-	r.activeMu.Unlock()
-}
-
-func (r *TaskExecution) taskAdmissionBlocked() bool {
-	r.activeMu.Lock()
-	defer r.activeMu.Unlock()
-	return len(r.blockedTasks) != 0
 }
 
 func (r *TaskExecution) activeTaskChangeSignal() <-chan struct{} {
@@ -286,31 +272,6 @@ func (r *TaskExecution) activeTaskChangeSignal() <-chan struct{} {
 		r.activeChanged = make(chan struct{})
 	}
 	return r.activeChanged
-}
-
-func (r *TaskExecution) activeTaskHasQueuedSuccessor(ctx context.Context) bool {
-	r.activeMu.Lock()
-	taskIDs := make([]string, 0, len(r.activeTasks))
-	for taskID := range r.activeTasks {
-		taskIDs = append(taskIDs, taskID)
-	}
-	r.activeMu.Unlock()
-	for _, taskID := range taskIDs {
-		task, err := r.database.Task(ctx, taskID)
-		if err != nil || task.CurrentRunID == "" {
-			continue
-		}
-		runs, err := r.database.TaskRuns(ctx, taskID, 10)
-		if err != nil {
-			continue
-		}
-		for _, run := range runs {
-			if run.ID == task.CurrentRunID && run.Status == "queued" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (r *TaskExecution) execute(parent context.Context, task store.Task, run store.TaskRun) {

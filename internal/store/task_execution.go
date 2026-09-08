@@ -48,17 +48,26 @@ WHERE state='running' AND current_run_id IN (SELECT run_id FROM task_runs WHERE 
 	return err
 }
 
-// ClaimTaskExecution leases the oldest current Task run.
-func (s *Store) ClaimTaskExecution(ctx context.Context, now time.Time) (Task, TaskRun, bool, error) {
+// ClaimTaskExecution leases the oldest current Task run outside excluded active tasks.
+func (s *Store) ClaimTaskExecution(ctx context.Context, now time.Time, excludedTaskIDs ...string) (Task, TaskRun, bool, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return Task{}, TaskRun{}, false, err
 	}
 	defer tx.Rollback()
 	var runID string
-	err = tx.QueryRowContext(ctx, `SELECT r.run_id FROM task_runs r JOIN tasks t ON t.current_run_id=r.run_id
+	query := `SELECT r.run_id FROM task_runs r JOIN tasks t ON t.current_run_id=r.run_id
 WHERE r.status='queued' AND r.executor_backend='provider' AND t.executor_acp_connection_revision IS NULL AND r.task_generation=t.generation
-ORDER BY r.queued_at_ms,r.run_id LIMIT 1`).Scan(&runID)
+`
+	args := make([]any, 0, len(excludedTaskIDs))
+	if len(excludedTaskIDs) != 0 {
+		query += " AND t.task_id NOT IN (" + strings.TrimSuffix(strings.Repeat("?,", len(excludedTaskIDs)), ",") + ")"
+		for _, taskID := range excludedTaskIDs {
+			args = append(args, taskID)
+		}
+	}
+	query += " ORDER BY r.queued_at_ms,r.run_id LIMIT 1"
+	err = tx.QueryRowContext(ctx, query, args...).Scan(&runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, TaskRun{}, false, nil
 	}
