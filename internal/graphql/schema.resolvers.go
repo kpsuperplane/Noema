@@ -352,37 +352,6 @@ func (r *mutationRootResolver) SaveAgentModelPreference(ctx context.Context, inp
 	return r.saveAgentModelPreference(ctx, input)
 }
 
-// CreateAcpAgent is the resolver for the createAcpAgent field.
-func (r *mutationRootResolver) CreateAcpAgent(ctx context.Context, input model.CreateAcpAgentInput) (*model.AcpAgent, error) {
-	if err := requireRequestPrincipal(ctx); err != nil {
-		return nil, err
-	}
-	return r.createAcpAgent(ctx, input)
-}
-
-// UpdateAcpAgent is the resolver for the updateAcpAgent field.
-func (r *mutationRootResolver) UpdateAcpAgent(ctx context.Context, input model.UpdateAcpAgentInput) (*model.AcpAgent, error) {
-	return r.updateAcpAgent(ctx, input)
-}
-
-// DeleteAcpAgent is the resolver for the deleteAcpAgent field.
-func (r *mutationRootResolver) DeleteAcpAgent(ctx context.Context, input model.DeleteAcpAgentInput) (bool, error) {
-	if err := requireRequestPrincipal(ctx); err != nil {
-		return false, err
-	}
-	return r.deleteAcpAgent(ctx, input)
-}
-
-// TestAcpAgent is the resolver for the testAcpAgent field.
-func (r *mutationRootResolver) TestAcpAgent(ctx context.Context, input model.TestAcpAgentInput) (*model.AcpAgent, error) {
-	return r.testAcpAgent(ctx, input)
-}
-
-// AuthenticateAcpAgent is the resolver for the authenticateAcpAgent field.
-func (r *mutationRootResolver) AuthenticateAcpAgent(ctx context.Context, input model.AuthenticateAcpAgentInput) (*model.AcpAgent, error) {
-	return r.authenticateAcpAgent(ctx, input)
-}
-
 // SaveWebFetchSummarizerPreference is the resolver for the saveWebFetchSummarizerPreference field.
 func (r *mutationRootResolver) SaveWebFetchSummarizerPreference(ctx context.Context, input model.SaveWebFetchSummarizerPreferenceInput) (*model.AgentModelPreference, error) {
 	return r.saveWebFetchSummarizerPreference(ctx, input)
@@ -650,14 +619,6 @@ func (r *queryRootResolver) ProviderAccountCatalog(ctx context.Context) ([]*mode
 // Agents is the resolver for the agents field.
 func (r *queryRootResolver) Agents(ctx context.Context) ([]*model.Agent, error) {
 	return r.agents(ctx)
-}
-
-// AcpAgents is the resolver for the acpAgents field.
-func (r *queryRootResolver) AcpAgents(ctx context.Context) ([]*model.AcpAgent, error) {
-	if err := requireRequestPrincipal(ctx); err != nil {
-		return nil, err
-	}
-	return r.acpAgents(ctx)
 }
 
 // Task is the resolver for the task field.

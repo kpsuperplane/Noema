@@ -197,16 +197,6 @@ func TestRustAPI_owner_sensitive_operations_require_a_request_principal(t *testi
 	rustAPIPortOwnerPrincipal(t)
 }
 
-// Rust: crates/noema-api/src/graphql/schema_tests/acp_agent_delete_tests.rs::delete_is_revision_fenced_and_removes_acp_setup_state.
-func TestRustAPI_delete_is_revision_fenced_and_removes_acp_setup_state(t *testing.T) {
-	rustAPIPortACPDeleteRevision(t)
-}
-
-// Rust: crates/noema-api/src/graphql/schema_tests/acp_agent_delete_tests.rs::delete_rejects_current_task_and_schedule_references.
-func TestRustAPI_delete_rejects_current_task_and_schedule_references(t *testing.T) {
-	rustAPIPortACPDeleteReferences(t)
-}
-
 // Rust: crates/noema-api/src/graphql/schema_tests/agent_errors.rs::agents_query_sanitizes_unavailable_provider_errors.
 func TestRustAPI_agents_query_sanitizes_unavailable_provider_errors(t *testing.T) {
 	rustAPIPortAgentErrorSanitization(t)
@@ -260,11 +250,6 @@ func TestRustAPI_runtime_debug_profile_projects_safe_timing_and_usage(t *testing
 // Rust: crates/noema-api/src/graphql/schema_tests/settings.rs::agent_preference_enforces_identity_and_reasoning_contracts.
 func TestRustAPI_agent_preference_enforces_identity_and_reasoning_contracts(t *testing.T) {
 	rustAPIPortAgentPreference(t)
-}
-
-// Rust: crates/noema-api/src/graphql/schema_tests/settings.rs::acp_agent_setup_is_revision_fenced_and_never_exposes_credentials.
-func TestRustAPI_acp_agent_setup_is_revision_fenced_and_never_exposes_credentials(t *testing.T) {
-	rustAPIPortACPSetup(t)
 }
 
 // Rust: crates/noema-api/src/graphql/schema_tests/subscriptions.rs::memory_events_emits_initial_and_invalidated_snapshots.

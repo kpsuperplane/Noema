@@ -354,16 +354,6 @@ struct TasksExecutorFields: View {
   var body: some View {
     DisclosureGroup("Advanced") {
       VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-        TasksSheetField("Executor") {
-          Picker("Executor", selection: $executorAgentId) {
-            Text("Built-in executor").tag("agent:task-executor")
-            ForEach(model.acpAgents.filter { $0.enabled || $0.id == executorAgentId }) { agent in
-              Text("\(agent.displayName) (ACP)").tag(agent.id)
-            }
-          }
-          .pickerStyle(.menu)
-          .tint(NoemaColor.content)
-        }
         TasksSheetField("Task directory base (optional)") {
           TextField("/absolute/path", text: $cwdOverride)
             .textInputAutocapitalization(.never)

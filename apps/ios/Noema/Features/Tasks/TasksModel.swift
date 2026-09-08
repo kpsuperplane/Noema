@@ -15,7 +15,6 @@ final class TasksModel {
 
   private(set) var workspace: TasksWorkspaceSnapshot?
   private(set) var projects: [TasksProjectSnapshot] = []
-  private(set) var acpAgents: [TasksAcpAgentSnapshot] = []
   private(set) var columns: [TasksColumnSnapshot] = []
   private(set) var tasks: [TasksTaskRow] = []
   private(set) var needsYou: [TasksAttentionRow] = []
@@ -55,7 +54,6 @@ final class TasksModel {
   private var tasksEndCursor: String?
   private var historyEndCursor: String?
   private var recurrenceCache: [String: TasksRecurrenceSnapshot] = [:]
-  private var hasLoadedAcpAgents = false
   private(set) var hasMoreTasks = false
   private(set) var hasMoreHistory = false
   private var started = false
@@ -133,27 +131,6 @@ final class TasksModel {
       refreshFailed = true
       projectsErrorMessage = error.localizedDescription
       record(error)
-    }
-    if !hasLoadedAcpAgents {
-      do {
-        if let agents = try await fetch(SettingsAcpAgentsQuery()).data {
-          acpAgents = agents.acpAgents.map {
-            TasksAcpAgentSnapshot(
-              id: $0.agentId,
-              displayName: $0.displayName,
-              enabled: $0.enabled,
-              authStatus: $0.authStatus.rawValue,
-              healthStatus: $0.healthStatus.rawValue,
-              implementationName: $0.implementationName,
-              implementationVersion: $0.implementationVersion,
-              lastError: $0.lastError
-            )
-          }
-          hasLoadedAcpAgents = true
-        }
-      } catch {
-        // ACP setup is optional; task list remains usable with the built-in executor.
-      }
     }
     do {
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }

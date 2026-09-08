@@ -1,6 +1,5 @@
 import { gql } from "@apollo/client";
 import {
-  AcpAgentFields,
   AgentFields,
   AgentModelPreferenceFields,
   AgentModelProviderOptionFields
@@ -26,11 +25,9 @@ export const TaskModelPoolEntryFields = gql`
 export const AgentsSettingsRootDocument = gql`
   query AgentsSettingsRoot {
     agents { ...AgentFields }
-    acpAgents { ...AcpAgentFields }
     taskModelPools { ...TaskModelPoolEntryFields }
   }
   ${AgentFields}
-  ${AcpAgentFields}
   ${TaskModelPoolEntryFields}
 `;
 

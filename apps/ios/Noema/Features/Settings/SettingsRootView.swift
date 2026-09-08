@@ -359,7 +359,6 @@ private struct AgentsSettings: View {
           }
         }
       }
-      AcpWorkExecutorsSettings(settings: settings)
       SettingsSectionCard {
         HStack(spacing: NoemaSpacing.sm) {
           Text("Task models")

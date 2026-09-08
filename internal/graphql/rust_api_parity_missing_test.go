@@ -199,7 +199,6 @@ func rustAPIPortOwnerPrincipal(t *testing.T) {
   taskWorkspaceFile(taskId: "task:foreign", path: "TASK.md") { path }
   conversationTranscriptPage(input: { conversationId: "conversation:foreign" }) { pageInfo { hasMoreBefore } }
   pendingHumanInterventions { __typename }
-  acpAgents { agentId }
 }`
 	response := rustAPIRawGraphQLContext(t, resolver, context.Background(), query, nil)
 	if len(response.Errors) != 5 {
@@ -222,8 +221,6 @@ func rustAPIPortOwnerPrincipal(t *testing.T) {
   skipMcpAuthentication(input: {
     requestId: "mcp_auth:foreign", expectedRevision: 1
   }) { requestId }
-  createAcpAgent(input: { displayName: "Foreign", command: "/bin/false" }) { agentId }
-  deleteAcpAgent(input: { agentId: "agent:foreign", expectedRevision: 1 })
 }`
 	response = rustAPIRawGraphQLContext(t, resolver, context.Background(), mutation, nil)
 	if len(response.Errors) != 5 {
@@ -270,89 +267,6 @@ func rustAPIAssertUnauthenticatedSubscription(t *testing.T, resolver *Resolver, 
 	encoded, err := json.Marshal(payload["errors"])
 	if err != nil || !bytes.Contains(encoded, []byte("request is unauthenticated")) {
 		t.Errorf("unauthenticated subscription errors = %s, %v", encoded, err)
-	}
-}
-
-func rustAPIPortACPDeleteRevision(t *testing.T) {
-	t.Helper()
-	resolver := openTestResolver(t)
-	ctx := context.Background()
-	agent, err := resolver.Store.CreateAcpAgent(ctx, "Disposable ACP", "/bin/false", nil, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	attempt, err := resolver.Store.BeginAcpAuthentication(ctx, agent.AgentID, agent.ConnectionRevision, "login", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []int{2, 1} {
-		response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  deleteAcpAgent(input: { agentId: %q, expectedRevision: %d })
-}`, agent.AgentID, expected), nil)
-		if len(response.Errors) != 1 {
-			t.Fatalf("ACP deletion revision %d errors = %#v", expected, response.Errors)
-		}
-		if expected == 2 && !strings.Contains(response.Errors[0].Message, "revision") {
-			t.Fatalf("stale ACP deletion = %#v", response.Errors)
-		}
-		if expected == 1 && !strings.Contains(strings.ToLower(response.Errors[0].Message), "authentication") {
-			t.Fatalf("active ACP authentication deletion = %#v", response.Errors)
-		}
-	}
-	if _, err := resolver.Store.FinishAcpAuthentication(ctx, attempt, true, nil, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  deleteAcpAgent(input: { agentId: %q, expectedRevision: 1 })
-}`, agent.AgentID), nil)
-	if len(response.Errors) != 0 || response.Data["deleteAcpAgent"] != true {
-		t.Fatalf("ACP deletion = %#v", response)
-	}
-	if _, err := resolver.Store.AcpAgent(ctx, agent.AgentID); !errors.Is(err, store.ErrAcpAgentNotFound) {
-		t.Fatalf("deleted ACP agent = %v", err)
-	}
-	if _, err := resolver.Store.Agent(ctx, agent.AgentID); !errors.Is(err, store.ErrAgentNotFound) {
-		t.Fatalf("deleted ACP identity = %v", err)
-	}
-}
-
-func rustAPIPortACPDeleteReferences(t *testing.T) {
-	t.Helper()
-	resolver := openTestResolver(t)
-	ctx := context.Background()
-	agent, err := resolver.Store.CreateAcpAgent(ctx, "Assigned ACP", "/bin/false", nil, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	captured := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  captureTask(input: {
-    workspaceId: "workspace:personal", title: "Keep assigned executor", executorAgentId: %q,
-    schedule: { scheduledFor: "2030-01-01T08:00:00Z", timeZone: "UTC", recurrence: { startsAt: "2030-01-01T08:00:00Z", cronExpression: "0 8 * * *" } },
-    clientMutationId: "capture-acp-delete-guard"
-  }) { task { taskId revision generation } }
-}`, agent.AgentID), nil)
-	if len(captured.Errors) != 0 {
-		t.Fatalf("scheduled ACP capture = %#v", captured.Errors)
-	}
-	response := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  deleteAcpAgent(input: { agentId: %q, expectedRevision: 1 })
-}`, agent.AgentID), nil)
-	if len(response.Errors) != 1 || !strings.Contains(strings.ToLower(response.Errors[0].Message), "use") {
-		t.Fatalf("current-task ACP deletion = %#v", response)
-	}
-	task := captured.Data["captureTask"].(map[string]any)["task"].(map[string]any)
-	taskID := task["taskId"].(string)
-	cancelled := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  cancelTask(input: { taskId: %q, expectedRevision: %d, expectedGeneration: %d, clientMutationId: "cancel-acp-delete-guard" }) { task { taskId } }
-}`, taskID, int(task["revision"].(float64)), int(task["generation"].(float64))), nil)
-	if len(cancelled.Errors) != 0 {
-		t.Fatalf("cancel ACP task = %#v", cancelled.Errors)
-	}
-	response = rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  deleteAcpAgent(input: { agentId: %q, expectedRevision: 1 })
-}`, agent.AgentID), nil)
-	if len(response.Errors) != 1 || !strings.Contains(strings.ToLower(response.Errors[0].Message), "use") {
-		t.Fatalf("scheduled ACP deletion = %#v", response)
 	}
 }
 
@@ -1138,37 +1052,6 @@ func rustAPIPortAgentPreference(t *testing.T) {
 	}
 }
 
-func rustAPIPortACPSetup(t *testing.T) {
-	t.Helper()
-	resolver := openTestResolver(t)
-	ctx := context.Background()
-	createdResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), `mutation {
-  createAcpAgent(input: { displayName: "Codex ACP", command: "/usr/bin/codex", arguments: ["--acp"] }) {
-    agentId displayName command connectionRevision healthStatus authStatus capabilities arguments enabled
-  }
-}`, nil)
-	if len(createdResponse.Errors) != 0 {
-		t.Fatalf("created ACP agent errors = %#v", createdResponse.Errors)
-	}
-	created, ok := createdResponse.Data["createAcpAgent"].(map[string]any)
-	if !ok || created["agentId"] == nil || created["displayName"] != "Codex ACP" || created["command"] != "/usr/bin/codex" || created["connectionRevision"] != float64(1) || created["healthStatus"] != "UNKNOWN" || created["authStatus"] != "UNKNOWN" || created["arguments"].([]any)[0] != "--acp" || created["capabilities"] == nil || strings.Contains(fmt.Sprintf("%#v", createdResponse.Data), "credential") {
-		t.Fatalf("created ACP agent = %#v", createdResponse.Data)
-	}
-	agentID := created["agentId"].(string)
-	updatedResponse := rustAPIRawGraphQLContext(t, resolver, auth.WithDesktopAccess(ctx), fmt.Sprintf(`mutation {
-  updateAcpAgent(input: { agentId: %q, expectedRevision: 1, displayName: "Codex ACP", command: "/usr/bin/codex", arguments: ["--acp"], enabled: false }) {
-    agentId enabled connectionRevision
-  }
-}`, agentID), nil)
-	if len(updatedResponse.Errors) != 0 {
-		t.Fatalf("updated ACP agent errors = %#v", updatedResponse.Errors)
-	}
-	updated := updatedResponse.Data["updateAcpAgent"].(map[string]any)
-	if updated["enabled"] != false || updated["connectionRevision"] != float64(2) {
-		t.Fatalf("updated ACP agent = %#v", updated)
-	}
-}
-
 func stringPtr(value string) *string { return &value }
 
 func rustAPIPortMemoryEvents(t *testing.T) {
@@ -1649,43 +1532,36 @@ func rustAPIPortProjectExecutorCWD(t *testing.T) {
 	if folderProject["folder"] != folder {
 		t.Fatalf("move Project = %#v", folderPayload)
 	}
-	acpResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation {
-  createAcpAgent(input: { displayName: "Fake ACP", command: "/bin/false" }) { agentId }
-}`, nil)
-	if len(acpResponse.Errors) != 0 {
-		t.Fatalf("create ACP GraphQL errors = %#v", acpResponse.Errors)
-	}
-	acpID := acpResponse.Data["createAcpAgent"].(map[string]any)["agentId"].(string)
 	cwdResponse := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `mutation($project:String!, $agent:String!) {
   captureTask(input: {
-    workspaceId: "workspace:personal", projectId: $project, title: "Use ACP",
-    executorAgentId: $agent, cwdOverride: "/tmp/task-work", clientMutationId: "acp-capture"
+    workspaceId: "workspace:personal", projectId: $project, title: "Use executor",
+    executorAgentId: $agent, cwdOverride: "/tmp/task-work", clientMutationId: "executor-capture"
   }) { task { executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource project { folder } } }
-}`, map[string]any{"project": projectID, "agent": acpID})
+}`, map[string]any{"project": projectID, "agent": store.TaskExecutorAgentID})
 	if len(cwdResponse.Errors) != 0 {
-		t.Fatalf("ACP CWD GraphQL errors = %#v", cwdResponse.Errors)
+		t.Fatalf("Task CWD GraphQL errors = %#v", cwdResponse.Errors)
 	}
 	cwdTask := cwdResponse.Data["captureTask"].(map[string]any)["task"].(map[string]any)
-	if cwdTask["executorAgentId"] != acpID || cwdTask["executorBackend"] != "acp" || cwdTask["cwdOverride"] != "/tmp/task-work" || cwdTask["effectiveCwd"] != "/tmp/task-work/use-acp" || cwdTask["effectiveCwdSource"] != "task" || cwdTask["project"].(map[string]any)["folder"] != folder {
-		t.Fatalf("ACP CWD projection = %#v", cwdTask)
+	if cwdTask["executorAgentId"] != store.TaskExecutorAgentID || cwdTask["executorBackend"] != "provider" || cwdTask["cwdOverride"] != "/tmp/task-work" || cwdTask["effectiveCwd"] != "/tmp/task-work/use-executor" || cwdTask["effectiveCwdSource"] != "task" || cwdTask["project"].(map[string]any)["folder"] != folder {
+		t.Fatalf("Task CWD projection = %#v", cwdTask)
 	}
 	listedCWD := rustAPIRawGraphQLContext(t, resolver, graphqlCtx, `query { tasks(input: { workspaceId: "workspace:personal" }) { edges { node { taskId executorBackend effectiveCwd effectiveCwdSource } } } }`, nil)
 	if len(listedCWD.Errors) != 0 {
-		t.Fatalf("ACP CWD task list errors = %#v", listedCWD.Errors)
+		t.Fatalf("Task CWD task list errors = %#v", listedCWD.Errors)
 	}
 	edges := listedCWD.Data["tasks"].(map[string]any)["edges"].([]any)
 	if len(edges) == 0 {
-		t.Fatal("ACP CWD task list is empty")
+		t.Fatal("Task CWD task list is empty")
 	}
 	seenCWD := false
 	for _, edge := range edges {
 		node := edge.(map[string]any)["node"].(map[string]any)
-		if node["executorBackend"] == "acp" {
-			seenCWD = node["effectiveCwd"] == "/tmp/task-work/use-acp" && node["effectiveCwdSource"] == "task"
+		if node["executorBackend"] == "provider" {
+			seenCWD = node["effectiveCwd"] == "/tmp/task-work/use-executor" && node["effectiveCwdSource"] == "task"
 		}
 	}
 	if !seenCWD {
-		t.Fatalf("ACP CWD task list = %#v", edges)
+		t.Fatalf("Task CWD task list = %#v", edges)
 	}
 	archiveInput := model.ArchiveProjectInput{ProjectID: projectID,
 		ExpectedRevision: 3, ClientMutationID: "project-archive"}
@@ -3083,28 +2959,18 @@ func rustAPIPortTerminalLiveActivity(t *testing.T) {
 	if _, err := resolver.Store.CreateTask(ctx, taskID, "Finished task", "correlation:terminal", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := resolver.Store.CreateAcpAgent(ctx, "Atlas", "/bin/false", nil, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	command, err := newTaskCommand("update_task", "terminal-agent", store.TaskUpdate{ExecutorAgentID: &agent.AgentID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.Store.UpdateInboxTask(ctx, taskID, 1, 1, store.TaskUpdate{ExecutorAgentID: &agent.AgentID}, command, time.Now()); err != nil {
-		t.Fatal(err)
-	}
+	agentID := "agent:task-executor"
 	mediaType := "text/plain"
 	for index := 1; index <= 3; index++ {
 		if _, err := resolver.Artifacts.CreateLocal(ctx, artifact.LocalInput{
 			Owner: store.ArtifactOwner{ObjectType: "task", ObjectID: taskID}, Title: fmt.Sprintf("Output %d", index),
 			Kind: "document", Filename: fmt.Sprintf("output-%d.txt", index), Bytes: []byte("completed output"),
-			MediaType: &mediaType, CreatedByActorID: agent.AgentID,
+			MediaType: &mediaType, CreatedByActorID: agentID,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	queued, err := resolver.queueTask(ctx, model.QueueTaskInput{TaskID: taskID, ExpectedRevision: 2, ExpectedGeneration: 1, ClientMutationID: "queue-live-terminal"})
+	queued, err := resolver.queueTask(ctx, model.QueueTaskInput{TaskID: taskID, ExpectedRevision: 1, ExpectedGeneration: 1, ClientMutationID: "queue-live-terminal"})
 	if err != nil || queued.Task.CurrentRun == nil {
 		t.Fatalf("queue terminal run = %#v, %v", queued, err)
 	}
@@ -3135,7 +3001,7 @@ func rustAPIPortTerminalLiveActivity(t *testing.T) {
 	if err != nil || value == nil {
 		t.Fatalf("terminal Live Activity = %#v, %v", value, err)
 	}
-	if value.Projection["phase"] != "completed" || value.Projection["agentName"] != "Atlas" || value.Projection["completedOutputCount"] != float64(3) && value.Projection["completedOutputCount"] != 3 || value.Projection["activeTaskCount"] != float64(0) && value.Projection["activeTaskCount"] != 0 {
+	if value.Projection["phase"] != "completed" || value.Projection["agentName"] != "Task Executor" || value.Projection["completedOutputCount"] != float64(3) && value.Projection["completedOutputCount"] != 3 || value.Projection["activeTaskCount"] != float64(0) && value.Projection["activeTaskCount"] != 0 {
 		t.Fatalf("terminal Live Activity projection = %#v", value.Projection)
 	}
 }

@@ -275,7 +275,6 @@ export const TasksRunFields = gql`
     executorBackend
     executorAgentId
     effectiveCwd
-    acpSessionId
     actualProviderKind
     actualModelProfile
     executionPolicy { ...TasksPolicyFields }

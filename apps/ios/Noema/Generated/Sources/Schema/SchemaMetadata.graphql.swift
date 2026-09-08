@@ -20,7 +20,6 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
 
   private static let objectTypeMap: [String: ApolloAPI.Object] = [
     "A2UISurface": NoemaAPI.Objects.A2UISurface,
-    "AcpAgent": NoemaAPI.Objects.AcpAgent,
     "ActionRequestDisclosure": NoemaAPI.Objects.ActionRequestDisclosure,
     "ActionRequestTarget": NoemaAPI.Objects.ActionRequestTarget,
     "ActionReviewerSettings": NoemaAPI.Objects.ActionReviewerSettings,

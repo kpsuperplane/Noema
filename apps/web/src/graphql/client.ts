@@ -13,7 +13,6 @@ export async function createApolloClient() {
   const cache = new InMemoryCache({
     possibleTypes: possibleTypes.possibleTypes,
     typePolicies: {
-      AcpAgent: { keyFields: ["agentId"] },
       Agent: { keyFields: ["agentId"] },
       CapabilityConnection: { keyFields: ["kind", "connectionId"] },
       CapabilityManagedTool: { keyFields: ["kind", "connectionId", "toolId"] },

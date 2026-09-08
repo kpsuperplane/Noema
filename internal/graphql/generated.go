@@ -50,21 +50,6 @@ type ComplexityRoot struct {
 		Version             func(childComplexity int) int
 	}
 
-	AcpAgent struct {
-		AgentID               func(childComplexity int) int
-		Arguments             func(childComplexity int) int
-		AuthStatus            func(childComplexity int) int
-		Capabilities          func(childComplexity int) int
-		Command               func(childComplexity int) int
-		ConnectionRevision    func(childComplexity int) int
-		DisplayName           func(childComplexity int) int
-		Enabled               func(childComplexity int) int
-		HealthStatus          func(childComplexity int) int
-		ImplementationName    func(childComplexity int) int
-		ImplementationVersion func(childComplexity int) int
-		LastError             func(childComplexity int) int
-	}
-
 	ActionRequestDisclosure struct {
 		ContentSummary func(childComplexity int) int
 		Recipient      func(childComplexity int) int
@@ -835,7 +820,6 @@ type ComplexityRoot struct {
 		ApproveAdapterDefinition                 func(childComplexity int, input model.ApproveAdapterDefinitionInput) int
 		ArchiveProject                           func(childComplexity int, input model.ArchiveProjectInput) int
 		AttachAdapterOauthConnection             func(childComplexity int, input model.AttachAdapterOauthConnectionInput) int
-		AuthenticateAcpAgent                     func(childComplexity int, input model.AuthenticateAcpAgentInput) int
 		CancelAdapterDefinition                  func(childComplexity int, input model.CancelAdapterDefinitionInput) int
 		CancelLocalModelInstall                  func(childComplexity int, installationID string) int
 		CancelProviderAuthAttempt                func(childComplexity int, input model.CancelProviderAuthAttemptInput) int
@@ -845,13 +829,11 @@ type ComplexityRoot struct {
 		ConfigureApnsProvider                    func(childComplexity int, input model.ConfigureApnsProviderInput) int
 		ConfirmOnboardingModelSelections         func(childComplexity int, input model.ConfirmOnboardingModelSelectionsInput) int
 		ContinueMcpServerSetup                   func(childComplexity int, input model.ContinueMcpServerSetupInput) int
-		CreateAcpAgent                           func(childComplexity int, input model.CreateAcpAgentInput) int
 		CreateConversationExternalArtifact       func(childComplexity int, input model.CreateConversationExternalArtifactInput) int
 		CreateMcpServer                          func(childComplexity int, input model.CreateMcpServerInput) int
 		CreateProject                            func(childComplexity int, input model.CreateProjectInput) int
 		CreateProviderAccount                    func(childComplexity int, input model.CreateProviderAccountInput) int
 		CreateTaskLocalArtifact                  func(childComplexity int, input model.CreateTaskLocalArtifactInput) int
-		DeleteAcpAgent                           func(childComplexity int, input model.DeleteAcpAgentInput) int
 		DeleteAdapterConnection                  func(childComplexity int, input model.DeleteAdapterConnectionInput) int
 		DeleteAdapterOauthApplication            func(childComplexity int, input model.DeleteAdapterOauthApplicationInput) int
 		DeleteAdapterService                     func(childComplexity int, input model.DeleteAdapterServiceInput) int
@@ -918,9 +900,7 @@ type ComplexityRoot struct {
 		StartMcpServerOauthSetup                 func(childComplexity int, input model.StartMcpServerOAuthSetupInput) int
 		StartMcpServerReauthenticationOauthSetup func(childComplexity int, input model.StartMcpServerReauthenticationOAuthSetupInput) int
 		StartProviderAuthAttempt                 func(childComplexity int, input model.StartProviderAuthAttemptInput) int
-		TestAcpAgent                             func(childComplexity int, input model.TestAcpAgentInput) int
 		UnscheduleTask                           func(childComplexity int, input model.UnscheduleTaskInput) int
-		UpdateAcpAgent                           func(childComplexity int, input model.UpdateAcpAgentInput) int
 		UpdateInboxTask                          func(childComplexity int, input model.UpdateInboxTaskInput) int
 		UpdateMemory                             func(childComplexity int) int
 		UpdateProject                            func(childComplexity int, input model.UpdateProjectInput) int
@@ -1076,7 +1056,6 @@ type ComplexityRoot struct {
 	}
 
 	QueryRoot struct {
-		AcpAgents                  func(childComplexity int) int
 		AdapterDefinitions         func(childComplexity int) int
 		AdapterManagement          func(childComplexity int) int
 		AdapterOauthAttempt        func(childComplexity int, attemptID string) int
@@ -1376,7 +1355,6 @@ type ComplexityRoot struct {
 	}
 
 	TaskRun struct {
-		AcpSessionID       func(childComplexity int) int
 		ActiveMilliseconds func(childComplexity int) int
 		ActualModelProfile func(childComplexity int) int
 		ActualProviderKind func(childComplexity int) int
@@ -1686,11 +1664,6 @@ type MutationRootResolver interface {
 	ClearProviderSecret(ctx context.Context, input model.ClearProviderSecretInput) (*model.ProviderAccount, error)
 	DeleteProviderAccount(ctx context.Context, input model.DeleteProviderAccountInput) (bool, error)
 	SaveAgentModelPreference(ctx context.Context, input model.SaveAgentModelPreferenceInput) (*model.AgentModelPreference, error)
-	CreateAcpAgent(ctx context.Context, input model.CreateAcpAgentInput) (*model.AcpAgent, error)
-	UpdateAcpAgent(ctx context.Context, input model.UpdateAcpAgentInput) (*model.AcpAgent, error)
-	DeleteAcpAgent(ctx context.Context, input model.DeleteAcpAgentInput) (bool, error)
-	TestAcpAgent(ctx context.Context, input model.TestAcpAgentInput) (*model.AcpAgent, error)
-	AuthenticateAcpAgent(ctx context.Context, input model.AuthenticateAcpAgentInput) (*model.AcpAgent, error)
 	SaveWebFetchSummarizerPreference(ctx context.Context, input model.SaveWebFetchSummarizerPreferenceInput) (*model.AgentModelPreference, error)
 	SaveWebToolProviderBinding(ctx context.Context, input model.SaveWebToolProviderBindingInput) (*model.WebToolBindingSettings, error)
 	SaveBrowserProviderRoute(ctx context.Context, input model.SaveBrowserProviderRouteInput) (*model.WebToolBindingSettings, error)
@@ -1743,7 +1716,6 @@ type QueryRootResolver interface {
 	ProviderAccounts(ctx context.Context) ([]*model.ProviderAccount, error)
 	ProviderAccountCatalog(ctx context.Context) ([]*model.ProviderAccountCatalogEntry, error)
 	Agents(ctx context.Context) ([]*model.Agent, error)
-	AcpAgents(ctx context.Context) ([]*model.AcpAgent, error)
 	Task(ctx context.Context, taskID string) (*model.TaskDetail, error)
 	TaskWorkspaceFile(ctx context.Context, taskID string, path string) (*model.TaskWorkspaceFileText, error)
 	TaskSchedulePreview(ctx context.Context, input model.TaskSchedulePreviewInput) (*model.TaskSchedulePreview, error)
@@ -1870,79 +1842,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.A2UISurface.Version(childComplexity), true
-
-	case "AcpAgent.agentId":
-		if e.ComplexityRoot.AcpAgent.AgentID == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.AgentID(childComplexity), true
-	case "AcpAgent.arguments":
-		if e.ComplexityRoot.AcpAgent.Arguments == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.Arguments(childComplexity), true
-	case "AcpAgent.authStatus":
-		if e.ComplexityRoot.AcpAgent.AuthStatus == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.AuthStatus(childComplexity), true
-	case "AcpAgent.capabilities":
-		if e.ComplexityRoot.AcpAgent.Capabilities == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.Capabilities(childComplexity), true
-	case "AcpAgent.command":
-		if e.ComplexityRoot.AcpAgent.Command == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.Command(childComplexity), true
-	case "AcpAgent.connectionRevision":
-		if e.ComplexityRoot.AcpAgent.ConnectionRevision == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.ConnectionRevision(childComplexity), true
-	case "AcpAgent.displayName":
-		if e.ComplexityRoot.AcpAgent.DisplayName == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.DisplayName(childComplexity), true
-	case "AcpAgent.enabled":
-		if e.ComplexityRoot.AcpAgent.Enabled == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.Enabled(childComplexity), true
-	case "AcpAgent.healthStatus":
-		if e.ComplexityRoot.AcpAgent.HealthStatus == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.HealthStatus(childComplexity), true
-	case "AcpAgent.implementationName":
-		if e.ComplexityRoot.AcpAgent.ImplementationName == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.ImplementationName(childComplexity), true
-	case "AcpAgent.implementationVersion":
-		if e.ComplexityRoot.AcpAgent.ImplementationVersion == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.ImplementationVersion(childComplexity), true
-	case "AcpAgent.lastError":
-		if e.ComplexityRoot.AcpAgent.LastError == nil {
-			break
-		}
-
-		return e.ComplexityRoot.AcpAgent.LastError(childComplexity), true
 
 	case "ActionRequestDisclosure.contentSummary":
 		if e.ComplexityRoot.ActionRequestDisclosure.ContentSummary == nil {
@@ -5143,17 +5042,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.MutationRoot.AttachAdapterOauthConnection(childComplexity, args["input"].(model.AttachAdapterOauthConnectionInput)), true
-	case "MutationRoot.authenticateAcpAgent":
-		if e.ComplexityRoot.MutationRoot.AuthenticateAcpAgent == nil {
-			break
-		}
-
-		args, err := ec.field_MutationRoot_authenticateAcpAgent_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.MutationRoot.AuthenticateAcpAgent(childComplexity, args["input"].(model.AuthenticateAcpAgentInput)), true
 	case "MutationRoot.cancelAdapterDefinition":
 		if e.ComplexityRoot.MutationRoot.CancelAdapterDefinition == nil {
 			break
@@ -5253,17 +5141,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.MutationRoot.ContinueMcpServerSetup(childComplexity, args["input"].(model.ContinueMcpServerSetupInput)), true
-	case "MutationRoot.createAcpAgent":
-		if e.ComplexityRoot.MutationRoot.CreateAcpAgent == nil {
-			break
-		}
-
-		args, err := ec.field_MutationRoot_createAcpAgent_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.MutationRoot.CreateAcpAgent(childComplexity, args["input"].(model.CreateAcpAgentInput)), true
 	case "MutationRoot.createConversationExternalArtifact":
 		if e.ComplexityRoot.MutationRoot.CreateConversationExternalArtifact == nil {
 			break
@@ -5319,17 +5196,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.MutationRoot.CreateTaskLocalArtifact(childComplexity, args["input"].(model.CreateTaskLocalArtifactInput)), true
-	case "MutationRoot.deleteAcpAgent":
-		if e.ComplexityRoot.MutationRoot.DeleteAcpAgent == nil {
-			break
-		}
-
-		args, err := ec.field_MutationRoot_deleteAcpAgent_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.MutationRoot.DeleteAcpAgent(childComplexity, args["input"].(model.DeleteAcpAgentInput)), true
 	case "MutationRoot.deleteAdapterConnection":
 		if e.ComplexityRoot.MutationRoot.DeleteAdapterConnection == nil {
 			break
@@ -6036,17 +5902,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.MutationRoot.StartProviderAuthAttempt(childComplexity, args["input"].(model.StartProviderAuthAttemptInput)), true
-	case "MutationRoot.testAcpAgent":
-		if e.ComplexityRoot.MutationRoot.TestAcpAgent == nil {
-			break
-		}
-
-		args, err := ec.field_MutationRoot_testAcpAgent_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.MutationRoot.TestAcpAgent(childComplexity, args["input"].(model.TestAcpAgentInput)), true
 	case "MutationRoot.unscheduleTask":
 		if e.ComplexityRoot.MutationRoot.UnscheduleTask == nil {
 			break
@@ -6058,17 +5913,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.MutationRoot.UnscheduleTask(childComplexity, args["input"].(model.UnscheduleTaskInput)), true
-	case "MutationRoot.updateAcpAgent":
-		if e.ComplexityRoot.MutationRoot.UpdateAcpAgent == nil {
-			break
-		}
-
-		args, err := ec.field_MutationRoot_updateAcpAgent_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.MutationRoot.UpdateAcpAgent(childComplexity, args["input"].(model.UpdateAcpAgentInput)), true
 	case "MutationRoot.updateInboxTask":
 		if e.ComplexityRoot.MutationRoot.UpdateInboxTask == nil {
 			break
@@ -6711,12 +6555,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ProviderCapability.Status(childComplexity), true
 
-	case "QueryRoot.acpAgents":
-		if e.ComplexityRoot.QueryRoot.AcpAgents == nil {
-			break
-		}
-
-		return e.ComplexityRoot.QueryRoot.AcpAgents(childComplexity), true
 	case "QueryRoot.adapterDefinitions":
 		if e.ComplexityRoot.QueryRoot.AdapterDefinitions == nil {
 			break
@@ -8318,12 +8156,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.TaskReference.TaskID(childComplexity), true
 
-	case "TaskRun.acpSessionId":
-		if e.ComplexityRoot.TaskRun.AcpSessionID == nil {
-			break
-		}
-
-		return e.ComplexityRoot.TaskRun.AcpSessionID(childComplexity), true
 	case "TaskRun.activeMilliseconds":
 		if e.ComplexityRoot.TaskRun.ActiveMilliseconds == nil {
 			break
@@ -9292,7 +9124,6 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputApproveAdapterDefinitionInput,
 		ec.unmarshalInputArchiveProjectInput,
 		ec.unmarshalInputAttachAdapterOauthConnectionInput,
-		ec.unmarshalInputAuthenticateAcpAgentInput,
 		ec.unmarshalInputCancelAdapterDefinitionInput,
 		ec.unmarshalInputCancelProviderAuthAttemptInput,
 		ec.unmarshalInputCancelTaskInput,
@@ -9303,13 +9134,11 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputConfirmOnboardingModelSelectionsInput,
 		ec.unmarshalInputContinueMcpServerSetupInput,
 		ec.unmarshalInputConversationTranscriptPageInput,
-		ec.unmarshalInputCreateAcpAgentInput,
 		ec.unmarshalInputCreateConversationExternalArtifactInput,
 		ec.unmarshalInputCreateMcpServerInput,
 		ec.unmarshalInputCreateProjectInput,
 		ec.unmarshalInputCreateProviderAccountInput,
 		ec.unmarshalInputCreateTaskLocalArtifactInput,
-		ec.unmarshalInputDeleteAcpAgentInput,
 		ec.unmarshalInputDeleteAdapterConnectionInput,
 		ec.unmarshalInputDeleteAdapterOauthApplicationInput,
 		ec.unmarshalInputDeleteAdapterServiceInput,
@@ -9371,9 +9200,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputTaskModelPoolEntryInput,
 		ec.unmarshalInputTaskRecurrenceCommandInput,
 		ec.unmarshalInputTaskSchedulePreviewInput,
-		ec.unmarshalInputTestAcpAgentInput,
 		ec.unmarshalInputUnscheduleTaskInput,
-		ec.unmarshalInputUpdateAcpAgentInput,
 		ec.unmarshalInputUpdateInboxTaskInput,
 		ec.unmarshalInputUpdateProjectDocumentInput,
 		ec.unmarshalInputUpdateProjectInput,
@@ -9514,44 +9341,6 @@ type A2UISurface {
 	Whether the current snapshot exposes an action.
 	"""
 	hasActions: Boolean!
-}
-
-"""
-Configured ACP task executor safe to show in Settings.
-"""
-type AcpAgent {
-	agentId: String!
-	displayName: String!
-	command: String!
-	arguments: [String!]!
-	enabled: Boolean!
-	authStatus: AcpAgentAuthStatus!
-	healthStatus: AcpAgentHealthStatus!
-	implementationName: String
-	implementationVersion: String
-	capabilities: JSON!
-	connectionRevision: Int!
-	lastError: String
-}
-
-"""
-Agent-managed ACP authentication state.
-"""
-enum AcpAgentAuthStatus {
-	UNKNOWN
-	NONE
-	REQUIRED
-	AUTHENTICATED
-	FAILED
-}
-
-"""
-Readiness of a configured ACP executable.
-"""
-enum AcpAgentHealthStatus {
-	UNKNOWN
-	HEALTHY
-	UNAVAILABLE
 }
 
 """
@@ -10476,12 +10265,6 @@ input AttachAdapterOauthConnectionInput {
 	replacementConnectionId: String
 }
 
-input AuthenticateAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
-	methodId: String!
-}
-
 """
 Exact current pending definition abandoned by the local human.
 """
@@ -10847,12 +10630,6 @@ input ConversationTranscriptPageInput {
 	limit: Int
 }
 
-input CreateAcpAgentInput {
-	displayName: String!
-	command: String!
-	arguments: [String!]! = []
-}
-
 """
 Input for creating a conversation-owned external URL artifact.
 """
@@ -11049,11 +10826,6 @@ type DefaultModelPreference {
 	Whether this preference requests faster service.
 	"""
 	fastMode: Boolean!
-}
-
-input DeleteAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
 }
 
 """
@@ -12269,26 +12041,6 @@ type MutationRoot {
 	"""
 	saveAgentModelPreference(input: SaveAgentModelPreferenceInput!): AgentModelPreference!
 	"""
-	Register a trusted operator-managed ACP executable.
-	"""
-	createAcpAgent(input: CreateAcpAgentInput!): AcpAgent!
-	"""
-	Replace one ACP launch configuration or disable it.
-	"""
-	updateAcpAgent(input: UpdateAcpAgentInput!): AcpAgent!
-	"""
-	Hard-delete one configured ACP executor.
-	"""
-	deleteAcpAgent(input: DeleteAcpAgentInput!): Boolean!
-	"""
-	Initialize one ACP executable and persist its safe implementation metadata.
-	"""
-	testAcpAgent(input: TestAcpAgentInput!): AcpAgent!
-	"""
-	Run one advertised agent-managed ACP authentication method.
-	"""
-	authenticateAcpAgent(input: AuthenticateAcpAgentInput!): AcpAgent!
-	"""
 	Save the web fetch summarizer model/provider preference.
 	"""
 	saveWebFetchSummarizerPreference(input: SaveWebFetchSummarizerPreferenceInput!): AgentModelPreference!
@@ -13111,10 +12863,6 @@ type QueryRoot {
 	List agent metadata safe to show in Settings.
 	"""
 	agents: [Agent!]!
-	"""
-	List configured ACP task executors.
-	"""
-	acpAgents: [AcpAgent!]!
 	"""
 	Return one owner-authorized task detail.
 	"""
@@ -14850,10 +14598,6 @@ type TaskRun {
 	"""
 	effectiveCwd: String
 	"""
-	ACP session identity for diagnostics.
-	"""
-	acpSessionId: String
-	"""
 	Safe actual provider family.
 	"""
 	actualProviderKind: String
@@ -15385,11 +15129,6 @@ enum TerminalTaskKind {
 	ALL
 }
 
-input TestAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
-}
-
 """
 Complete tool behavior snapshot shown to the human reviewer.
 """
@@ -15485,15 +15224,6 @@ input UnscheduleTaskInput {
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
-}
-
-input UpdateAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
-	displayName: String!
-	command: String!
-	arguments: [String!]! = []
-	enabled: Boolean!
 }
 
 """
@@ -15924,36 +15654,6 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // childFields_* functions provide shared child field context lookups.
 // Each function is generated once per unique object type, deduplicating the
 // switch statements that were previously inlined in every fieldContext_* function.
-
-func (ec *executionContext) childFields_AcpAgent(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "agentId":
-		return ec.fieldContext_AcpAgent_agentId(ctx, field)
-	case "displayName":
-		return ec.fieldContext_AcpAgent_displayName(ctx, field)
-	case "command":
-		return ec.fieldContext_AcpAgent_command(ctx, field)
-	case "arguments":
-		return ec.fieldContext_AcpAgent_arguments(ctx, field)
-	case "enabled":
-		return ec.fieldContext_AcpAgent_enabled(ctx, field)
-	case "authStatus":
-		return ec.fieldContext_AcpAgent_authStatus(ctx, field)
-	case "healthStatus":
-		return ec.fieldContext_AcpAgent_healthStatus(ctx, field)
-	case "implementationName":
-		return ec.fieldContext_AcpAgent_implementationName(ctx, field)
-	case "implementationVersion":
-		return ec.fieldContext_AcpAgent_implementationVersion(ctx, field)
-	case "capabilities":
-		return ec.fieldContext_AcpAgent_capabilities(ctx, field)
-	case "connectionRevision":
-		return ec.fieldContext_AcpAgent_connectionRevision(ctx, field)
-	case "lastError":
-		return ec.fieldContext_AcpAgent_lastError(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type AcpAgent", field.Name)
-}
 
 func (ec *executionContext) childFields_ActionRequestDisclosure(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
@@ -18045,8 +17745,6 @@ func (ec *executionContext) childFields_TaskRun(ctx context.Context, field graph
 		return ec.fieldContext_TaskRun_executorAgentId(ctx, field)
 	case "effectiveCwd":
 		return ec.fieldContext_TaskRun_effectiveCwd(ctx, field)
-	case "acpSessionId":
-		return ec.fieldContext_TaskRun_acpSessionId(ctx, field)
 	case "actualProviderKind":
 		return ec.fieldContext_TaskRun_actualProviderKind(ctx, field)
 	case "actualModelProfile":
@@ -18683,20 +18381,6 @@ func (ec *executionContext) field_MutationRoot_attachAdapterOauthConnection_args
 	return args, nil
 }
 
-func (ec *executionContext) field_MutationRoot_authenticateAcpAgent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.AuthenticateAcpAgentInput, error) {
-			return ec.unmarshalNAuthenticateAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAuthenticateAcpAgentInput(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["input"] = arg0
-	return args, nil
-}
-
 func (ec *executionContext) field_MutationRoot_cancelAdapterDefinition_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -18823,20 +18507,6 @@ func (ec *executionContext) field_MutationRoot_continueMcpServerSetup_args(ctx c
 	return args, nil
 }
 
-func (ec *executionContext) field_MutationRoot_createAcpAgent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.CreateAcpAgentInput, error) {
-			return ec.unmarshalNCreateAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐCreateAcpAgentInput(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["input"] = arg0
-	return args, nil
-}
-
 func (ec *executionContext) field_MutationRoot_createConversationExternalArtifact_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -18899,20 +18569,6 @@ func (ec *executionContext) field_MutationRoot_createTaskLocalArtifact_args(ctx 
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.CreateTaskLocalArtifactInput, error) {
 			return ec.unmarshalNCreateTaskLocalArtifactInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐCreateTaskLocalArtifactInput(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["input"] = arg0
-	return args, nil
-}
-
-func (ec *executionContext) field_MutationRoot_deleteAcpAgent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.DeleteAcpAgentInput, error) {
-			return ec.unmarshalNDeleteAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐDeleteAcpAgentInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -19789,40 +19445,12 @@ func (ec *executionContext) field_MutationRoot_startProviderAuthAttempt_args(ctx
 	return args, nil
 }
 
-func (ec *executionContext) field_MutationRoot_testAcpAgent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.TestAcpAgentInput, error) {
-			return ec.unmarshalNTestAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐTestAcpAgentInput(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["input"] = arg0
-	return args, nil
-}
-
 func (ec *executionContext) field_MutationRoot_unscheduleTask_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.UnscheduleTaskInput, error) {
 			return ec.unmarshalNUnscheduleTaskInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐUnscheduleTaskInput(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["input"] = arg0
-	return args, nil
-}
-
-func (ec *executionContext) field_MutationRoot_updateAcpAgent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.UpdateAcpAgentInput, error) {
-			return ec.unmarshalNUpdateAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐUpdateAcpAgentInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -20967,282 +20595,6 @@ func (ec *executionContext) _A2UISurface_hasActions(ctx context.Context, field g
 }
 func (ec *executionContext) fieldContext_A2UISurface_hasActions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("A2UISurface", field, false, false, errors.New("field of type Boolean does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_agentId(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_agentId(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.AgentID, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_agentId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_displayName(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_displayName(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.DisplayName, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_displayName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_command(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_command(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Command, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_command(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_arguments(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_arguments(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Arguments, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
-			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_arguments(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_enabled(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_enabled(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Enabled, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
-			return ec.marshalNBoolean2bool(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type Boolean does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_authStatus(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_authStatus(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.AuthStatus, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v model.AcpAgentAuthStatus) graphql.Marshaler {
-			return ec.marshalNAcpAgentAuthStatus2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentAuthStatus(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_authStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type AcpAgentAuthStatus does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_healthStatus(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_healthStatus(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.HealthStatus, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v model.AcpAgentHealthStatus) graphql.Marshaler {
-			return ec.marshalNAcpAgentHealthStatus2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentHealthStatus(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_healthStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type AcpAgentHealthStatus does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_implementationName(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_implementationName(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ImplementationName, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
-			return ec.marshalOString2ᚖstring(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_implementationName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_implementationVersion(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_implementationVersion(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ImplementationVersion, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
-			return ec.marshalOString2ᚖstring(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_implementationVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_capabilities(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_capabilities(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Capabilities, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v map[string]any) graphql.Marshaler {
-			return ec.marshalNJSON2map(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_capabilities(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type JSON does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_connectionRevision(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_connectionRevision(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ConnectionRevision, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
-			return ec.marshalNInt2int(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_connectionRevision(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type Int does not have child fields"))
-}
-
-func (ec *executionContext) _AcpAgent_lastError(ctx context.Context, field graphql.CollectedField, obj *model.AcpAgent) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_AcpAgent_lastError(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.LastError, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
-			return ec.marshalOString2ᚖstring(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_AcpAgent_lastError(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AcpAgent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _ActionRequestDisclosure_recipient(ctx context.Context, field graphql.CollectedField, obj *model.ActionRequestDisclosure) (ret graphql.Marshaler) {
@@ -36220,226 +35572,6 @@ func (ec *executionContext) fieldContext_MutationRoot_saveAgentModelPreference(c
 	return fc, nil
 }
 
-func (ec *executionContext) _MutationRoot_createAcpAgent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_MutationRoot_createAcpAgent(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.MutationRoot().CreateAcpAgent(ctx, fc.Args["input"].(model.CreateAcpAgentInput))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.AcpAgent) graphql.Marshaler {
-			return ec.marshalNAcpAgent2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgent(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_MutationRoot_createAcpAgent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "MutationRoot",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_AcpAgent(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_MutationRoot_createAcpAgent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _MutationRoot_updateAcpAgent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_MutationRoot_updateAcpAgent(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.MutationRoot().UpdateAcpAgent(ctx, fc.Args["input"].(model.UpdateAcpAgentInput))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.AcpAgent) graphql.Marshaler {
-			return ec.marshalNAcpAgent2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgent(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_MutationRoot_updateAcpAgent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "MutationRoot",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_AcpAgent(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_MutationRoot_updateAcpAgent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _MutationRoot_deleteAcpAgent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_MutationRoot_deleteAcpAgent(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.MutationRoot().DeleteAcpAgent(ctx, fc.Args["input"].(model.DeleteAcpAgentInput))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
-			return ec.marshalNBoolean2bool(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_MutationRoot_deleteAcpAgent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "MutationRoot",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Boolean does not have child fields")
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_MutationRoot_deleteAcpAgent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _MutationRoot_testAcpAgent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_MutationRoot_testAcpAgent(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.MutationRoot().TestAcpAgent(ctx, fc.Args["input"].(model.TestAcpAgentInput))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.AcpAgent) graphql.Marshaler {
-			return ec.marshalNAcpAgent2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgent(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_MutationRoot_testAcpAgent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "MutationRoot",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_AcpAgent(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_MutationRoot_testAcpAgent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _MutationRoot_authenticateAcpAgent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_MutationRoot_authenticateAcpAgent(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.MutationRoot().AuthenticateAcpAgent(ctx, fc.Args["input"].(model.AuthenticateAcpAgentInput))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.AcpAgent) graphql.Marshaler {
-			return ec.marshalNAcpAgent2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgent(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_MutationRoot_authenticateAcpAgent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "MutationRoot",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_AcpAgent(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_MutationRoot_authenticateAcpAgent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _MutationRoot_saveWebFetchSummarizerPreference(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -40787,38 +39919,6 @@ func (ec *executionContext) fieldContext_QueryRoot_agents(_ context.Context, fie
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Agent(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _QueryRoot_acpAgents(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_QueryRoot_acpAgents(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.QueryRoot().AcpAgents(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.AcpAgent) graphql.Marshaler {
-			return ec.marshalNAcpAgent2ᚕᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_QueryRoot_acpAgents(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "QueryRoot",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_AcpAgent(ctx, field)
 		},
 	}
 	return fc, nil
@@ -47138,29 +46238,6 @@ func (ec *executionContext) fieldContext_TaskRun_effectiveCwd(_ context.Context,
 	return graphql.NewScalarFieldContext("TaskRun", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _TaskRun_acpSessionId(ctx context.Context, field graphql.CollectedField, obj *model.TaskRun) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_TaskRun_acpSessionId(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.AcpSessionID, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
-			return ec.marshalOString2ᚖstring(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_TaskRun_acpSessionId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("TaskRun", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
 func (ec *executionContext) _TaskRun_actualProviderKind(ctx context.Context, field graphql.CollectedField, obj *model.TaskRun) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -52058,50 +51135,6 @@ func (ec *executionContext) unmarshalInputAttachAdapterOauthConnectionInput(ctx 
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputAuthenticateAcpAgentInput(ctx context.Context, obj any) (model.AuthenticateAcpAgentInput, error) {
-	var it model.AuthenticateAcpAgentInput
-	if obj == nil {
-		return it, nil
-	}
-
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	fieldsInOrder := [...]string{"agentId", "expectedRevision", "methodId"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "agentId":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("agentId"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.AgentID = data
-		case "expectedRevision":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expectedRevision"))
-			data, err := ec.unmarshalNInt2int(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.ExpectedRevision = data
-		case "methodId":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("methodId"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.MethodID = data
-		}
-	}
-	return it, nil
-}
-
 func (ec *executionContext) unmarshalInputCancelAdapterDefinitionInput(ctx context.Context, obj any) (model.CancelAdapterDefinitionInput, error) {
 	var it model.CancelAdapterDefinitionInput
 	if obj == nil {
@@ -52609,54 +51642,6 @@ func (ec *executionContext) unmarshalInputConversationTranscriptPageInput(ctx co
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputCreateAcpAgentInput(ctx context.Context, obj any) (model.CreateAcpAgentInput, error) {
-	var it model.CreateAcpAgentInput
-	if obj == nil {
-		return it, nil
-	}
-
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	if _, present := asMap["arguments"]; !present {
-		asMap["arguments"] = []any{}
-	}
-
-	fieldsInOrder := [...]string{"displayName", "command", "arguments"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "displayName":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("displayName"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.DisplayName = data
-		case "command":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("command"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Command = data
-		case "arguments":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("arguments"))
-			data, err := ec.unmarshalNString2ᚕstringᚄ(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Arguments = data
-		}
-	}
-	return it, nil
-}
-
 func (ec *executionContext) unmarshalInputCreateConversationExternalArtifactInput(ctx context.Context, obj any) (model.CreateConversationExternalArtifactInput, error) {
 	var it model.CreateConversationExternalArtifactInput
 	if obj == nil {
@@ -52960,43 +51945,6 @@ func (ec *executionContext) unmarshalInputCreateTaskLocalArtifactInput(ctx conte
 				return it, err
 			}
 			it.ContentBase64 = data
-		}
-	}
-	return it, nil
-}
-
-func (ec *executionContext) unmarshalInputDeleteAcpAgentInput(ctx context.Context, obj any) (model.DeleteAcpAgentInput, error) {
-	var it model.DeleteAcpAgentInput
-	if obj == nil {
-		return it, nil
-	}
-
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	fieldsInOrder := [...]string{"agentId", "expectedRevision"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "agentId":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("agentId"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.AgentID = data
-		case "expectedRevision":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expectedRevision"))
-			data, err := ec.unmarshalNInt2int(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.ExpectedRevision = data
 		}
 	}
 	return it, nil
@@ -56117,43 +55065,6 @@ func (ec *executionContext) unmarshalInputTaskSchedulePreviewInput(ctx context.C
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputTestAcpAgentInput(ctx context.Context, obj any) (model.TestAcpAgentInput, error) {
-	var it model.TestAcpAgentInput
-	if obj == nil {
-		return it, nil
-	}
-
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	fieldsInOrder := [...]string{"agentId", "expectedRevision"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "agentId":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("agentId"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.AgentID = data
-		case "expectedRevision":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expectedRevision"))
-			data, err := ec.unmarshalNInt2int(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.ExpectedRevision = data
-		}
-	}
-	return it, nil
-}
-
 func (ec *executionContext) unmarshalInputUnscheduleTaskInput(ctx context.Context, obj any) (model.UnscheduleTaskInput, error) {
 	var it model.UnscheduleTaskInput
 	if obj == nil {
@@ -56200,75 +55111,6 @@ func (ec *executionContext) unmarshalInputUnscheduleTaskInput(ctx context.Contex
 				return it, err
 			}
 			it.ClientMutationID = data
-		}
-	}
-	return it, nil
-}
-
-func (ec *executionContext) unmarshalInputUpdateAcpAgentInput(ctx context.Context, obj any) (model.UpdateAcpAgentInput, error) {
-	var it model.UpdateAcpAgentInput
-	if obj == nil {
-		return it, nil
-	}
-
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	if _, present := asMap["arguments"]; !present {
-		asMap["arguments"] = []any{}
-	}
-
-	fieldsInOrder := [...]string{"agentId", "expectedRevision", "displayName", "command", "arguments", "enabled"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "agentId":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("agentId"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.AgentID = data
-		case "expectedRevision":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expectedRevision"))
-			data, err := ec.unmarshalNInt2int(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.ExpectedRevision = data
-		case "displayName":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("displayName"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.DisplayName = data
-		case "command":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("command"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Command = data
-		case "arguments":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("arguments"))
-			data, err := ec.unmarshalNString2ᚕstringᚄ(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Arguments = data
-		case "enabled":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
-			data, err := ec.unmarshalNBoolean2bool(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Enabled = data
 		}
 	}
 	return it, nil
@@ -56893,99 +55735,6 @@ func (ec *executionContext) _A2UISurface(ctx context.Context, sel ast.SelectionS
 		case "hasActions":
 			out.Values[i] = ec._A2UISurface_hasActions(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var acpAgentImplementors = []string{"AcpAgent"}
-
-func (ec *executionContext) _AcpAgent(ctx context.Context, sel ast.SelectionSet, obj *model.AcpAgent) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, acpAgentImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("AcpAgent")
-		case "agentId":
-			out.Values[i] = ec._AcpAgent_agentId(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "displayName":
-			out.Values[i] = ec._AcpAgent_displayName(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "command":
-			out.Values[i] = ec._AcpAgent_command(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "arguments":
-			out.Values[i] = ec._AcpAgent_arguments(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "enabled":
-			out.Values[i] = ec._AcpAgent_enabled(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "authStatus":
-			out.Values[i] = ec._AcpAgent_authStatus(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "healthStatus":
-			out.Values[i] = ec._AcpAgent_healthStatus(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "implementationName":
-			out.Values[i] = ec._AcpAgent_implementationName(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "implementationVersion":
-			out.Values[i] = ec._AcpAgent_implementationVersion(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "capabilities":
-			out.Values[i] = ec._AcpAgent_capabilities(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "connectionRevision":
-			out.Values[i] = ec._AcpAgent_connectionRevision(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "lastError":
-			out.Values[i] = ec._AcpAgent_lastError(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
@@ -62815,41 +61564,6 @@ func (ec *executionContext) _MutationRoot(ctx context.Context, sel ast.Selection
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "createAcpAgent":
-			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._MutationRoot_createAcpAgent(ctx, field)
-			})
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "updateAcpAgent":
-			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._MutationRoot_updateAcpAgent(ctx, field)
-			})
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "deleteAcpAgent":
-			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._MutationRoot_deleteAcpAgent(ctx, field)
-			})
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "testAcpAgent":
-			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._MutationRoot_testAcpAgent(ctx, field)
-			})
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "authenticateAcpAgent":
-			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._MutationRoot_authenticateAcpAgent(ctx, field)
-			})
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
 		case "saveWebFetchSummarizerPreference":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._MutationRoot_saveWebFetchSummarizerPreference(ctx, field)
@@ -64563,28 +63277,6 @@ func (ec *executionContext) _QueryRoot(ctx context.Context, sel ast.SelectionSet
 					}
 				}()
 				res = ec._QueryRoot_agents(ctx, field)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			rrm := func(ctx context.Context) graphql.Marshaler {
-				return ec.OperationContext.RootResolverMiddleware(ctx,
-					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "acpAgents":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._QueryRoot_acpAgents(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -67005,11 +65697,6 @@ func (ec *executionContext) _TaskRun(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
-		case "acpSessionId":
-			out.Values[i] = ec._TaskRun_acpSessionId(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
 		case "actualProviderKind":
 			out.Values[i] = ec._TaskRun_actualProviderKind(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
@@ -69052,52 +67739,6 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 
 // region    ***************************** type.gotpl *****************************
 
-func (ec *executionContext) marshalNAcpAgent2ᚕᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.AcpAgent) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNAcpAgent2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgent(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNAcpAgent2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgent(ctx context.Context, sel ast.SelectionSet, v *model.AcpAgent) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._AcpAgent(ctx, sel, v)
-}
-
-func (ec *executionContext) unmarshalNAcpAgentAuthStatus2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentAuthStatus(ctx context.Context, v any) (model.AcpAgentAuthStatus, error) {
-	var res model.AcpAgentAuthStatus
-	err := res.UnmarshalGQL(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNAcpAgentAuthStatus2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentAuthStatus(ctx context.Context, sel ast.SelectionSet, v model.AcpAgentAuthStatus) graphql.Marshaler {
-	return v
-}
-
-func (ec *executionContext) unmarshalNAcpAgentHealthStatus2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentHealthStatus(ctx context.Context, v any) (model.AcpAgentHealthStatus, error) {
-	var res model.AcpAgentHealthStatus
-	err := res.UnmarshalGQL(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNAcpAgentHealthStatus2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAcpAgentHealthStatus(ctx context.Context, sel ast.SelectionSet, v model.AcpAgentHealthStatus) graphql.Marshaler {
-	return v
-}
-
 func (ec *executionContext) marshalNActionReviewerSettings2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐActionReviewerSettings(ctx context.Context, sel ast.SelectionSet, v *model.ActionReviewerSettings) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
@@ -69781,11 +68422,6 @@ func (ec *executionContext) unmarshalNAttachAdapterOauthConnectionInput2github�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNAuthenticateAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAuthenticateAcpAgentInput(ctx context.Context, v any) (model.AuthenticateAcpAgentInput, error) {
-	res, err := ec.unmarshalInputAuthenticateAcpAgentInput(ctx, v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -70072,11 +68708,6 @@ func (ec *executionContext) unmarshalNConversationTranscriptPageInput2githubᚗc
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNCreateAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐCreateAcpAgentInput(ctx context.Context, v any) (model.CreateAcpAgentInput, error) {
-	res, err := ec.unmarshalInputCreateAcpAgentInput(ctx, v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
 func (ec *executionContext) unmarshalNCreateConversationExternalArtifactInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐCreateConversationExternalArtifactInput(ctx context.Context, v any) (model.CreateConversationExternalArtifactInput, error) {
 	res, err := ec.unmarshalInputCreateConversationExternalArtifactInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -70115,11 +68746,6 @@ func (ec *executionContext) marshalNDefaultModelPreference2ᚖgithubᚗcomᚋkps
 		return graphql.Null
 	}
 	return ec._DefaultModelPreference(ctx, sel, v)
-}
-
-func (ec *executionContext) unmarshalNDeleteAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐDeleteAcpAgentInput(ctx context.Context, v any) (model.DeleteAcpAgentInput, error) {
-	res, err := ec.unmarshalInputDeleteAcpAgentInput(ctx, v)
-	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNDeleteAdapterConnectionInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐDeleteAdapterConnectionInput(ctx context.Context, v any) (model.DeleteAdapterConnectionInput, error) {
@@ -72026,11 +70652,6 @@ func (ec *executionContext) marshalNTasksOverview2ᚖgithubᚗcomᚋkpsuperplane
 	return ec._TasksOverview(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNTestAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐTestAcpAgentInput(ctx context.Context, v any) (model.TestAcpAgentInput, error) {
-	res, err := ec.unmarshalInputTestAcpAgentInput(ctx, v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
 func (ec *executionContext) marshalNToolProgressAuditSettings2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐToolProgressAuditSettings(ctx context.Context, sel ast.SelectionSet, v *model.ToolProgressAuditSettings) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
@@ -72073,11 +70694,6 @@ func (ec *executionContext) marshalNTurnActivityStatus2githubᚗcomᚋkpsuperpla
 
 func (ec *executionContext) unmarshalNUnscheduleTaskInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐUnscheduleTaskInput(ctx context.Context, v any) (model.UnscheduleTaskInput, error) {
 	res, err := ec.unmarshalInputUnscheduleTaskInput(ctx, v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) unmarshalNUpdateAcpAgentInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐUpdateAcpAgentInput(ctx context.Context, v any) (model.UpdateAcpAgentInput, error) {
-	res, err := ec.unmarshalInputUpdateAcpAgentInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

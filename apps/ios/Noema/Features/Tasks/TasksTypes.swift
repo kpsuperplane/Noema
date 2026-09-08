@@ -44,17 +44,6 @@ struct TasksExecutorSnapshot: Hashable, Sendable {
   )
 }
 
-struct TasksAcpAgentSnapshot: Identifiable, Hashable, Sendable {
-  let id: String
-  let displayName: String
-  let enabled: Bool
-  let authStatus: String
-  let healthStatus: String
-  let implementationName: String?
-  let implementationVersion: String?
-  let lastError: String?
-}
-
 struct TasksRecurrenceOccurrenceSnapshot: Identifiable, Hashable, Sendable {
   let recurrenceRevision: Int
   let scheduledFor: String

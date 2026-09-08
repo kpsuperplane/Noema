@@ -163,9 +163,9 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
   if (item.kind === "tool" || item.kind === "result") {
     const isCall = item.kind === "tool";
     const persisted = recordValue(item.payload);
-    const acpCallId = persisted?.toolCallId;
+    const persistedCallId = persisted?.toolCallId;
     const correlationId =
-      (typeof acpCallId === "string" && acpCallId.trim() ? acpCallId : null) ??
+      (typeof persistedCallId === "string" && persistedCallId.trim() ? persistedCallId : null) ??
       item.correlationId ??
       persistedCorrelationId(persisted) ??
       item.id;

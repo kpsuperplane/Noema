@@ -50,22 +50,6 @@ type A2UISurface struct {
 
 func (A2UISurface) IsTranscriptItem() {}
 
-// Configured ACP task executor safe to show in Settings.
-type AcpAgent struct {
-	AgentID               string               `json:"agentId"`
-	DisplayName           string               `json:"displayName"`
-	Command               string               `json:"command"`
-	Arguments             []string             `json:"arguments"`
-	Enabled               bool                 `json:"enabled"`
-	AuthStatus            AcpAgentAuthStatus   `json:"authStatus"`
-	HealthStatus          AcpAgentHealthStatus `json:"healthStatus"`
-	ImplementationName    *string              `json:"implementationName,omitempty"`
-	ImplementationVersion *string              `json:"implementationVersion,omitempty"`
-	Capabilities          map[string]any       `json:"capabilities"`
-	ConnectionRevision    int                  `json:"connectionRevision"`
-	LastError             *string              `json:"lastError,omitempty"`
-}
-
 // Human-visible data disclosure for the exact action request.
 type ActionRequestDisclosure struct {
 	Recipient      string `json:"recipient"`
@@ -637,12 +621,6 @@ type AttachAdapterOauthConnectionInput struct {
 	ReplacementConnectionID *string `json:"replacementConnectionId,omitempty"`
 }
 
-type AuthenticateAcpAgentInput struct {
-	AgentID          string `json:"agentId"`
-	ExpectedRevision int    `json:"expectedRevision"`
-	MethodID         string `json:"methodId"`
-}
-
 // Exact current pending definition abandoned by the local human.
 type CancelAdapterDefinitionInput struct {
 	SemanticDigest string `json:"semanticDigest"`
@@ -890,12 +868,6 @@ type ConversationTranscriptPageInput struct {
 	Limit *int `json:"limit,omitempty"`
 }
 
-type CreateAcpAgentInput struct {
-	DisplayName string   `json:"displayName"`
-	Command     string   `json:"command"`
-	Arguments   []string `json:"arguments"`
-}
-
 // Input for creating a conversation-owned external URL artifact.
 type CreateConversationExternalArtifactInput struct {
 	// Owning conversation id.
@@ -1002,11 +974,6 @@ type DefaultModelPreference struct {
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 	// Whether this preference requests faster service.
 	FastMode bool `json:"fastMode"`
-}
-
-type DeleteAcpAgentInput struct {
-	AgentID          string `json:"agentId"`
-	ExpectedRevision int    `json:"expectedRevision"`
 }
 
 // Delete one exact filesystem-canonical adapter connection revision.
@@ -2630,8 +2597,6 @@ type TaskRun struct {
 	ExecutorAgentID string `json:"executorAgentId"`
 	// Effective working directory frozen into this run.
 	EffectiveCwd *string `json:"effectiveCwd,omitempty"`
-	// ACP session identity for diagnostics.
-	AcpSessionID *string `json:"acpSessionId,omitempty"`
 	// Safe actual provider family.
 	ActualProviderKind *string `json:"actualProviderKind,omitempty"`
 	// Safe actual model profile.
@@ -2868,11 +2833,6 @@ type TasksOverview struct {
 	NeedsYouCount int `json:"needsYouCount"`
 }
 
-type TestAcpAgentInput struct {
-	AgentID          string `json:"agentId"`
-	ExpectedRevision int    `json:"expectedRevision"`
-}
-
 // Complete tool behavior snapshot shown to the human reviewer.
 type ToolBehavior struct {
 	ReadOnly    bool `json:"readOnly"`
@@ -2917,15 +2877,6 @@ type UnscheduleTaskInput struct {
 	ExpectedGeneration int `json:"expectedGeneration"`
 	// Caller idempotency key.
 	ClientMutationID string `json:"clientMutationId"`
-}
-
-type UpdateAcpAgentInput struct {
-	AgentID          string   `json:"agentId"`
-	ExpectedRevision int      `json:"expectedRevision"`
-	DisplayName      string   `json:"displayName"`
-	Command          string   `json:"command"`
-	Arguments        []string `json:"arguments"`
-	Enabled          bool     `json:"enabled"`
 }
 
 // Inbox task edit input.
@@ -3124,126 +3075,6 @@ type Workspace struct {
 	Description string `json:"description"`
 	// Whether this is the Personal workspace.
 	IsPersonal bool `json:"isPersonal"`
-}
-
-// Agent-managed ACP authentication state.
-type AcpAgentAuthStatus string
-
-const (
-	AcpAgentAuthStatusUnknown       AcpAgentAuthStatus = "UNKNOWN"
-	AcpAgentAuthStatusNone          AcpAgentAuthStatus = "NONE"
-	AcpAgentAuthStatusRequired      AcpAgentAuthStatus = "REQUIRED"
-	AcpAgentAuthStatusAuthenticated AcpAgentAuthStatus = "AUTHENTICATED"
-	AcpAgentAuthStatusFailed        AcpAgentAuthStatus = "FAILED"
-)
-
-var AllAcpAgentAuthStatus = []AcpAgentAuthStatus{
-	AcpAgentAuthStatusUnknown,
-	AcpAgentAuthStatusNone,
-	AcpAgentAuthStatusRequired,
-	AcpAgentAuthStatusAuthenticated,
-	AcpAgentAuthStatusFailed,
-}
-
-func (e AcpAgentAuthStatus) IsValid() bool {
-	switch e {
-	case AcpAgentAuthStatusUnknown, AcpAgentAuthStatusNone, AcpAgentAuthStatusRequired, AcpAgentAuthStatusAuthenticated, AcpAgentAuthStatusFailed:
-		return true
-	}
-	return false
-}
-
-func (e AcpAgentAuthStatus) String() string {
-	return string(e)
-}
-
-func (e *AcpAgentAuthStatus) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = AcpAgentAuthStatus(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid AcpAgentAuthStatus", str)
-	}
-	return nil
-}
-
-func (e AcpAgentAuthStatus) MarshalGQL(w io.Writer) {
-	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *AcpAgentAuthStatus) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e AcpAgentAuthStatus) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
-}
-
-// Readiness of a configured ACP executable.
-type AcpAgentHealthStatus string
-
-const (
-	AcpAgentHealthStatusUnknown     AcpAgentHealthStatus = "UNKNOWN"
-	AcpAgentHealthStatusHealthy     AcpAgentHealthStatus = "HEALTHY"
-	AcpAgentHealthStatusUnavailable AcpAgentHealthStatus = "UNAVAILABLE"
-)
-
-var AllAcpAgentHealthStatus = []AcpAgentHealthStatus{
-	AcpAgentHealthStatusUnknown,
-	AcpAgentHealthStatusHealthy,
-	AcpAgentHealthStatusUnavailable,
-}
-
-func (e AcpAgentHealthStatus) IsValid() bool {
-	switch e {
-	case AcpAgentHealthStatusUnknown, AcpAgentHealthStatusHealthy, AcpAgentHealthStatusUnavailable:
-		return true
-	}
-	return false
-}
-
-func (e AcpAgentHealthStatus) String() string {
-	return string(e)
-}
-
-func (e *AcpAgentHealthStatus) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = AcpAgentHealthStatus(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid AcpAgentHealthStatus", str)
-	}
-	return nil
-}
-
-func (e AcpAgentHealthStatus) MarshalGQL(w io.Writer) {
-	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *AcpAgentHealthStatus) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e AcpAgentHealthStatus) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
 }
 
 // Agent status exposed through GraphQL.

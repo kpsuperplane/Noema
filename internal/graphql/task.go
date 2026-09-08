@@ -438,7 +438,7 @@ func (r *Resolver) taskWorkspaceManifest(taskID string) ([]*model.TaskWorkspaceF
 
 func taskExecutorBackend(task store.Task) string {
 	if task.ExecutorAcpConnectionRevision != nil {
-		return "acp"
+		return "unsupported"
 	}
 	return "provider"
 }

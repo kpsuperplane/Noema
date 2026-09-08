@@ -45,44 +45,6 @@ type A2UISurface {
 }
 
 """
-Configured ACP task executor safe to show in Settings.
-"""
-type AcpAgent {
-	agentId: String!
-	displayName: String!
-	command: String!
-	arguments: [String!]!
-	enabled: Boolean!
-	authStatus: AcpAgentAuthStatus!
-	healthStatus: AcpAgentHealthStatus!
-	implementationName: String
-	implementationVersion: String
-	capabilities: JSON!
-	connectionRevision: Int!
-	lastError: String
-}
-
-"""
-Agent-managed ACP authentication state.
-"""
-enum AcpAgentAuthStatus {
-	UNKNOWN
-	NONE
-	REQUIRED
-	AUTHENTICATED
-	FAILED
-}
-
-"""
-Readiness of a configured ACP executable.
-"""
-enum AcpAgentHealthStatus {
-	UNKNOWN
-	HEALTHY
-	UNAVAILABLE
-}
-
-"""
 Human-visible data disclosure for the exact action request.
 """
 type ActionRequestDisclosure {
@@ -1004,12 +966,6 @@ input AttachAdapterOauthConnectionInput {
 	replacementConnectionId: String
 }
 
-input AuthenticateAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
-	methodId: String!
-}
-
 """
 Exact current pending definition abandoned by the local human.
 """
@@ -1375,12 +1331,6 @@ input ConversationTranscriptPageInput {
 	limit: Int
 }
 
-input CreateAcpAgentInput {
-	displayName: String!
-	command: String!
-	arguments: [String!]! = []
-}
-
 """
 Input for creating a conversation-owned external URL artifact.
 """
@@ -1577,11 +1527,6 @@ type DefaultModelPreference {
 	Whether this preference requests faster service.
 	"""
 	fastMode: Boolean!
-}
-
-input DeleteAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
 }
 
 """
@@ -2797,26 +2742,6 @@ type MutationRoot {
 	"""
 	saveAgentModelPreference(input: SaveAgentModelPreferenceInput!): AgentModelPreference!
 	"""
-	Register a trusted operator-managed ACP executable.
-	"""
-	createAcpAgent(input: CreateAcpAgentInput!): AcpAgent!
-	"""
-	Replace one ACP launch configuration or disable it.
-	"""
-	updateAcpAgent(input: UpdateAcpAgentInput!): AcpAgent!
-	"""
-	Hard-delete one configured ACP executor.
-	"""
-	deleteAcpAgent(input: DeleteAcpAgentInput!): Boolean!
-	"""
-	Initialize one ACP executable and persist its safe implementation metadata.
-	"""
-	testAcpAgent(input: TestAcpAgentInput!): AcpAgent!
-	"""
-	Run one advertised agent-managed ACP authentication method.
-	"""
-	authenticateAcpAgent(input: AuthenticateAcpAgentInput!): AcpAgent!
-	"""
 	Save the web fetch summarizer model/provider preference.
 	"""
 	saveWebFetchSummarizerPreference(input: SaveWebFetchSummarizerPreferenceInput!): AgentModelPreference!
@@ -3639,10 +3564,6 @@ type QueryRoot {
 	List agent metadata safe to show in Settings.
 	"""
 	agents: [Agent!]!
-	"""
-	List configured ACP task executors.
-	"""
-	acpAgents: [AcpAgent!]!
 	"""
 	Return one owner-authorized task detail.
 	"""
@@ -5378,10 +5299,6 @@ type TaskRun {
 	"""
 	effectiveCwd: String
 	"""
-	ACP session identity for diagnostics.
-	"""
-	acpSessionId: String
-	"""
 	Safe actual provider family.
 	"""
 	actualProviderKind: String
@@ -5913,11 +5830,6 @@ enum TerminalTaskKind {
 	ALL
 }
 
-input TestAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
-}
-
 """
 Complete tool behavior snapshot shown to the human reviewer.
 """
@@ -6013,15 +5925,6 @@ input UnscheduleTaskInput {
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
-}
-
-input UpdateAcpAgentInput {
-	agentId: String!
-	expectedRevision: Int!
-	displayName: String!
-	command: String!
-	arguments: [String!]! = []
-	enabled: Boolean!
 }
 
 """

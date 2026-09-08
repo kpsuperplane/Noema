@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useMutation, useQuery } from "@apollo/client/react";
+import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { TaskTitleField } from "./TaskDocumentFields";
@@ -12,10 +12,10 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useBlocker } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { Bot, CalendarClock, Check, Folder } from "lucide-react";
+import { CalendarClock, Check, Folder } from "lucide-react";
 import { ChatDetailCloseButton } from "@/components/chatDetail/ChatDetailCloseButton";
 import { MarkdownInlineEditor } from "@/components/MarkdownEditor";
-import { AcpAgentsDocument, TasksCaptureTaskDocument, TasksQueueTaskDocument } from "@/generated/graphql";
+import { TasksCaptureTaskDocument, TasksQueueTaskDocument } from "@/generated/graphql";
 import { pwaRuntime } from "@/pwa/runtime";
 import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
 import { createClientId } from "@/shared/clientId";
@@ -43,14 +43,12 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   const [sourceMode, setSourceMode] = React.useState(false);
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
-  const [executorAgentId, setExecutorAgentId] = React.useState(defaultExecutorId);
   const [cwdOverride, setCwdOverride] = React.useState("");
   const [schedule, setSchedule] = React.useState(initialScheduleDraft);
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [capture] = useMutation(TasksCaptureTaskDocument);
   const [queue] = useMutation(TasksQueueTaskDocument);
-  const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-first" });
   const titleRef = React.useRef<HTMLInputElement>(null);
   const readValueRef = React.useRef<(() => string) | null>(null);
   const documentRef = React.useRef<HTMLElement>(null);
@@ -112,8 +110,6 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
 
   const activeProjects = projects.filter((project) => !project.archivedAt);
   const selectedProject = activeProjects.find((project) => project.projectId === projectId);
-  const enabledAcpAgents = (acpAgents.data?.acpAgents ?? []).filter((agent) => agent.enabled);
-  const selectedExecutor = enabledAcpAgents.find((agent) => agent.agentId === executorAgentId);
   const validSchedule = scheduling ? scheduleInput(schedule) : null;
   const baseDisabled = submitting || !pwa.canMutate || !title.trim();
   const mainDisabled = baseDisabled || (scheduling && !validSchedule);
@@ -131,7 +127,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
             title: title.trim(),
             taskDocument: readValueRef.current?.() ?? taskDocument,
             schedule: intent === "schedule" ? validSchedule : null,
-            executorAgentId,
+            executorAgentId: defaultExecutorId,
             cwdOverride: cwdOverride.trim() || null,
             clientMutationId: createClientId()
           }
@@ -231,10 +227,6 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
             <VStack gap={3} width="100%">
               <Collapsible trigger="Advanced" defaultIsOpen={false}>
                 <VStack gap={3}>
-                  <DropdownMenu button={{ label: selectedExecutor?.displayName ?? "Task agent", icon: <Bot aria-hidden="true" size={16} />, size: "sm", variant: "ghost", isDisabled: submitting }} placement="above" items={[
-                    { label: "Task agent", onClick: () => setExecutorAgentId(defaultExecutorId) },
-                    ...enabledAcpAgents.map((agent) => ({ label: agent.displayName, onClick: () => setExecutorAgentId(agent.agentId) }))
-                  ]} />
                   <TextInput label="Working folder (optional)" description={effectiveCwdSummary(cwdOverride, selectedProject?.folder)} value={cwdOverride} placeholder="/absolute/path" size="sm" onChange={setCwdOverride} />
                   <CheckboxInput label="Markdown source" value={sourceMode} onChange={(next) => { setTaskDocument(readValueRef.current?.() ?? taskDocument); setSourceMode(next); }} />
                 </VStack>

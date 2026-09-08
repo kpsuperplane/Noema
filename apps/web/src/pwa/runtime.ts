@@ -7,7 +7,6 @@ import {
 import type { DocumentNode } from "graphql";
 import {
   AdapterManagementRootDocument,
-  AcpAgentsDocument,
   AgentsSettingsRootDocument,
   CapabilityConnectionDocument,
   ChatBootDocument,
@@ -52,7 +51,6 @@ export type PwaRuntimeSnapshot = {
 
 const mutableDocuments: ReadonlyMap<string, DocumentNode> = new Map<string, DocumentNode>([
   ["AdapterManagementRoot", AdapterManagementRootDocument],
-  ["AcpAgents", AcpAgentsDocument],
   ["AgentsSettingsRoot", AgentsSettingsRootDocument],
   ["CapabilityConnection", CapabilityConnectionDocument],
   ["ChatBoot", ChatBootDocument],

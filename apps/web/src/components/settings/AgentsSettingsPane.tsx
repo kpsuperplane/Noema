@@ -1,22 +1,11 @@
-import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { MoreMenu } from "@astryxdesign/core/MoreMenu";
-import { Switch } from "@astryxdesign/core/Switch";
-import { TextArea } from "@astryxdesign/core/TextArea";
-import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import {
   AgentsSettingsRootDocument,
-  AuthenticateAcpAgentDocument,
-  CreateAcpAgentDocument,
-  DeleteAcpAgentDocument,
   SaveAgentModelPreferenceDocument,
-  TestAcpAgentDocument,
-  UpdateAcpAgentDocument,
   UpdateTaskModelPoolEntryDocument,
   type AgentsSettingsRootQuery,
   type SaveAgentModelPreferenceMutation,
@@ -33,17 +22,13 @@ import type {
   ModelProviderOption
 } from "./modelPreferenceTypes";
 import { agentDisplayName, selectedModelWarning } from "./agentMetadata";
-import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
-import { SettingsEditDialog } from "./SettingsEditDialog";
 import {
   SettingsList,
   SettingsListItem,
   SettingsLocalFeedback,
   SettingsSection,
-  SettingsSectionBody,
   SettingsSectionInset
 } from "./SettingsPrimitives";
-import { settingsStatusLabel } from "./settingsStatus";
 
 export type AgentSettingsAgent = {
   agentId: string;
@@ -58,7 +43,6 @@ type SaveAgentModelPreferenceInput = ModelPreferenceSaveInput & {
 };
 
 const TASK_EXECUTOR_AGENT_ID = "agent:task-executor";
-type AcpAgent = AgentsSettingsRootQuery["acpAgents"][number];
 
 export function AgentsSettingsPane() {
   const rootResult = useQuery<AgentsSettingsRootQuery>(AgentsSettingsRootDocument, { fetchPolicy: "cache-and-network" });
@@ -79,35 +63,6 @@ export function AgentsSettingsPane() {
     }
   });
   const [updatePool, updatePoolResult] = useMutation<UpdateTaskModelPoolEntryMutation, UpdateTaskModelPoolEntryMutationVariables>(UpdateTaskModelPoolEntryDocument);
-  const [createAcpAgent, createAcpState] = useMutation(CreateAcpAgentDocument, {
-    update(cache, response) {
-      const created = response.data?.createAcpAgent;
-      if (!created) return;
-      cache.updateQuery<AgentsSettingsRootQuery>(
-        { query: AgentsSettingsRootDocument },
-        (current) => current ? {
-          ...current,
-          acpAgents: [...current.acpAgents.filter((agent) => agent.agentId !== created.agentId), created]
-        } : current
-      );
-    }
-  });
-  const [updateAcpAgent, updateAcpState] = useMutation(UpdateAcpAgentDocument);
-  const [testAcpAgent, testAcpState] = useMutation(TestAcpAgentDocument);
-  const [authenticateAcpAgent, authenticateAcpState] = useMutation(AuthenticateAcpAgentDocument);
-  const [deleteAcpAgent, deleteAcpState] = useMutation(DeleteAcpAgentDocument, {
-    update(cache, _response, options) {
-      const agentId = options.variables?.input.agentId;
-      if (!agentId) return;
-      cache.updateQuery<AgentsSettingsRootQuery>(
-        { query: AgentsSettingsRootDocument },
-        (current) => current ? {
-          ...current,
-          acpAgents: current.acpAgents.filter((agent) => agent.agentId !== agentId)
-        } : current
-      );
-    }
-  });
   const agents = rootResult.data?.agents ?? [];
   const loading = rootResult.loading && !rootResult.data;
   const error = rootResult.error?.message ?? null;
@@ -122,28 +77,6 @@ export function AgentsSettingsPane() {
   const taskModelPoolSaving = updatePoolResult.loading;
   const taskModelPoolSaveError = updatePoolResult.error?.message ?? null;
   const onUpdateTaskModelPool = (poolEntryId: string, input: TaskModelPoolEntryInput) => updatePool({ variables: { poolEntryId, input } });
-  const acpAgents = rootResult.data?.acpAgents ?? [];
-  const acpLoading = rootResult.loading && !rootResult.data;
-  const acpError = rootResult.error?.message ?? createAcpState.error?.message ?? updateAcpState.error?.message ?? testAcpState.error?.message ?? authenticateAcpState.error?.message ?? null;
-  const acpBusy = createAcpState.loading || updateAcpState.loading || testAcpState.loading || authenticateAcpState.loading || deleteAcpState.loading;
-  const onCreateAcpAgent = (input: { displayName: string; command: string; arguments: string[] }) => createAcpAgent({ variables: { input } });
-  const onUpdateAcpAgent = (input: { agentId: string; expectedRevision: number; displayName: string; command: string; arguments: string[]; enabled: boolean }) => updateAcpAgent({ variables: { input } });
-  const onTestAcpAgent = (input: { agentId: string; expectedRevision: number }) => testAcpAgent({ variables: { input } });
-  const onAuthenticateAcpAgent = (input: { agentId: string; expectedRevision: number; methodId: string }) => authenticateAcpAgent({ variables: { input } });
-  const [editingAcpAgent, setEditingAcpAgent] = React.useState<AcpAgent | "new" | null>(null);
-  const [deletingAcpAgent, setDeletingAcpAgent] = React.useState<AcpAgent | null>(null);
-  const onDeleteAcpAgent = async () => {
-    if (!deletingAcpAgent) return;
-    try {
-      await deleteAcpAgent({ variables: { input: {
-        agentId: deletingAcpAgent.agentId,
-        expectedRevision: deletingAcpAgent.connectionRevision
-      } } });
-      setDeletingAcpAgent(null);
-    } catch {
-      // Keep the dialog open so the local error can be retried.
-    }
-  };
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
   }
@@ -180,124 +113,7 @@ export function AgentsSettingsPane() {
           saving={taskModelPoolSaving}
         />
       )}
-      <SettingsSection
-        title="ACP task executors"
-        titleId="acp-agents-title"
-        action={<Button type="button" size="sm" variant="secondary" label="Add ACP agent" onClick={() => setEditingAcpAgent("new")} />}
-      >
-          <SettingsSectionInset>
-            <p {...stylex.props(styles.mutedText)}>Trusted local commands Noema can launch for Executor runs.</p>
-          </SettingsSectionInset>
-          {acpError ? <SettingsLocalFeedback><p role="alert" {...stylex.props(styles.saveError)}>{acpError}</p></SettingsLocalFeedback> : null}
-          {acpLoading ? <SettingsSectionInset divided><p {...stylex.props(styles.mutedText)}>Loading ACP agents...</p></SettingsSectionInset> : acpAgents.length === 0 ? (
-            <SettingsSectionInset divided><p {...stylex.props(styles.mutedText)}>No ACP executors are configured.</p></SettingsSectionInset>
-          ) : (
-            <SettingsSectionBody divided><SettingsList density="balanced" hasDividers>
-              {acpAgents.map((agent) => (
-                <SettingsListItem
-                  key={agent.agentId}
-                  mobileEndContentFullWidth
-                  label={<HStack gap={2} vAlign="center" wrap="wrap"><span {...stylex.props(styles.rowLabel)}>{agent.displayName}</span>{!agent.enabled ? <Badge variant="neutral" label="Off" /> : null}</HStack>}
-                  description={acpAgentDescription(agent)}
-                  endContent={
-                    <MoreMenu
-                      label={`Actions for ${agent.displayName}`}
-                      size="sm"
-                      isDisabled={acpBusy}
-                      items={[
-                        ...(agent.authStatus === "REQUIRED" ? acpAuthMethods(agent) : []).map((method) => ({
-                          label: `Authenticate with ${method.name || method.id}`,
-                          onClick: () => void onAuthenticateAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision, methodId: method.id })
-                        })),
-                        { label: "Test", onClick: () => void onTestAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision }) },
-                        { label: "Edit", onClick: () => setEditingAcpAgent(agent) },
-                        { type: "divider" },
-                        { label: "Delete", onClick: () => {
-                          deleteAcpState.reset();
-                          setDeletingAcpAgent(agent);
-                        } }
-                      ]}
-                    />
-                  }
-                />
-              ))}
-            </SettingsList></SettingsSectionBody>
-          )}
-      </SettingsSection>
-      <AcpAgentDialog
-        key={editingAcpAgent === "new" ? "new" : editingAcpAgent?.agentId ?? "closed"}
-        agent={editingAcpAgent}
-        busy={acpBusy}
-        error={acpError}
-        onClose={() => setEditingAcpAgent(null)}
-        onCreate={onCreateAcpAgent}
-        onUpdate={onUpdateAcpAgent}
-      />
-      <DeleteConfirmationDialog
-        title={deletingAcpAgent ? `Delete ${deletingAcpAgent.displayName}?` : "Delete ACP executor?"}
-        message="This removes its Noema launch setup and authentication history. Reassign or cancel current tasks, and end recurring schedules, first. Reopened tasks use the built-in executor. Credentials stored by the external executable remain. You cannot undo this."
-        open={deletingAcpAgent !== null}
-        submitting={deleteAcpState.loading}
-        error={deleteAcpState.error?.message ?? null}
-        confirmLabel="Delete executor"
-        onOpenChange={(open) => {
-          if (!open && !deleteAcpState.loading) setDeletingAcpAgent(null);
-        }}
-        onConfirm={() => void onDeleteAcpAgent()}
-      />
     </VStack>
-  );
-}
-
-function AcpAgentDialog({ agent, busy, error, onClose, onCreate, onUpdate }: { agent: AcpAgent | "new" | null; busy: boolean; error: string | null; onClose: () => void; onCreate: (input: { displayName: string; command: string; arguments: string[] }) => Promise<unknown>; onUpdate: (input: { agentId: string; expectedRevision: number; displayName: string; command: string; arguments: string[]; enabled: boolean }) => Promise<unknown> }) {
-  const existing = agent && agent !== "new" ? agent : null;
-  const [displayName, setDisplayName] = React.useState(existing?.displayName ?? "");
-  const [command, setCommand] = React.useState(existing?.command ?? "");
-  const [argumentsText, setArgumentsText] = React.useState(existing?.arguments.join("\n") ?? "");
-  const [enabled, setEnabled] = React.useState(existing?.enabled ?? true);
-  if (!agent) return null;
-  const save = async () => {
-    const input = { displayName: displayName.trim(), command: command.trim(), arguments: argumentsText.split("\n").map((value) => value.trim()).filter(Boolean) };
-    await (existing ? onUpdate({ agentId: existing.agentId, expectedRevision: existing.connectionRevision, enabled, ...input }) : onCreate(input));
-    onClose();
-  };
-  return (
-    <SettingsEditDialog
-      title={existing ? "Edit ACP agent" : "Add ACP agent"}
-      open
-      saving={busy}
-      saveLabel={existing ? "Save" : "Add agent"}
-      saveDisabled={!displayName.trim() || !command.trim()}
-      error={error}
-      width={540}
-      onOpenChange={(open) => !open && onClose()}
-      onSave={save}
-    >
-        <VStack gap={3}>
-          <p {...stylex.props(styles.mutedText)}>Noema launches this executable directly with the exact argument array. It does not use a shell.</p>
-          <TextInput hasAutoFocus isRequired label="Name" value={displayName} onChange={setDisplayName} />
-          <TextInput isRequired label="Executable" value={command} placeholder="/absolute/path/to/agent" onChange={setCommand} />
-          <TextArea label="Arguments" description="One argument per line" rows={4} value={argumentsText} onChange={setArgumentsText} />
-          {existing ? <Switch label="Enabled for new tasks" value={enabled} onChange={setEnabled} /> : null}
-        </VStack>
-    </SettingsEditDialog>
-  );
-}
-
-function acpAgentDescription(agent: AcpAgent): React.ReactNode {
-  if (agent.lastError) return agent.lastError;
-  if (!agent.enabled || agent.authStatus === "REQUIRED") return undefined;
-  if (!["AUTHENTICATED", "NONE"].includes(agent.authStatus)) {
-    return settingsStatusLabel(agent.authStatus);
-  }
-  if (agent.healthStatus !== "HEALTHY") return settingsStatusLabel(agent.healthStatus);
-  return undefined;
-}
-
-function acpAuthMethods(agent: AcpAgent): Array<{ id: string; name: string | null }> {
-  const capabilities = agent.capabilities as { authMethods?: Array<{ id?: string; name?: string }> };
-  return (capabilities.authMethods ?? []).flatMap((method) =>
-    typeof method.id === "string" ? [{ id: method.id, name: typeof method.name === "string" ? method.name : null }] : []
   );
 }
 
