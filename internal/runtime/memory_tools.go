@@ -79,13 +79,15 @@ func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error)
 	if c.mcp == nil {
 		return result, nil
 	}
-	result = append(result, provider.GenerationTool{Name: noemamcp.ConnectServiceToolName,
-		Description: "Connect an MCP service only from its official public server card.", InputSchema: connectMCPServiceSchema})
-	bindings, err := c.mcp.Bindings(ctx)
+	bindings, err := c.modelMCPBindings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return append(result, noemamcp.GenerationTools(bindings)...), nil
+	for _, binding := range bindings {
+		result = append(result, provider.GenerationTool{Name: binding.ModelName, Description: binding.Binding.Description,
+			InputSchema: append(json.RawMessage(nil), binding.Binding.InputSchema...)})
+	}
+	return result, nil
 }
 
 func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
@@ -98,9 +100,6 @@ func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
 	if supportsLocalChatTool(name) {
 		return true
 	}
-	if name == noemamcp.ConnectServiceToolName {
-		return c.mcp != nil
-	}
 	if c.adapters != nil {
 		if name == adapter.DefinitionTemplateTool || name == adapter.ProposeDefinitionTool {
 			return true
@@ -112,8 +111,98 @@ func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
 	if c.mcp == nil {
 		return false
 	}
-	_, err := c.mcp.Binding(ctx, name)
+	_, err := c.modelMCPBinding(ctx, name)
 	return err == nil
+}
+
+type modelMCPBinding struct {
+	ModelName string
+	Binding   noemamcp.Binding
+}
+
+// modelMCPBindings maps durable MCP authorities to the short, stable names
+// exposed to the model. The service keeps its canonical binding names for
+// action records, review, and stale-authority checks.
+func (c *Chat) modelMCPBindings(ctx context.Context) ([]modelMCPBinding, error) {
+	if c.mcp == nil {
+		return nil, nil
+	}
+	bindings, err := c.mcp.Bindings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	discovered := false
+	for _, binding := range bindings {
+		if binding.Name != noemamcp.ConnectServiceToolName {
+			discovered = true
+			break
+		}
+	}
+	result := make([]modelMCPBinding, 0, len(bindings))
+	used := make(map[string]int)
+	for _, binding := range bindings {
+		if binding.Name == noemamcp.ConnectServiceToolName {
+			if discovered {
+				continue
+			}
+			result = append(result, modelMCPBinding{ModelName: binding.Name, Binding: binding})
+			continue
+		}
+		server, serverErr := c.database.MCPServer(ctx, binding.ServerID)
+		if serverErr != nil {
+			return nil, serverErr
+		}
+		name := modelMCPBindingName(binding, server.DisplayName)
+		used[name]++
+		if used[name] > 1 {
+			name += "-" + itoa(used[name])
+		}
+		result = append(result, modelMCPBinding{ModelName: name, Binding: binding})
+	}
+	return result, nil
+}
+
+func (c *Chat) modelMCPBinding(ctx context.Context, name string) (noemamcp.Binding, error) {
+	bindings, err := c.modelMCPBindings(ctx)
+	if err != nil {
+		return noemamcp.Binding{}, err
+	}
+	for _, binding := range bindings {
+		if binding.ModelName == name {
+			return binding.Binding, nil
+		}
+	}
+	return noemamcp.Binding{}, noemamcp.ErrUnknownOperation
+}
+
+func modelMCPToolName(displayName, operation string) string {
+	slug := strings.ToLower(strings.TrimSpace(displayName))
+	var builder strings.Builder
+	separator := false
+	for _, runeValue := range slug {
+		if runeValue >= 'a' && runeValue <= 'z' || runeValue >= '0' && runeValue <= '9' {
+			builder.WriteRune(runeValue)
+			separator = false
+			continue
+		}
+		if builder.Len() != 0 && !separator {
+			builder.WriteByte('-')
+			separator = true
+		}
+	}
+	slug = strings.TrimSuffix(builder.String(), "-")
+	if slug == "" {
+		slug = "service"
+	}
+	return "mcp.mcp:" + slug + "." + operation
+}
+
+func modelMCPBindingName(binding noemamcp.Binding, displayName string) string {
+	name := modelMCPToolName(displayName, binding.OperationToken)
+	if strings.HasPrefix(binding.Name, "enable.") {
+		return "enable." + name
+	}
+	return name
 }
 
 func (c *Chat) executeChatTool(

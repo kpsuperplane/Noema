@@ -17,7 +17,7 @@ import (
 func (c *Chat) prepareMCPAction(
 	conversation store.Conversation, turn store.ConversationTurn, callItem store.ConversationItem,
 	assignment store.ModelAssignment, providerRound int, responseID string, hostedState bool,
-	binding noemamcp.Binding, arguments json.RawMessage,
+	modelName string, binding noemamcp.Binding, arguments json.RawMessage,
 ) (json.RawMessage, bool, *store.ConversationItem, error) {
 	if binding.ReviewRoute == "" {
 		payload, success, err := c.mcp.Call(c.ctx, binding, arguments)
@@ -90,8 +90,14 @@ func (c *Chat) executeReviewedMCP(action store.ActionRequest) (json.RawMessage, 
 		return nil, false, nil, errors.New("MCP service is unavailable")
 	}
 	var binding noemamcp.Binding
-	if json.Unmarshal(mustJSON(action.AuthorizationContext["mcp_binding"]), &binding) != nil ||
-		action.OperationToken != binding.Name || action.CapabilityName != binding.Name ||
+	decodeErr := json.Unmarshal(mustJSON(action.AuthorizationContext["mcp_binding"]), &binding)
+	validCapabilityName := decodeErr == nil && action.CapabilityName == binding.Name
+	if !validCapabilityName && decodeErr == nil && binding.ServerID != "" {
+		if server, serverErr := c.database.MCPServer(c.ctx, binding.ServerID); serverErr == nil {
+			validCapabilityName = action.CapabilityName == modelMCPBindingName(binding, server.DisplayName)
+		}
+	}
+	if decodeErr != nil || action.OperationToken != binding.Name || !validCapabilityName ||
 		action.Behavior != binding.Behavior || string(mustJSON(action.InputSchema)) != string(binding.InputSchema) {
 		action, err := c.database.SupersedeActionRequest(c.ctx, action.ID, action.Revision, "action_authority_changed", time.Now())
 		if err != nil {
@@ -118,7 +124,7 @@ func (c *Chat) executeReviewedMCP(action store.ActionRequest) (json.RawMessage, 
 			"hosted_state": claimed.AuthorizationContext["hosted_state"] == true})
 		_, notice, saveErr := c.database.CreateMCPAuthRequest(c.ctx, store.MCPAuthRequest{
 			OwnerHumanID: "human:local", ConversationID: claimed.ConversationID, TurnID: claimed.TurnID,
-			CallItemID: claimed.CallItemID, ServerID: binding.ServerID, CapabilityName: binding.Name,
+			CallItemID: claimed.CallItemID, ServerID: binding.ServerID, CapabilityName: claimed.CapabilityName,
 			ActionID: claimed.ID, BindingJSON: string(token), ArgumentsJSON: string(mustJSON(claimed.Arguments)),
 			ProviderRound: int(numberField(claimed.AuthorizationContext, "provider_round")),
 		}, time.Now())

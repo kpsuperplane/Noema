@@ -643,7 +643,7 @@ func (c *Chat) executeChatToolRounds(
 			}
 		}
 		if strings.HasPrefix(call.Name, "mcp.") && c.mcp != nil {
-			if binding, err := c.mcp.Binding(c.ctx, call.Name); err == nil {
+			if binding, err := c.modelMCPBinding(c.ctx, call.Name); err == nil {
 				sideEffect = !binding.Behavior.ReadOnly
 			}
 		}
@@ -829,7 +829,7 @@ func (c *Chat) persistChatToolRound(
 			if c.mcp == nil {
 				return nil, false, false, errors.New("MCP tool is unavailable")
 			}
-			binding, err := c.mcp.Binding(c.ctx, call.Name)
+			binding, err := c.modelMCPBinding(c.ctx, call.Name)
 			if err != nil || noemamcp.ValidateArguments(binding.InputSchema, call.Payload) != nil {
 				return nil, false, false, errors.New("MCP tool arguments or authority are invalid")
 			}
@@ -954,7 +954,7 @@ func (c *Chat) persistChatToolRound(
 	if mcpBinding != nil {
 		payload, success, approval, err := c.prepareMCPAction(
 			request.conversation, turn, callItem, assignment, providerRound, generation.ID, hostedState,
-			*mcpBinding, call.Payload,
+			call.Name, *mcpBinding, call.Payload,
 		)
 		if err != nil {
 			return nil, false, false, err
