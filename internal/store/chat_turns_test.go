@@ -459,6 +459,14 @@ func TestConversationContinuationAcceptsInitialToolRound(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].Kind != ConversationToolCall {
 		t.Fatalf("continuation tool round = %#v, %v", items, err)
 	}
+	authority, err := database.ConversationAuthorizationContext(ctx, conversation.ID, continuation.ID)
+	if err != nil {
+		t.Fatalf("continuation authorization context: %v", err)
+	}
+	messages, ok := authority["messages"].([]map[string]any)
+	if !ok || len(messages) == 0 || messages[len(messages)-1]["text"] != "Open the page" {
+		t.Fatalf("continuation authorization messages = %#v", authority["messages"])
+	}
 }
 
 func TestConversationMultipleChoiceSelectionIsAtomicAndOrdered(t *testing.T) {

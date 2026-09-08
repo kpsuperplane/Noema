@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	fixtureVersion = "2026-09-08-gmail-v1-notion-mcp-v7"
+	fixtureVersion = "2026-09-08-gmail-v1-notion-mcp-v8"
 	accountAToken  = "fixture-account-a"
 	accountBToken  = "fixture-account-b"
 )
@@ -505,6 +505,19 @@ func gmailMatches(message gmailMessage, query string) bool {
 	}
 	for _, term := range terms {
 		term = strings.Trim(term, `"`)
+		if term == "in:inbox" {
+			inbox := false
+			for _, label := range message.LabelIDs {
+				if label == "INBOX" {
+					inbox = true
+					break
+				}
+			}
+			if !inbox {
+				return false
+			}
+			continue
+		}
 		if strings.HasPrefix(term, "after:") || strings.HasPrefix(term, "before:") {
 			parts := strings.SplitN(term, ":", 2)
 			if len(parts) != 2 {

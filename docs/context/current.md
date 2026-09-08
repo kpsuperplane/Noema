@@ -14,7 +14,7 @@ The earlier 100-case replay completion report is invalid: successful process exi
 No new acceptance pass is established by that report.
 
 The Go provider fixture now exposes Gmail, Notion MCP, and Calendar contracts under
-`noema-provider-fixtures-v3.service` at fixture revision `2026-09-07-gmail-v1-notion-mcp-v6`. It uses synthetic OAuth and two accounts.
+`noema-provider-fixtures-v3.service` at fixture revision `2026-09-08-gmail-v1-notion-mcp-v8`. It uses synthetic OAuth and two accounts.
 Gmail and Notion proposal setup, OAuth callbacks, account boundaries, and live
 read paths work. Calendar proposal acceptance, nested-body writes, and reads
 also work. Full setup recovery and delegated reuse remain open.
@@ -23,6 +23,12 @@ PA-002 passes through three Task generations: initial extraction, date replaceme
 and receipt-backed closure. The same Task continued after the live Go process
 restarted. Evidence: `docs/validation/evidence/personal-assistant-live/PA-002/`.
 PA-003 passes after a corrected Calendar proposal and normal rerun. Noema created one action Task and one approved event, excluded the proposed date, and created no duplicates on repeated intake. Evidence: `docs/validation/evidence/personal-assistant-live/PA-003/`.
+PA-004 passes after a continuation-authorization repair and rerun. Noema ranked
+the reply queue, preserved an inbound deadline correction, sent four approved
+synthetic replies on existing threads, and kept the unchanged check quiet.
+Evidence: `docs/validation/evidence/personal-assistant-live/PA-004/`.
+`ConversationAuthorizationContext` now follows continuation trigger items to
+the original human turn, with a focused store regression test.
 The memory updater now omits nested browser screenshots and internal Task-list results. A live update completed at sequence 1881 and saved the 16:00 weekday
 work-stop preference. Focused and broad Go checks pass at `c1f9ecbe`.
 The active ledger is [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).

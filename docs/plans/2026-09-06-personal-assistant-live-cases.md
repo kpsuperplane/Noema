@@ -3,7 +3,8 @@
 Date: 2026-09-06
 Status: In progress. The direct local CLI is implemented and validated. Gmail,
 Notion, and Calendar setup work is live. PA-001 through PA-003 are accepted.
-PA-004 through PA-100 remain not run.
+PA-004 passes after a continuation-authorization repair and rerun. PA-005
+through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -199,14 +200,16 @@ Mock device operations in PA-097 prove only the selected mock interface; physica
 
 ## The 100 assistant cases
 
-All rows start **Not run**. Requests below are natural starting messages; follow-ups supply fixture decisions without revealing the answer key.
+Rows without a recorded verdict start **Not run**. Requests below are natural
+starting messages; follow-ups supply fixture decisions without revealing the
+answer key.
 
 | ID | Outcome | Setup and later change | Starting request | Case-specific acceptance |
 | --- | --- | --- | --- | --- |
 | PA-001 | Pass | Gmail: urgent request and duplicate reminder. Calendar: two meetings. Notion: deadline. Memory: 16:00 stop time. | Give me today's brief. | Reconcile four sources; count the deadline once; identify preparation, urgency, and work beyond capacity. [Evidence](../validation/evidence/personal-assistant-live/PA-001/) |
 | PA-002 | Pass | Three promises with owners and dates; one repeated email. Later extend one date and supply one completion receipt. | Keep track of what I owe people and what they owe me. | Save three promises with sources; preserve the date replacement; close only the receipted promise; unchanged check creates no duplicate. [Evidence](../validation/evidence/personal-assistant-live/PA-002/) |
 | PA-003 | Pass | Email and Notion repeat one agreed action; another paragraph only proposes a date. | Pick out what I need to do from these updates. | Create one native Task and one agreed calendar item; exclude speculation; repeated intake creates neither again. [Evidence](../validation/evidence/personal-assistant-live/PA-003/) |
-| PA-004 | Reply queue | Five threads: urgent client ask, overdue promise, friend, newsletter, resolved request. Later add an inbound correction. | Help me get through my replies. | Order by urgency and relationship; draft correct replies; preserve the correction; close only after mock send receipts; unchanged check stays quiet. |
+| PA-004 | Pass after repair and rerun — [evidence](../validation/evidence/personal-assistant-live/PA-004/) | Five threads: urgent client ask, overdue promise, friend, newsletter, resolved request. Later add an inbound correction. | Help me get through my replies. | Order by urgency and relationship; draft correct replies; preserve the correction; close only after mock send receipts; unchanged check stays quiet. |
 | PA-005 | Calendar audit | Recurring event, all-day leave, two overlapping meetings, and 40-minute travel between 20-minute gaps. | Check next week's calendar for trouble. | Read bounded instances; preserve timezones and recurrence IDs; flag overlaps, leave, travel, and preparation without treating all-day dates as UTC instants. |
 | PA-006 | Daily plan | Four hours of fixed meetings; six hours of work; lunch and 16:00 stop preference. | Help me make a realistic plan for tomorrow. | Read full Tasks and connected calendar; protect breaks; explicitly defer excess work; do not invent free time. |
 | PA-007 | Disruption replan | Accepted daily plan; meeting moves 60 minutes; dependent pickup; one immovable appointment. | My first meeting is running late. Rework the day. | Update dependent items and draft affected notices; preserve fixed appointments; unchanged follow-up creates no repeated update. |

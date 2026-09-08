@@ -174,6 +174,23 @@ func TestGmailListSupportsDateBounds(t *testing.T) {
 	}
 }
 
+func TestGmailListSupportsInboxFilter(t *testing.T) {
+	f := &fixture{}
+	request := httptest.NewRequest("GET", "/gmail/v1/users/me/messages?q=in:inbox&maxResults=100", nil)
+	request.Header.Set("Authorization", "Bearer "+accountAToken)
+	recorder := httptest.NewRecorder()
+	f.gmailList(recorder, request, gmailAccounts()["account-a"])
+	var result struct {
+		Messages []struct{ ID string } `json:"messages"`
+	}
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &result) != nil {
+		t.Fatalf("inbox list: status %d, body %s", recorder.Code, recorder.Body)
+	}
+	if len(result.Messages) != 3 || result.Messages[0].ID != "a-msg-001" || result.Messages[2].ID != "a-msg-003" {
+		t.Fatalf("inbox messages = %#v", result.Messages)
+	}
+}
+
 func TestAttachmentMessagePreservesTextAndAttachmentParts(t *testing.T) {
 	message := gmailAccounts()["account-a"].Messages[6]
 	payload := message.Payload

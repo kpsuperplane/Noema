@@ -655,21 +655,38 @@ ORDER BY a.created_at_ms DESC, a.action_id DESC LIMIT ?`, humanID, conversationI
 
 // ConversationAuthorizationContext returns the bounded human authority for a turn.
 func (s *Store) ConversationAuthorizationContext(ctx context.Context, conversationID, turnID string) (map[string]any, error) {
+	anchorTurnID := turnID
 	var anchorSequence int64
 	var anchorKind, anchorAuthor string
-	err := s.db.QueryRowContext(ctx, `
+	for hops := 0; hops < 16; hops++ {
+		err := s.db.QueryRowContext(ctx, `
 SELECT sequence_index, kind, author_actor_id
 FROM conversation_items
 WHERE conversation_id = ? AND turn_id = ? AND deleted_at_ms IS NULL
   AND status = 'completed'
   AND kind IN ('user_text', 'multiple_choice_selection')
-ORDER BY sequence_index DESC LIMIT 1`, conversationID, turnID).
-		Scan(&anchorSequence, &anchorKind, &anchorAuthor)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, errors.New("action authorization source is unavailable")
+ORDER BY sequence_index DESC LIMIT 1`, conversationID, anchorTurnID).
+			Scan(&anchorSequence, &anchorKind, &anchorAuthor)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		var triggerItemID string
+		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(trigger_item_id, '')
+FROM conversation_turns WHERE conversation_id = ? AND turn_id = ?`, conversationID, anchorTurnID).Scan(&triggerItemID); err != nil || triggerItemID == "" {
+			return nil, errors.New("action authorization source is unavailable")
+		}
+		var parentTurnID string
+		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(turn_id, '')
+FROM conversation_items WHERE conversation_id = ? AND item_id = ? AND deleted_at_ms IS NULL`, conversationID, triggerItemID).Scan(&parentTurnID); err != nil || parentTurnID == "" || parentTurnID == anchorTurnID {
+			return nil, errors.New("action authorization source is unavailable")
+		}
+		anchorTurnID = parentTurnID
 	}
-	if err != nil {
-		return nil, err
+	if anchorSequence == 0 {
+		return nil, errors.New("action authorization source is unavailable")
 	}
 	if anchorAuthor != "human:local" || (anchorKind != "user_text" && anchorKind != "multiple_choice_selection") {
 		return nil, errors.New("action authorization source is unavailable")
