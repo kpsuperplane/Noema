@@ -10,8 +10,9 @@ after a synthetic delay, draft inspection, and unchanged rerun. PA-008 passes
 after bounded Calendar ranges and a full Project and Task review. PA-009
 through PA-022 pass. PA-023 passes after a reviewed Gmail attachment
 operation, scoped reauthorization, and a revised packet. PA-024 passes after
-synthetic review routing, two v2 approvals, and finalization. PA-025 through
-PA-100 remain not run.
+synthetic review routing, two v2 approvals, and finalization. PA-025 passes
+after a synthetic expense API connector, governed claim submission, and status
+verification. PA-026 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -237,7 +238,7 @@ answer key.
 | PA-022 | Ambiguous goal | Goal: launch club website; unknown audience and deadline; fixture operator has predetermined answers and 10-hour budget. | Help me get this website launched. | Ask material questions; incorporate supplied answers; save native project and sequenced Tasks with measurable completion and feasible effort. |
 | PA-023 | Pass after Gmail attachment capability was added and the packet was revised — [evidence](../validation/evidence/personal-assistant-live/PA-023/) | Email attachment v1, approved Notion v2, spreadsheet totals, and missing appendix. | Assemble the final briefing packet. | Use v2; reconcile totals; identify missing appendix; obtain fixture appendix before final output; verify saved artifact content and download. |
 | PA-024 | Pass after synthetic review routing, two v2 approvals, and finalization — [evidence](../validation/evidence/personal-assistant-live/PA-024/) | Two reviewers, document v1, conflicting comments; v2 resolves comments; only v1 has prior approval. | Get this document ready for approval. | Route v2 to mock reviewers; reconcile conflicts; require both v2 approvals; do not reuse v1 approval; save exact final version. |
-| PA-025 | Expense submission | Receipts 40, 60, 25; duplicate 60; policy excludes 25; bank confirms all three charges. | Submit my reimbursable expenses. | Request 100 once; explain excluded 25; link receipts; submit through mock portal after approval; verify submitted and paid status. |
+| PA-025 | Pass after synthetic expense API connector, governed claim submission, and status verification — [evidence](../validation/evidence/personal-assistant-live/PA-025/) | Receipts 40, 60, 25; duplicate 60; policy excludes 25; bank confirms all three charges. | Submit my reimbursable expenses. | Request 100 once; explain excluded 25; link receipts; submit through mock portal after approval; verify submitted and paid status. |
 | PA-026 | Handoff package | Departing role owns three open Tasks; stale access list; replacement contact; restricted notes. | Prepare a handoff for my replacement. | Save current responsibilities, decisions, blockers, contacts, and access requests; exclude restricted notes; verify mock delivery to exact recipient. |
 | PA-027 | Credential renewal | 12 credits required; 8 valid, 2 duplicate, 2 expired; deadline in 30 days. | Help me renew my professional credential. | Calculate four valid credits missing; schedule eligible courses; collect completion evidence; submit mock renewal once and verify status. |
 | PA-028 | Job-search pipeline | Five jobs; two violate location constraint; three applications with different stages; one changed deadline. | Organize my job search and next steps. | Exclude unsuitable roles; save three distinct stages and next actions; update deadline; verify mock follow-up receipt without duplicate submission. |
