@@ -150,7 +150,7 @@ func TestRustMCP_HTTPConfigurationValidationRedactionAndRedirectContracts(t *tes
 	var originHeaders http.Header
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		originHeaders = request.Header.Clone()
-		http.Redirect(w, nil, redirectTarget.URL+"/leak", http.StatusTemporaryRedirect)
+		http.Redirect(w, request, redirectTarget.URL+"/leak", http.StatusTemporaryRedirect)
 	}))
 	t.Cleanup(origin.Close)
 	redirectClient, err := mcpHTTPClient(t.Context(), origin.URL, nil, secret)
@@ -378,11 +378,15 @@ func TestRustMCP_ConnectionResultRedactsSecretFieldsWithoutScanningText(t *testi
 	if !reflect.DeepEqual(views.Arguments, want) {
 		t.Fatalf("redacted arguments = %#v", views.Arguments)
 	}
-	if strings.Contains(fmt.Sprintf("%#v", views), "private") {
-		t.Errorf("redacted view exposed secret: %#v", views)
+	wantOutput := map[string]any{
+		"content": []any{map[string]any{
+			"text": "{\"access_token\":\"private\",\"nested\":{\"description\":\"contains access_token text\",\"password\":\"private\"}}",
+			"type": "text",
+		}},
+		"structuredContent": want,
 	}
-	if !strings.Contains(fmt.Sprintf("%#v", views.Output), "contains access_token text") {
-		t.Errorf("redacted output lost ordinary text: %#v", views.Output)
+	if !reflect.DeepEqual(views.Output, wantOutput) {
+		t.Errorf("redacted output changed ordinary text or secret fields: %#v", views.Output)
 	}
 }
 
@@ -440,6 +444,9 @@ func TestRustMCP_OAuthProtocolSafetyTimeoutAndRedactionContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(paths.Database()), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	database, err := store.Open(t.Context(), paths.Database())
 	if err != nil {
 		t.Fatal(err)
@@ -455,9 +462,19 @@ func TestRustMCP_OAuthProtocolSafetyTimeoutAndRedactionContracts(t *testing.T) {
 	if _, err := service.StartOAuthCreate(cancelled, "human:local", SetupInput{DisplayName: "Cancelled", TransportKind: "streamable_http", URL: "https://mcp.example/mcp"}, callback); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled OAuth setup error = %v", err)
 	}
+	blocked := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		select {
+		case <-request.Context().Done():
+		case <-time.After(50 * time.Millisecond):
+		}
+	}))
+	t.Cleanup(func() {
+		blocked.CloseClientConnections()
+		blocked.Close()
+	})
 	expired, expire := context.WithTimeout(t.Context(), time.Millisecond)
 	defer expire()
-	if _, err := service.StartOAuthCreate(expired, "human:local", SetupInput{DisplayName: "Timed out", TransportKind: "streamable_http", URL: "https://mcp.example/mcp"}, callback); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := service.StartOAuthCreate(expired, "human:local", SetupInput{DisplayName: "Timed out", TransportKind: "streamable_http", URL: blocked.URL}, callback); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("timed out OAuth setup error = %v", err)
 	}
 	attempt := OAuthAttempt{ID: "private-attempt", Status: "waiting_for_user", AuthorizationURL: "https://auth.example/authorize?state=private-token"}

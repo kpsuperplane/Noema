@@ -18,6 +18,9 @@ func TestProtectedSecretsAndStdioDoubleOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(paths.Database()), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := home.AtomicWritePrivate(paths.Config(), []byte("mcp:\n  stdio_enabled: true\n")); err != nil {
 		t.Fatal(err)
 	}

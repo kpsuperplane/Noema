@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -54,6 +56,9 @@ func TestHTTPDiscoveryCallAndExactSourceFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(paths.Database()), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	database, err := store.Open(t.Context(), paths.Database())
 	if err != nil {
 		t.Fatal(err)
@@ -99,6 +104,9 @@ func TestConnectServiceUsesExplicitPathCardFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(paths.Database()), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	database, err := store.Open(t.Context(), paths.Database())
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +144,9 @@ func TestConnectServiceFindsPathMountedOAuthMetadata(t *testing.T) {
 	origin = httpServer.URL
 	paths, err := home.FromRoot(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.Database()), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	database, err := store.Open(t.Context(), paths.Database())
@@ -193,6 +204,9 @@ func TestSetupHonorsAuthenticationPreferenceAndExactCallback(t *testing.T) {
 	defer httpServer.Close()
 	origin = httpServer.URL
 	paths, _ := home.FromRoot(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(paths.Database()), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	database, err := store.Open(t.Context(), paths.Database())
 	if err != nil {
 		t.Fatal(err)

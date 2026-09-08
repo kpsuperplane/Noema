@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,7 +59,15 @@ func (s *secretStore) removeConnection(id string) error {
 	if err != nil {
 		return err
 	}
-	return home.RemovePrivateFile(path)
+	if err := home.RemovePrivateFile(path); err != nil {
+		return err
+	}
+	// Keep the per-connection secret home ephemeral after its only file is
+	// removed. The parent MCP directory contains other connections and stays.
+	if err := os.Remove(filepath.Dir(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove MCP secret directory: %w", err)
+	}
+	return nil
 }
 
 func (s *secretStore) writeAttempt(id string, value SecretMaterial) error {

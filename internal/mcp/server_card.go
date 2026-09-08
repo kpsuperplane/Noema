@@ -170,7 +170,7 @@ func (s *Service) ConnectService(ctx context.Context, raw string) ServiceCardRes
 
 func normalizeServiceURL(ctx context.Context, raw string) (*url.URL, error) {
 	value, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || value.User != nil || value.Hostname() == "" || (value.Scheme != "https" && value.Scheme != "http") {
+	if err != nil || value.User != nil || value.Hostname() == "" || value.Fragment != "" || (value.Scheme != "https" && value.Scheme != "http") {
 		return nil, errors.New("invalid service URL")
 	}
 	if value.Scheme == "http" && !loopbackHost(ctx, value.Hostname()) {

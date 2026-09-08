@@ -31,6 +31,8 @@ const (
 	maxWireBody        = 32 << 20
 )
 
+const discoveredToolFingerprintPrefix = "mcp-tool-metadata:v2:"
+
 // ErrAuthenticationRequired reports one fixed authentication boundary failure.
 var ErrAuthenticationRequired = errors.New("MCP authentication is required")
 
@@ -60,6 +62,13 @@ type OAuthCredentials struct {
 func (SecretMaterial) String() string   { return "[REDACTED]" }
 func (SecretMaterial) GoString() string { return "mcp.SecretMaterial{[REDACTED]}" }
 
+// GoString keeps bearer material and OAuth client credentials out of
+// diagnostics. The complete value remains available to the transport.
+func (credentials OAuthCredentials) GoString() string {
+	return fmt.Sprintf("mcp.OAuthCredentials{AccessToken:%q, RefreshToken:%q, TokenType:%q, Expiry:%q, ClientID:%q, ClientSecret:%q, TokenURL:%q, Scopes:%#v}",
+		"[REDACTED]", "[REDACTED]", credentials.TokenType, credentials.Expiry, "[REDACTED]", "[REDACTED]", credentials.TokenURL, credentials.Scopes)
+}
+
 // Config is one safe transport definition plus its protected binding.
 type Config struct {
 	TransportKind string
@@ -83,6 +92,9 @@ type Discovery struct {
 
 // Discover connects and returns the complete bounded tool catalog.
 func Discover(ctx context.Context, config Config) (Discovery, error) {
+	if err := ctx.Err(); err != nil {
+		return Discovery{}, err
+	}
 	session, err := connect(ctx, config)
 	if err != nil {
 		return Discovery{}, safeTransportError("connect MCP server", err)
@@ -101,6 +113,9 @@ func Discover(ctx context.Context, config Config) (Discovery, error) {
 
 // Call rechecks the complete source catalog, then calls one exact tool revision.
 func CallExact(ctx context.Context, config Config, name, revision string, arguments any) (json.RawMessage, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	session, err := connect(ctx, config)
 	if err != nil {
 		return nil, false, safeTransportError("connect MCP server", err)
@@ -112,7 +127,7 @@ func CallExact(ctx context.Context, config Config, name, revision string, argume
 	}
 	found := false
 	for _, tool := range tools {
-		if tool.Name == name && tool.SourceRevision == revision {
+		if tool.Name == name && sourceRevisionMatches(tool.SourceRevision, revision) {
 			found = true
 			break
 		}
@@ -120,9 +135,20 @@ func CallExact(ctx context.Context, config Config, name, revision string, argume
 	if !found {
 		return nil, false, errors.New("MCP tool source revision changed")
 	}
-	result, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: name, Arguments: arguments})
+	encodedArguments, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, false, fmt.Errorf("MCP tool arguments must be an object: %w", err)
+	}
+	var objectArguments map[string]any
+	if err := json.Unmarshal(encodedArguments, &objectArguments); err != nil || objectArguments == nil {
+		return nil, false, errors.New("MCP tool arguments must be an object")
+	}
+	result, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: name, Arguments: objectArguments})
 	if err != nil {
 		return nil, false, safeTransportError("call MCP tool", err)
+	}
+	if result != nil && result.IsError && result.StructuredContent == nil {
+		return nil, false, &toolTransportFailure{detail: toolResultDetail(result)}
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil || len(encoded) > maxToolResult {
@@ -132,6 +158,9 @@ func CallExact(ctx context.Context, config Config, name, revision string, argume
 }
 
 func connect(ctx context.Context, config Config) (*mcpsdk.ClientSession, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "noema", Version: "go-migration"}, nil)
 	var transport mcpsdk.Transport
 	switch config.TransportKind {
@@ -228,14 +257,20 @@ func normalizeTool(source *mcpsdk.Tool) (DiscoveredTool, error) {
 	if source == nil || source.Name == "" || len(source.Name) > 256 || len(source.Description) > 8192 {
 		return DiscoveredTool{}, errors.New("MCP tool metadata is invalid")
 	}
-	input, err := boundedObject(source.InputSchema, maxSchemaBytes)
+	input, err := boundedJSONObject(source.InputSchema, maxSchemaBytes)
 	if err != nil {
+		if violation := boundedJSONLimitViolation(source.InputSchema, maxSchemaBytes); violation != "" {
+			return DiscoveredTool{}, fmt.Errorf("MCP metadata is unsupported: MCP tool `%s` input schema exceeded the supported %s", source.Name, violation)
+		}
 		return DiscoveredTool{}, errors.New("MCP input schema is invalid")
 	}
 	var output json.RawMessage
 	if source.OutputSchema != nil {
-		output, err = boundedObject(source.OutputSchema, maxSchemaBytes)
+		output, err = boundedJSONObject(source.OutputSchema, maxSchemaBytes)
 		if err != nil {
+			if violation := boundedJSONLimitViolation(source.OutputSchema, maxSchemaBytes); violation != "" {
+				return DiscoveredTool{}, fmt.Errorf("MCP metadata is unsupported: MCP tool `%s` output schema exceeded the supported %s", source.Name, violation)
+			}
 			return DiscoveredTool{}, errors.New("MCP output schema is invalid")
 		}
 	}
@@ -250,7 +285,7 @@ func normalizeTool(source *mcpsdk.Tool) (DiscoveredTool, error) {
 	contract, _ := json.Marshal([]any{source.Name, source.Description, json.RawMessage(input), json.RawMessage(output), json.RawMessage(annotations)})
 	digest := sha256.Sum256(contract)
 	tool := DiscoveredTool{Name: source.Name, Description: source.Description, InputSchema: input,
-		OutputSchema: output, Annotations: annotations, SourceRevision: hex.EncodeToString(digest[:])}
+		OutputSchema: output, Annotations: annotations, SourceRevision: discoveredToolFingerprintPrefix + hex.EncodeToString(digest[:])}
 	if source.Annotations != nil {
 		readOnly, idempotent := source.Annotations.ReadOnlyHint, source.Annotations.IdempotentHint
 		tool.ReadOnly = &readOnly
@@ -282,8 +317,7 @@ func boundedJSONObject(value any, limit int) (json.RawMessage, error) {
 	if json.Unmarshal(encoded, &object) != nil {
 		return nil, errors.New("JSON object is invalid")
 	}
-	nodes := 0
-	if !boundedJSONValue(object, 0, &nodes) {
+	if boundedJSONLimitViolation(object, limit) != "" {
 		return nil, errors.New("JSON object exceeds structural limits")
 	}
 	return encoded, nil
@@ -296,21 +330,73 @@ func boundedJSONValue(value any, depth int, nodes *int) bool {
 	}
 	switch value := value.(type) {
 	case map[string]any:
+		if len(value) > 1024 {
+			return false
+		}
 		for key, child := range value {
-			if len(key) > 65536 || !boundedJSONValue(child, depth+1, nodes) {
+			if len(key) > 1<<20 || !boundedJSONValue(child, depth+1, nodes) {
 				return false
 			}
 		}
 	case []any:
+		if len(value) > 1024 {
+			return false
+		}
 		for _, child := range value {
 			if !boundedJSONValue(child, depth+1, nodes) {
 				return false
 			}
 		}
 	case string:
-		return len(value) <= 65536
+		return len(value) <= 1<<20
 	}
 	return true
+}
+
+// boundedJSONLimitViolation returns the Rust-compatible reason for rejecting
+// one metadata value. It is kept separate from boundedJSONValue because
+// callers need a stable distinction between unsupported metadata and invalid
+// JSON.
+func boundedJSONLimitViolation(value any, limit int) string {
+	encoded, err := json.Marshal(value)
+	if err != nil || len(encoded) > limit {
+		return "encoded byte limit"
+	}
+	nodes := 0
+	if !boundedJSONValue(value, 0, &nodes) {
+		if nodes > 16384 {
+			return "JSON node limit"
+		}
+		if nodes == 0 {
+			return "nesting depth limit"
+		}
+		return "collection item limit"
+	}
+	return ""
+}
+
+type toolTransportFailure struct{ detail string }
+
+func (e *toolTransportFailure) Error() string { return "MCP tool call failed" }
+
+func (e *toolTransportFailure) DiagnosticDetail() string {
+	if e.detail == "" {
+		return e.Error()
+	}
+	return e.detail
+}
+
+func toolResultDetail(result *mcpsdk.CallToolResult) string {
+	for _, content := range result.Content {
+		if text, ok := content.(*mcpsdk.TextContent); ok {
+			return text.Text
+		}
+	}
+	return "MCP tool call failed"
+}
+
+func sourceRevisionMatches(left, right string) bool {
+	return strings.TrimPrefix(left, discoveredToolFingerprintPrefix) == strings.TrimPrefix(right, discoveredToolFingerprintPrefix)
 }
 
 type headerTransport struct {

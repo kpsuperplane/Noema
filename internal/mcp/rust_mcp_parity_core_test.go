@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -405,7 +407,7 @@ func TestRustMCP_RequestContextTransportAndRedactionContracts(t *testing.T) {
 	}
 	largeRemote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "large", Version: "1"}, nil)
 	mcpsdk.AddTool(largeRemote, &mcpsdk.Tool{Name: "large", Description: "Large result", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
-		return &mcpsdk.CallToolResult{StructuredContent: map[string]any{"content": strings.Repeat("x", maxToolResult)}}, nil, nil
+		return nil, map[string]any{"content": strings.Repeat("x", maxToolResult)}, nil
 	})
 	largeServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return largeRemote }, nil))
 	t.Cleanup(largeServer.Close)
@@ -601,7 +603,7 @@ func TestRustMCP_DeeplyNestedOrOversizedJSONIsRejectedWithoutSerializingACopy(t 
 	if _, err := boundedJSONObject(nested, maxSchemaBytes); err == nil {
 		t.Fatal("deeply nested JSON accepted")
 	}
-	if _, err := boundedJSONObject(map[string]any{"value": strings.Repeat("x", 65537)}, maxSchemaBytes); err == nil {
+	if _, err := boundedJSONObject(map[string]any{"value": strings.Repeat("x", (1<<20)+1)}, maxSchemaBytes); err == nil {
 		t.Fatal("oversized JSON string accepted")
 	}
 }
@@ -815,6 +817,9 @@ func newMCPParityService(t *testing.T, stdio bool) (home.Paths, *store.Store, *S
 	t.Helper()
 	paths, err := home.FromRoot(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.Database()), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	database, err := store.Open(t.Context(), paths.Database())

@@ -119,6 +119,7 @@ type Service struct {
 	classifyStop  context.CancelFunc
 	classifying   map[string]bool
 	classifyWG    sync.WaitGroup
+	closed        bool
 	router        *CapabilityRegistryRouter
 }
 
@@ -143,9 +144,21 @@ func (s *Service) SetToolClassifier(classifier func(context.Context, store.MCPTo
 // Close stops background classification work.
 func (s *Service) Close() {
 	s.mu.Lock()
-	s.classifyStop()
+	if !s.closed {
+		s.closed = true
+		s.classifyStop()
+	}
 	s.mu.Unlock()
 	s.classifyWG.Wait()
+}
+
+func (s *Service) admit() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errors.New("MCP service is shutting down")
+	}
+	return nil
 }
 
 // NewService opens one MCP authority and removes abandoned transient OAuth material.
@@ -242,6 +255,9 @@ func StdioEnabled(paths home.Paths) (bool, error) {
 
 // Create discovers and publishes one new MCP connection.
 func (s *Service) Create(ctx context.Context, input SetupInput) (SetupResult, error) {
+	if err := s.admit(); err != nil {
+		return SetupResult{}, err
+	}
 	definition, err := definitionFromSetup(input)
 	if err != nil {
 		return SetupResult{}, err
@@ -251,6 +267,9 @@ func (s *Service) Create(ctx context.Context, input SetupInput) (SetupResult, er
 
 // AddConnection discovers a fresh connection against one exact definition.
 func (s *Service) AddConnection(ctx context.Context, input SetupInput) (SetupResult, error) {
+	if err := s.admit(); err != nil {
+		return SetupResult{}, err
+	}
 	definition, err := s.database.MCPDefinition(ctx, input.DefinitionID)
 	if err != nil || definition.Revision != input.DefinitionRevision {
 		return SetupResult{}, errors.New("MCP definition revision changed")
@@ -323,6 +342,9 @@ func (s *Service) create(ctx context.Context, input SetupInput, definition store
 
 // Continue merges protected credentials and rechecks one existing catalog.
 func (s *Service) Continue(ctx context.Context, serverID string, replacement SecretMaterial) (SetupResult, error) {
+	if err := s.admit(); err != nil {
+		return SetupResult{}, err
+	}
 	s.credentialMu.Lock()
 	defer s.credentialMu.Unlock()
 	server, err := s.database.MCPServer(ctx, serverID)
@@ -530,6 +552,9 @@ func (s *Service) Bindings(ctx context.Context) ([]Binding, error) {
 // Catalog returns the live model-visible MCP catalog and the availability
 // notices for configured connections that cannot publish bindings yet.
 func (s *Service) Catalog(ctx context.Context) (BindingCatalogResult, error) {
+	if err := s.admit(); err != nil {
+		return BindingCatalogResult{}, err
+	}
 	servers, err := s.database.MCPServers(ctx)
 	if err != nil {
 		return BindingCatalogResult{}, err
@@ -827,38 +852,17 @@ func (s *Service) dispatch(ctx context.Context, authority Binding, arguments jso
 		}
 		return s.router.Dispatch(ctx, snapshot, authority.Name, json.RawMessage(append([]byte(nil), arguments...)))
 	}
-	target := current
-	if authority.InvokerKey != "" {
-		target.InvokerKey = authority.InvokerKey
-	} else {
+	if authority.InvokerKey == "" {
 		authority.InvokerKey = current.InvokerKey
 	}
-	if authority.OperationToken != "" {
-		target.OperationToken = authority.OperationToken
-	} else {
+	if authority.OperationToken == "" {
 		authority.OperationToken = current.OperationToken
 	}
-	if !sameBindingAuthority(target, authority) {
+	if !sameBindingAuthority(current, authority) {
 		return CapabilityDispatch{}, capabilityFailure(ErrAuthorityChanged, current, json.RawMessage(append([]byte(nil), arguments...)))
 	}
 	if s.router == nil {
 		return CapabilityDispatch{}, capabilityFailure(ErrCapabilityUnknownInvoker, current, json.RawMessage(append([]byte(nil), arguments...)))
-	}
-	if target.InvokerKey != current.InvokerKey || target.OperationToken != current.OperationToken {
-		entries := snapshot.Bindings()
-		for index := range entries {
-			if entries[index].Name == target.Name {
-				entries[index] = target
-				break
-			}
-		}
-		builder = NewBindingCatalogBuilder()
-		for _, binding := range entries {
-			if err := builder.Add(binding); err != nil {
-				return CapabilityDispatch{}, CapabilityDispatchFailure{Error: ErrInvalidBindingSource}
-			}
-		}
-		snapshot = builder.BuildSnapshot()
 	}
 	value := json.RawMessage(append([]byte(nil), arguments...))
 	if reviewed == nil {
@@ -968,8 +972,13 @@ func (s *Service) executeBinding(ctx context.Context, current Binding, arguments
 		operation, current.SourceRevision, object)
 	if err != nil {
 		if s.errors != nil {
+			detail := err.Error()
+			var diagnostic interface{ DiagnosticDetail() string }
+			if errors.As(err, &diagnostic) {
+				detail = diagnostic.DiagnosticDetail()
+			}
 			_ = s.errors.Write("mcp.call_failed", diagnostics.Text("server_id", server.ID),
-				diagnostics.Text("tool_name", current.Name), diagnostics.Text("detail", err.Error()))
+				diagnostics.Text("tool_name", current.Name), diagnostics.Text("detail", detail))
 		}
 		authStatus := server.AuthStatus
 		if errors.Is(err, ErrAuthenticationRequired) {
@@ -1100,12 +1109,20 @@ func storedTools(serverID string, discovered []DiscoveredTool) ([]store.MCPTool,
 		}
 		result = append(result, store.MCPTool{ID: id, ServerID: serverID, Name: source.Name,
 			Description: source.Description, InputSchema: source.InputSchema, OutputSchema: source.OutputSchema,
-			Annotations: source.Annotations, SourceRevision: source.SourceRevision,
+			Annotations: source.Annotations, SourceRevision: storageSourceRevision(source.SourceRevision),
 			ReadOnly: store.MCPHint{Value: readOnly, Source: readSource}, Idempotent: store.MCPHint{Value: idempotent, Source: idempotentSource},
 			Destructive: store.MCPHint{Value: destructive, Source: destructiveSource}, OpenWorld: store.MCPHint{Value: openWorld, Source: openWorldSource},
 			Status: status, PolicyRevision: 1})
 	}
 	return result, nil
+}
+
+// The current SQLite schema stores the digest portion of the metadata
+// fingerprint. The client retains the Rust version prefix while comparing
+// revisions, so persisted authority remains compatible with the existing
+// schema constraint.
+func storageSourceRevision(value string) string {
+	return strings.TrimPrefix(value, discoveredToolFingerprintPrefix)
 }
 
 func hint(value *bool, fallback bool) (*bool, string, bool) {

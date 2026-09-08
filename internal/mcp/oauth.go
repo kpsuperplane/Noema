@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,6 +36,35 @@ type oauthAttempt struct {
 type OAuthAttempt struct {
 	ID, Status, AuthorizationURL, Error string
 	Result                              *SetupResult
+}
+
+// GoString preserves the public attempt identity while removing transient
+// OAuth state and callback values from diagnostics.
+func (attempt OAuthAttempt) GoString() string {
+	return fmt.Sprintf("mcp.OAuthAttempt{ID:%q, Status:%q, AuthorizationURL:%q, Error:%q, Result:%#v}",
+		attempt.ID, attempt.Status, sanitizeOAuthDebugURL(attempt.AuthorizationURL), attempt.Error, attempt.Result)
+}
+
+func sanitizeOAuthDebugURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	value, err := url.Parse(raw)
+	if err != nil {
+		return "[INVALID URL]"
+	}
+	query := value.Query()
+	for key := range query {
+		switch strings.ToLower(key) {
+		case "state", "code", "access_token", "refresh_token", "client_secret":
+			query.Set(key, "[REDACTED]")
+		}
+	}
+	value.RawQuery = query.Encode()
+	if value.Fragment != "" {
+		value.Fragment = "[REDACTED]"
+	}
+	return value.String()
 }
 
 // StartOAuthCreate starts browser OAuth for one pending HTTP setup.
@@ -79,6 +109,9 @@ func (s *Service) StartOAuthReauthentication(ctx context.Context, owner, serverI
 
 func (s *Service) startOAuth(ctx context.Context, owner string, input SetupInput,
 	definition store.MCPDefinition, serverID, redirect string) (OAuthAttempt, error) {
+	if err := ctx.Err(); err != nil {
+		return OAuthAttempt{}, err
+	}
 	if owner != "human:local" || input.TransportKind != "streamable_http" {
 		return OAuthAttempt{}, errors.New("MCP OAuth setup is invalid")
 	}
@@ -127,7 +160,7 @@ func (s *Service) startOAuth(ctx context.Context, owner string, input SetupInput
 		_ = s.failOAuth(id, "invalid_client")
 		return OAuthAttempt{}, err
 	}
-	go s.runOAuth(attempt, handler, failed)
+	go s.runOAuth(ctx, attempt, handler, failed)
 	select {
 	case authorizationURL := <-started:
 		parsed, parseErr := validateOAuthRemoteURL(authorizationURL)
@@ -188,15 +221,19 @@ func (s *Service) oauthHandler(attempt *oauthAttempt, started chan<- string) (*m
 	return mcpauth.NewAuthorizationCodeHandler(config)
 }
 
-func (s *Service) runOAuth(attempt *oauthAttempt, handler *mcpauth.AuthorizationCodeHandler, failed chan<- error) {
-	ctx, cancel := context.WithTimeout(context.Background(), oauthAttemptTTL)
+func (s *Service) runOAuth(parent context.Context, attempt *oauthAttempt, handler *mcpauth.AuthorizationCodeHandler, failed chan<- error) {
+	ctx, cancel := context.WithTimeout(parent, oauthAttemptTTL)
 	defer cancel()
 	defer close(attempt.done)
 	discovery, err := Discover(ctx, Config{TransportKind: attempt.input.TransportKind,
 		SafeConfig: attempt.definition.SafeConfig, Secrets: attempt.input.Secrets, OAuthHandler: handler})
 	if err != nil {
+		failure := errors.New("MCP OAuth authorization is unavailable")
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			failure = ctxErr
+		}
 		select {
-		case failed <- errors.New("MCP OAuth authorization is unavailable"):
+		case failed <- failure:
 		default:
 		}
 		_ = s.failOAuth(attempt.id, "authorization_rejected")
@@ -437,7 +474,7 @@ func validateOAuthCallback(raw string) (*url.URL, error) {
 }
 func validateOAuthRemoteURL(raw string) (*url.URL, error) {
 	value, err := url.Parse(raw)
-	if err != nil || value.User != nil || value.Hostname() == "" {
+	if err != nil || value.User != nil || value.Hostname() == "" || value.Fragment != "" {
 		return nil, errors.New("MCP authorization URL is invalid")
 	}
 	if value.Scheme == "https" || value.Scheme == "http" && loopbackHost(context.Background(), value.Hostname()) {
