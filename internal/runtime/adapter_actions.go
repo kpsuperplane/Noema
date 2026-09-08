@@ -90,7 +90,7 @@ func (c *Chat) executeReviewedAdapter(action store.ActionRequest) (json.RawMessa
 	if err != nil {
 		return nil, false, nil, err
 	}
-	payload, success, callErr := c.adapters.Call(c.ctx, binding, mustJSON(claimed.Arguments))
+	payload, success, callErr := c.adapters.CallReviewed(c.ctx, binding, mustJSON(claimed.Arguments), adapter.ReviewedAuthorization{ActionID: claimed.ID, Revision: claimed.Revision, ArgumentsSHA256: claimed.ArgumentsSHA256})
 	if errors.Is(callErr, adapter.ErrAuthenticationRequired) {
 		notice, authErr := c.createChatAdapterAuth(store.Conversation{ID: action.ConversationID}, store.ConversationTurn{ID: action.TurnID}, store.ConversationItem{ID: action.CallItemID}, binding, mustJSON(claimed.Arguments), claimed.ID, action.AuthorizationContext["provider_selection"], int(numberField(action.AuthorizationContext, "provider_round")), textField(action.AuthorizationContext, "provider_response_id"), boolField(action.AuthorizationContext, "hosted_state"))
 		return nil, false, notice, authErr
@@ -191,7 +191,7 @@ func (r *TaskExecution) executeTaskAdapterAction(ctx context.Context, action sto
 	if err != nil {
 		return nil, false, false, err
 	}
-	payload, success, callErr := r.adapters.Call(ctx, binding, mustJSON(claimed.Arguments))
+	payload, success, callErr := r.adapters.CallReviewed(ctx, binding, mustJSON(claimed.Arguments), adapter.ReviewedAuthorization{ActionID: claimed.ID, Revision: claimed.Revision, ArgumentsSHA256: claimed.ArgumentsSHA256})
 	if errors.Is(callErr, adapter.ErrAuthenticationRequired) {
 		call, loadErr := r.taskActionCall(ctx, claimed)
 		if loadErr != nil {

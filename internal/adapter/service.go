@@ -129,6 +129,9 @@ func (s *Service) Invoke(ctx context.Context, invocation Invocation) (json.RawMe
 	if err != nil || binding.InvokerKey != invocation.InvokerKey || binding.OperationToken != invocation.OperationToken {
 		return nil, false, errors.New("adapter invocation authority changed")
 	}
+	if strings.HasPrefix(binding.Name, "enable.") {
+		return nil, false, errors.New("adapter enablement requires review")
+	}
 	return s.Call(ctx, binding, invocation.Arguments)
 }
 
@@ -882,6 +885,17 @@ func (s *Service) ChangeTool(ctx context.Context, id, revision, tool, source str
 	} else {
 		if enabled != nil {
 			override.Enabled = *enabled
+			allowed := connection.AllowedOperations[:0]
+			for _, operationID := range connection.AllowedOperations {
+				if operationID != tool {
+					allowed = append(allowed, operationID)
+				}
+			}
+			if *enabled {
+				allowed = append(allowed, tool)
+			}
+			slices.Sort(allowed)
+			connection.AllowedOperations = allowed
 		}
 		if behavior != nil {
 			copy := *behavior
@@ -997,9 +1011,6 @@ func (s *Service) bindings() ([]Binding, error) {
 			allowed[id] = true
 		}
 		for _, operation := range definition.Operations {
-			if !allowed[operation.OperationID] {
-				continue
-			}
 			if definition.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
 				authorized := false
 				for _, set := range operation.Authorization.AcceptedScopeSets {
@@ -1013,9 +1024,6 @@ func (s *Service) bindings() ([]Binding, error) {
 				}
 			}
 			override, exists := connection.Overrides[operation.OperationID]
-			if exists && !override.Enabled {
-				continue
-			}
 			behavior := operation.Behavior
 			toolRevision := 1
 			if exists {
@@ -1035,6 +1043,16 @@ func (s *Service) bindings() ([]Binding, error) {
 				return nil, tokenErr
 			}
 			binding.OperationToken = authorityToken
+			if !allowed[operation.OperationID] || exists && !override.Enabled {
+				enablement := binding
+				enablement.Name = "enable." + binding.Name
+				enablement.Description = "Ask the human to enable the disabled " + binding.Name + " tool. Use this only when that tool is required for the current request."
+				enablement.InputSchema = json.RawMessage(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`)
+				enablement.Behavior = store.ActionBehavior{RepeatSafe: true}
+				enablement.ReviewRoute = store.ActionHumanReview
+				result = append(result, enablement)
+				continue
+			}
 			result = append(result, binding)
 		}
 	}
@@ -1054,6 +1072,30 @@ func (s *Service) Binding(name string) (Binding, error) {
 		}
 	}
 	return Binding{}, errors.New("adapter operation is unavailable")
+}
+
+// CallReviewed executes one reviewed adapter call with its exact action fence.
+func (s *Service) CallReviewed(ctx context.Context, authority Binding, raw json.RawMessage, authorization ReviewedAuthorization) (json.RawMessage, bool, error) {
+	if authority.ReviewRoute == "" || authorization.ActionID == "" || authorization.Revision != 1 || authorization.ArgumentsSHA256 == "" || sha256Hex(raw) != authorization.ArgumentsSHA256 {
+		return nil, false, errors.New("adapter call was not approved")
+	}
+	current, err := s.Binding(authority.Name)
+	if err != nil || !sameBinding(current, authority) {
+		return nil, false, errors.New("adapter call authority changed")
+	}
+	if strings.HasPrefix(current.Name, "enable.") {
+		var arguments map[string]any
+		if err := json.Unmarshal(raw, &arguments); err != nil || len(arguments) != 0 {
+			return nil, false, errors.New("adapter enablement arguments are invalid")
+		}
+		enabled := true
+		if _, err := s.ChangeTool(ctx, current.ConnectionID, strconv.Itoa(current.ConnectionRevision), current.OperationID, current.OperationDigest, current.ToolPolicyRevision, &enabled, nil, false); err != nil {
+			return nil, false, err
+		}
+		payload, err := script.MarshalJSON(map[string]any{"enabled_capability": strings.TrimPrefix(current.Name, "enable.")})
+		return payload, true, err
+	}
+	return s.Call(ctx, current, raw)
 }
 
 // Validate checks arguments against one current exact operation without making a request.

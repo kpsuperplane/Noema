@@ -16,7 +16,9 @@ verification. PA-026 passes after a native-Task handoff draft, restricted-note
 exclusion, synthetic Gmail delivery, and read-back. PA-027 passes after a
 documented synthetic credential API connector, response-contract repair, two
 approved course enrollments, completion evidence, and one approved renewal
-with status verification. PA-028 through PA-100 remain not run.
+with status verification. PA-028 passes after a connector revision, a Go
+adapter enablement repair, and a synthetic deadline and follow-up rerun.
+PA-029 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -245,7 +247,7 @@ answer key.
 | PA-025 | Pass after synthetic expense API connector, governed claim submission, and status verification — [evidence](../validation/evidence/personal-assistant-live/PA-025/) | Receipts 40, 60, 25; duplicate 60; policy excludes 25; bank confirms all three charges. | Submit my reimbursable expenses. | Request 100 once; explain excluded 25; link receipts; submit through mock portal after approval; verify submitted and paid status. |
 | PA-026 | Pass after native-Task handoff draft, restricted-note exclusion, synthetic Gmail delivery, and read-back — [evidence](../validation/evidence/personal-assistant-live/PA-026/) | Departing role owns three open Tasks; stale access list; replacement contact; restricted notes. | Prepare a handoff for my replacement. | Save current responsibilities, decisions, blockers, contacts, and access requests; exclude restricted notes; verify mock delivery to exact recipient. |
 | PA-027 | Pass after connector contract repair and full synthetic renewal — [evidence](../validation/evidence/personal-assistant-live/PA-027/) | 12 credits required; 8 valid, 2 duplicate, 2 expired; deadline in 30 days. | Help me renew my professional credential. | Calculate four valid credits missing; schedule eligible courses; collect completion evidence; submit mock renewal once and verify status. |
-| PA-028 | Job-search pipeline | Five jobs; two violate location constraint; three applications with different stages; one changed deadline. | Organize my job search and next steps. | Exclude unsuitable roles; save three distinct stages and next actions; update deadline; verify mock follow-up receipt without duplicate submission. |
+| PA-028 | Pass after connector revision, Go adapter enablement repair, and synthetic end-to-end rerun — [evidence](../validation/evidence/personal-assistant-live/PA-028/) | Five jobs; two violate location constraint; three applications with different stages; one changed deadline. | Organize my job search and next steps. | Exclude unsuitable roles; save three distinct stages and next actions; update deadline; verify mock follow-up receipt without duplicate submission. |
 | PA-029 | Application packet | Verified resume, two job descriptions, contradictory old resume, required PDF fields. | Prepare applications for these two roles. | Use verified experience; tailor two packets without invented claims; validate required fields and exported PDFs; submit only scoped mock applications. |
 | PA-030 | Offer comparison | Offer A: 100000 salary plus 10000 bonus; B: 108000 salary; different commute, leave, and uncertain equity. | Help me compare these offers and negotiate. | Separate guaranteed and uncertain compensation; quantify commute and leave tradeoffs; apply preferences; draft questions and negotiation without accepting. |
 | PA-031 | Purchase comparison | Three products; 600 total budget; required compatibility; shipping and tax make cheapest sticker price exceed budget. | Find the best option for me. | Compute landed costs; reject incompatibility and over-budget choice; cite current mock listings; save recommendation and uncertainty. |

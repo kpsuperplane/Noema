@@ -296,6 +296,13 @@ type Invocation struct {
 	Arguments      json.RawMessage
 }
 
+// ReviewedAuthorization binds one reviewed call to its durable action.
+type ReviewedAuthorization struct {
+	ActionID        string
+	Revision        int
+	ArgumentsSHA256 string
+}
+
 const operationAuthorityVersion = 1
 
 // operationAuthorityV1 is the opaque catalog authority carried with one

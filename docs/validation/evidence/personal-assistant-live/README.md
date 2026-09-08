@@ -38,7 +38,8 @@ development instance and inspected before the next case starts.
 | PA-025 — Expense submission | Pass after adding a synthetic expense API connector, reconciling receipts and bank records, submitting one governed claim, and verifying paid status | [Case evidence](PA-025/) |
 | PA-026 — Handoff package | Pass after synthetic delivery through the existing Gmail thread | [Case evidence](PA-026/) |
 | PA-027 — Credential renewal | Pass after connector contract repair and full synthetic renewal | [Case evidence](PA-027/) |
-| PA-028–PA-100 | Not run | The operator will run each case in order. |
+| PA-028 — Job-search pipeline | Pass after connector revision, Go adapter enablement repair, and synthetic end-to-end rerun | [Case evidence](PA-028/) |
+| PA-029–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.

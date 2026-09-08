@@ -2058,15 +2058,15 @@ func TestRustAdapters_reviewed_enablement_restores_one_disabled_adapter_tool(t *
 	if _, err = service.ChangeTool(t.Context(), bindings[0].ConnectionID, fmt.Sprint(bindings[0].ConnectionRevision), bindings[0].OperationID, bindings[0].OperationDigest, bindings[0].ToolPolicyRevision, &enabled, nil, false); err != nil {
 		t.Fatal(err)
 	}
-	if disabled, err := service.Bindings(); err != nil || len(disabled) != 0 {
+	disabled, err := service.Bindings()
+	if err != nil || len(disabled) != 1 || disabled[0].Name != "enable."+bindings[0].Name || disabled[0].ReviewRoute != store.ActionHumanReview {
 		t.Fatalf("disabled bindings = %#v, %v", disabled, err)
 	}
-	if tools := GenerationTools(mustAdapterBindings(t, service)); len(tools) != 0 {
+	if tools := GenerationTools(disabled); len(tools) != 1 || tools[0].Name != disabled[0].Name {
 		t.Errorf("disabled generated catalog = %#v", tools)
 	}
-	bindings, err = service.Bindings()
-	if err != nil {
-		t.Fatal(err)
+	if _, _, invokeErr := service.Invoke(t.Context(), Invocation{InvokerKey: AdapterInvokerKey, Operation: disabled[0].Name, OperationToken: disabled[0].OperationToken, Arguments: json.RawMessage(`{}`)}); invokeErr == nil {
+		t.Fatal("enablement invocation bypassed review")
 	}
 	snapshot, err = service.Snapshot()
 	if err != nil {
@@ -2075,9 +2075,9 @@ func TestRustAdapters_reviewed_enablement_restores_one_disabled_adapter_tool(t *
 	if len(snapshot.Connections) != 1 {
 		t.Fatal("disabled connection was removed")
 	}
-	restored := true
-	if _, err = service.ChangeTool(t.Context(), snapshot.Connections[0].ConnectionID, fmt.Sprint(snapshot.Connections[0].ConnectionRevision), definition.Operations[0].OperationID, definition.Operations[0].Digest, 2, &restored, nil, false); err != nil {
-		t.Fatal(err)
+	payload, success, err := service.CallReviewed(t.Context(), disabled[0], json.RawMessage(`{}`), ReviewedAuthorization{ActionID: "action:test", Revision: 1, ArgumentsSHA256: sha256Hex([]byte(`{}`))})
+	if err != nil || !success || string(payload) != `{"enabled_capability":"`+bindings[0].Name+`"}` {
+		t.Fatalf("enablement call = %s, %t, %v", payload, success, err)
 	}
 	if bindings, err = service.Bindings(); err != nil || len(bindings) != 1 {
 		t.Fatalf("restored bindings = %#v, %v", bindings, err)

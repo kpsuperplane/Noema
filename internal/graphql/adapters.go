@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -240,9 +241,9 @@ func adapterAuthStatus(value adapter.Connection) string {
 }
 
 func adapterToolModel(def adapter.Definition, connection adapter.Connection, op adapter.CompiledOperation) *model.CapabilityManagedTool {
-	behavior, enabled, revision := op.Behavior, true, 1
+	behavior, enabled, revision := op.Behavior, slices.Contains(connection.AllowedOperations, op.OperationID), 1
 	if override, ok := connection.Overrides[op.OperationID]; ok {
-		enabled, revision = override.Enabled, override.PolicyRevision
+		enabled, revision = enabled && override.Enabled, override.PolicyRevision
 		if override.Behavior != nil {
 			behavior = *override.Behavior
 		}
