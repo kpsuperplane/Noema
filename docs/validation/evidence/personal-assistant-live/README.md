@@ -30,7 +30,8 @@ development instance and inspected before the next case starts.
 | PA-017 — Relationship brief | Pass | [Case evidence](PA-017/) |
 | PA-018 — Relationship cadence | Pass | [Case evidence](PA-018/) |
 | PA-019 — Project status | Pass | [Case evidence](PA-019/) |
-| PA-020–PA-100 | Not run | The operator will run each case in order. |
+| PA-020 — Project risks | Pass | [Case evidence](PA-020/) |
+| PA-021–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
