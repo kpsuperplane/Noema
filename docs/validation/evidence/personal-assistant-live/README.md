@@ -33,7 +33,8 @@ development instance and inspected before the next case starts.
 | PA-020 — Project risks | Pass | [Case evidence](PA-020/) |
 | PA-021 — Decision history | Pass | [Case evidence](PA-021/) |
 | PA-022 — Ambiguous goal | Pass | [Case evidence](PA-022/) |
-| PA-023–PA-100 | Not run | The operator will run each case in order. |
+| PA-023 — Deliverable assembly | Pass after Gmail attachment capability was added and the packet was revised | [Case evidence](PA-023/) |
+| PA-024–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
