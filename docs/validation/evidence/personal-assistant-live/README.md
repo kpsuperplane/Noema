@@ -40,7 +40,8 @@ development instance and inspected before the next case starts.
 | PA-027 — Credential renewal | Pass after connector contract repair and full synthetic renewal | [Case evidence](PA-027/) |
 | PA-028 — Job-search pipeline | Pass after connector revision, Go adapter enablement repair, and synthetic end-to-end rerun | [Case evidence](PA-028/) |
 | PA-029 — Application packet | Pass after working-directory repair and synthetic end-to-end rerun | [Case evidence](PA-029/) |
-| PA-030–PA-100 | Not run | The operator will run each case in order. |
+| PA-030 — Offer comparison | Pass after connector policy setup and fresh API read | [Case evidence](PA-030/) |
+| PA-031–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
