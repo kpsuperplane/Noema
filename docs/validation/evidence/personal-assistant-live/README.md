@@ -19,7 +19,8 @@ development instance and inspected before the next case starts.
 | PA-006 — Daily plan | Pass after correction and full-document reread | [Case evidence](PA-006/) |
 | PA-007 — Disruption replan | Pass after delay, draft inspection, and unchanged rerun | [Case evidence](PA-007/) |
 | PA-008 — Weekly review | Pass after bounded-range correction and full source review | [Case evidence](PA-008/) |
-| PA-009–PA-100 | Not run | The operator will run each case in order. |
+| PA-009 — Deadline tracking | Pass after source disambiguation, one approved overdue notice, and restart recovery | [Case evidence](PA-009/) |
+| PA-010–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
