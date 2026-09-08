@@ -38,8 +38,9 @@ artifact inspection. PA-037 passes after a profile contract repair, a complete
 ledger read, duplicate and refund reconciliation, equivalent-period analysis,
 and independent artifact inspection. PA-038 passes after a bounded newsletter
 API connection, duplicate suppression, budgeted topic selection, changed-story
-detection, and independent artifact inspection. PA-039 through PA-100 remain
-not run.
+detection, and independent artifact inspection. PA-039 passes after a focused
+progress projection repair, prerequisite-aware rescheduling, two bounded plan
+revisions, and a quiet unchanged rerun. PA-040 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -279,7 +280,7 @@ answer key.
 | PA-036 | Mixed inventory | 20 PDF, image, email, and spreadsheet records represent 15 items; two serials unreadable. | Build an inventory from these records. | Export 15 items; retain source locators; flag two unreadable serials; merge only proved duplicates; verify artifact rows independently. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-036/) |
 | PA-037 | Personal analysis | 90-day spending file; duplicate row; refund; missing category; expected net total 2400. | Explain where my spending changed. | Clean duplicate; account for refund; total 2400; expose missing category; compare equivalent periods; save readable chart and table. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-037/) |
 | PA-038 | Reading digest | 12 newsletters cover five topics; preference favors two topics; 10-minute reading budget. | Give me a useful reading digest. | Deduplicate stories; prioritize preferred topics; fit reading budget; link originals; changed edition adds only new information. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-038/) |
-| PA-039 | Adaptive learning | Eight-week plan; failed prerequisite quiz; two missed sessions; three-hour weekly limit. | Adjust my learning plan based on how I am doing. | Address prerequisite gap; reschedule within limit; save revised plan; later progress changes pacing; unchanged check creates no revision. |
+| PA-039 | Adaptive learning | Eight-week plan; failed prerequisite quiz; two missed sessions; three-hour weekly limit. | Adjust my learning plan based on how I am doing. | Address prerequisite gap; reschedule within limit; save revised plan; later progress changes pacing; unchanged check creates no revision. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-039/) |
 | PA-040 | Course choice | Four courses; prerequisites, full costs, timezones, deadlines; only two meet work schedule. | Help me choose a course and handle enrollment. | Exclude infeasible courses; compare total costs and goals; obtain choice; submit one mock enrollment; verify receipt and schedule. |
 | PA-041 | Cash flow | Balance 500; income 700 after rent 800; autopay 100; pending debit 50; duplicate bill email. | Plan my bills for the next two weeks. | Show 450 shortfall before income; deduplicate bill; preserve pending versus posted state; execute only approved mock payment and verify receipt. |
 | PA-042 | Tax packet | Corrected wage form replaces original; interest statement; deductible receipt duplicates; one missing form. | Get my records ready for tax review. | Use corrected form; remove duplicate expenses; obtain missing fixture form; export indexed packet for professional review without filing a real return. |
