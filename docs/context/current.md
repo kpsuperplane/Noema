@@ -32,6 +32,10 @@ fetched six bounded events across three pages, preserved time zones, date-only
 leave, and recurrence data, and found the overlap, leave conflict, preparation
 needs, and unknown travel gap. A narrow adapter sanitization fix preserves
 ordinary street addresses. Evidence: `docs/validation/evidence/personal-assistant-live/PA-005/`.
+PA-006 passes after a source-read correction and full Task-document reread.
+Noema read the connected Calendar and all three complete Task documents,
+protected meetings, lunch, and the 16:00 stop, then deferred work that did not
+fit. Evidence: `docs/validation/evidence/personal-assistant-live/PA-006/`.
 `ConversationAuthorizationContext` now follows continuation trigger items to
 the original human turn, with a focused store regression test.
 The memory updater now omits nested browser screenshots and internal Task-list results. A live update completed at sequence 1881 and saved the 16:00 weekday
