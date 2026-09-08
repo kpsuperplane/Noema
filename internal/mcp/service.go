@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -1124,6 +1125,8 @@ func hasSecretMaterial(v SecretMaterial) bool {
 	return len(v.Environment) != 0 || len(v.Headers) != 0 || v.OAuth != nil || v.Client != nil
 }
 func mergeSecrets(current, replacement SecretMaterial) SecretMaterial {
+	current.Environment = maps.Clone(current.Environment)
+	current.Headers = maps.Clone(current.Headers)
 	if current.Environment == nil {
 		current.Environment = map[string]string{}
 	}

@@ -62,8 +62,8 @@ func TestRustMCP_SetupSecretPersistenceAndCompensationContracts(t *testing.T) {
 	if err != nil || workSecret.Headers["Authorization"] != "Bearer work-secret" {
 		t.Fatalf("independent connection credentials = %#v, %v", workSecret, err)
 	}
-	secret := SecretMaterial{Headers: map[string]string{"Authorization": "Bearer initial"}, Revision: strings.Repeat("a", 32)}
-	createdWithSecret, err := service.Create(t.Context(), SetupInput{DisplayName: "Secret", TransportKind: "streamable_http", URL: server.URL, AuthPreference: "USE_ANONYMOUS", Secrets: secret})
+	secret := SecretMaterial{Headers: map[string]string{"Authorization": "Bearer initial"}, Environment: map[string]string{"TOKEN": "initial-token"}, Revision: strings.Repeat("a", 32)}
+	createdWithSecret, err := service.Create(t.Context(), SetupInput{DisplayName: "Secret", TransportKind: "streamable_http", URL: server.URL, Headers: map[string]string{"X-Team": "infra"}, AuthPreference: "USE_ANONYMOUS", Secrets: secret})
 	if err != nil || createdWithSecret.Server == nil {
 		t.Fatalf("secret setup = %#v, %v", createdWithSecret, err)
 	}
@@ -84,10 +84,9 @@ func TestRustMCP_SetupSecretPersistenceAndCompensationContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Rust case: a failed replacement restores the active credential and fences
-	// the connection after discovery rejects the staged credential.
+	// Additional regression: rejected discovery must preserve active credentials.
 	failureMode.Store(1)
-	rejected, err := service.Continue(t.Context(), createdWithSecret.Server.ID, SecretMaterial{Headers: map[string]string{"Authorization": "Bearer rejected"}})
+	rejected, err := service.Continue(t.Context(), createdWithSecret.Server.ID, SecretMaterial{Headers: map[string]string{"Authorization": "Bearer rejected"}, Environment: map[string]string{"TOKEN": "rejected-token"}})
 	if err != nil || rejected.Status != "needs_auth" || rejected.Server == nil {
 		t.Errorf("rejected replacement = %#v, %v", rejected, err)
 	}
@@ -95,9 +94,19 @@ func TestRustMCP_SetupSecretPersistenceAndCompensationContracts(t *testing.T) {
 	if err != nil || restored.Headers["Authorization"] != "Bearer replacement" {
 		t.Errorf("failed replacement changed active credentials: replacement=%t rejected=%t, err=%v", restored.Headers["Authorization"] == "Bearer replacement", restored.Headers["Authorization"] == "Bearer rejected", err)
 	}
+	if restored.Environment["TOKEN"] != "initial-token" || restored.Revision != loaded.Revision {
+		t.Error("failed replacement changed the active environment credential or its revision")
+	}
 	fenced, err := service.Server(t.Context(), createdWithSecret.Server.ID)
 	if err != nil || fenced.AuthStatus != "needs_auth" || fenced.HealthStatus != "unavailable" {
 		t.Errorf("failed replacement status = %#v, %v", fenced, err)
+	}
+	var safeConfig struct {
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+	}
+	if err := json.Unmarshal(fenced.SafeConfig, &safeConfig); err != nil || safeConfig.URL != server.URL || safeConfig.Headers["X-Team"] != "infra" {
+		t.Error("failed replacement changed ordinary connection settings")
 	}
 }
 
