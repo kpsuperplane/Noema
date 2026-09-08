@@ -176,3 +176,41 @@ func TestRustHome_rejects_an_event_larger_than_the_file_limit(t *testing.T) {
 		t.Errorf("oversized diagnostic path = %v, want absent", err)
 	}
 }
+
+func TestRawSizePreservesLiteralCharacters(t *testing.T) {
+	for _, character := range []string{"<", ">", "&", "\u2028", "\u2029", `\u2028`} {
+		t.Run(character, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "errors.log")
+			writer, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			small := strings.Repeat(character, 12000/len(character))
+			large := strings.Repeat(character, maxRawBytes/len(character)+1)
+			for _, content := range []string{small, large} {
+				if err := writer.WriteEvent(Event{Category: "size", Raw: map[string]any{"content": content}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			records := rustHomeReadDiagnosticRecords(t, path)
+			if records[0]["raw"].(map[string]any)["content"] != small {
+				t.Fatal("ordinary text changed below the raw limit")
+			}
+			raw := records[1]["raw"].(map[string]any)
+			if raw["truncated"] != true {
+				t.Fatal("oversized raw data was retained")
+			}
+			encoded, err := encodeDiagnostic(map[string]any{"content": large})
+			if err != nil || raw["original_bytes"] != float64(len(encoded)) {
+				t.Fatal("original size changed")
+			}
+			plain, err := encodeDiagnostic(small)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if character != `\u2028` && len(plain) != len(small)+2 {
+				t.Fatal("literal characters expanded")
+			}
+		})
+	}
+}

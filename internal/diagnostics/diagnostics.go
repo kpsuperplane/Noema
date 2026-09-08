@@ -2,6 +2,7 @@
 package diagnostics
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,14 +92,14 @@ func (w *Writer) writeWithLimits(event Event, maxFileBytes, maxRecordBytes int) 
 	if event.Raw == nil {
 		event.Raw = map[string]any{}
 	}
-	raw, err := json.Marshal(event.Raw)
+	raw, err := encodeDiagnostic(event.Raw)
 	if err != nil {
 		return fmt.Errorf("encode raw diagnostic data: %w", err)
 	}
 	if len(raw) > maxRawBytes {
 		event.Raw = map[string]any{"truncated": true, "original_bytes": len(raw)}
 	}
-	record, err := json.Marshal(event)
+	record, err := encodeDiagnostic(event)
 	if err != nil {
 		return fmt.Errorf("encode diagnostic record: %w", err)
 	}
@@ -149,3 +150,34 @@ func (w *Writer) writeWithLimits(event Event, maxFileBytes, maxRecordBytes int) 
 
 // Close completes the writer. Each append closes its file before returning.
 func (w *Writer) Close() error { return nil }
+
+// encodeDiagnostic retains literal Unicode and HTML characters, as Rust does.
+func encodeDiagnostic(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	encoded := buffer.Bytes()
+	encoded = encoded[:len(encoded)-1]
+	result := make([]byte, 0, len(encoded))
+	for i := 0; i < len(encoded); i++ {
+		if encoded[i] == '\\' && i+1 < len(encoded) {
+			if i+6 <= len(encoded) && (string(encoded[i:i+6]) == `\u2028` || string(encoded[i:i+6]) == `\u2029`) {
+				if encoded[i+5] == '8' {
+					result = append(result, []byte("\u2028")...)
+				} else {
+					result = append(result, []byte("\u2029")...)
+				}
+				i += 5
+				continue
+			}
+			result = append(result, encoded[i], encoded[i+1])
+			i++
+			continue
+		}
+		result = append(result, encoded[i])
+	}
+	return result, nil
+}
