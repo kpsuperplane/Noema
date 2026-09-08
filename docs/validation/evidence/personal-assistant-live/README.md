@@ -43,7 +43,8 @@ development instance and inspected before the next case starts.
 | PA-030 — Offer comparison | Pass after connector policy setup and fresh API read | [Case evidence](PA-030/) |
 | PA-031 — Purchase comparison | Pass after four connector projection revisions, fresh API reads, and a saved recommendation | [Case evidence](PA-031/) |
 | PA-032 — Research brief | Pass after four bounded connector revisions and a saved brief | [Case evidence](PA-032/) |
-| PA-033–PA-100 | Not run | The operator will run each case in order. |
+| PA-033 — Topic monitoring | Pass | [Case evidence](PA-033/) |
+| PA-034–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
