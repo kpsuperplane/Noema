@@ -21,6 +21,15 @@ func TestAuxiliaryPromptsMatchRustExactly(t *testing.T) {
 		return string(b)
 	}
 	memory := strings.NewReplacer("{canonical}", "[]", "{correction}", "\nYour previous native tool call was rejected: bad citation. Correct that failure in the replacement tool call.").Replace(read("memory"))
+	// The human changed file creation to split only at the word limit.
+	memory = strings.NewReplacer(
+		"You may create a new page when the evidence warrants one.",
+		"Keep new facts in the current article. Create another file only when retaining the content in that article would exceed its word limit.",
+		"Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md.",
+		"Treat memory as evolving documentation. Start with root.md and organize facts into sections within the current article. A distinct topic alone does not justify another file. Before splitting, merge related claims and remove repetition without losing useful facts. Split only when the resulting article would exceed the 750-word limit, including its title and generated footnotes. Move a coherent section into a child article and retain a concise overview in the parent. Apply this rule at every depth. Merge small existing child articles back into their parent when the combined article fits within the limit. Preserve evidence when moving or merging content.",
+		"Keep each article body at or below 650 words to leave space for generated content.",
+		"Aim for 650 body words to leave space for generated content; this target is not a reason to split.",
+	).Replace(memory)
 	final := strings.NewReplacer("{reason}", "background task handoff completed", "{PRIMARY_USER_FACING_FILE_POLICY}", primaryUserFacingFilePolicy).Replace(read("finalization"))
 	for _, tc := range []struct{ name, got, want string }{
 		{"action reviewer", actionReviewerPrompt, read("action_reviewer")},

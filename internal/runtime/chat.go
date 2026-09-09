@@ -572,7 +572,7 @@ func (c *Chat) execute(request queuedTurn) {
 	runtimeSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
 		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "runtime", "Prepare model context",
 		store.RuntimeDebugMetadata{Phase: "initial"}, runtimeStarted)
-	providerMessages, _, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database, generator: contextGenerator,
+	providerMessages, compacted, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database, generator: contextGenerator,
 		accountID: assignment.ProviderAccountID, providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
 		base: append(developerMessages(environment, memoryContext, projectContext, hostedWeb), toolVisibilityMessage(tools, provider.ToolTransportNative, hostedWeb)), completed: completed, active: active,
 		tools: tools, hostedWeb: hostedWeb, outputReserve: *outputTokens,
@@ -591,6 +591,9 @@ func (c *Chat) execute(request queuedTurn) {
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
+	}
+	if compacted {
+		c.schedulePrimaryMemoryUpdate(turn.ConversationID)
 	}
 	output := c.outputStream(turn, 0, request.input.ClientMessageID)
 	providerStarted := time.Now()

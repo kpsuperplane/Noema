@@ -6,6 +6,8 @@ Reference: Rust commit `4d29f6ba1f70a30b5959a0e460217feeeb5e8c04`, before server
 
 Retain the exact Rust instruction text, punctuation, whitespace, and template order.
 Tests compare complete output with independent Rust reference files.
+The human later changed Memory editing: split only at the word limit.
+The Memory test applies that explicit change to the retained Rust reference.
 Provider tests check instruction delivery separately from ordinary system context.
 
 Covered production prompt families:

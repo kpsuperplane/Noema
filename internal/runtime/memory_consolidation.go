@@ -13,12 +13,10 @@ import (
 )
 
 const (
-	memorySubmitTool           = "noema.submit_memory_changes"
-	memoryContextTokens        = 8_000
-	memoryOutputTokens         = 2_048
-	memoryCharsPerToken        = 3
-	memoryThresholdNumerator   = 7
-	memoryThresholdDenominator = 10
+	memorySubmitTool    = "noema.submit_memory_changes"
+	memoryContextTokens = 8_000
+	memoryOutputTokens  = 2_048
+	memoryCharsPerToken = 3
 )
 
 var memoryChangesSchema = json.RawMessage(`{
@@ -77,36 +75,11 @@ func (c *Chat) publishMemoryChanged() {
 	}
 }
 
-func (c *Chat) maybeScheduleMemoryUpdate(conversationID string) {
+func (c *Chat) schedulePrimaryMemoryUpdate(conversationID string) {
 	primary, err := c.database.PrimaryConversation(c.ctx)
-	if err != nil || primary == nil || primary.ID != conversationID {
-		return
+	if err == nil && primary != nil && primary.ID == conversationID {
+		c.scheduleMemoryUpdate(conversationID)
 	}
-	checkpoint, err := c.memory.State()
-	if err != nil {
-		return
-	}
-	cursor := int64(0)
-	if checkpoint.ConversationID == conversationID {
-		cursor = checkpoint.LastConsolidatedSequence
-	}
-	captured, err := c.database.CaptureMemorySourceRange(c.ctx, conversationID, cursor)
-	if err != nil || !memorySourceReachedThreshold(captured.Items) {
-		return
-	}
-	c.scheduleMemoryUpdate(conversationID)
-}
-
-func memorySourceReachedThreshold(items []store.ConversationItem) bool {
-	characters := 0
-	for _, item := range items {
-		if rendered := renderMemorySourceItem(item); rendered != "" {
-			characters += len([]rune(rendered)) + 1
-		}
-	}
-	available := memoryContextTokens - memoryOutputTokens
-	threshold := available * memoryThresholdNumerator / memoryThresholdDenominator
-	return characters >= threshold*memoryCharsPerToken
 }
 
 func (c *Chat) scheduleMemoryUpdate(conversationID string) bool {
@@ -505,9 +478,9 @@ func memoryUpdateInstructions(canonical, correction string) string {
 		correction = "\nYour previous native tool call was rejected: " + correction + ". Correct that failure in the replacement tool call."
 	}
 	iconKeys := strings.Join(noemamemory.PageIconKeys, ", ")
-	return fmt.Sprintf(`You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and citations are content-editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be content-upserted, moved, overwritten, or deleted, though their icon may be changed with metadata_updates. You may create a new page when the evidence warrants one. Existing pages are: %s
+	return fmt.Sprintf(`You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and citations are content-editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be content-upserted, moved, overwritten, or deleted, though their icon may be changed with metadata_updates. Keep new facts in the current article. Create another file only when retaining the content in that article would exceed its word limit. Existing pages are: %s
 Call noema.submit_memory_changes exactly once through the provider's native tool channel. Do not encode the tool call or its arguments in ordinary assistant text.
-Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never "Human memory" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Store stable human facts, preferences, relationships, and durable decisions. Do not store current connector readiness, enabled-tool counts, temporary failures, task execution history, project validation records, or researched subject facts that belong in their live object, task, project, document, or artifact. A rendered page includes its title and generated footnote definitions. It must contain at most %d Unicode words. Keep each article body at or below %d words to leave space for generated content. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct.
+Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never "Human memory" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Treat memory as evolving documentation. Start with root.md and organize facts into sections within the current article. A distinct topic alone does not justify another file. Before splitting, merge related claims and remove repetition without losing useful facts. Split only when the resulting article would exceed the 750-word limit, including its title and generated footnotes. Move a coherent section into a child article and retain a concise overview in the parent. Apply this rule at every depth. Merge small existing child articles back into their parent when the combined article fits within the limit. Preserve evidence when moving or merging content. Store stable human facts, preferences, relationships, and durable decisions. Do not store current connector readiness, enabled-tool counts, temporary failures, task execution history, project validation records, or researched subject facts that belong in their live object, task, project, document, or artifact. A rendered page includes its title and generated footnote definitions. It must contain at most %d Unicode words. Aim for %d body words to leave space for generated content; this target is not a reason to split. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct.
 Preference recall contract: Prefer to retain useful personal criteria and constraints. Store criteria that could improve future help as current preferences. Use the narrowest scope supported by the evidence. Store them even when they appear inside one concrete request or lack explicit memory language. Do not require repetition or words such as always or usually. Do not make an inferred preference permanent or universal. When newer human evidence contradicts a preference, rewrite or remove it. Keep the current meaning, not a history of changes. Do not store criteria clearly limited to one occasion or another person's needs. Do not store researched options or assistant recommendations.
 Icon contract: every content upsert must include exactly one semantically specific Lucide icon key from [%s]. Preserve an existing icon when it remains the clearest fit. When only an existing page's icon should change, emit one metadata_updates entry instead of reproducing its content; use this whenever another allowed key represents the stable page subject more clearly. Treat file-text as a generic fallback and replace it whenever a more specific key fits.
 Evidence contract: citations is the ordered list of evidence groups. Each group contains one or more exact source ids supporting one nearby claim. Cite the first group as [^1], the second as [^2], and so on. Use every group at least once. Reuse an exact source across groups only when it supports several claims. Keep the smallest direct evidence set. Do not retain an old source only because an earlier page used it. Do not write footnote definitions because Noema generates them. Human messages and exact tool results can be evidence. Assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.%s`,

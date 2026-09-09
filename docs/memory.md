@@ -25,6 +25,13 @@ Current implementation direction:
   biographical overview; child files are focused topic articles. A developed
   root must contain at least two thematic sections and cannot publish as an
   unsectioned fact inventory.
+- Keep facts in the current article until the content would exceed the 750-word
+  limit, including its title and generated footnotes. First remove repetition
+  and combine related claims. Then move a coherent section into a child article
+  and keep an overview in the parent. Apply this rule at every depth.
+  A new topic alone does not require a file. Merge small child articles into
+  their parent when the combined article fits. Preserve facts and evidence.
+  The 650-word body target reserves space; it is not a split threshold.
 - The update model supplies ordered citation groups and matching numeric
   references. Each group contains the smallest direct set of exact evidence
   identifiers for one nearby claim. The runtime validates those identifiers

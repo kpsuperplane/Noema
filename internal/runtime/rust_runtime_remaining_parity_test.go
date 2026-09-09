@@ -124,7 +124,8 @@ func TestRustRuntime_memory_instructions_reserve_space_below_the_page_word_limit
 	// Rust source: crates/noema-runtime/src/daemon/runtime/turn/finalization.rs::memory_instructions_reserve_space_below_the_page_word_limit.
 	instructions := memoryUpdateInstructions("[]", "")
 	if !strings.Contains(instructions, "at most "+itoa(noemamemory.MaxWords)+" Unicode words") ||
-		!strings.Contains(instructions, "at or below "+itoa(noemamemory.MaxWords-100)+" words") {
+		!strings.Contains(instructions, "Aim for "+itoa(noemamemory.MaxWords-100)+" body words") ||
+		!strings.Contains(instructions, "this target is not a reason to split") {
 		t.Fatalf("Memory instructions omitted word limits: %s", instructions)
 	}
 }

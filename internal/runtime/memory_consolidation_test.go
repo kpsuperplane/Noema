@@ -134,20 +134,6 @@ func TestMemoryUpdateRetriesOnceWithoutPublishingInvalidSources(t *testing.T) {
 	}
 }
 
-func TestMemoryAutomaticThresholdUsesPendingSourceSize(t *testing.T) {
-	thresholdCharacters := (memoryContextTokens - memoryOutputTokens) * memoryThresholdNumerator /
-		memoryThresholdDenominator * memoryCharsPerToken
-	base := store.ConversationItem{ID: "item:human", Kind: store.ConversationUserText}
-	base.ContentText = strings.Repeat("a", thresholdCharacters-100)
-	if memorySourceReachedThreshold([]store.ConversationItem{base}) {
-		t.Fatal("source below the automatic threshold was accepted")
-	}
-	base.ContentText += strings.Repeat("b", 200)
-	if !memorySourceReachedThreshold([]store.ConversationItem{base}) {
-		t.Fatal("source above the automatic threshold was rejected")
-	}
-}
-
 func TestMemorySourceOmitsBrowserScreenshotAndPreservesOrdinaryPayload(t *testing.T) {
 	payload := map[string]any{
 		"snapshot": map[string]any{"url": "https://example.test", "node_id": "node:opaque"},
@@ -293,55 +279,96 @@ func TestMemoryInvalidationsCoalesceForSlowSubscriber(t *testing.T) {
 	}
 }
 
-func TestCompletedPrimaryTurnSchedulesMemoryAtThreshold(t *testing.T) {
-	chat, _, conversation := chatFixture(t)
-	root, err := chat.memory.ReadRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
-		if len(request.Tools) == 1 && request.Tools[0].Name == memorySubmitTool {
-			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{
-				Name:    memorySubmitTool,
-				Payload: json.RawMessage(`{"upserts":[],"metadata_updates":[],"deletes":[]}`),
-			}}}, nil
-		}
-		return provider.GenerationResult{Text: "Done.", Model: "openai/gpt-5.6-luna"}, nil
-	})
-	ctx := context.Background()
-	turnEvents, err := chat.Subscribe(ctx, conversation.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	<-turnEvents
-	memoryEvents := chat.SubscribeMemory(ctx)
-	input := strings.Repeat("a", (memoryContextTokens-memoryOutputTokens)*memoryThresholdNumerator/
-		memoryThresholdDenominator*memoryCharsPerToken)
-	if _, err := chat.SendTurn(ctx, SendTurnInput{ConversationID: conversation.ID, Input: input}); err != nil {
-		t.Fatal(err)
-	}
-	collectCompletedTurns(t, turnEvents, 1)
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case <-memoryEvents:
-			checkpoint, err := chat.memory.State()
+func TestPrimaryMemoryUpdateFollowsContextCompaction(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		historySize int
+		wantUpdate  bool
+	}{
+		{"pending source exceeds old threshold", 13_000, false},
+		{"completed context requires compaction", 300_000, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			chat, database, conversation := chatFixture(t)
+			ctx := context.Background()
+			window := uint32(128_000)
+			profiles, _ := json.Marshal([]provider.ModelProfile{{ID: "openai/gpt-5.6-luna", ContextWindowTokens: &window}})
+			account, err := database.CreateProviderAccount(ctx, provider.Account{
+				ID: "provider_account:openrouter:memory-context", ProviderKind: "openrouter", AccountKey: "memory-context",
+				DisplayName: "Memory context", AuthMethod: provider.AuthSecretInput, IsActive: true, IsDefault: true, Status: provider.StatusAuthenticated,
+				Metadata: provider.AccountMetadata{"profiles": profiles}, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if checkpoint.LastConsolidatedSequence > 0 {
-				if checkpoint.ConversationID != conversation.ID {
-					t.Fatalf("automatic Memory checkpoint = %#v", checkpoint)
-				}
-				published, err := chat.memory.ReadRoot()
-				if err != nil || published.Hash != root.Hash {
-					t.Fatalf("empty automatic update changed root = %#v, %v", published, err)
-				}
-				return
+			assignments, err := database.HostedModelAssignments(ctx)
+			if err != nil {
+				t.Fatal(err)
 			}
-		case <-deadline:
-			t.Fatal("automatic Memory update did not publish its checkpoint")
-		}
+			for _, assignment := range assignments {
+				assignment.ProviderAccountID = account.ID
+				assignment.SelectionMode = store.ModelSelectionExplicitProfile
+				assignment.ModelProfile = "openai/gpt-5.6-luna"
+				if _, err := database.SaveHostedModelAssignment(ctx, assignment); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for offset := 0; offset < test.historySize; offset += 5_000 {
+				turn, _, err := database.BeginConversationTurn(ctx, conversation.ID,
+					strings.Repeat("a", min(5_000, test.historySize-offset)), nil, time.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := database.CompleteConversationTurn(ctx, turn, "Noted.", "", nil, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+				if len(request.Tools) == 1 && request.Tools[0].Name == memorySubmitTool {
+					return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{
+						Name: memorySubmitTool, Payload: json.RawMessage(`{"upserts":[],"metadata_updates":[],"deletes":[]}`),
+					}}}, nil
+				}
+				return provider.GenerationResult{Text: "Earlier context summarized.", Model: "openai/gpt-5.6-luna"}, nil
+			})
+			events, err := chat.Subscribe(ctx, conversation.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-events
+			memoryEvents := chat.SubscribeMemory(ctx)
+			if _, err := chat.SendTurn(ctx, SendTurnInput{ConversationID: conversation.ID, Input: "Continue."}); err != nil {
+				t.Fatal(err)
+			}
+			collectCompletedTurns(t, events, 1)
+			if test.wantUpdate {
+				deadline := time.After(5 * time.Second)
+				for {
+					state, err := chat.memory.State()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if state.LastConsolidatedSequence > 0 {
+						break
+					}
+					select {
+					case <-memoryEvents:
+					case <-deadline:
+						t.Fatal("compaction did not publish a Memory checkpoint")
+					}
+				}
+			}
+			if err := chat.Close(); err != nil {
+				t.Fatal(err)
+			}
+			state, err := chat.memory.State()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := state.LastConsolidatedSequence > 0; got != test.wantUpdate {
+				t.Fatalf("Memory updated = %t, want %t", got, test.wantUpdate)
+			}
+		})
 	}
 }
 

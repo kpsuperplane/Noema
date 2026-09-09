@@ -1185,13 +1185,17 @@ func (c *Chat) generateChatToolContinuation(
 			currentActive = active
 		}
 		active = currentActive
-		messages, _, err = prepareModelContext(c.ctx, modelContextRequest{database: c.database,
+		var compacted bool
+		messages, compacted, err = prepareModelContext(c.ctx, modelContextRequest{database: c.database,
 			generator: contextGenerator, accountID: assignment.ProviderAccountID,
 			providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
 			base: developer, completed: completed, active: active, tools: tools,
 			hostedWeb: hostedWeb, outputReserve: *outputTokens, persist: persist})
 		if err != nil {
 			return provider.GenerationResult{}, false, err
+		}
+		if compacted && persist != nil {
+			c.schedulePrimaryMemoryUpdate(turn.ConversationID)
 		}
 	} else {
 		messages = append(developer, messages...)
@@ -1445,7 +1449,6 @@ func (c *Chat) finishGeneratedTurn(
 		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
 	})
-	c.maybeScheduleMemoryUpdate(turn.ConversationID)
 }
 
 func (c *Chat) finishProgressAuditPause(
@@ -1475,7 +1478,6 @@ func (c *Chat) finishProgressAuditPause(
 		Kind: EventTurnCompleted, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID,
 	})
-	c.maybeScheduleMemoryUpdate(turn.ConversationID)
 }
 
 func generationCitations(values []provider.Citation) []store.ProviderCitation {
