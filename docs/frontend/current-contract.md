@@ -197,6 +197,8 @@ Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Tr
 The wide layout keeps a vertical divider between the views.
 Task details share the outer top border with the task list.
 The floating Task context card occupies the Workspace column in the wide layout.
+Task and recurring task action bars share the document’s 760-pixel width limit and centered side margins.
+The Task loading placeholder uses the same width and placement.
 Transcript fills the right column’s height.
 The wide context card omits its ordinary Task status line.
 At smaller widths, Task detail uses tabs and swipe navigation.

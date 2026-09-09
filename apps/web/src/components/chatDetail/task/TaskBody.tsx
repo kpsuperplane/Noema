@@ -344,7 +344,7 @@ const styles = stylex.create({
   loadingTitle: { width: "60%", height: "calc(var(--text-heading-3-size) * var(--text-heading-3-leading))" },
   loadingLine: { height: "var(--spacing-3)", borderRadius: "var(--radius-element)", backgroundColor: "var(--skeleton-glimmer-line)" },
   loadingLines: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingBlock: "var(--spacing-4)" },
-  loadingContext: { height: "var(--spacing-12)", margin: "var(--spacing-4)", borderRadius: "var(--radius-page)", backgroundColor: "var(--skeleton-glimmer-line)" },
+  loadingContext: { height: "var(--spacing-12)", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginBlock: "var(--spacing-4)", marginInline: "auto", borderRadius: "var(--radius-page)", backgroundColor: "var(--skeleton-glimmer-line)" },
   heading: { minWidth: 0, borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", "@container (width > 1200px)": { gridColumn: "1", gridRow: "1" } },
   tabBar: {
     // Extend by the small tab's inline padding so its label aligns with the title.
