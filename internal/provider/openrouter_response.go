@@ -98,7 +98,7 @@ func normalizeOpenRouterReasoning(details []json.RawMessage) []GenerationReasoni
 			if id := jsonString(object["id"]); id != "" {
 				item.ID = id
 			}
-		case "reasoning.summary":
+		case "reasoning.summary", "reasoning.text":
 			if summary := firstJSONText(object, "summary", "text"); summary != "" {
 				item.Summary = append(item.Summary, summary)
 			}

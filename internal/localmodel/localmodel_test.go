@@ -352,6 +352,7 @@ func TestLocalGenerationPreservesToolsReplayAndTokenization(t *testing.T) {
 				t.Errorf("local messages = %#v", messages)
 			}
 			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(writer, `data: {"choices":[{"delta":{"reasoning_content":"The work is complete."}}]}`+"\n\n")
 			_, _ = io.WriteString(writer, "data: {\"id\":\"response\",\"model\":\"local-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"function\":{\"name\":\"task_finish_execution\",\"arguments\":\"{}\"}}]}}]}\n\n")
 			_, _ = io.WriteString(writer, "data: [DONE]\n\n")
 		case "/tokenize":
@@ -386,6 +387,9 @@ func TestLocalGenerationPreservesToolsReplayAndTokenization(t *testing.T) {
 	})
 	if err != nil || len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "task.finish_execution" {
 		t.Fatalf("local generation = %#v, %v", result, err)
+	}
+	if len(result.Reasoning) != 1 || !bytes.Contains(result.Reasoning[0].ProviderDetails[0], []byte("The work is complete.")) {
+		t.Fatal("local reasoning lost")
 	}
 	if streamedName != "task.finish_execution" {
 		t.Fatalf("streamed tool name = %q", streamedName)

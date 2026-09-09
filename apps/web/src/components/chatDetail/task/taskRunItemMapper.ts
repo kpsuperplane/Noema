@@ -89,6 +89,19 @@ export function taskRunItemsToTranscriptEntries(
     if (isRedundantLifecycleNotice(items, index)) {
       continue;
     }
+    if (item.sourceKind === "assistant_output") {
+      const reasoning = readableReasoning(item.payload);
+      if (reasoning) {
+        entries.push({
+          id: `${item.id}:reasoning`,
+          source: "replay",
+          turnId: `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:reasoning`,
+          type: "assistant",
+          phase: "commentary",
+          text: reasoning
+        });
+      }
+    }
     const entry = taskRunItemToTranscriptEntry(item, arrivalItemIds.has(item.id));
     if (!entry) {
       continue;
@@ -324,4 +337,36 @@ function runItemStatus(value: string | null | undefined): TaskRunItem["status"] 
 
 function humanize(value: string): string {
   return value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase());
+}
+
+// Select readable protocol fields only. Never render opaque data or signatures.
+function readableReasoning(payload: unknown): string {
+  const details = recordValue(payload)?.reasoning;
+  if (!Array.isArray(details)) return "";
+  const texts: string[] = [];
+  const add = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) texts.push(value);
+  };
+  for (const detail of details) {
+    const item = recordValue(detail);
+    if (item?.type === "reasoning.summary") {
+      add(item.summary ?? item.text);
+    } else if (item?.type === "reasoning.text") {
+      add(item.text);
+    } else if (item?.type === "reasoning") {
+      if (Array.isArray(item.summary)) {
+        for (const part of item.summary) {
+          const summary = recordValue(part);
+          if (summary?.type === "summary_text") add(summary.text);
+        }
+      }
+      if (Array.isArray(item.content)) {
+        for (const part of item.content) {
+          const content = recordValue(part);
+          if (content?.type === "reasoning_text") add(content.text);
+        }
+      }
+    }
+  }
+  return texts.join("\n\n");
 }

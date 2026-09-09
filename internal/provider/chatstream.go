@@ -292,18 +292,19 @@ func (r *contextReader) Read(buffer []byte) (int, error) {
 }
 
 type chatAccumulator struct {
-	id           string
-	model        string
-	text         strings.Builder
-	tools        map[int]*toolAccumulator
-	reasoning    []json.RawMessage
-	citations    []Citation
-	searches     []HostedSearch
-	searchFields []hostedSearchFields
-	searchIndex  map[string]int
-	usage        Usage
-	citationKeys map[string]struct{}
-	resultSize   int
+	id             string
+	model          string
+	text           strings.Builder
+	tools          map[int]*toolAccumulator
+	reasoning      []json.RawMessage
+	plainReasoning strings.Builder
+	citations      []Citation
+	searches       []HostedSearch
+	searchFields   []hostedSearchFields
+	searchIndex    map[string]int
+	usage          Usage
+	citationKeys   map[string]struct{}
+	resultSize     int
 }
 
 type toolAccumulator struct {
@@ -336,6 +337,8 @@ type chatChoice struct {
 
 type chatDelta struct {
 	Content          string             `json:"content"`
+	Reasoning        string             `json:"reasoning"`
+	ReasoningContent string             `json:"reasoning_content"`
 	ToolCalls        []chatToolFragment `json:"tool_calls"`
 	ReasoningDetails []json.RawMessage  `json:"reasoning_details"`
 	Annotations      json.RawMessage    `json:"annotations"`
@@ -474,6 +477,14 @@ func tokenCount(fields map[string]json.RawMessage, name string) (int, bool) {
 }
 
 func (a *chatAccumulator) consumeDelta(delta chatDelta, onEvent func(StreamEvent)) error {
+	plain := delta.Reasoning
+	if plain == "" {
+		plain = delta.ReasoningContent
+	}
+	if err := a.addSize(len(plain)); err != nil {
+		return err
+	}
+	a.plainReasoning.WriteString(plain)
 	if delta.Content != "" {
 		if err := a.addSize(len(delta.Content)); err != nil {
 			return err
@@ -797,6 +808,12 @@ func safeCitationURL(raw string) (string, error) {
 }
 
 func (a *chatAccumulator) result() ChatStreamResult {
+	reasoning := a.reasoning
+	// Structured details and plain reasoning can contain the same text.
+	if a.plainReasoning.Len() != 0 && !containsReadableReasoning(reasoning, a.plainReasoning.String()) {
+		raw, _ := json.Marshal(map[string]string{"type": "reasoning.text", "text": a.plainReasoning.String()})
+		reasoning = append(reasoning, raw)
+	}
 	tools := make([]ToolCall, 0, len(a.tools))
 	indices := make([]int, 0, len(a.tools))
 	for index := range a.tools {
@@ -808,7 +825,7 @@ func (a *chatAccumulator) result() ChatStreamResult {
 	}
 	return ChatStreamResult{
 		ID: a.id, Model: a.model, Text: a.text.String(), ToolCalls: tools,
-		Reasoning: a.reasoning, Citations: a.citations,
+		Reasoning: reasoning, Citations: a.citations,
 		Searches: a.normalizedSearches(), Usage: a.usage,
 	}
 }
@@ -947,4 +964,13 @@ func readJSONValue(decoder *json.Decoder) (any, error) {
 	default:
 		return nil, fmt.Errorf("unexpected JSON delimiter %q", delimiter)
 	}
+}
+
+func containsReadableReasoning(details []json.RawMessage, text string) bool {
+	for _, item := range normalizeOpenRouterReasoning(details) {
+		if strings.Join(item.Summary, "") == text {
+			return true
+		}
+	}
+	return false
 }

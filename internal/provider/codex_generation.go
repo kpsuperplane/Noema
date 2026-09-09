@@ -1525,5 +1525,15 @@ func normalizeCodexReasoning(
 			result.Summary = append(result.Summary, part.Text)
 		}
 	}
-	return result, encrypted != "" || len(result.Summary) != 0, nil
+	var content []struct{ Type, Text string }
+	if value := item["content"]; len(value) != 0 && json.Unmarshal(value, &content) != nil {
+		return GenerationReasoning{}, false, errors.New("Codex reasoning content is invalid")
+	}
+	readable := false
+	for _, part := range content {
+		if part.Type == "reasoning_text" && strings.TrimSpace(part.Text) != "" {
+			readable = true
+		}
+	}
+	return result, encrypted != "" || len(result.Summary) != 0 || readable, nil
 }

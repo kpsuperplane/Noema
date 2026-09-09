@@ -451,6 +451,9 @@ func (s *Service) generateAt(
 		ID: parsed.ID, Model: model, Text: parsed.Text, Usage: parsed.Usage,
 		FinishReason: "stop", Citations: parsed.Citations, Searches: parsed.Searches,
 	}
+	if len(parsed.Reasoning) != 0 {
+		result.Reasoning = []provider.GenerationReasoning{{ProviderDetails: parsed.Reasoning}}
+	}
 	for _, call := range parsed.ToolCalls {
 		canonical, ok := names.providerToCanonical[call.Name]
 		if !ok {

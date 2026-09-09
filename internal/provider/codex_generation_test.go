@@ -663,3 +663,19 @@ func mustReadCodexBody(t *testing.T, request *http.Request) string {
 	}
 	return string(data)
 }
+
+func TestResponsesReasoningKeepsReadableContent(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"reasoning","summary":[{"type":"summary_text","text":"Check calendar"}]}`,
+		`{"type":"reasoning","content":[{"type":"reasoning_text","text":"Check calendar"}]}`,
+	} {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+			t.Fatal(err)
+		}
+		result, keep, err := normalizeCodexReasoning(json.RawMessage(raw), fields)
+		if err != nil || !keep || len(result.ProviderDetails) != 1 || string(result.ProviderDetails[0]) != raw {
+			t.Fatalf("readable response lost: %#v, %v", result, err)
+		}
+	}
+}

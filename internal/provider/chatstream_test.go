@@ -234,3 +234,23 @@ func (r *fragmentReader) Read(buffer []byte) (int, error) {
 	}
 	return size, nil
 }
+
+func TestChatReasoningReadableFieldsAndDuplicateRepresentations(t *testing.T) {
+	for _, field := range []string{"reasoning", "reasoning_content"} {
+		for _, details := range []string{"", `,"reasoning_details":[{"type":"reasoning.text","text":"Check calendar"}]`, `,"reasoning_details":[{"type":"reasoning.encrypted","data":"opaque"}]`} {
+			stream := `data: {"choices":[{"delta":{"` + field + `":"Check "}}]}` + "\n\n" +
+				`data: {"choices":[{"delta":{"` + field + `":"calendar","content":"Reply"` + details + `}}]}` + "\n\ndata: [DONE]\n\n"
+			result, err := ParseChatStream(t.Context(), io.NopCloser(strings.NewReader(stream)), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			items := normalizeOpenRouterReasoning(result.Reasoning)
+			if len(items) != 1 || len(items[0].Summary) != 1 || items[0].Summary[0] != "Check calendar" || result.Text != "Reply" {
+				t.Fatalf("readable reasoning duplicated or lost: %#v", items)
+			}
+			if strings.Contains(details, "encrypted") && items[0].EncryptedContent != "opaque" {
+				t.Fatal("replay data lost")
+			}
+		}
+	}
+}
