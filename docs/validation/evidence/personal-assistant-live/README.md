@@ -66,7 +66,8 @@ development instance and inspected before the next case starts.
 | PA-053 — Medical record | Pass after API setup, response-contract repair, four baseline reads, one approval-gated access request, two recovered reads, and a sourced artifact | [Case evidence](PA-053/) |
 | PA-054 — Medication plan | Pass after API setup, response-contract repair, verified medication reconciliation, two approval-gated requests, status reads, and a sourced artifact | [Case evidence](PA-054/) |
 | PA-055 — Appointment brief | Pass after API setup, connection-policy configuration, five ordered reads, and a sourced artifact | [Case evidence](PA-055/) |
-| PA-056–PA-100 | Not run | The operator will run each case in order. |
+| PA-056 — Referral coordination | Pass after corrected list transforms, four approval-gated synthetic actions, final status verification, and a complete sourced artifact | [Case evidence](PA-056/) |
+| PA-057–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
