@@ -112,7 +112,6 @@ export function TaskBody({
           <div {...stylex.props(styles.tabBar)}>
             <TabList
               aria-label="Task detail view"
-              hasDivider
               onChange={(value) => selectTab(value as TaskTab)}
               size="sm"
               value={activeTab}
@@ -167,7 +166,7 @@ export function TaskLoadingSkeleton({ header, animateGlimmer = true }: { header?
       <VStack gap={0} xstyle={styles.heading}>
         {header ?? <VStack aria-hidden="true" xstyle={styles.loadingHeader}><HStack xstyle={[styles.loadingLine, styles.loadingTitle, animateGlimmer && skeletonGlimmerStyles.animated]} /></VStack>}
         <div inert {...stylex.props(styles.tabBar)}>
-          <TabList aria-label="Task detail view" hasDivider size="sm" value="workspace" onChange={() => undefined}>
+          <TabList aria-label="Task detail view" size="sm" value="workspace" onChange={() => undefined}>
             <Tab label="Workspace" value="workspace" /><Tab label="Transcript" value="transcript" />
           </TabList>
         </div>
@@ -367,7 +366,7 @@ const styles = stylex.create({
   loadingLine: { height: "var(--spacing-3)", borderRadius: "var(--radius-element)", backgroundColor: "var(--skeleton-glimmer-line)" },
   loadingLines: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingBlock: "var(--spacing-4)" },
   loadingContext: { height: "var(--spacing-12)", margin: "var(--spacing-4)", borderRadius: "var(--radius-page)", backgroundColor: "var(--skeleton-glimmer-line)" },
-  heading: { minWidth: 0, "@container (width > 1200px)": { gridColumn: "1", gridRow: "1" } },
+  heading: { minWidth: 0, borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", "@container (width > 1200px)": { gridColumn: "1", gridRow: "1", paddingBlockEnd: "var(--spacing-2)" } },
   tabBar: {
     width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto",
     minWidth: 0,
