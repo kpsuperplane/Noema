@@ -194,7 +194,8 @@ StyleX 0.19 runtime injection retains only the first rule for each named contain
 
 Task detail shows `Workspace` and `Transcript`.
 Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Transcript.
-The wide layout keeps a top boundary and a vertical divider between the views.
+The wide layout keeps a vertical divider between the views.
+Task details share the outer top border with the task list.
 The floating Task context card occupies the Transcript column in the wide layout.
 The wide context card omits its ordinary Task status line.
 At smaller widths, Task detail uses tabs and swipe navigation.

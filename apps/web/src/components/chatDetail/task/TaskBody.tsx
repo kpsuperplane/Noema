@@ -381,10 +381,7 @@ const styles = stylex.create({
     overflow: "hidden",
     "@container (width > 1200px)": {
       gridTemplateColumns: "minmax(0, 1fr) 600px",
-      gridTemplateRows: "auto minmax(0, 1fr) auto",
-      borderTopWidth: "var(--border-width)",
-      borderTopStyle: "solid",
-      borderTopColor: "var(--noema-border-subtle)"
+      gridTemplateRows: "auto minmax(0, 1fr) auto"
     }
   },
   inactivePane: { display: { default: "none", "@container (width > 1200px)": "block" } },
