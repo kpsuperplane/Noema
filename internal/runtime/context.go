@@ -65,6 +65,9 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 	target := min(uint32(512), max(uint32(64), available/8))
 	summary, err := summarizeModelContext(ctx, request, prefix, target, available)
 	if err != nil {
+		if estimated <= available && ctx.Err() == nil {
+			return messages, false, nil
+		}
 		return nil, false, err
 	}
 	for attempts := 0; attempts < 4; attempts++ {

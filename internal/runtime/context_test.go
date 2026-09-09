@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -141,5 +142,38 @@ func TestTaskReplayRestoresCheckpointAndPriorTaskWrite(t *testing.T) {
 	if err != nil || !wroteTask || len(replay) != 3 || replay[0].Role != "assistant" ||
 		!strings.Contains(replay[0].Content, "Earlier work") || replay[1].ToolResult == nil || replay[2].Content != content {
 		t.Fatalf("replay = %#v, wrote Task = %t, error = %v", replay, wroteTask, err)
+	}
+}
+
+func TestOptionalCompactionFailurePreservesFittingHistory(t *testing.T) {
+	for _, size := range []int{8000, 16000} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			database := contextTestStore(t, 4000)
+			calls := 0
+			generator := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+				calls++
+				return provider.GenerationResult{}, errors.New("summary unavailable")
+			})
+			completed := []provider.GenerationMessage{{Role: "assistant", Content: strings.Repeat("x", size)}}
+			active := []provider.GenerationMessage{{Role: "user", Content: "Continue"}}
+			messages, compacted, err := prepareModelContext(t.Context(), modelContextRequest{
+				database: database, generator: generator, accountID: "provider_account:openrouter:context-test",
+				providerKind: "openrouter", model: "test", completed: completed, active: active, outputReserve: 512,
+				persist: func(string, []provider.GenerationMessage) error {
+					t.Fatal("failed summary must not replace history")
+					return nil
+				},
+			})
+			if calls != 1 || compacted {
+				t.Fatalf("calls=%d compacted=%v", calls, compacted)
+			}
+			if size == 8000 {
+				if err != nil || len(messages) != 2 || messages[0].Content != completed[0].Content || messages[1].Content != active[0].Content {
+					t.Fatalf("fitting history was not retained: %v", err)
+				}
+			} else if err == nil || messages != nil {
+				t.Fatal("oversized history must still fail admission")
+			}
+		})
 	}
 }
