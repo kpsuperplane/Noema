@@ -71,7 +71,10 @@ notices, final reconciliation, and a sourced estate-notice artifact. PA-053
 passes after bounded API setup, a reviewed response-contract repair that
 preserves explicit false values, four baseline reads, one approval-gated source
 access request, two recovered-record reads, and a sourced medical-record
-artifact. PA-054 through PA-100 remain not run.
+artifact. PA-054 passes after bounded medication API setup, an explicit
+boolean response-contract repair, baseline reconciliation, two approval-gated
+requests, status verification, and a sourced artifact. PA-055 through PA-100
+remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -326,7 +329,7 @@ answer key.
 | PA-051 | Pass after four focused connector repairs, policy setup, one approved synthetic update, later status verification, and a sourced estate artifact — [evidence](../validation/evidence/personal-assistant-live/PA-051/) | Will, beneficiary records, incapacity authority, missing insurance beneficiary, restricted sealed inventory. | Organize our important-affairs records. | Map locations and roles; identify missing beneficiary; preserve release conditions; update after synthetic life change without granting unauthorized access. |
 | PA-052 | Pass after ten reviewed connector revisions, five approval-gated synthetic notices, final reconciliation, and a sourced estate-notice artifact — [evidence](../validation/evidence/personal-assistant-live/PA-052/) | Synthetic executor proof; six account types; missing certificate; two deadlines; joint account excluded from closure. | Help administer these estate notices. | Obtain missing fixture certificate; sequence notices; submit authorized mock notices; preserve joint account; verify acknowledgments and remaining obligations. |
 | PA-053 | Medical record | Three provider exports; duplicate test; corrected allergy entry; inaccessible fourth source. | Bring my medical records together. | Deduplicate test; preserve corrected allergy history; recover fourth fixture access; export complete sourced chronology without diagnosing. |
-| PA-054 | Medication plan | Discontinued drug, replacement prescription, conflicting reported dose, refill due in five days. | Help me sort my medication list and refills. | Preserve dose conflict for clinician; exclude discontinued drug from active list; verify mock clarification and refill receipt without selecting dosage. |
+| PA-054 | Pass after response-contract repair, two approval-gated requests, status verification, and a sourced artifact — [evidence](../validation/evidence/personal-assistant-live/PA-054/) | Discontinued drug, replacement prescription, conflicting reported dose, refill due in five days. | Help me sort my medication list and refills. | Preserve dose conflict for clinician; exclude discontinued drug from active list; verify mock clarification and refill receipt without selecting dosage. |
 | PA-055 | Appointment brief | Symptom diary, medication list, test results, three user concerns, and 15-minute visit. | Prepare me for my appointment. | Save concise timeline and prioritized questions; include relevant results and uncertainties; preserve user concerns; no diagnosis or invented urgency rule. |
 | PA-056 | Referral coordination | Order, insurer network, prerequisite test, specialist slots, and transport time. | Help arrange this referral. | Complete prerequisites; choose in-network feasible slot; transfer authorized records via mock destination; verify booking, transport, and follow-up. |
 | PA-057 | Care-plan follow-up | Written clinician plan with measurement threshold; one missed test; later revised instructions. | Track the follow-ups from this care plan. | Schedule missing test; use supplied threshold for alert; apply revised instructions; verify result receipt; unchanged check stays quiet. |
