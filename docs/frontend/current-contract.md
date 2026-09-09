@@ -192,16 +192,17 @@ contract; do not add hand-maintained mirrors for generated query shapes.
 Transcript styles use unnamed size queries against the nearest container.
 StyleX 0.19 runtime injection retains only the first rule for each named container query.
 
-Task detail shows `Workspace` and `Transcript`.
+Task detail uses one Astryx tab bar below the title for files and `Transcript`.
 Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Transcript.
 The wide layout keeps a vertical divider between the views.
 Task details share the outer top border with the task list.
 The floating Task context card occupies the Transcript column in the wide layout.
 The wide context card omits its ordinary Task status line.
 At smaller widths, Task detail uses tabs and swipe navigation.
-Workspace shows direct file buttons above the selected UTF-8 preview.
+File tabs select the UTF-8 preview. In wide layouts, Transcript stays visible beside the selected file and has no tab.
 `Result` and `Task` appear first. Other files follow in path order.
-The file row scrolls horizontally when needed and vertically with the preview.
+The combined tab bar stays above scrolling content and scrolls horizontally when needed.
+Its first label aligns with the title text; the bar offsets the tabs’ built-in horizontal padding.
 A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.
@@ -226,7 +227,7 @@ Project documents retain their existing explicit editing controls.
 The source editor remains available when rich parsing fails. iOS retains its native source editor.
 
 Task titles use smaller text and wrap to show the complete title.
-Task details keep Close on mobile and Workspace/Transcript tabs above scrolling content.
+Task details keep Close on mobile and the combined file/Transcript tabs above scrolling content.
 In the wide layout, the title stays above Workspace within its column.
 Task loading uses the same columns, title position, tabs, and context placement.
 Startup uses a Tasks placeholder when the current route opens a task.

@@ -1,6 +1,5 @@
 import * as React from "react";
 import { useQuery } from "@apollo/client/react";
-import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
@@ -23,8 +22,7 @@ import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 const TASK_DOCUMENT_PATH = "TASK.md";
 const TASK_RESULT_PATH = "RESULT.md";
 const TASK_REVIEW_PATH = "REVIEW.md";
-const TASK_TABS = ["workspace", "transcript"] as const;
-type TaskTab = (typeof TASK_TABS)[number];
+type TaskTab = "workspace" | "transcript";
 
 export function TaskBody({
   detail,
@@ -47,13 +45,29 @@ export function TaskBody({
     taskId: detail.taskId,
     activeTab: "workspace" as TaskTab
   }));
+  const rootRef = React.useRef<HTMLElement>(null);
+  const [wideLayout, setWideLayout] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const updateLayout = () => setWideLayout(root.clientWidth > 1200);
+    updateLayout();
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+  const files = React.useMemo(() => {
+    const files = detail.workspaceFiles.filter((file) => !file.isDirectory)
+      .sort((left, right) => left.path.localeCompare(right.path));
+    return [
+      ...[TASK_RESULT_PATH, TASK_DOCUMENT_PATH].flatMap((path) => files.filter((file) => file.path === path)),
+      ...files.filter((file) => file.path !== TASK_RESULT_PATH && file.path !== TASK_DOCUMENT_PATH)
+    ];
+  }, [detail.workspaceFiles]);
   const [workspaceState, setWorkspaceState] = React.useState(() => initialWorkspaceState(detail));
   let activeTab = tabState.activeTab;
   let selectedPath = workspaceState.selectedPath;
   const swipeOriginRef = React.useRef<{ x: number; y: number } | null>(null);
-  const selectWorkspacePath = React.useCallback((path: string) => {
-    setWorkspaceState((current) => ({ ...current, selectedPath: path }));
-  }, []);
 
   if (tabState.taskId !== detail.taskId) {
     activeTab = "workspace";
@@ -67,8 +81,14 @@ export function TaskBody({
     setWorkspaceState(nextWorkspaceState);
   }
 
-  function selectTab(tab: TaskTab) {
-    setTabState((current) => ({ ...current, activeTab: tab }));
+  const selectedTab = !wideLayout && activeTab === "transcript" ? "transcript" : selectedPath;
+  const tabs = [...files.map((file) => file.path), ...(!wideLayout ? ["transcript"] : [])];
+
+  function selectTab(value: string) {
+    setTabState((current) => ({ ...current, activeTab: value === "transcript" ? "transcript" : "workspace" }));
+    if (value !== "transcript") {
+      setWorkspaceState((current) => ({ ...current, selectedPath: value }));
+    }
   }
 
   function startSwipe(event: React.TouchEvent) {
@@ -89,9 +109,9 @@ export function TaskBody({
       return;
     }
 
-    const currentIndex = TASK_TABS.indexOf(activeTab);
+    const currentIndex = tabs.indexOf(selectedTab);
     const nextIndex = horizontalDistance < 0 ? currentIndex + 1 : currentIndex - 1;
-    const nextTab = TASK_TABS[nextIndex];
+    const nextTab = tabs[nextIndex];
     if (nextTab) {
       selectTab(nextTab);
     }
@@ -102,24 +122,24 @@ export function TaskBody({
   }
 
   return (
-    <section aria-label="Task detail" {...stylex.props(styles.root)}>
+    <section ref={rootRef} aria-label="Task detail" {...stylex.props(styles.root)}>
       <Grid
         height="100%"
         xstyle={styles.frame}
       >
         <VStack gap={0} xstyle={styles.heading}>
           {header}
-          <div {...stylex.props(styles.tabBar)}>
+          <HStack xstyle={styles.tabBar}>
             <TabList
               aria-label="Task detail view"
-              onChange={(value) => selectTab(value as TaskTab)}
+              onChange={selectTab}
               size="sm"
-              value={activeTab}
+              value={selectedTab}
             >
-              <Tab label="Workspace" value="workspace" />
-              <Tab label="Transcript" value="transcript" />
+              {files.map((file) => <Tab key={file.path} label={workspaceFileButtonLabel(file)} value={file.path} />)}
+              {!wideLayout ? <Tab label="Transcript" value="transcript" /> : null}
             </TabList>
-          </div>
+          </HStack>
         </VStack>
         <section
           aria-label="Workspace"
@@ -132,7 +152,6 @@ export function TaskBody({
             detail={detail}
             edit={edit}
             selectedPath={selectedPath}
-            onSelectPath={selectWorkspacePath}
           />
         </section>
         <section
@@ -165,11 +184,11 @@ export function TaskLoadingSkeleton({ header, animateGlimmer = true }: { header?
     <Grid height="100%" xstyle={styles.frame}>
       <VStack gap={0} xstyle={styles.heading}>
         {header ?? <VStack aria-hidden="true" xstyle={styles.loadingHeader}><HStack xstyle={[styles.loadingLine, styles.loadingTitle, animateGlimmer && skeletonGlimmerStyles.animated]} /></VStack>}
-        <div inert {...stylex.props(styles.tabBar)}>
-          <TabList aria-label="Task detail view" size="sm" value="workspace" onChange={() => undefined}>
-            <Tab label="Workspace" value="workspace" /><Tab label="Transcript" value="transcript" />
+        <HStack inert xstyle={styles.tabBar}>
+          <TabList aria-label="Task detail view" size="sm" value={TASK_DOCUMENT_PATH} onChange={() => undefined}>
+            <Tab label="Task" value={TASK_DOCUMENT_PATH} /><Tab label="Transcript" value="transcript" xstyle={styles.narrowTab} />
           </TabList>
-        </div>
+        </HStack>
       </VStack>
       <section aria-label="Workspace" {...stylex.props(styles.workspacePane)}>{lines}</section>
       <section aria-label="Transcript" {...stylex.props(styles.transcript, styles.inactivePane)}>{lines}</section>
@@ -180,53 +199,17 @@ export function TaskLoadingSkeleton({ header, animateGlimmer = true }: { header?
   </section>;
 }
 
-function TaskWorkspace({
-  detail,
-  edit,
-  selectedPath,
-  onSelectPath
-}: {
+function TaskWorkspace({ detail, edit, selectedPath }: {
   detail: TaskDetail;
   edit?: TaskInlineEditController;
   selectedPath: string;
-  onSelectPath: (path: string) => void;
 }) {
-  const files = React.useMemo(
-    () => detail.workspaceFiles
-      .filter((file) => !file.isDirectory)
-      .sort((left, right) => left.path.localeCompare(right.path)),
-    [detail.workspaceFiles]
-  );
-  const orderedFiles = [
-    ...[TASK_RESULT_PATH, TASK_DOCUMENT_PATH].flatMap((path) => files.filter((file) => file.path === path)),
-    ...files.filter((file) => file.path !== TASK_RESULT_PATH && file.path !== TASK_DOCUMENT_PATH)
-  ];
   return (
     <section aria-label="Task workspace" {...stylex.props(styles.workspace)}>
       <section aria-label={selectedPath} {...stylex.props(styles.fileViewer)}>
-        {orderedFiles.length > 1 ? <nav aria-label="Task files" {...stylex.props(styles.fileBar)}>
-          <HStack
-            gap={1}
-            width="100%"
-            xstyle={styles.fileActions}
-          >
-            {orderedFiles.map((file) => (
-              <Button
-                key={file.path}
-                aria-pressed={file.path === selectedPath}
-                label={workspaceFileButtonLabel(file)}
-                onClick={() => onSelectPath(file.path)}
-                size="sm"
-                tooltip={file.path}
-                variant={file.path === selectedPath ? "secondary" : "ghost"}
-                xstyle={styles.fileAction}
-              />
-            ))}
-          </HStack>
-          {detail.workspaceFilesTruncated ? (
-            <p role="status" {...stylex.props(styles.fileNotice)}>Some files are not shown.</p>
-          ) : null}
-        </nav> : null}
+        {detail.workspaceFilesTruncated ? (
+          <p role="status" {...stylex.props(styles.fileNotice)}>Some files are not shown.</p>
+        ) : null}
         <TaskWorkspaceFileViewer detail={detail} edit={edit} path={selectedPath} />
       </section>
     </section>
@@ -366,12 +349,20 @@ const styles = stylex.create({
   loadingLine: { height: "var(--spacing-3)", borderRadius: "var(--radius-element)", backgroundColor: "var(--skeleton-glimmer-line)" },
   loadingLines: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingBlock: "var(--spacing-4)" },
   loadingContext: { height: "var(--spacing-12)", margin: "var(--spacing-4)", borderRadius: "var(--radius-page)", backgroundColor: "var(--skeleton-glimmer-line)" },
-  heading: { minWidth: 0, borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", "@container (width > 1200px)": { gridColumn: "1", gridRow: "1", paddingBlockEnd: "var(--spacing-2)" } },
+  heading: { minWidth: 0, borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", "@container (width > 1200px)": { gridColumn: "1", gridRow: "1" } },
   tabBar: {
-    width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto",
+    // Extend by the small tab's inline padding so its label aligns with the title.
+    width: "calc(100% - var(--spacing-6))",
+    maxWidth: "calc(760px + var(--spacing-6))",
+    marginInline: "auto",
     minWidth: 0,
-    "@container (width > 1200px)": { display: "none" }
+    // Astryx places one pixel of the selection indicator below the tab.
+    paddingBlockEnd: "var(--border-width)",
+    overflowX: "auto",
+    overscrollBehaviorX: "contain",
+    scrollbarWidth: "thin"
   },
+  narrowTab: { display: { default: "inline-flex", "@container (width > 1200px)": "none" } },
   frame: {
     gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: "auto minmax(0, 1fr) auto",
@@ -429,22 +420,7 @@ const styles = stylex.create({
     "--task-workspace-table-left-bleed": "max(0px, calc((100cqw - var(--task-workspace-content-width)) / 2))",
     "--task-workspace-table-right-bleed": "calc(100cqw - var(--task-workspace-table-left-bleed) - var(--task-workspace-content-width))",
   },
-  fileBar: {
-    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
-    maxWidth: 760,
-    minWidth: 0,
-    marginInline: "auto",
-    paddingBlockStart: "var(--spacing-4)",
-  },
-  fileActions: {
-    minWidth: 0,
-    overflowX: "auto",
-    overflowY: "hidden",
-    overscrollBehaviorX: "contain",
-    scrollbarWidth: "thin"
-  },
-  fileAction: { flexShrink: 0 },
-  fileNotice: { margin: "var(--spacing-1) var(--spacing-0) var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
+  fileNotice: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, margin: "var(--spacing-3) auto var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
   fileViewer: {
     width: "100%",
     minWidth: 0,
