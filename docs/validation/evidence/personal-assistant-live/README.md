@@ -71,7 +71,8 @@ development instance and inspected before the next case starts.
 | PA-058 — Provider comparison | Pass after API setup, hard-constraint filtering, one availability verification, and a sourced comparison artifact | [Case evidence](PA-058/) |
 | PA-059 — Health-plan comparison | Pass after API setup, ordered plan and usage reads, reproducible expected and worst-case cost calculations, and a sourced comparison artifact | [Case evidence](PA-059/) |
 | PA-060 — Health appeal | Pass after a compiler-contract correction, evidence matching, one approved synthetic appeal, later decision verification, and a sourced appeal artifact | [Case evidence](PA-060/) |
-| PA-061–PA-100 | Not run | The operator will run each case in order. |
+| PA-061 — Discharge transition | Pass after setup-contract correction, one approved synthetic coordination, ledger correction, and a sourced handoff artifact | [Case evidence](PA-061/) |
+| PA-062–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
