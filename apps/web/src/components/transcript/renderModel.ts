@@ -203,7 +203,8 @@ export function shouldAnimateRenderedEntryArrivalForSeen(
 export function shouldContinueRenderedEntryTextAnimation(entry: RenderTranscriptEntry): boolean {
   return (
     entry.kind === "entry" &&
-    entry.entry.type === "assistant_stream" &&
+    (entry.entry.type === "assistant_stream" ||
+      (entry.entry.type === "assistant" && recordValue(entry.entry.metadata)?.output_status === "running")) &&
     shouldAnimateMessageText(entry.entry)
   );
 }
@@ -221,7 +222,7 @@ export function shouldAnimateRenderedEntryTextForSeen(
   if (entry.kind !== "entry" || !isTextTranscriptEntry(entry.entry) || !shouldAnimateMessageText(entry.entry)) {
     return false;
   }
-  if (entry.entry.type === "assistant_stream") {
+  if (shouldContinueRenderedEntryTextAnimation(entry)) {
     return !seenMessageIds.has(messageId) || textAnimatingMessageIds.has(messageId);
   }
   if (entry.entry.type === "assistant" && textAnimatingMessageIds.has(messageId)) {

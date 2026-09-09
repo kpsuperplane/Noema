@@ -112,7 +112,7 @@ export function taskRunItemsToTranscriptEntries(
               payload: { name: "web.search", arguments: search?.Arguments, result: search?.Result, success: true,
                 display: { name: "Web Search", marker: { label: "Web Search", visibility: "show" } } }
             }, item.role);
-            const entry = taskRunItemToTranscriptEntry(searchItem, false);
+            const entry = taskRunItemToTranscriptEntry(searchItem, arrivalItemIds.has(item.id));
             if (entry) entries.push(entry);
             continue;
           }
@@ -120,7 +120,7 @@ export function taskRunItemsToTranscriptEntries(
           const isReasoning = section.kind === "reasoning";
           entries.push({
             id: `${item.id}:output:${section.kind}:${section.index}:${section.section_index ?? 0}`,
-            source: "replay",
+            source: arrivalItemIds.has(item.id) ? undefined : "replay",
             turnId: `${item.id}:${section.kind}:${section.phase ?? "default"}`,
             type: "assistant",
             phase: isReasoning || section.phase !== "final_answer" ? "commentary" : "final_answer",
@@ -133,7 +133,7 @@ export function taskRunItemsToTranscriptEntries(
       for (const [sectionIndex, reasoning] of readableReasoning(item.payload).entries()) {
         entries.push({
           id: `${item.id}:reasoning:${sectionIndex}`,
-          source: "replay",
+          source: arrivalItemIds.has(item.id) ? undefined : "replay",
           turnId: `${item.id}:reasoning`,
           type: "assistant",
           phase: "commentary",
