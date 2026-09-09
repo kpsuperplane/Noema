@@ -102,8 +102,11 @@ API setup, seven ordered source reads, one approved synthetic receipt, status
 verification, native recurring Task materialization, and a sourced maintenance
 artifact. PA-067 passes after a clean exact-once synthetic home-repair API
 setup, six ordered source reads, five separately approved synthetic writes,
-final status verification, and a sourced repair artifact. PA-068 through PA-100
-remain not run.
+final status verification, and a sourced repair artifact. PA-068 passes after
+reviewed utility API setup, five ordered source reads, hard reliability
+filtering, one approved synthetic switch, old-provider bill and status
+verification, and a sourced utility artifact. PA-069 through PA-100 remain not
+run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 

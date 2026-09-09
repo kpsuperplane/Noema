@@ -78,7 +78,8 @@ development instance and inspected before the next case starts.
 | PA-065 — Asset inventory | Pass after reviewed connector setup, seven ordered source reads, one approved synthetic repair receipt, final status verification, and a sourced artifact | [Case evidence](PA-065/) |
 | PA-066 — Home maintenance | Pass after reviewed API setup, seven ordered source reads, one approved synthetic receipt, status verification, native recurring Task materialization, and a sourced artifact | [Case evidence](PA-066/) |
 | PA-067 — Home repair | Pass after clean exact-once connector setup, six ordered source reads, five separately approved synthetic writes, final status verification, and a sourced artifact | [Case evidence](PA-067/) |
-| PA-068–PA-100 | Not run | The operator will run each case in order. |
+| PA-068 — Utility plan optimization | Pass after reviewed API setup, five ordered source reads, one approved synthetic switch, final-bill and status verification, and a sourced artifact | [Case evidence](PA-068/) |
+| PA-069–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
