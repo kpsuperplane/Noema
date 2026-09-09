@@ -105,8 +105,12 @@ setup, six ordered source reads, five separately approved synthetic writes,
 final status verification, and a sourced repair artifact. PA-068 passes after
 reviewed utility API setup, five ordered source reads, hard reliability
 filtering, one approved synthetic switch, old-provider bill and status
-verification, and a sourced utility artifact. PA-069 through PA-100 remain not
-run.
+verification, and a sourced utility artifact. PA-069 passes after reviewed
+meal-planning API setup, seven ordered source reads, Luau checks, one approved
+synthetic cart, receipt verification, and direct ledger verification. PA-070
+passes after reviewed vehicle-lifecycle API setup, six ordered source reads,
+Luau checks, one approved synthetic booking, receipt and status verification,
+and direct ledger verification. PA-071 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
