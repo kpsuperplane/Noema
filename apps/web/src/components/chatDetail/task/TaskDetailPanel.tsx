@@ -1,5 +1,6 @@
 import { taskActionBarStyles } from "@/components/tasks/taskActionBarStyles";
 import * as React from "react";
+import { AvatarGroup } from "@astryxdesign/core/AvatarGroup";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
@@ -187,7 +188,21 @@ function TaskSummaryHeader({
         <strong {...stylex.props(styles.summaryTitle)}>
           {taskStateLabel(detail, run)}
         </strong>
-        {!completed && detail.status !== "cancelled" && detail.attention?.summary.trim() ? (
+        {completed && detail.contributorInstanceNames.length ? (
+          <AvatarGroup aria-label="Agents that worked on this task" size="xsm">
+            {detail.contributorInstanceNames.map((instanceName, index) => (
+              <IdentityAvatar
+                key={instanceName}
+                actorId={`subagent:${instanceName}`}
+                actorType="agent"
+                className={stylex.props(styles.contributorAvatar, index > 0 && styles.contributorAvatarOverlap).className}
+                focusable={false}
+                label={instanceName}
+                size="xs"
+              />
+            ))}
+          </AvatarGroup>
+        ) : !completed && detail.status !== "cancelled" && detail.attention?.summary.trim() ? (
           <span {...stylex.props(styles.summaryOutput)}>{detail.attention.summary}</span>
         ) : !detail.attention && active ? <TaskSummaryEntry entry={entry} /> : null}
       </div>
@@ -343,11 +358,13 @@ const styles = stylex.create({
     height: "100%",
     backgroundColor: "var(--noema-surface-card)"
   },
-  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInlineStart: "calc(var(--spacing-2) + var(--spacing-0-5))", paddingInlineEnd: "var(--spacing-4)" },
+  summaryHeader: { height: "calc(2 * var(--spacing-6) + var(--spacing-2))", boxSizing: "border-box", display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInlineStart: "calc(var(--spacing-2) + var(--spacing-0-5))", paddingInlineEnd: "var(--spacing-4)" },
   summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto", paddingInlineStart: "var(--spacing-4)" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
   completedAvatar: { display: "inline-flex", width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "var(--color-success)", color: "var(--color-on-accent)" },
+  contributorAvatar: { boxSizing: "content-box", borderWidth: 2, borderStyle: "solid", borderColor: "var(--noema-surface-card)" },
+  contributorAvatarOverlap: { marginInlineStart: "calc(-1 * var(--spacing-1))" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { marginBlockStart: "calc(-1 * var(--spacing-0-5))", minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: "var(--spacing-6)", textOverflow: "ellipsis", whiteSpace: "nowrap" },
