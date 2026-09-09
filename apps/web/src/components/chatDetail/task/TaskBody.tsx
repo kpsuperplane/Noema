@@ -1,3 +1,4 @@
+import { TaskDocumentLayout } from "@/components/tasks/TaskDocumentLayout";
 import * as React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -307,11 +308,11 @@ function workspaceFileButtonLabel(file: TaskWorkspaceFile): string {
 }
 
 function TaskDocument({ citations = [], detail, edit, fileName, text }: { citations?: Parameters<typeof ProviderCitationMarkdown>[0]["citations"]; detail?: TaskDetail; edit?: TaskInlineEditController; fileName: string; text: string }) {
-  if (detail) return <VStack gap={3} data-slot="task-document" className={stylex.props(styles.taskScroller, styles.editorContent).className}>
+  if (detail) return <TaskDocumentLayout>
     {edit?.options}
     {detail.schedule?.recurrenceId ? <Link to="/tasks/recurrences/$recurrenceId" params={{ recurrenceId: detail.schedule.recurrenceId }} search={(current) => normalizeTasksSearch(current)}>View recurring task</Link> : detail.schedule || detail.stageBehavior === "INTAKE" ? <TaskScheduleSummary schedule={detail.schedule}>{edit?.timing}</TaskScheduleSummary> : null}
     <TaskInstructionsField value={detail.taskDocument} edit={edit} />
-  </VStack>;
+  </TaskDocumentLayout>;
   const response = text.trim() || undefined;
 
   return (
@@ -436,7 +437,6 @@ const styles = stylex.create({
     paddingBlockEnd: "var(--spacing-6)"
   },
 
-  editorContent: { overflowX: "visible", overflowY: "visible", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
   taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto" },
   plainText: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, margin: "var(--spacing-0) auto", color: "var(--noema-text-primary)", fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
   taskContent: {

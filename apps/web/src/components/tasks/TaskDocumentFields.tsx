@@ -6,7 +6,7 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useBlocker } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { MarkdownInlineEditor } from "@/components/MarkdownEditor";
+import { MarkdownInlineEditor, type MarkdownEditorProps } from "@/components/MarkdownEditor";
 import { MarkdownContent } from "@/components/MarkdownContent";
 
 export type TaskFieldEdit = {
@@ -55,6 +55,12 @@ export const TaskTitleField = React.forwardRef<HTMLTextAreaElement, React.Textar
     </VStack>;
   }
 );
+
+export function TaskDocumentEditor({ disabled, ...props }: MarkdownEditorProps & { disabled?: boolean }) {
+  return <section inert={disabled} {...stylex.props(styles.instructions, styles.editor, !disabled && styles.editable)}>
+    <MarkdownInlineEditor {...props} showBlockHandle={false} />
+  </section>;
+}
 
 function useTaskField(value: string, field: "TITLE" | "DOCUMENT", edit?: TaskFieldEdit, readValueRef?: React.RefObject<(() => string) | null>) {
   const [draft, setDraft] = React.useState(value);
@@ -128,9 +134,7 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
     void field.finish(read());
   }}>
     {field.saveStatus}
-    {edit && (edit.canEdit || edit.field === "DOCUMENT") ? <section inert={edit.busy || !edit.canEdit} {...stylex.props(styles.instructions, edit.canEdit && !edit.busy && styles.editable)}>
-      <MarkdownInlineEditor readValueRef={readValueRef} value={field.draft} onChange={field.change} label="Task instructions" placeholder="Add details or instructions…" showBlockHandle={false} />
-    </section> : <MarkdownContent density="compact">{value || "No instructions added."}</MarkdownContent>}
+    {edit && (edit.canEdit || edit.field === "DOCUMENT") ? <TaskDocumentEditor disabled={edit.busy || !edit.canEdit} readValueRef={readValueRef} value={field.draft} onChange={field.change} label="Task instructions" placeholder="Add details or instructions…" /> : <MarkdownContent density="compact">{value || "No instructions added."}</MarkdownContent>}
     <HStack justify="between" align="center" gap={2} wrap="wrap">
       <VStack gap={1} className={stylex.props(styles.feedback).className}>{scope ? <span>{scope}</span> : null}{field.feedback}</VStack>
     </HStack>
@@ -164,6 +168,7 @@ const styles = stylex.create({
       zIndex: -1
     }
   },
+  editor: { display: "flex", flexDirection: "column", flexGrow: 1 },
   instructions: { width: "100%", minWidth: 0 },
   feedback: { color: "var(--noema-text-secondary)", fontSize: "var(--text-supporting-size)", textWrap: "pretty", ":empty": { display: "none" } }
 });

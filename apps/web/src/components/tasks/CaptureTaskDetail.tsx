@@ -2,7 +2,7 @@ import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { TaskTitleField } from "./TaskDocumentFields";
+import { TaskDocumentEditor, TaskTitleField } from "./TaskDocumentFields";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
@@ -14,7 +14,9 @@ import { useBlocker } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import { CalendarClock, Check, Folder } from "lucide-react";
 import { ChatDetailCloseButton } from "@/components/chatDetail/ChatDetailCloseButton";
-import { MarkdownInlineEditor } from "@/components/MarkdownEditor";
+import { TaskDocumentLayout, TaskTitleHeader } from "./TaskDocumentLayout";
+import { TaskScheduleSummary } from "./TaskScheduleSummary";
+import { taskScheduleTimestampLabel } from "./tasksModel";
 import { TasksCaptureTaskDocument, TasksQueueTaskDocument } from "@/generated/graphql";
 import { pwaRuntime } from "@/pwa/runtime";
 import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
@@ -168,15 +170,24 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
     >
       <Layout
         height="fill"
-        contentWidth={760}
         header={
-          <HStack as="header" align="center" justify="between" gap={2} className={stylex.props(styles.header).className}>
-            <h2 {...stylex.props(styles.heading)}>New task</h2>
-            <HStack xstyle={styles.mobileClose}><ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={close} /></HStack>
-          </HStack>
+          <VStack gap={0} xstyle={styles.header}>
+            <TaskTitleHeader close={<ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={close} />}>
+              <TaskTitleField
+                ref={titleRef}
+                form={captureFormId}
+                aria-label="Task title"
+                autoComplete="off"
+                required
+                value={title}
+                placeholder="What needs to be done?"
+                onChange={(event) => setTitle(event.currentTarget.value)}
+              />
+            </TaskTitleHeader>
+          </VStack>
         }
         content={
-          <LayoutContent className={stylex.props(styles.content).className}>
+          <LayoutContent padding={0} className={stylex.props(styles.content).className}>
             <form
               id={captureFormId}
               name="capture-task"
@@ -186,15 +197,18 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                 void submit(mainIntent);
               }}
             >
-              <TaskTitleField
-                ref={titleRef}
-                aria-label="Task title"
-                autoComplete="off"
-                required
-                value={title}
-                placeholder="What needs to be done?"
-                onChange={(event) => setTitle(event.currentTarget.value)}
-              />
+              <TaskDocumentLayout>
+                <HStack>
+                  <DropdownMenu button={{ label: selectedProject?.name ?? "Personal", icon: <Folder aria-hidden="true" size={16} />, size: "sm", variant: "secondary", isDisabled: submitting }} placement="below" items={[
+                    { label: "Personal", icon: !projectId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setProjectId("") },
+                    ...activeProjects.map((project) => ({ label: project.name, icon: project.projectId === projectId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setProjectId(project.projectId) }))
+                  ]} />
+                </HStack>
+                <TaskScheduleSummary value={scheduling ? validSchedule ? taskScheduleTimestampLabel(validSchedule.scheduledFor, schedule.timeZone) : "Choose a start time" : undefined}>
+                  <Popover placement="below" alignment="start" label="Task schedule" width="min(340px, calc(100vw - var(--spacing-4)))" xstyle={styles.schedulePopover} content={<VStack gap={3}><CheckboxInput label="Schedule for later" value={scheduling} onChange={setScheduling} />{scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}</VStack>}>
+                    <Button size="sm" variant={scheduling ? "secondary" : "ghost"} label={scheduling ? "Reschedule" : "Schedule"} icon={<CalendarClock aria-hidden="true" size={16} />} isDisabled={submitting} />
+                  </Popover>
+                </TaskScheduleSummary>
               <section
                 ref={documentRef}
                 aria-label="Task document"
@@ -206,8 +220,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                   documentRef.current?.querySelector<HTMLElement>("[contenteditable='true'], textarea")?.focus();
                 }}
               >
-                <MarkdownInlineEditor
-                  showBlockHandle={false}
+                <TaskDocumentEditor
                   readValueRef={readValueRef}
                   key={draftRevision}
                   value={taskDocument}
@@ -216,12 +229,13 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                   placeholder="Add details or instructions…"
                 />
               </section>
-              {submitError ? <p role="alert" {...stylex.props(styles.error)}>{submitError}</p> : null}
+                {submitError ? <p role="alert" {...stylex.props(styles.error)}>{submitError}</p> : null}
+              </TaskDocumentLayout>
             </form>
           </LayoutContent>
         }
         footer={
-          <LayoutFooter>
+          <LayoutFooter padding={0} className={stylex.props(styles.footer).className}>
             <VStack gap={3} width="100%">
               <Collapsible trigger="Advanced" defaultIsOpen={false}>
                 <VStack gap={3}>
@@ -229,15 +243,6 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                 </VStack>
               </Collapsible>
               <HStack align="center" justify="between" gap={2} wrap="wrap" className={stylex.props(styles.controlRow).className}>
-                <HStack align="center" gap={2} wrap="wrap">
-                  <DropdownMenu button={{ label: selectedProject?.name ?? "Personal", icon: <Folder aria-hidden="true" size={16} />, size: "sm", variant: "ghost", isDisabled: submitting }} placement="above" items={[
-                    { label: "Personal", icon: !projectId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setProjectId("") },
-                    ...activeProjects.map((project) => ({ label: project.name, icon: project.projectId === projectId ? <Check aria-hidden="true" size={14} /> : undefined, onClick: () => setProjectId(project.projectId) }))
-                  ]} />
-                  <Popover placement="above" alignment="start" label="Task schedule" width="min(340px, calc(100vw - var(--spacing-4)))" xstyle={styles.schedulePopover} content={<VStack gap={3}><CheckboxInput label="Schedule for later" value={scheduling} onChange={setScheduling} />{scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}</VStack>}>
-                    <Button size="sm" variant={scheduling ? "secondary" : "ghost"} label={scheduling ? "Reschedule" : "Schedule"} icon={<CalendarClock aria-hidden="true" size={16} />} isDisabled={submitting} />
-                  </Popover>
-                </HStack>
                 <HStack gap={2} className={stylex.props(styles.createActions).className}>
                   <Button type="button" size="md" variant="secondary" label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
                   <Button form={captureFormId} type="submit" size="md" variant="primary" label={scheduling ? "Schedule task" : "Run now"} isLoading={submitting} isDisabled={mainDisabled} />
@@ -252,11 +257,10 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
 });
 
 const styles = stylex.create({
-  root: { height: "100%", minHeight: 0, backgroundColor: "var(--noema-surface-card)" },
-  mobileClose: { display: { default: "inline-flex", "@media (min-width: 980px)": "none" } },
-  header: { minWidth: 0, paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-4)" },
-  heading: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: 16, fontWeight: 650, lineHeight: 1.25 },
-  content: { minHeight: 0 },
+  root: { width: "100%", height: "100%", minHeight: 0, backgroundColor: "var(--noema-surface-card)" },
+  header: { paddingBlockEnd: "var(--spacing-3)", borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
+  content: { minHeight: 0, padding: "var(--spacing-0)" },
+  footer: { paddingBlock: "var(--spacing-4)", paddingInline: "max(var(--spacing-6), calc((100% - 760px) / 2))" },
   form: { display: "flex", width: "100%", minHeight: "100%", flexDirection: "column", gap: "var(--spacing-2)" },
   document: { display: "flex", flexDirection: "column", flexGrow: 1, minHeight: "calc(var(--spacing-10) * 6)", color: "var(--foreground)", cursor: "text" },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },

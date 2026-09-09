@@ -1,3 +1,4 @@
+import { TaskTitleHeader } from "@/components/tasks/TaskDocumentLayout";
 import { EditableTaskTitle } from "@/components/tasks/TaskDocumentFields";
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
@@ -259,13 +260,13 @@ function RoutedChatDetailRail({
     }
   }, [closeTask, isContained, isModal]);
 
-  const taskHeader = (
-    <header {...stylex.props(styles.header, styles.taskHeader, Boolean(taskTargetId || recurrenceTargetId) && styles.taskWorkspaceHeader)}>
-      <div {...stylex.props(styles.taskTitleBar, !projectTargetId && styles.taskTitleWithoutClose)}>
+  const taskHeader = !projectTargetId ? <TaskTitleHeader close={<ChatDetailCloseButton closeButtonRef={taskCloseButtonRef} onClose={() => void closeTask()} />}><EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} /></TaskTitleHeader> : (
+    <header {...stylex.props(styles.header, styles.taskHeader)}>
+      <div {...stylex.props(styles.taskTitleBar)}>
         <div {...stylex.props(styles.taskIdentity)}>
-          {projectTargetId ? <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2> : <EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} />}
+          <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2>
         </div>
-        <div {...stylex.props(styles.taskHeaderActions, !projectTargetId && styles.mobileClose)}>
+        <div {...stylex.props(styles.taskHeaderActions)}>
           <ChatDetailCloseButton
             closeButtonRef={taskCloseButtonRef}
             onClose={() => void closeTask()}
@@ -542,7 +543,6 @@ const styles = stylex.create({
     willChange: "transform"
   },
   taskRouteFrame: { gridTemplateRows: "minmax(0, 1fr)" },
-  mobileClose: { display: { default: "inline-flex", "@media (min-width: 980px)": "none" } },
   header: {
     minWidth: 0,
     display: "grid",
@@ -562,8 +562,6 @@ const styles = stylex.create({
     borderBottomWidth: 0,
     pointerEvents: "auto"
   },
-  taskWorkspaceHeader: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, paddingInline: "var(--spacing-0)" },
-  taskTitleWithoutClose: { "@media (min-width: 980px)": { gridTemplateColumns: "minmax(0, 1fr)", columnGap: "var(--spacing-0)" } },
   taskTitleBar: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: "var(--spacing-3)" },
   taskIdentity: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
 

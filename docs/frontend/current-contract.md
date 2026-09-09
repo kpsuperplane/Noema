@@ -214,6 +214,8 @@ navigation, event handlers, and external resources. SVG remains download-only.
 
 Task and project documents share the Markdown viewer and Milkdown editor.
 Task creation uses `/tasks/new` and the normal detail area beside the Tasks list.
+New tasks and Inbox tasks share the title header, document layout, timing summary, and editable body styling.
+The new task title sits above a full-width divider. Project and timing controls precede the instructions.
 The title and instructions have accessible names without visible field labels.
 The instructions fill the remaining height in rich text and source modes.
 Project and Schedule controls use visible labels. Add to Inbox and Run now remain visible together.
