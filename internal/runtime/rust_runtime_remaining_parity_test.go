@@ -1325,7 +1325,7 @@ func TestRustRuntime_runtime_turn_streams_tool_call_started_before_durable_respo
 	durableCommentary := -1
 	var transientActivity, durableTool *store.ConversationItem
 	for index, event := range collected {
-		if event.Kind == EventAssistantDelta && event.Delta == "Searching memory." {
+		if event.Kind == EventConversationItem && event.Item != nil && event.Item.Status == "running" && event.Item.ContentText == "Searching memory." {
 			streamedText = index
 		}
 		if event.Kind != EventConversationItem || event.Item == nil {

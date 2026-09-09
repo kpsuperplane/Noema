@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -218,6 +219,44 @@ func providerMessagesFromItems(
 			results[item.ParentItemID] = item
 		}
 	}
+	// Provider completion can arrive after live text. Restore output order
+	// within each response before attaching replay metadata and tool results.
+	byRound := make(map[string][]store.ConversationItem)
+	key := func(item store.ConversationItem) string {
+		return fmt.Sprintf("%s:%d", item.TurnID, providerRound(item))
+	}
+	providerItem := func(item store.ConversationItem) bool {
+		return item.Kind == store.ConversationReasoning || item.Kind == store.ConversationAssistantText || item.Kind == store.ConversationToolCall
+	}
+	for _, item := range items {
+		if providerItem(item) {
+			byRound[key(item)] = append(byRound[key(item)], item)
+		}
+	}
+	for _, group := range byRound {
+		hasOutputOrder := false
+		for _, item := range group {
+			hasOutputOrder = hasOutputOrder || textValue(item.Metadata["provider_output_kind"]) == "message"
+		}
+		sort.SliceStable(group, func(i, j int) bool {
+			if group[i].Kind == store.ConversationReasoning {
+				return group[j].Kind != store.ConversationReasoning
+			}
+			if group[j].Kind == store.ConversationReasoning {
+				return false
+			}
+			return hasOutputOrder && providerOutputIndex(group[i]) < providerOutputIndex(group[j])
+		})
+	}
+	ordered := append([]store.ConversationItem(nil), items...)
+	for i, item := range items {
+		if providerItem(item) {
+			group := byRound[key(item)]
+			ordered[i] = group[0]
+			byRound[key(item)] = group[1:]
+		}
+	}
+	items = ordered
 	messages := make([]provider.GenerationMessage, 0, len(items))
 	rounds := make([]int, 0, len(items))
 	var reasoning []json.RawMessage
@@ -256,6 +295,9 @@ func providerMessagesFromItems(
 			messages = append(messages, provider.GenerationMessage{Role: "user", Content: item.ContentText})
 			rounds = append(rounds, providerRound(item))
 		case store.ConversationAssistantText:
+			if textValue(item.Metadata["provider_output_kind"]) == "reasoning" {
+				continue
+			}
 			round := providerRound(item)
 			flushHosted(round)
 			content := item.ContentText
@@ -263,7 +305,7 @@ func providerMessagesFromItems(
 				content = item.ProviderContentText
 			}
 			messages = append(messages, provider.GenerationMessage{
-				Role: "assistant", Content: content, ReasoningDetails: reasoning,
+				Role: "assistant", Content: content, ReasoningDetails: reasoning, Phase: textValue(item.Metadata["provider_phase"]), ProviderItemID: textValue(item.Metadata["provider_item_id"]),
 			})
 			rounds = append(rounds, round)
 			reasoning = nil
@@ -1164,15 +1206,15 @@ func (c *Chat) generateChatToolContinuation(
 			fmt.Errorf("%s provider-hosted web state is unavailable", assignment.ProviderKind)
 	}
 	if continuing {
-		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}}, incrementalMessages...)
+		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}, {Role: "developer", Content: progressMessageInstructions}}, incrementalMessages...)
 		messages = append(messages, environment...)
 		messages = append(messages, toolVisibilityMessage(tools, transport, hostedWeb))
 		if requestProjectContext != "" {
 			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})
 		}
 	}
-	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
 	generate := func() (provider.GenerationResult, error) {
+		output := c.outputStream(turn, providerRound, request.input.ClientMessageID)
 		started := time.Now()
 		span, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
 			store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "provider", "Provider continuation",
@@ -1190,16 +1232,14 @@ func (c *Chat) generateChatToolContinuation(
 			ExpectedCredentialRevision: expectedCredentialRevision,
 			FastMode:                   assignment.FastMode,
 		}, func(event provider.StreamEvent) {
-			switch event.Kind {
-			case provider.TextDelta:
-				c.publish(Event{
-					Kind: EventAssistantDelta, ConversationID: turn.ConversationID,
-					TurnID: turn.ID, StreamID: streamID, ResponseIndex: 0, Delta: event.Delta,
-				})
-			case provider.ToolCallStarted:
+			output.event(event)
+			if event.Kind == provider.ToolCallStarted {
 				c.publishProviderToolCallStarted(request, turn, event)
 			}
 		})
+		if saveErr := output.finish(&value, generateErr); saveErr != nil && generateErr == nil {
+			generateErr = saveErr
+		}
 		status := "completed"
 		if generateErr != nil {
 			status = "failed"
@@ -1217,6 +1257,9 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	result, err := generate()
 	if err == nil {
+		return result, stopReason != "", err
+	}
+	if len(result.Output) != 0 {
 		return result, stopReason != "", err
 	}
 	requestTooLarge := errors.Is(err, provider.ErrGenerationRequestTooLarge)
@@ -1251,7 +1294,7 @@ func (c *Chat) generateChatToolContinuation(
 	hostedWeb = false
 	if continuingSession {
 		sessionReplay = messages
-		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}}, incrementalMessages...)
+		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}, {Role: "developer", Content: progressMessageInstructions}}, incrementalMessages...)
 		messages = append(messages, environment...)
 		messages = append(messages, toolVisibilityMessage(nil, provider.ToolTransportNone, false))
 	}

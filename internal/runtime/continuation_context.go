@@ -70,39 +70,18 @@ func continuationKind(message provider.GenerationMessage) string {
 func (c *ContinuationContext) AppendResponse(response provider.GenerationResult) {
 	c.awaitingProvider = false
 	c.requiresReplay = false
-	for _, reasoning := range response.Reasoning {
-		if reasoning.EncryptedContent == "" && len(reasoning.ProviderDetails) == 0 && reasoning.ID == "" {
-			continue
+	for _, message := range response.ReplayMessages() {
+		for i := range message.ToolCalls {
+			call := &message.ToolCalls[i]
+			if call.ProviderCallID == "" {
+				call.ProviderCallID = call.ProviderItemID
+			}
+			if call.ProviderCallID == "" {
+				call.ProviderCallID = c.syntheticCallID()
+			}
+			c.pendingCallIDs = append(c.pendingCallIDs, call.ProviderCallID)
 		}
-		c.items = append(c.items, continuationInputItem{kind: "reasoning", message: provider.GenerationMessage{
-			Role: "assistant", ReasoningID: reasoning.ID, EncryptedReasoning: reasoning.EncryptedContent,
-			ReasoningDetails: append([]json.RawMessage(nil), reasoning.ProviderDetails...),
-		}})
-	}
-	for _, search := range response.Searches {
-		searchCopy := search
-		c.items = append(c.items, continuationInputItem{kind: "hosted_web_search", message: provider.GenerationMessage{Role: "hosted_web_search", HostedSearch: &searchCopy}})
-	}
-	if response.Text != "" || len(response.ToolCalls) == 0 {
-		c.items = append(c.items, continuationInputItem{kind: "assistant_text", message: provider.GenerationMessage{
-			Role: "assistant", Content: response.Text, ReasoningDetails: generationReasoning(response),
-		}})
-	}
-	for _, call := range response.ToolCalls {
-		callID := call.ProviderCallID
-		if callID == "" {
-			callID = call.ProviderItemID
-		}
-		if callID == "" {
-			callID = c.syntheticCallID()
-		}
-		c.pendingCallIDs = append(c.pendingCallIDs, callID)
-		c.items = append(c.items, continuationInputItem{kind: "tool_call", message: provider.GenerationMessage{
-			Role: "assistant", ToolCalls: []provider.ReplayToolCall{{
-				ProviderItemID: call.ProviderItemID, ProviderCallID: callID, ProviderName: call.ProviderName,
-				Name: call.Name, Arguments: append(json.RawMessage(nil), call.Payload...),
-			}},
-		}})
+		c.items = append(c.items, continuationInputItem{kind: continuationKind(message), message: message})
 	}
 	c.continuationDeltaStart = len(c.items)
 }

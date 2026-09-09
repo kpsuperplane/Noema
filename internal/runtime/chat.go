@@ -592,7 +592,7 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
+	output := c.outputStream(turn, 0, request.input.ClientMessageID)
 	providerStarted := time.Now()
 	providerSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
 		store.RuntimeDebugScope{Kind: "conversation_turn", ID: turn.ID}, "provider", "Initial provider request",
@@ -608,16 +608,14 @@ func (c *Chat) execute(request queuedTurn) {
 		StoreResponse:   responseIDContinuationProvider(assignment.ProviderKind),
 		FastMode:        assignment.FastMode,
 	}, func(event provider.StreamEvent) {
-		switch event.Kind {
-		case provider.TextDelta:
-			c.publish(Event{
-				Kind: EventAssistantDelta, ConversationID: turn.ConversationID,
-				TurnID: turn.ID, StreamID: streamID, ResponseIndex: 0, Delta: event.Delta,
-			})
-		case provider.ToolCallStarted:
+		output.event(event)
+		if event.Kind == provider.ToolCallStarted {
 			c.publishProviderToolCallStarted(request, turn, event)
 		}
 	})
+	if saveErr := output.finish(&result, err); saveErr != nil && err == nil {
+		err = saveErr
+	}
 	providerStatus := "completed"
 	if err != nil {
 		providerStatus = "failed"

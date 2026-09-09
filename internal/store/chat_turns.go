@@ -637,7 +637,7 @@ WHERE turn_id = ? AND conversation_id = ?
 		return errors.New("conversation turn is already final")
 	}
 	if _, err := tx.ExecContext(ctx, `
-UPDATE conversation_items SET status = 'cancelled', updated_at_ms = ?
+UPDATE conversation_items SET status = 'cancelled', metadata_json = CASE WHEN json_extract(metadata_json, '$.provider_output_kind') IS NOT NULL THEN json_set(metadata_json, '$.output_status', 'failed') ELSE metadata_json END, updated_at_ms = ?
 WHERE turn_id = ? AND status IN ('pending', 'running')`, millis(now), turn.ID); err != nil {
 		return fmt.Errorf("cancel conversation turn items: %w", err)
 	}
@@ -678,7 +678,7 @@ WHERE conversation_id IN (
 		return 0, fmt.Errorf("restore recovered conversations: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-UPDATE conversation_items SET status = 'cancelled', updated_at_ms = ?
+UPDATE conversation_items SET status = 'cancelled', metadata_json = CASE WHEN json_extract(metadata_json, '$.provider_output_kind') IS NOT NULL THEN json_set(metadata_json, '$.output_status', 'failed') ELSE metadata_json END, updated_at_ms = ?
 WHERE status IN ('pending', 'running') AND turn_id IN (
     SELECT turn_id FROM conversation_turns
     WHERE status IN ('input_received', 'running', 'waiting_for_tool') AND NOT EXISTS (
@@ -802,7 +802,30 @@ WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`
 	if providerContent != "" && providerContent != content {
 		storedProvider = providerContent
 	}
-	if kind == ConversationAssistantText && content == "" {
+	var streamedID string
+	if kind == ConversationAssistantText {
+		err := tx.QueryRowContext(ctx, `SELECT item_id FROM conversation_items WHERE turn_id = ? AND kind = 'assistant_text' AND json_extract(metadata_json, '$.provider_round') = ? AND json_extract(metadata_json, '$.provider_output_kind') IS NOT NULL ORDER BY CASE json_extract(metadata_json, '$.provider_output_kind') WHEN 'message' THEN 0 ELSE 1 END, sequence_index DESC LIMIT 1`, turn.ID, providerRound).Scan(&streamedID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return ConversationItem{}, err
+		}
+	}
+	if streamedID != "" {
+		itemID = streamedID
+		// Usage belongs to the response once; keep each section's identity and phase.
+		finalMetadata := map[string]any{"provider": providerKind}
+		var providerPhase string
+		_ = tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(metadata_json, '$.provider_phase'), '') FROM conversation_items WHERE item_id = ?`, itemID).Scan(&providerPhase)
+		if providerPhase == "" {
+			finalMetadata["phase"] = "final_answer"
+		}
+		if usage, ok := metadata["provider_usage"]; ok {
+			finalMetadata["provider_usage"] = usage
+		}
+		encoded, _ := json.Marshal(finalMetadata)
+		if _, err := tx.ExecContext(ctx, `UPDATE conversation_items SET metadata_json = json_patch(metadata_json, ?), updated_at_ms = ? WHERE item_id = ?`, string(encoded), millis(now), itemID); err != nil {
+			return ConversationItem{}, err
+		}
+	} else if kind == ConversationAssistantText && content == "" {
 		// A displayed question is the final response for this turn.
 		if err := tx.QueryRowContext(ctx, `
 SELECT prompt.item_id FROM conversation_items prompt
@@ -872,8 +895,8 @@ WHERE call.turn_id=? AND call.kind='tool_call' AND call.status IN ('pending','ru
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE conversation_items SET status = CASE
 WHEN ?='completed' AND kind IN ('tool_call','tool_result') THEN 'failed'
-ELSE ? END, updated_at_ms=?
-WHERE turn_id=? AND status IN ('pending','running')`, turnStatus, turnStatus, millis(now), turnID)
+ELSE ? END, metadata_json = CASE WHEN json_extract(metadata_json, '$.provider_output_kind') IS NOT NULL THEN json_set(metadata_json, '$.output_status', CASE WHEN ? = 'completed' THEN 'completed' ELSE 'failed' END) ELSE metadata_json END, updated_at_ms=?
+WHERE turn_id=? AND status IN ('pending','running')`, turnStatus, turnStatus, turnStatus, millis(now), turnID)
 	if err != nil {
 		return err
 	}

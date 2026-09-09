@@ -322,6 +322,9 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 		role := taskRequestRole(request.Tools)
 		mu.Lock()
 		roleCalls[role]++
+		if len(request.Messages) == 0 || !strings.Contains(request.Messages[0].Content, progressMessageInstructions) {
+			requestProblem = "progress instructions missing"
+		}
 		call := roleCalls[role]
 		if request.HostedWebSearch != (role == "executor") {
 			requestProblem = "hosted web search did not match the Task role"
@@ -894,9 +897,10 @@ func TestTaskExecutionPreservesProviderReplayItems(t *testing.T) {
 	content := result.Text
 	runtime := &TaskExecution{}
 	messages, _, err := runtime.replayTaskItems(context.Background(), store.Task{}, store.TaskRun{}, []store.TaskRunItem{{Kind: "assistant_output", Content: &content, Payload: stored}})
-	if err != nil || len(messages) != 2 || messages[0].HostedSearch == nil || len(messages[0].HostedSearch.Sources) != 1 ||
-		messages[0].HostedSearch.Sources[0].URL != "https://example.test/path?value=ordinary" ||
-		len(messages[1].ReasoningDetails) != 1 || !strings.Contains(string(messages[1].ReasoningDetails[0]), "ordinary-id") ||
+	if err != nil || len(messages) != 3 || messages[1].HostedSearch == nil || len(messages[1].HostedSearch.Sources) != 1 ||
+		messages[1].HostedSearch.Sources[0].URL != "https://example.test/path?value=ordinary" ||
+		len(messages[0].ReasoningDetails) != 1 || !strings.Contains(string(messages[0].ReasoningDetails[0]), "ordinary-id") ||
+		messages[2].Content != result.Text ||
 		!strings.Contains(string(encoded), "https://example.test/path?value=ordinary") {
 		t.Fatalf("provider replay = %#v, payload=%s, %v", messages, encoded, err)
 	}

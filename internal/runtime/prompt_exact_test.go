@@ -120,3 +120,13 @@ func modelContextSectionContent(t *testing.T, messages []provider.GenerationMess
 	}
 	return content
 }
+
+func TestChatProgressInstructionExtendsExactPrompt(t *testing.T) {
+	messages := developerMessages(nil, "", "", false)
+	if messages[0].Content != structuredTurnPrompt {
+		t.Fatal("baseline changed")
+	}
+	if len(messages) < 2 || messages[1].Content != progressMessageInstructions {
+		t.Fatal("progress instruction missing")
+	}
+}

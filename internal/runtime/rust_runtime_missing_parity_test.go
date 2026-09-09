@@ -261,10 +261,10 @@ func TestRustRuntime_runtime_turn_streams_durable_assistant_item_and_idle_status
 	all := collectCompletedTurns(t, events, 1)
 	firstDelta, assistant := -1, -1
 	for index, event := range all {
-		if event.Kind == EventAssistantDelta && firstDelta < 0 {
+		if event.Kind == EventConversationItem && event.Item != nil && event.Item.Kind == store.ConversationAssistantText && event.Item.Status == "running" && firstDelta < 0 {
 			firstDelta = index
 		}
-		if event.Kind == EventConversationItem && event.Item != nil && event.Item.Kind == store.ConversationAssistantText && assistant < 0 {
+		if event.Kind == EventConversationItem && event.Item != nil && event.Item.Kind == store.ConversationAssistantText && event.Item.Status == "completed" && assistant < 0 {
 			assistant = index
 		}
 	}
@@ -847,7 +847,7 @@ func TestRustRuntime_runtime_rejects_mixed_delegation_batch_without_executing_an
 			}
 		}
 	}
-	if failed != 2 || len(texts) != 1 || texts[0] != "I could not combine delegation with another tool." {
+	if failed != 2 || len(texts) != 2 || texts[0] != "I started the task and renamed myself." || texts[1] != "I could not combine delegation with another tool." {
 		t.Errorf("mixed batch results: %d failures, texts=%q", failed, texts)
 	}
 

@@ -391,7 +391,7 @@ func memoryPageValue(page noemamemory.Page) map[string]any {
 }
 
 func developerMessages(environment []provider.GenerationMessage, memoryContext, projectContext string, hostedWeb bool) []provider.GenerationMessage {
-	messages := []provider.GenerationMessage{{Role: "system", Instructions: true, Content: structuredTurnPrompt}}
+	messages := []provider.GenerationMessage{{Role: "system", Instructions: true, Content: structuredTurnPrompt}, {Role: "developer", Content: progressMessageInstructions}}
 	if strings.TrimSpace(memoryContext) != "" {
 		messages = append(messages, provider.GenerationMessage{
 			Role: "developer", Content: "Native local-human memory (source root page):\n" + memoryContext,

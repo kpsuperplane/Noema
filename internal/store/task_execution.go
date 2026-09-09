@@ -37,6 +37,11 @@ func (s *Store) RecoverTaskExecutions(ctx context.Context, now time.Time) error 
 		return err
 	}
 	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `UPDATE task_run_items SET status='failed',updated_at_ms=?
+WHERE item_kind='assistant_output' AND status='running' AND run_id IN
+(SELECT run_id FROM task_runs WHERE status IN ('leased','running'))`, millis(now)); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='queued',updated_at_ms=?
 WHERE executor_backend='provider' AND status IN ('leased','running') AND run_id IN
 (SELECT current_run_id FROM tasks WHERE state='running' AND current_run_id IS NOT NULL)`, millis(now)); err != nil {
@@ -170,12 +175,21 @@ func (s *Store) AppendTaskRunItems(ctx context.Context, runID string, generation
 			if err != nil {
 				return err
 			}
-			_, err = tx.ExecContext(ctx, `INSERT INTO task_run_items
+			changed, err := tx.ExecContext(ctx, `INSERT INTO task_run_items
 (item_id,run_id,sequence_index,round_index,item_kind,status,correlation_id,parent_item_id,content_text,payload_json,created_at_ms,updated_at_ms)
-VALUES (?,?,?,?,?,?,NULLIF(?,''),NULLIF(?,''),NULLIF(?,''),?,?,?)`, id, run.ID, next, item.Round, item.Kind, item.Status,
+VALUES (?,?,?,?,?,?,NULLIF(?,''),NULLIF(?,''),NULLIF(?,''),?,?,?)
+ON CONFLICT(item_id) DO UPDATE SET content_text=excluded.content_text,payload_json=excluded.payload_json,
+status=excluded.status,updated_at_ms=MAX(task_run_items.updated_at_ms+1,excluded.updated_at_ms)
+WHERE task_run_items.item_kind='assistant_output' AND excluded.item_kind='assistant_output'
+AND task_run_items.run_id=excluded.run_id AND task_run_items.round_index=excluded.round_index
+AND json_type(task_run_items.payload_json,'$.output')='array'
+AND json_type(excluded.payload_json,'$.output')='array'`, id, run.ID, next, item.Round, item.Kind, item.Status,
 				item.CorrelationID, item.ParentID, item.Content, string(payload), millis(now), millis(now))
 			if err != nil {
 				return err
+			}
+			if count, _ := changed.RowsAffected(); count != 1 {
+				return ErrStaleRun
 			}
 			if item.Kind == "tool_result" && item.ParentID != "" {
 				if _, err = tx.ExecContext(ctx, `UPDATE task_run_items SET status=?,updated_at_ms=? WHERE item_id=? AND run_id=? AND item_kind='tool_call' AND status='running'`, item.Status, millis(now), item.ParentID, run.ID); err != nil {

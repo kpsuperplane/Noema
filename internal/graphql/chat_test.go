@@ -152,12 +152,12 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 	}
 
 	wantTypes := []string{
-		"status:INPUT_RECEIVED", "status:THINKING", "item:user", "delta", "delta",
+		"status:INPUT_RECEIVED", "status:THINKING", "item:user",
 		"item:assistant", "status:IDLE", "completed",
 	}
 	gotTypes := make([]string, 0, len(wantTypes))
 	deadline := time.After(5 * time.Second)
-	for len(gotTypes) < len(wantTypes) {
+	for len(gotTypes) == 0 || gotTypes[len(gotTypes)-1] != "completed" {
 		select {
 		case event := <-events:
 			switch value := event.(type) {
@@ -168,7 +168,9 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 				case model.UserText:
 					gotTypes = append(gotTypes, "item:user")
 				case model.AssistantText:
-					gotTypes = append(gotTypes, "item:assistant")
+					if gotTypes[len(gotTypes)-1] != "item:assistant" {
+						gotTypes = append(gotTypes, "item:assistant")
+					}
 				}
 			case model.AssistantTextDeltaEvent:
 				gotTypes = append(gotTypes, "delta")

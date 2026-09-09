@@ -406,6 +406,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			identity := promptJSONString(run.InstanceName)
 			instructions += "\n\nSubagent instance identity:\n- instance_name: " + identity + "\n- This label is assigned by Noema and remains stable for this run. Do not rename it or claim it is user-chosen."
 		}
+		instructions += "\n\n" + progressMessageInstructions
 		if len(messages) > 0 {
 			messages[0].Content = instructions
 		}
@@ -469,6 +470,11 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		if continuing {
 			requestMessages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}}, requestMessages...)
 		}
+		outputStream, outputID, streamErr := r.taskOutputStream(ctx, run, int64(round))
+		if streamErr != nil {
+			r.failRun(ctx, run, "transcript_failed", false)
+			return
+		}
 		result, generateErr := generator.Generate(ctx, provider.GenerateRequest{
 			AccountID: run.ProviderAccountID, Model: model, Messages: requestMessages,
 			ReplayMessages: replayMessages, PreviousResponseID: requestPreviousID,
@@ -477,7 +483,10 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			Tools: tools, ToolTransport: provider.ToolTransportNative,
 			ToolChoice: provider.ToolChoiceAuto, ParallelTools: false,
 			HostedWebSearch: run.Kind == "executor" && hostedWebSearchEnabled(run.ProviderKind, provider.ToolTransportNative) && (r.web == nil || !r.web.Explicit(ctx)), FastMode: run.FastMode,
-		}, func(provider.StreamEvent) {})
+		}, outputStream.event)
+		if streamErr := outputStream.finish(&result, generateErr); streamErr != nil {
+			generateErr = streamErr
+		}
 		elapsed := time.Since(started).Milliseconds()
 		providerStatus := "completed"
 		if generateErr != nil {
@@ -506,6 +515,9 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			return
 		}
 		assistant := taskAssistantItems(result, int64(round))
+		for i := range assistant {
+			assistant[i].ID = outputID
+		}
 		persistenceStarted := time.Now()
 		persistenceSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
 			store.RuntimeDebugScope{Kind: "task_run", ID: run.ID}, "persistence", "Save Task response",
@@ -796,20 +808,31 @@ func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, gene
 	}
 	messages = append([]provider.GenerationMessage(nil), messages...)
 	messages[0].Instructions = true
-	messages[0].Content = taskTerminalInstructions(taskFinalizationPrompt(run.Kind, reason, taskOriginalInput(messages)), terminal)
+	messages[0].Content = taskTerminalInstructions(taskFinalizationPrompt(run.Kind, reason, taskOriginalInput(messages)), terminal) + "\n\n" + progressMessageInstructions
 	started := time.Now()
 	model, effort := r.taskModel(run, task)
+	round := run.ProviderCallCount
+	outputStream, outputID, err := r.taskOutputStream(ctx, run, round)
+	if err != nil {
+		r.failRun(ctx, run, "transcript_failed", false)
+		return
+	}
 	result, err := generator.Generate(ctx, provider.GenerateRequest{AccountID: run.ProviderAccountID, Model: model,
 		Messages: messages, ReasoningEffort: effort, ConversationID: run.ID, MaxOutputTokens: maxOutputTokens(),
 		Tools: terminal, ToolTransport: provider.ToolTransportNative, ToolChoice: provider.ToolChoiceRequired,
-		FastMode: run.FastMode}, func(provider.StreamEvent) {})
+		FastMode: run.FastMode}, outputStream.event)
+	if streamErr := outputStream.finish(&result, err); streamErr != nil {
+		err = streamErr
+	}
 	if err != nil {
 		r.failRun(ctx, run, "terminal_finalization_failed", false)
 		return
 	}
-	round := run.ProviderCallCount
 	usage := store.TaskRunUsage{ProviderCalls: 1, InputTokens: int64(result.Usage.InputTokens), CachedInputTokens: int64(result.Usage.CachedInputTokens), OutputTokens: int64(result.Usage.OutputTokens), ActiveMilliseconds: time.Since(started).Milliseconds()}
 	assistant := taskAssistantItems(result, round)
+	for i := range assistant {
+		assistant[i].ID = outputID
+	}
 	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, assistant, usage, time.Now()) != nil ||
 		len(result.ToolCalls) != 1 || !taskTerminalTool(result.ToolCalls[0].Name) || !taskToolAllowed(run.Kind, result.ToolCalls[0].Name) {
 		r.failRun(ctx, run, "terminal_finalization_failed", false)
@@ -1375,15 +1398,28 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 			if raw, exists := item.Payload["searches"]; exists && decodeTaskPayload(raw, &searches) != nil {
 				return nil, false, errors.New("invalid replay searches")
 			}
-			for index := range searches {
-				search := searches[index]
-				messages = append(messages, provider.GenerationMessage{Role: "hosted_web_search", HostedSearch: &search})
-			}
+
 			var reasoning []json.RawMessage
 			if raw, exists := item.Payload["reasoning"]; exists && decodeTaskPayload(raw, &reasoning) != nil {
 				return nil, false, errors.New("invalid replay reasoning")
 			}
-			messages = append(messages, provider.GenerationMessage{Role: "assistant", Content: content, ReasoningDetails: reasoning})
+			var output []provider.GenerationOutput
+			if raw, exists := item.Payload["output"]; exists && decodeTaskPayload(raw, &output) != nil {
+				return nil, false, errors.New("invalid replay output")
+			}
+			var indices []int
+			if raw, exists := item.Payload["reasoning_indices"]; exists && decodeTaskPayload(raw, &indices) != nil {
+				return nil, false, errors.New("invalid reasoning indices")
+			}
+			result := provider.GenerationResult{Text: content, Output: output, Searches: searches}
+			for i, detail := range reasoning {
+				index := 0
+				if i < len(indices) {
+					index = indices[i]
+				}
+				result.Reasoning = append(result.Reasoning, provider.GenerationReasoning{Index: index, ProviderDetails: []json.RawMessage{detail}})
+			}
+			messages = append(messages, taskOutputMessages(result)...)
 		case "tool_call":
 			if item.Status == "skipped" {
 				continue
@@ -1475,31 +1511,32 @@ func replayTaskProgress(goal string, items []store.TaskRunItem) (toolProgress, m
 
 // Keep response metadata needed for replay without creating empty text records.
 func taskAssistantItems(result provider.GenerationResult, round int64) []store.TaskRunItemInput {
-	if strings.TrimSpace(result.Text) == "" && result.ID == "" && len(generationReasoning(result)) == 0 && len(result.Citations) == 0 && len(result.Searches) == 0 {
+	if strings.TrimSpace(result.Text) == "" && result.ID == "" && len(generationReasoning(result)) == 0 && len(result.Citations) == 0 && len(result.Searches) == 0 && len(result.Output) == 0 {
 		return nil
 	}
 	return []store.TaskRunItemInput{{Kind: "assistant_output", Status: "completed", Round: round, Content: result.Text, Payload: taskAssistantPayload(result)}}
 }
 
 func taskAssistantPayload(result provider.GenerationResult) map[string]any {
+	var reasoningIndices []int
+	for _, item := range result.Reasoning {
+		for range item.ProviderDetails {
+			reasoningIndices = append(reasoningIndices, item.Index)
+		}
+	}
 	return map[string]any{
-		"provider_item_id": result.ID,
-		"model":            result.Model,
-		"reasoning":        generationReasoning(result),
-		"citations":        result.Citations,
-		"searches":         result.Searches,
+		"output":            result.Output,
+		"reasoning_indices": reasoningIndices,
+		"provider_item_id":  result.ID,
+		"model":             result.Model,
+		"reasoning":         generationReasoning(result),
+		"citations":         result.Citations,
+		"searches":          result.Searches,
 	}
 }
 
 func taskResultMessages(result provider.GenerationResult) []provider.GenerationMessage {
-	messages := make([]provider.GenerationMessage, 0, len(result.Searches)+1)
-	for index := range result.Searches {
-		search := result.Searches[index]
-		messages = append(messages, provider.GenerationMessage{Role: "hosted_web_search", HostedSearch: &search})
-	}
-	return append(messages, provider.GenerationMessage{
-		Role: "assistant", Content: result.Text, ReasoningDetails: generationReasoning(result),
-	})
+	return taskOutputMessages(result)
 }
 
 func decodeTaskPayload(value, target any) error {

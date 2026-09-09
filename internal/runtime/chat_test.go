@@ -89,7 +89,7 @@ func TestChatSerializesDetachedTurnsAndPublishesOrderedEvents(t *testing.T) {
 	close(releaseFirst)
 
 	all := collectCompletedTurns(t, events, 2)
-	first := eventsForClient(all, clientOne)
+	first := distinctConversationItems(eventsForClient(all, clientOne))
 	wantKinds := []EventKind{
 		EventConversationItem, EventConversationItem, EventTurnCompleted,
 	}
@@ -113,7 +113,7 @@ func TestChatSerializesDetachedTurnsAndPublishesOrderedEvents(t *testing.T) {
 	}
 	wantOrder := []EventKind{
 		EventAgentStatus, EventAgentStatus, EventConversationItem,
-		EventAssistantDelta, EventConversationItem, EventAgentStatus, EventTurnCompleted,
+		EventConversationItem, EventConversationItem, EventConversationItem, EventAgentStatus, EventTurnCompleted,
 	}
 	if !equalKinds(firstTurn, wantOrder) {
 		t.Fatalf("first turn order = %v, want %v", firstTurn, wantOrder)
@@ -222,7 +222,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	all := eventsForClient(collectCompletedTurns(t, events, 1), clientID)
+	all := distinctConversationItems(eventsForClient(collectCompletedTurns(t, events, 1), clientID))
 	var visibleKinds []store.ConversationItemKind
 	for _, event := range all {
 		if event.Item != nil && !strings.HasPrefix(event.Item.ID, "transient:") {
@@ -321,7 +321,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	final := page.Items[len(page.Items)-1]
 	providerUsage := final.Metadata["provider_usage"].(map[string]any)
-	if final.Metadata["stream_id"] != store.ConversationAssistantStreamID(final.TurnID, 2) ||
+	if final.Metadata["stream_id"] != final.ID ||
 		providerUsage["total_tokens"] != float64(22) {
 		t.Fatalf("final round metadata = %#v", final.Metadata)
 	}
@@ -722,8 +722,8 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		2, "", "", "resp_openai", true, incremental, nil,
 	)
 	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
-		openAIRequest.Messages[0].Role != "system" || openAIRequest.Messages[1].ToolResult == nil ||
-		openAIRequest.Messages[1].ToolResult.ProviderCallID != "call_openai" ||
+		openAIRequest.Messages[0].Role != "system" || openAIRequest.Messages[2].ToolResult == nil ||
+		openAIRequest.Messages[2].ToolResult.ProviderCallID != "call_openai" ||
 		!messagesContain(openAIRequest.Messages, "Active project catalog:") {
 		t.Fatalf("OpenAI incremental continuation = %#v, %v", openAIRequest, err)
 	}
@@ -1348,4 +1348,20 @@ func replaceDefaultTransport(t *testing.T, transport http.RoundTripper) {
 	previous := http.DefaultTransport
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = previous })
+}
+
+// Snapshots update one visible item; assertions about bubble counts use identities.
+func distinctConversationItems(events []Event) []Event {
+	seen := map[string]bool{}
+	result := make([]Event, 0, len(events))
+	for _, event := range events {
+		if event.Item != nil {
+			if seen[event.Item.ID] {
+				continue
+			}
+			seen[event.Item.ID] = true
+		}
+		result = append(result, event)
+	}
+	return result
 }

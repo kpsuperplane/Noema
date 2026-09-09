@@ -413,7 +413,11 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 		items = append(items, item)
 		sequence++
 	}
-	if strings.TrimSpace(round.Commentary) != "" {
+	var streamedCommentary bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM conversation_items WHERE turn_id = ? AND json_extract(metadata_json, '$.provider_round') = ? AND json_extract(metadata_json, '$.provider_output_kind') = 'message')`, turn.ID, round.Call.ProviderRound).Scan(&streamedCommentary); err != nil {
+		return nil, err
+	}
+	if !streamedCommentary && strings.TrimSpace(round.Commentary) != "" {
 		commentaryMetadata := metadata("provider_commentary", 0)
 		commentaryMetadata["phase"] = "commentary"
 		commentaryMetadata["stream_id"] = ConversationAssistantStreamID(
