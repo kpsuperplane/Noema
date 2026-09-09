@@ -237,7 +237,9 @@ An Inbox task says Ready when you are. No separate Progress section appears.
 Task list groups show their names and counts without explanatory description rows.
 
 Recurrence detail reads its separate template `TASK.md`. Edits apply to future runs.
-Missed-run and overlap controls remain visible before Run history.
+Above 1200 pixels, recurring task details show Run history in a 600-pixel right panel.
+The title, instructions, settings, and schedule actions stay in the left panel.
+Both panels scroll independently. At smaller widths, Run history follows the settings.
 History reuses task list cards and linked task status. Skipped slots do not imply an existing task.
 A recurring template remains selected when it creates a run. Opening that run remains separate navigation.
 Schedule editing recognizes supported presets and preserves unmatched cron expressions.

@@ -260,7 +260,7 @@ function RoutedChatDetailRail({
   }, [closeTask, isContained, isModal]);
 
   const taskHeader = (
-    <header {...stylex.props(styles.header, styles.taskHeader, Boolean(taskTargetId) && styles.taskWorkspaceHeader)}>
+    <header {...stylex.props(styles.header, styles.taskHeader, Boolean(taskTargetId || recurrenceTargetId) && styles.taskWorkspaceHeader)}>
       <div {...stylex.props(styles.taskTitleBar, !projectTargetId && styles.taskTitleWithoutClose)}>
         <div {...stylex.props(styles.taskIdentity)}>
           {projectTargetId ? <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2> : <EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} />}
@@ -315,9 +315,9 @@ function RoutedChatDetailRail({
             initial={false}
             animate={target.type === "artifact" ? "nested" : "visible"}
             transition={reduceMotion ? { duration: 0 } : springs.surface}
-            {...stylex.props(styles.routeFrame, Boolean(taskTargetId) && styles.taskRouteFrame)}
+            {...stylex.props(styles.routeFrame, Boolean(taskTargetId || recurrenceTargetId) && styles.taskRouteFrame)}
           >
-            {!taskTargetId ? taskHeader : null}
+            {projectTargetId ? taskHeader : null}
             <div {...stylex.props(styles.body, styles.taskBody)}>
               {projectTargetId ? <ProjectDocumentDetailPanel project={project} onProjectRefresh={onProjectRefresh} /> : taskTargetId ? <TaskDetailQueryPanel
                 header={taskHeader}
@@ -325,7 +325,7 @@ function RoutedChatDetailRail({
                 onTaskHeaderChange={handleTaskHeaderChange}
                 showTasksLink={showTasksLink}
                 taskId={taskTargetId}
-              /> : recurrenceTargetId ? <TaskRecurrenceDetailPanel recurrenceId={recurrenceTargetId} onTitleChange={handleRecurrenceHeaderChange} /> : null}
+              /> : recurrenceTargetId ? <TaskRecurrenceDetailPanel header={taskHeader} recurrenceId={recurrenceTargetId} onTitleChange={handleRecurrenceHeaderChange} /> : null}
             </div>
           </m.div>
         ) : null}

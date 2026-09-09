@@ -318,9 +318,9 @@ export const TasksRecurrenceRunCardDocument = gql`
   query TasksRecurrenceRunCard($taskId: String!) {
     task(taskId: $taskId) {
       taskId title taskDocument completedAt updatedAt
-      project { name }
-      stage { name behavior }
-      currentRun { kind }
+      project { projectId name }
+      stage { stageId name behavior }
+      currentRun { runId kind }
     }
   }
 `;

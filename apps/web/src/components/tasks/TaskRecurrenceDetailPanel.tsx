@@ -3,6 +3,7 @@ import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
@@ -52,7 +53,7 @@ export type RecurrenceInlineEditController = {
   acknowledge: () => Promise<void>;
 };
 
-export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { recurrenceId: string; onTitleChange: (title: string, edit: RecurrenceInlineEditController) => void }) {
+export function TaskRecurrenceDetailPanel({ recurrenceId, header, onTitleChange }: { recurrenceId: string; header?: React.ReactNode; onTitleChange: (title: string, edit: RecurrenceInlineEditController) => void }) {
   const result = useQuery(TasksTaskRecurrenceDocument, { variables: { recurrenceId } });
   const refetch = result.refetch;
   const reload = React.useCallback(async () => {
@@ -62,6 +63,9 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
   }, [refetch]);
   if (!result.data?.taskRecurrence) {
     return (
+      <VStack gap={0} className={stylex.props(styles.viewport).className}>
+        <Grid height="100%" xstyle={styles.frame}>
+        <VStack className={stylex.props(styles.heading).className}>{header}</VStack>
       <VStack
         role={result.error ? "alert" : "status"}
         gap={2}
@@ -72,12 +76,14 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
         <span>{result.error ? "Recurring task details could not be loaded." : "Loading recurring task…"}</span>
         {result.error ? <Button type="button" size="sm" variant="secondary" label="Retry" onClick={() => void refetch().catch(() => undefined)} /> : null}
       </VStack>
+        </Grid>
+      </VStack>
     );
   }
-  return <LoadedRecurrenceDetail recurrence={result.data.taskRecurrence} onReload={reload} onTitleChange={onTitleChange} />;
+  return <LoadedRecurrenceDetail header={header} recurrence={result.data.taskRecurrence} onReload={reload} onTitleChange={onTitleChange} />;
 }
 
-function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recurrence: Recurrence; onReload: () => Promise<Recurrence>; onTitleChange: (title: string, edit: RecurrenceInlineEditController) => void }) {
+function LoadedRecurrenceDetail({ recurrence, header, onReload, onTitleChange }: { recurrence: Recurrence; header?: React.ReactNode; onReload: () => Promise<Recurrence>; onTitleChange: (title: string, edit: RecurrenceInlineEditController) => void }) {
   const { flush, registerFlush } = useTaskEditFlush();
   const commandPending = React.useRef(false);
   const [pause, pauseState] = useMutation(TasksPauseTaskRecurrenceDocument);
@@ -189,8 +195,11 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
     await onReload();
   };
   return (
-    <VStack gap={0} className={stylex.props(styles.frame).className}>
-      <VStack gap={3} className={stylex.props(styles.scroller, styles.root).className}>
+    <VStack gap={0} className={stylex.props(styles.viewport).className}>
+      <Grid height="100%" xstyle={styles.frame}>
+      <VStack gap={0} className={stylex.props(styles.heading).className}>{header}</VStack>
+      <VStack gap={0} className={stylex.props(styles.content).className}>
+      <VStack as="section" aria-label="Recurring task details" gap={3} className={stylex.props(styles.root, styles.settings).className}>
         <span {...stylex.props(styles.meta)}>{recurrenceSummary(recurrence.cronExpression)} · {recurrence.timeZone}</span>
         <TaskScheduleSummary label="Next run" value={active && recurrence.nextRunAt ? dateLabel(recurrence.nextRunAt, recurrence.timeZone) : ended ? "This schedule has ended" : "Schedule paused"} paused={!active}>
           {!ended ? <Button size="sm" variant="ghost" label="Reschedule" icon={<CalendarClock size={14} aria-hidden="true" />} isDisabled={busy} onClick={() => void openDialog(setEditingSchedule)} /> : null}
@@ -203,7 +212,8 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
           {policyState.error ? <HStack gap={2} wrap="wrap"><span role="alert" {...stylex.props(styles.error)}>{isStaleCommandError(policyState.error) ? "Changed elsewhere. Load the latest settings and try again." : policyState.error.message}</span><Button size="sm" variant="secondary" label="Reload settings" onClick={() => void onReload().then(() => policyState.reset()).catch(() => undefined)} /></HStack> : null}
         </VStack> : null}
         {error ? <span role="alert" {...stylex.props(styles.error)}>{error.message}</span> : null}
-        <VStack as="section" aria-labelledby="recurrence-history-title" gap={2}>
+      </VStack>
+        <VStack as="section" aria-labelledby="recurrence-history-title" gap={2} className={stylex.props(styles.root, styles.historyPane).className}>
           <HStack justify="between" align="center" gap={2}>
             <h3 id="recurrence-history-title" {...stylex.props(styles.sectionTitle)}>Run history</h3>
             <span aria-label={`${recurrence.occurrences.length} occurrences`} {...stylex.props(styles.count)}>{recurrence.occurrences.length}</span>
@@ -235,6 +245,7 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
           ]} />
         </HStack> : null}
       </HStack>
+      </Grid>
       {editingSchedule ? <RecurrenceScheduleDialog recurrence={recurrence} onClose={() => setEditingSchedule(false)} onUpdated={onReload} /> : null}
       {confirmingEnd ? <EndRecurrenceDialog recurrence={recurrence} submitting={endState.loading} error={endState.error?.message ?? null} onClose={() => setConfirmingEnd(false)} onConfirm={() => void change("end").catch(() => undefined)} /> : null}
     </VStack>
@@ -283,10 +294,14 @@ function groupOccurrences(occurrences: Recurrence["occurrences"], timeZone: stri
 function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Created"; }
 
 const styles = stylex.create({
-  frame: { width: "100%", height: "100%", minWidth: 0, minHeight: 0 },
-  scroller: { flexGrow: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", scrollbarWidth: "thin" },
-  root: { boxSizing: "border-box", width: "100%", minWidth: 0, maxWidth: 720, marginInline: "auto", padding: "var(--spacing-4)" },
-  actionBar: { flexShrink: 0, marginInline: "var(--spacing-4)", marginBlockEnd: "var(--spacing-4)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: "var(--spacing-6)", backgroundColor: "var(--noema-surface-card)", boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)" },
+  viewport: { width: "100%", height: "100%", minWidth: 0, minHeight: 0, containerType: "inline-size" },
+  frame: { width: "100%", minWidth: 0, minHeight: 0, gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden", "@container (width > 1200px)": { gridTemplateColumns: "minmax(0, 1fr) 600px" } },
+  heading: { gridColumn: "1", gridRow: "1", minWidth: 0, paddingBlockEnd: "var(--spacing-2)", borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
+  content: { gridColumn: "1", gridRow: "2", minWidth: 0, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", scrollbarWidth: "thin", "@container (width > 1200px)": { display: "contents" } },
+  root: { boxSizing: "border-box", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", minWidth: 0, maxWidth: 760, marginInline: "auto", paddingBlock: "var(--spacing-4)", flexShrink: 0 },
+  settings: { "@container (width > 1200px)": { gridColumn: "1", gridRow: "2", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", scrollbarWidth: "thin" } },
+  historyPane: { "@container (width > 1200px)": { gridColumn: "2", gridRow: "1 / -1", width: "100%", maxWidth: "none", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", scrollbarWidth: "thin", paddingInline: "var(--spacing-4)", borderInlineStartWidth: "var(--border-width)", borderInlineStartStyle: "solid", borderInlineStartColor: "var(--noema-border-subtle)" } },
+  actionBar: { gridColumn: "1", gridRow: "3", minWidth: 0, flexShrink: 0, marginInline: "var(--spacing-4)", marginBlockEnd: "var(--spacing-4)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: "var(--spacing-6)", backgroundColor: "var(--noema-surface-card)", boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)" },
   dialogActions: { display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(0, 1fr)" },
   meta: { margin: "var(--spacing-0)", color: "var(--noema-text-secondary)", fontSize: "var(--text-supporting-size)", lineHeight: 1.4, fontVariantNumeric: "tabular-nums" },
   advanced: { borderBlockStart: "var(--border-width) solid var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-3)" },
@@ -295,6 +310,6 @@ const styles = stylex.create({
   occurrenceDay: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: "var(--text-supporting-size)", fontWeight: 650 },
   history: { margin: "var(--spacing-0)", padding: "var(--spacing-0)", listStyle: "none" },
   empty: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: "var(--text-supporting-size)" },
-  state: { minHeight: "100%", padding: "var(--spacing-4)", color: "var(--noema-text-muted)", fontSize: "var(--text-supporting-size)" },
+  state: { gridColumn: "1", gridRow: "2", flexGrow: 1, minHeight: 0, padding: "var(--spacing-4)", color: "var(--noema-text-muted)", fontSize: "var(--text-supporting-size)" },
   error: { color: "var(--destructive)", fontSize: "var(--text-supporting-size)" }
 });
