@@ -344,7 +344,11 @@ function readableReasoning(payload: unknown): string[] {
   if (!Array.isArray(details)) return [];
   const texts: string[] = [];
   const add = (value: unknown) => {
-    if (typeof value === "string" && value.trim()) texts.push(value);
+    if (typeof value !== "string" || !value.trim()) return;
+    const bold = value.match(/^(\s*)(\*\*|__)(\S(?:[\s\S]*\S)?)\2(\s*)$/);
+    texts.push(bold && !bold[3].includes(bold[2])
+      ? `${bold[1]}${bold[3]}${bold[4]}`
+      : value);
   };
   for (const detail of details) {
     const item = recordValue(detail);
