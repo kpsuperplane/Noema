@@ -266,7 +266,7 @@ function runBoundaryEntries(run: TaskRun, now: number): TranscriptEntry[] {
     `run-start:${run.id}`,
     "task_run_start",
     run,
-    `${role} · ${runStatusLabel(run)}`,
+    role,
     { presentation: { tone: "neutral" }, instance_name: run.instanceName }
   );
   if (!isTerminalRun(run)) {
@@ -339,14 +339,13 @@ function runBoundaryEntry(
 }
 
 function runRoleLabel(run: TaskRun): string {
-  const name = `${run.instanceName} · `;
   switch (run.role) {
     case "planner":
-      return `${name}Planner`;
+      return "Planner";
     case "executor":
-      return `${name}Executor`;
+      return "Executor";
     case "reviewer":
-      return `${name}Reviewer`;
+      return "Reviewer";
   }
 }
 
