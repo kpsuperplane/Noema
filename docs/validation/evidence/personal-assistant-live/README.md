@@ -60,7 +60,8 @@ development instance and inspected before the next case starts.
 | PA-047 — Retirement records | Pass after three reviewed connector revisions, one stalled repair retry, and a final seven-read reconciliation | [Case evidence](PA-047/) |
 | PA-048 — Credit correction | Pass after two connector repairs, explicit `posted: false` preservation, one approved synthetic dispute, and corrected-report verification | [Case evidence](PA-048/) |
 | PA-049 — Identity-document renewal | Pass after response-contract repairs, policy setup, one approved synthetic booking, one approved synthetic renewal, and later status verification | [Case evidence](PA-049/) |
-| PA-050–PA-100 | Not run | The operator will run each case in order. |
+| PA-050 — Consumer dispute | Pass after three focused connector revisions, policy setup, one approved synthetic complaint, and later status verification | [Case evidence](PA-050/) |
+| PA-051–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
