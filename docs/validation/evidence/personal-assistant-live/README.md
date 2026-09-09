@@ -75,7 +75,8 @@ development instance and inspected before the next case starts.
 | PA-062 — Caregiver schedule | Pass after connector-origin recovery, three approved synthetic writes, one successful status-read rerun, and a sourced handoff artifact | [Case evidence](PA-062/) |
 | PA-063 — Care changes | Pass after fixture-route correction, complete ordered-read retest, two separately approved scoped updates, final status verification, and a sourced handoff artifact | [Case evidence](PA-063/) |
 | PA-064 — Second opinion | Pass after reviewed connector setup, ordered source reads, one approved synthetic estimate request, final status verification, and a sourced artifact | [Case evidence](PA-064/) |
-| PA-065–PA-100 | Not run | The operator will run each case in order. |
+| PA-065 — Asset inventory | Pass after reviewed connector setup, seven ordered source reads, one approved synthetic repair receipt, final status verification, and a sourced artifact | [Case evidence](PA-065/) |
+| PA-066–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
