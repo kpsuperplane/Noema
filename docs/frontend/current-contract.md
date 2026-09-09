@@ -220,7 +220,8 @@ Project and Schedule controls use visible labels. Add to Inbox and Run now remai
 Advanced capture controls sit above the action row.
 
 Editable task and recurrence titles and instructions show a light hover background that extends 12 pixels horizontally and 4 pixels vertically beyond the field.
-A non-interactive pseudo-element draws the background without changing layout or borders. Read-only and busy fields keep their normal appearance.
+A non-interactive pseudo-element draws the highlight without changing layout. Focus replaces its background with a light border.
+Task titles have no focus underline. Read-only and busy fields keep their normal appearance.
 Existing task and recurrence fields save on blur. Both reuse the capture title and Markdown editor.
 The editor reads current text before saving, changing source mode, starting, or leaving a task.
 Failed saves preserve drafts and prevent navigation. Stale saves require acknowledgement before retry.

@@ -132,11 +132,12 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
 }
 
 const styles = stylex.create({
-  title: { width: "100%", minWidth: 0, resize: "none", overflow: "hidden", lineHeight: "var(--text-heading-3-leading)", padding: "var(--spacing-0)", borderWidth: 0, backgroundColor: "transparent", color: "var(--noema-text-primary)", fontFamily: "var(--font-family-heading)", fontSize: "var(--text-heading-3-size)", fontWeight: "var(--text-heading-3-weight)", outline: "none", ":focus-visible": { boxShadow: "0 1px var(--ring)" }, "::placeholder": { color: "var(--muted-foreground)" } },
+  title: { width: "100%", minWidth: 0, resize: "none", overflow: "hidden", lineHeight: "var(--text-heading-3-leading)", padding: "var(--spacing-0)", borderWidth: 0, backgroundColor: "transparent", color: "var(--noema-text-primary)", fontFamily: "var(--font-family-heading)", fontSize: "var(--text-heading-3-size)", fontWeight: "var(--text-heading-3-weight)", outline: "none", "::placeholder": { color: "var(--muted-foreground)" } },
   editable: {
     position: "relative",
     isolation: "isolate",
-    "--task-edit-hover-fill": { default: "transparent", ":hover": "var(--noema-surface-hover)" },
+    "--task-edit-hover-fill": { default: "transparent", ":hover:not(:focus-within)": "var(--noema-surface-hover)" },
+    "--task-edit-focus-border": { default: "transparent", ":focus-within": "var(--noema-border-subtle)" },
     "::before": {
       content: '""',
       position: "absolute",
@@ -144,6 +145,9 @@ const styles = stylex.create({
       insetInline: "calc(-1 * var(--spacing-3))",
       borderRadius: "var(--radius-element)",
       backgroundColor: "var(--task-edit-hover-fill)",
+      borderWidth: "var(--border-width)",
+      borderStyle: "solid",
+      borderColor: "var(--task-edit-focus-border)",
       pointerEvents: "none",
       zIndex: -1
     }
