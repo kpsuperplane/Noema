@@ -24,7 +24,7 @@ func normalizeOpenRouterGeneration(
 		model = strings.TrimSpace(request.Model)
 	}
 	return GenerationResult{
-		ID: parsed.ID, Model: model, Text: parsed.Text, FinishReason: finishReason,
+		ID: parsed.ID, Model: model, Text: parsed.Text, FinishReason: finishReason, Output: parsed.Output,
 		Usage: parsed.Usage, ToolCalls: toolCalls,
 		Reasoning: normalizeOpenRouterReasoning(parsed.Reasoning),
 		Citations: append([]Citation(nil), parsed.Citations...),

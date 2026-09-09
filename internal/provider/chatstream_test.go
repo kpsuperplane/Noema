@@ -47,7 +47,7 @@ func TestParseChatStreamPreservesFragmentedOutput(t *testing.T) {
 	if result.Usage.CachedInputTokens != 96 || result.Usage.TotalTokens != 108 || result.Usage.WebSearchRequests != 1 {
 		t.Fatalf("unexpected usage: %#v", result.Usage)
 	}
-	if len(events) != 4 || events[0].Kind != TextDelta || events[2].Kind != ToolCallStarted || events[3].Kind != HostedSearchStarted {
+	if len(events) != 6 || events[0].Kind != MessageStarted || events[1].Kind != TextDelta || events[3].Kind != HostedSearchStarted || events[4].Kind != ToolCallStarted || events[5].Kind != MessageCompleted {
 		t.Fatalf("unexpected events: %#v", events)
 	}
 }

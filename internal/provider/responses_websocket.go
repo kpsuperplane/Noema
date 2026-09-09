@@ -207,6 +207,7 @@ func (s *responsesWebSocketSession) ioError(parent, request context.Context, saw
 func responsesEventHasOutput(eventType string) bool {
 	switch eventType {
 	case "response.output_text.delta", "response.output_item.added", "response.output_item.done",
+		"response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.done", "response.reasoning_text.done",
 		"response.web_search_call.in_progress", "response.web_search_call.searching",
 		"response.web_search_call.completed":
 		return true

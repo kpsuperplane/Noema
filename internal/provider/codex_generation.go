@@ -706,16 +706,17 @@ func lowerCodexMessage(message GenerationMessage, names openRouterToolNameMap) (
 	}
 	if strings.TrimSpace(message.Content) != "" {
 		if message.Role == "assistant" {
-			phase := "final_answer"
-			if len(message.ToolCalls) != 0 {
-				phase = "commentary"
+			item := map[string]any{
+				"type": "message", "status": "completed", "role": "assistant",
+				"content": []any{map[string]any{"type": "output_text", "text": message.Content, "annotations": []any{}}},
 			}
-			items = append(items, map[string]any{
-				"type": "message", "status": "completed", "role": "assistant", "phase": phase,
-				"content": []any{map[string]any{
-					"type": "output_text", "text": message.Content, "annotations": []any{},
-				}},
-			})
+			if message.ProviderItemID != "" {
+				item["id"] = message.ProviderItemID
+			}
+			if message.Phase != "" {
+				item["phase"] = message.Phase
+			}
+			items = append(items, item)
 		} else {
 			items = append(items, map[string]any{"role": message.Role, "content": message.Content})
 		}
@@ -962,6 +963,7 @@ func (stream *codexGenerationStream) Read(buffer []byte) (int, error) {
 func (stream *codexGenerationStream) Close() error { return stream.body.Close() }
 
 type codexStreamResult struct {
+	started                 map[int]json.RawMessage
 	ID, Model, FinishReason string
 	Usage                   Usage
 	Output                  []codexOutputItem
@@ -1120,13 +1122,41 @@ func consumeCodexGenerationEvent(
 		index := codexOutputIndex(event)
 		text[index] += delta
 		if delta != "" {
-			onEvent(StreamEvent{Kind: TextDelta, Index: index, Delta: delta})
+			id, _ := rawString(event["item_id"])
+			var item map[string]json.RawMessage
+			_ = json.Unmarshal(result.started[index], &item)
+			phase, _ := rawString(item["phase"])
+			onEvent(StreamEvent{Kind: TextDelta, Index: index, ID: id, Phase: phase, Delta: delta})
 		}
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.done", "response.reasoning_text.done":
+		id, _ := rawString(event["item_id"])
+		section := 0
+		_ = json.Unmarshal(event["summary_index"], &section)
+		if strings.Contains(eventType, "reasoning_text") {
+			_ = json.Unmarshal(event["content_index"], &section)
+			section += maxItems
+		}
+		delta, _ := rawString(event["delta"])
+		value, _ := rawString(event["text"])
+		kind := ReasoningDelta
+		if strings.HasSuffix(eventType, ".done") {
+			kind = ReasoningCompleted
+		}
+		onEvent(StreamEvent{Kind: kind, Index: codexOutputIndex(event), ID: id, SectionIndex: section, Delta: delta, Text: value})
 	case "response.output_item.added":
 		var item map[string]json.RawMessage
 		if json.Unmarshal(event["item"], &item) == nil {
 			kind, _ := rawString(item["type"])
-			if kind == "function_call" {
+			if kind == "message" {
+				index := codexOutputIndex(event)
+				if result.started == nil {
+					result.started = map[int]json.RawMessage{}
+				}
+				result.started[index] = append(json.RawMessage(nil), event["item"]...)
+				id, _ := rawString(item["id"])
+				phase, _ := rawString(item["phase"])
+				onEvent(StreamEvent{Kind: MessageStarted, Index: index, ID: id, Phase: phase})
+			} else if kind == "function_call" {
 				callID, _ := rawString(item["call_id"])
 				name, _ := rawString(item["name"])
 				if strings.TrimSpace(callID) != "" && strings.TrimSpace(name) != "" {
@@ -1152,10 +1182,21 @@ func consumeCodexGenerationEvent(
 				return err
 			}
 			output[index] = append(json.RawMessage(nil), item...)
+			emitCodexCompletedOutput(index, item, text[index], onEvent)
 		}
 	case "response.completed", "response.incomplete":
 		if err := collectCodexTerminal(event["response"], result, output); err != nil {
 			return err
+		}
+		for index, item := range result.started {
+			if _, ok := output[index]; !ok {
+				output[index] = item
+			}
+		}
+		for index := 0; index < maxItems; index++ {
+			if item, ok := output[index]; ok {
+				emitCodexCompletedOutput(index, item, text[index], onEvent)
+			}
 		}
 		if eventType == "response.completed" {
 			result.FinishReason = "stop"
@@ -1274,6 +1315,7 @@ func normalizeCodexGeneration(
 			if err != nil {
 				return GenerationResult{}, err
 			}
+			result.Output = append(result.Output, readableCodexOutput(output.Index, item)...)
 			result.Text += value
 			result.Citations = append(result.Citations, citations...)
 		case "function_call":
@@ -1286,6 +1328,7 @@ func normalizeCodexGeneration(
 			}
 			result.ToolCalls = append(result.ToolCalls, call)
 		case "reasoning":
+			result.Output = append(result.Output, readableCodexOutput(output.Index, item)...)
 			reasoning, keep, err := normalizeCodexReasoning(raw, item)
 			if err != nil {
 				return GenerationResult{}, err

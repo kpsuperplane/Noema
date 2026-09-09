@@ -60,7 +60,7 @@ func TestCodexGeneratorPreservesResponsesWireAndOutput(t *testing.T) {
 		Messages: []GenerationMessage{
 			{Role: "developer", Content: "Use the Task context."},
 			{Role: "user", Content: "Inspect it."},
-			{Role: "assistant", Content: "I will inspect it.", ReasoningDetails: []json.RawMessage{providerReasoning}, ToolCalls: []ReplayToolCall{{
+			{Role: "assistant", Phase: "commentary", Content: "I will inspect it.", ReasoningDetails: []json.RawMessage{providerReasoning}, ToolCalls: []ReplayToolCall{{
 				ProviderItemID: "item_1", ProviderCallID: "call_1",
 				ProviderName: "inspect", Name: "task.inspect",
 				Arguments: json.RawMessage(`{"task_id":"task:one"}`),
@@ -117,9 +117,9 @@ func TestCodexGeneratorPreservesResponsesWireAndOutput(t *testing.T) {
 		len(reasoning.Summary) != 1 || len(reasoning.ProviderDetails) != 1 {
 		t.Fatalf("Codex reasoning = %#v", reasoning)
 	}
-	if len(events) != 3 || events[0].Kind != TextDelta || events[0].Delta != "Checking." ||
-		events[1].Kind != HostedSearchStarted || events[1].ID != "ws_new" ||
-		events[2].Kind != ToolCallStarted || events[2].ID != "call_2" {
+	if len(events) != 7 || events[0].Kind != TextDelta || events[0].Delta != "Checking." ||
+		events[3].Kind != HostedSearchStarted || events[3].ID != "ws_new" ||
+		events[4].Kind != ToolCallStarted || events[4].ID != "call_2" {
 		t.Fatalf("Codex events = %#v", events)
 	}
 

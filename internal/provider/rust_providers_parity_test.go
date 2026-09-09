@@ -2364,7 +2364,11 @@ func TestRustProviders_StreamedMessagesKeepBoundariesWithoutRepeatingDoneText(t 
 		"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"type\":\"message\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"What time works?\"}]}}\n\n" +
 		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\"}}\n\n"
 	events := []StreamEvent{}
-	parsed, err := parityParseCodexSSE(t, payload, func(event StreamEvent) { events = append(events, event) })
+	parsed, err := parityParseCodexSSE(t, payload, func(event StreamEvent) {
+		if event.Kind == TextDelta {
+			events = append(events, event)
+		}
+	})
 	if err != nil || len(events) != 2 || events[0].Delta != "Got it" || events[1].Delta != "What time works?" || len(parsed.Output) != 2 {
 		t.Fatalf("streamed message boundaries = %#v / %#v, %v", events, parsed.Output, err)
 	}

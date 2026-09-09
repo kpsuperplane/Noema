@@ -100,7 +100,11 @@ type StreamEventKind string
 
 const (
 	// TextDelta contains new assistant text.
-	TextDelta StreamEventKind = "text_delta"
+	TextDelta          StreamEventKind = "text_delta"
+	MessageStarted     StreamEventKind = "message_started"
+	MessageCompleted   StreamEventKind = "message_completed"
+	ReasoningDelta     StreamEventKind = "reasoning_delta"
+	ReasoningCompleted StreamEventKind = "reasoning_completed"
 	// ToolCallStarted identifies a complete provider tool call header.
 	ToolCallStarted StreamEventKind = "tool_call_started"
 	// HostedSearchStarted identifies one provider-hosted search.
@@ -109,11 +113,14 @@ const (
 
 // StreamEvent is one normalized live provider event.
 type StreamEvent struct {
-	Kind  StreamEventKind
-	Index int
-	ID    string
-	Name  string
-	Delta string
+	Kind         StreamEventKind
+	Index        int
+	ID           string
+	Name         string
+	Delta        string
+	Phase        string
+	SectionIndex int
+	Text         string
 }
 
 // ToolCall is one assembled native tool call.
@@ -161,6 +168,7 @@ type Usage struct {
 
 // ChatStreamResult is one complete normalized chat stream.
 type ChatStreamResult struct {
+	Output    []GenerationOutput
 	ID        string
 	Model     string
 	Text      string
@@ -240,7 +248,7 @@ func ParseChatStream(
 			if err := dispatch(); err != nil {
 				if errors.Is(err, errStreamDone) {
 					finishDeltas()
-					return accumulator.result(), nil
+					return accumulator.finish(onEvent), nil
 				}
 				return ChatStreamResult{}, err
 			}
@@ -271,12 +279,12 @@ func ParseChatStream(
 	if err := dispatch(); err != nil {
 		if errors.Is(err, errStreamDone) {
 			finishDeltas()
-			return accumulator.result(), nil
+			return accumulator.finish(onEvent), nil
 		}
 		return ChatStreamResult{}, err
 	}
 	finishDeltas()
-	return accumulator.result(), nil
+	return accumulator.finish(onEvent), nil
 }
 
 type contextReader struct {
@@ -292,6 +300,8 @@ func (r *contextReader) Read(buffer []byte) (int, error) {
 }
 
 type chatAccumulator struct {
+	output         []GenerationOutput
+	outputKeys     map[string]int
 	id             string
 	model          string
 	text           strings.Builder
@@ -485,12 +495,44 @@ func (a *chatAccumulator) consumeDelta(delta chatDelta, onEvent func(StreamEvent
 		return err
 	}
 	a.plainReasoning.WriteString(plain)
+	if plain != "" && !hasReadableReasoning(delta.ReasoningDetails) {
+		a.updateReadable("plain", "reasoning", "", a.plainReasoning.String(), onEvent)
+	}
+	for _, detail := range delta.ReasoningDetails {
+		if err := a.appendReasoning(detail); err != nil {
+			return err
+		}
+		for index, raw := range a.reasoning {
+			var item map[string]any
+			if json.Unmarshal(raw, &item) != nil {
+				continue
+			}
+			if item["type"] != "reasoning.text" && item["type"] != "reasoning.summary" {
+				continue
+			}
+			value := firstJSONText(item, "summary", "text")
+			key := fmt.Sprintf("reasoning:%d", index)
+			// A provider may repeat plain reasoning in structured details.
+			if value == a.plainReasoning.String() && a.plainReasoning.Len() > 0 {
+				if _, ok := a.outputKeys["plain"]; ok {
+					key = "plain"
+				}
+			}
+			a.updateReadable(key, "reasoning", jsonString(item["id"]), value, onEvent)
+			if value == a.plainReasoning.String() && a.plainReasoning.Len() > 0 {
+				a.outputKeys["plain"] = a.outputKeys[key]
+			}
+		}
+		if err := a.captureHostedSearch(detail, onEvent); err != nil {
+			return err
+		}
+	}
 	if delta.Content != "" {
 		if err := a.addSize(len(delta.Content)); err != nil {
 			return err
 		}
 		a.text.WriteString(delta.Content)
-		onEvent(StreamEvent{Kind: TextDelta, Delta: delta.Content})
+		a.updateReadable("message", "message", "", a.text.String(), onEvent)
 	}
 	for position, fragment := range delta.ToolCalls {
 		index := position
@@ -526,14 +568,7 @@ func (a *chatAccumulator) consumeDelta(delta chatDelta, onEvent func(StreamEvent
 			onEvent(StreamEvent{Kind: ToolCallStarted, Index: tool.Index, ID: tool.ID, Name: tool.Name})
 		}
 	}
-	for _, detail := range delta.ReasoningDetails {
-		if err := a.appendReasoning(detail); err != nil {
-			return err
-		}
-		if err := a.captureHostedSearch(detail, onEvent); err != nil {
-			return err
-		}
-	}
+
 	if len(delta.Annotations) != 0 && string(delta.Annotations) != "null" {
 		annotations, err := decodeUniqueJSONValue(delta.Annotations)
 		if err != nil {
@@ -824,7 +859,7 @@ func (a *chatAccumulator) result() ChatStreamResult {
 		tools = append(tools, a.tools[index].ToolCall)
 	}
 	return ChatStreamResult{
-		ID: a.id, Model: a.model, Text: a.text.String(), ToolCalls: tools,
+		ID: a.id, Model: a.model, Text: a.text.String(), ToolCalls: tools, Output: append([]GenerationOutput(nil), a.output...),
 		Reasoning: reasoning, Citations: a.citations,
 		Searches: a.normalizedSearches(), Usage: a.usage,
 	}

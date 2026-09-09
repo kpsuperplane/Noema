@@ -73,6 +73,8 @@ type GenerationMessage struct {
 	// Instructions distinguishes the static instruction field from system-role input.
 	Instructions                    bool `json:"-"`
 	Role, Content                   string
+	Phase                           string
+	ProviderItemID                  string
 	ToolCalls                       []ReplayToolCall
 	ToolResult                      *ReplayToolResult
 	HostedSearch                    *HostedSearch
@@ -129,12 +131,25 @@ type GenerationResult struct {
 	ID           string
 	Model        string
 	Text         string
+	Output       []GenerationOutput
 	FinishReason string
 	Usage        Usage
 	ToolCalls    []GenerationToolCall
 	Reasoning    []GenerationReasoning
 	Citations    []Citation
 	Searches     []HostedSearch
+}
+
+// GenerationOutput is one readable provider message or reasoning section.
+// Index identifies the provider output item; SectionIndex identifies its section.
+type GenerationOutput struct {
+	Kind         string `json:"kind"`
+	ID           string `json:"id,omitempty"`
+	Index        int    `json:"index"`
+	SectionIndex int    `json:"section_index"`
+	Phase        string `json:"phase,omitempty"`
+	Text         string `json:"text"`
+	Status       string `json:"status"`
 }
 
 // GenerationToolCall is one validated native tool call.

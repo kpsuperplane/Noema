@@ -448,7 +448,7 @@ func (s *Service) generateAt(
 		return provider.GenerationResult{}, err
 	}
 	result := provider.GenerationResult{
-		ID: parsed.ID, Model: model, Text: parsed.Text, Usage: parsed.Usage,
+		ID: parsed.ID, Model: model, Text: parsed.Text, Usage: parsed.Usage, Output: parsed.Output,
 		FinishReason: "stop", Citations: parsed.Citations, Searches: parsed.Searches,
 	}
 	if len(parsed.Reasoning) != 0 {
