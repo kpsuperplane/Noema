@@ -196,7 +196,8 @@ Task detail uses one Astryx tab bar below the title for files and `Transcript`.
 Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Transcript.
 The wide layout keeps a vertical divider between the views.
 Task details share the outer top border with the task list.
-The floating Task context card occupies the Transcript column in the wide layout.
+The floating Task context card occupies the Workspace column in the wide layout.
+Transcript fills the right column’s height.
 The wide context card omits its ordinary Task status line.
 At smaller widths, Task detail uses tabs and swipe navigation.
 File tabs select the UTF-8 preview. In wide layouts, Transcript stays visible beside the selected file and has no tab.

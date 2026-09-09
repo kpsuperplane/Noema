@@ -377,7 +377,7 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     height: "100%",
-    "@container (width > 1200px)": { gridColumn: "1", gridRow: "2 / -1" }
+    "@container (width > 1200px)": { gridColumn: "1", gridRow: "2" }
   },
   transcript: {
     gridRow: "2",
@@ -388,7 +388,7 @@ const styles = stylex.create({
     "--task-transcript-bottom-inset": "var(--spacing-3)",
     "@container (width > 1200px)": {
       gridColumn: "2",
-      gridRow: "1 / 3",
+      gridRow: "1 / -1",
       borderInlineStartWidth: "var(--border-width)",
       borderInlineStartStyle: "solid",
       borderInlineStartColor: "var(--noema-border-subtle)"
@@ -399,11 +399,8 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     "@container (width > 1200px)": {
-      gridColumn: "2",
+      gridColumn: "1",
       gridRow: "3",
-      borderInlineStartWidth: "var(--border-width)",
-      borderInlineStartStyle: "solid",
-      borderInlineStartColor: "var(--noema-border-subtle)",
       "--task-context-card-margin-block-start": "var(--spacing-0)",
       "--task-context-status-display": "none"
     }
