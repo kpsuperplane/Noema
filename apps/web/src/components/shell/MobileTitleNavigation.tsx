@@ -115,8 +115,10 @@ const styles = stylex.create({
       justifyContent: "center",
       margin: "var(--spacing-0)",
       pointerEvents: "none",
-      backgroundImage:
-        "linear-gradient(to bottom, var(--background) 0%, 80%, rgb(255 255 255 / 0) 100%)"
+      backgroundColor: "var(--background)",
+      borderBottomWidth: "var(--border-width)",
+      borderBottomStyle: "solid",
+      borderBottomColor: "var(--noema-border-subtle)"
     }
   },
   chevron: {

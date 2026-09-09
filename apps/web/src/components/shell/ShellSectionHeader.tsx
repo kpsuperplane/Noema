@@ -57,31 +57,10 @@ const styles = stylex.create({
     zIndex: 3,
     width: "100%",
     flexShrink: 0,
-    backgroundColor: {
-      default: "transparent",
-      "@media (max-width: 760px)": "var(--background)"
-    },
-    "::after": {
-      content: "''",
-      position: "absolute",
-      top: {
-        default: 0,
-        "@media (max-width: 760px)": "100%"
-      },
-      right: 0,
-      left: 0,
-      height: {
-        default: "100%",
-        "@media (max-width: 760px)": "var(--spacing-4)"
-      },
-      pointerEvents: "none",
-      backgroundImage: {
-        default:
-          "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 99.8%, transparent) 60%, color-mix(in srgb, var(--background) 97%, transparent) 75%, color-mix(in srgb, var(--background) 93%, transparent) 80%, color-mix(in srgb, var(--background) 72%, transparent) 90%, transparent 100%)",
-        "@media (max-width: 760px)":
-          "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
-      }
-    }
+    backgroundColor: "var(--background)",
+    borderBottomWidth: "var(--border-width)",
+    borderBottomStyle: "solid",
+    borderBottomColor: "var(--noema-border-subtle)"
   },
   mobileTitleOnlyHeader: {
     "@media (max-width: 760px)": {
