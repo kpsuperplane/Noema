@@ -8,7 +8,7 @@ import {
   type Virtualizer
 } from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
-import { AnimatePresence, useReducedMotion } from "motion/react";
+import { AnimatePresence, useMotionValueEvent, useReducedMotion, useSpring } from "motion/react";
 import * as m from "motion/react-m";
 import { animateScrollToBottom } from "@/motion/scroll";
 import { springs } from "@/motion/springs";
@@ -306,6 +306,17 @@ export function TranscriptScroller({
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
   const [availableHeight, setAvailableHeight] = React.useState(0);
+  const previousAvailableHeightRef = React.useRef(0);
+  const animatedBottomOffset = useSpring(0, springs.standard);
+  const virtualRowsRef = React.useRef<HTMLDivElement | null>(null);
+  useMotionValueEvent(animatedBottomOffset, "change", (offset) => {
+    const rows = virtualRowsRef.current;
+    if (rows) rows.style.transform = `translate3d(0, ${offset - bottomOffsetRef.current}px, 0)`;
+  });
+  const hasLiveEntries = entries.some((entry) =>
+    entry.kind === "entry" ? entry.entry.source !== "replay" :
+      entry.kind !== "typing" && entry.source !== "replay"
+  );
   const [scrollMargin, setScrollMargin] = React.useState(0);
   const [settlingPrepend, setSettlingPrepend] = React.useState(false);
   const previousToolGroupKeysRef = React.useRef<ReadonlyMap<string, React.Key>>(new Map());
@@ -354,10 +365,22 @@ export function TranscriptScroller({
     (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
       const totalSize = instance.getTotalSize();
       const bottomOffset = Math.max(0, availableHeight - totalSize);
+      const previousBottomOffset = bottomOffsetRef.current;
       bottomOffsetRef.current = bottomOffset;
+      if (reduceMotion || !hasLiveEntries ||
+        previousAvailableHeightRef.current !== availableHeight) {
+        animatedBottomOffset.jump(bottomOffset);
+      } else if (bottomOffset !== previousBottomOffset) {
+        animatedBottomOffset.set(bottomOffset);
+      }
+      previousAvailableHeightRef.current = availableHeight;
       const sizer = virtualSizerRef.current;
       if (sizer) {
         sizer.style.height = `${Math.max(totalSize, availableHeight)}px`;
+      }
+      // Move the rows without translating the sizer's reserved empty space.
+      if (virtualRowsRef.current) {
+        virtualRowsRef.current.style.transform = `translate3d(0, ${animatedBottomOffset.get() - bottomOffset}px, 0)`;
       }
       for (const item of instance.getVirtualItems()) {
         const element = instance.elementsCache.get(item.key);
@@ -366,7 +389,7 @@ export function TranscriptScroller({
         }
       }
     },
-    [availableHeight, bottomOffsetRef, scrollMargin, virtualSizerRef]
+    [animatedBottomOffset, availableHeight, bottomOffsetRef, hasLiveEntries, reduceMotion, scrollMargin, virtualSizerRef]
   );
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -471,9 +494,10 @@ export function TranscriptScroller({
     setUserScrolledTowardStart(true);
   }, []);
   const cancelUserScrollAnimation = React.useCallback(() => {
+    animatedBottomOffset.jump(bottomOffsetRef.current);
     userScrollAnimationRef.current?.();
     userScrollAnimationRef.current = null;
-  }, []);
+  }, [animatedBottomOffset, bottomOffsetRef]);
   const handleWheel = React.useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       cancelUserScrollAnimation();
@@ -681,19 +705,21 @@ export function TranscriptScroller({
             ref={virtualSizerRef}
             {...stylex.props(styles.virtualSizer)}
           >
-            {virtualItems.map((virtualItem) => {
-              const entry = entries[virtualItem.index];
-              return (
-                <div
-                  key={virtualItem.key}
-                  ref={rowVirtualizer.measureElement}
-                  data-index={virtualItem.index}
-                  {...stylex.props(styles.virtualRow)}
-                >
-                  {renderEntry(entry, virtualItem.index)}
-                </div>
-              );
-            })}
+            <div ref={virtualRowsRef} {...stylex.props(styles.virtualRow)}>
+              {virtualItems.map((virtualItem) => {
+                const entry = entries[virtualItem.index];
+                return (
+                  <div
+                    key={virtualItem.key}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualItem.index}
+                    {...stylex.props(styles.virtualRow)}
+                  >
+                    {renderEntry(entry, virtualItem.index)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
