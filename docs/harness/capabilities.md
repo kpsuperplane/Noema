@@ -225,6 +225,14 @@ have occurred.
 Reviewed definition changes create a new semantic digest. The running service
 uses an immutable compiled registry. Managed changes refresh that registry only
 after filesystem publication and required connection migration.
+The Go service publishes compiled definitions after its SQLite index refresh succeeds.
+An incomplete managed publication blocks registry reads until recovery succeeds.
+Catalog reads reuse these definitions and read current connection and grant state.
+Execution checks the current binding under the execution lock and validates the selected definition from disk.
+Returned snapshots preserve exact JSON numbers and cannot modify the registry.
+Task authentication labels use the existing SQLite display indexes, without the connector execution lock.
+Display indexes never authorize execution.
+External definition edits take effect through startup recovery; there is no background file watcher.
 
 Connections retain stable identities across compatible definition revisions.
 Breaking authentication changes require an exact replacement connection check.

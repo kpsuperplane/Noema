@@ -247,6 +247,9 @@ func TestOAuthRevisionLeavesConnectionPendingUntilGrantAttach(t *testing.T) {
 	if err = service.ensureConnection(oldDefinition); err != nil {
 		t.Fatal(err)
 	}
+	if err = service.reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	snapshot, err := service.Snapshot()
 	if err != nil || len(snapshot.Connections) != 1 {
 		t.Fatalf("initial connection = %#v, %v", snapshot.Connections, err)
@@ -259,6 +262,9 @@ func TestOAuthRevisionLeavesConnectionPendingUntilGrantAttach(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = service.adoptConnections(replacement); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err = service.Snapshot()

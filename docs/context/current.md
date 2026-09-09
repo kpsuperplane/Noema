@@ -4,7 +4,7 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
-Task page reads use indexed connector names and focused task attention. The live median fell from 558 ms to 4.6 ms. The compiled registry remains the next unit. See [task-load evidence](../validation/task-load-2026-09-09.md).
+Task pages use indexed connector names and focused attention. The connector service now retains compiled definitions. The live task-detail median fell from 558 ms to 6.1 ms. See [task-load evidence](../validation/task-load-2026-09-09.md).
 
 Rust prompt text is restored from `4d29f6ba`. See [prompt parity](../validation/rust-prompt-parity.md) for exact reference checks, provider delivery checks, and context-history limits.
 

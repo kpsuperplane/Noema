@@ -1,0 +1,164 @@
+[
+  {
+    "name": "TasksTaskDetail",
+    "pass": 0,
+    "ms": 39.15358600000002,
+    "bytes": 9865
+  },
+  {
+    "name": "TasksTaskDetail.task",
+    "pass": 0,
+    "ms": 16.540655000000015,
+    "bytes": 6605
+  },
+  {
+    "name": "TasksTaskDetail.pendingHumanInterventions",
+    "pass": 0,
+    "ms": 4.8496809999999755,
+    "bytes": 3270
+  },
+  {
+    "name": "TasksOverview",
+    "pass": 0,
+    "ms": 17.70953800000001,
+    "bytes": 70082
+  },
+  {
+    "name": "TasksOverview.tasks",
+    "pass": 0,
+    "ms": 12.222560000000044,
+    "bytes": 42895
+  },
+  {
+    "name": "TasksOverview.taskRecurrences",
+    "pass": 0,
+    "ms": 4.425339000000008,
+    "bytes": 875
+  },
+  {
+    "name": "TasksOverview.taskHistory",
+    "pass": 0,
+    "ms": 6.071524000000011,
+    "bytes": 13906
+  },
+  {
+    "name": "TasksOverview.pendingHumanInterventions",
+    "pass": 0,
+    "ms": 7.32716099999999,
+    "bytes": 12436
+  },
+  {
+    "name": "task minimal",
+    "pass": 0,
+    "ms": 3.4959989999999834,
+    "bytes": 68
+  },
+  {
+    "name": "TasksTaskDetail",
+    "pass": 1,
+    "ms": 6.140565000000038,
+    "bytes": 9865
+  },
+  {
+    "name": "TasksTaskDetail.task",
+    "pass": 1,
+    "ms": 3.3389329999999973,
+    "bytes": 6605
+  },
+  {
+    "name": "TasksTaskDetail.pendingHumanInterventions",
+    "pass": 1,
+    "ms": 2.7512990000000173,
+    "bytes": 3270
+  },
+  {
+    "name": "TasksOverview",
+    "pass": 1,
+    "ms": 14.005154000000005,
+    "bytes": 70082
+  },
+  {
+    "name": "TasksOverview.tasks",
+    "pass": 1,
+    "ms": 10.704046000000005,
+    "bytes": 42895
+  },
+  {
+    "name": "TasksOverview.taskRecurrences",
+    "pass": 1,
+    "ms": 5.599221,
+    "bytes": 875
+  },
+  {
+    "name": "TasksOverview.taskHistory",
+    "pass": 1,
+    "ms": 6.483104000000026,
+    "bytes": 13906
+  },
+  {
+    "name": "TasksOverview.pendingHumanInterventions",
+    "pass": 1,
+    "ms": 9.292241999999987,
+    "bytes": 12436
+  },
+  {
+    "name": "task minimal",
+    "pass": 1,
+    "ms": 3.9131080000000793,
+    "bytes": 68
+  },
+  {
+    "name": "TasksTaskDetail",
+    "pass": 2,
+    "ms": 3.0758839999999736,
+    "bytes": 9865
+  },
+  {
+    "name": "TasksTaskDetail.task",
+    "pass": 2,
+    "ms": 1.7281399999999394,
+    "bytes": 6605
+  },
+  {
+    "name": "TasksTaskDetail.pendingHumanInterventions",
+    "pass": 2,
+    "ms": 6.940561000000002,
+    "bytes": 3270
+  },
+  {
+    "name": "TasksOverview",
+    "pass": 2,
+    "ms": 10.412594000000013,
+    "bytes": 70082
+  },
+  {
+    "name": "TasksOverview.tasks",
+    "pass": 2,
+    "ms": 8.594881999999984,
+    "bytes": 42895
+  },
+  {
+    "name": "TasksOverview.taskRecurrences",
+    "pass": 2,
+    "ms": 2.6006640000000516,
+    "bytes": 875
+  },
+  {
+    "name": "TasksOverview.taskHistory",
+    "pass": 2,
+    "ms": 3.033804000000032,
+    "bytes": 13906
+  },
+  {
+    "name": "TasksOverview.pendingHumanInterventions",
+    "pass": 2,
+    "ms": 6.831323999999995,
+    "bytes": 12436
+  },
+  {
+    "name": "task minimal",
+    "pass": 2,
+    "ms": 2.3537860000000137,
+    "bytes": 68
+  }
+]

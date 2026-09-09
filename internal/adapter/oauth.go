@@ -1080,6 +1080,7 @@ func (s *Service) AttachOAuthConnection(ctx context.Context, digest, grantID str
 			if !slices.Equal(connection.AllowedOperations, allowed) {
 				connection.AllowedOperations = allowed
 				connection.ConnectionRevision++
+				s.registry = nil
 				connection, err = s.files.replaceConnection(connection)
 				if err == nil {
 					err = s.reconcile(ctx)
@@ -1089,6 +1090,7 @@ func (s *Service) AttachOAuthConnection(ctx context.Context, digest, grantID str
 		}
 		id := randomHex()
 		connection = Connection{SchemaVersion: 2, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "oauth_grant", GrantID: grantID}}
+		s.registry = nil
 		connection, err = s.files.installConnection(connection)
 	} else {
 		connection, err = s.files.loadConnection(replacement)
@@ -1100,6 +1102,7 @@ func (s *Service) AttachOAuthConnection(ctx context.Context, digest, grantID str
 		connection.Status = "active"
 		connection.AllowedOperations = allowed
 		connection.ConnectionRevision++
+		s.registry = nil
 		connection, err = s.files.replaceConnection(connection)
 	}
 	if err == nil {
@@ -1233,6 +1236,7 @@ func (s *Service) setGrantConnections(grantID, status string) error {
 		if value.Authentication.GrantID == grantID && value.Status != status {
 			value.Status = status
 			value.ConnectionRevision++
+			s.registry = nil
 			if _, err = s.files.replaceConnection(value); err != nil {
 				return err
 			}

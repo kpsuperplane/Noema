@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,7 @@ type Service struct {
 	files            *fileAuthority
 	database         *store.Store
 	mu               sync.Mutex
+	registry         []Definition // Published under mu; nil rejects reads after an incomplete change.
 	oauthCallback    string
 	oauthAttempts    map[string]*oauthAttempt
 	oauthEvents      map[string]OAuthAttemptEvent
@@ -203,7 +205,7 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		return nil, errors.New("adapter definition template arguments are invalid")
 	}
 	if input.SemanticDigest == "" {
-		definitions, err := s.files.definitions()
+		definitions, err := s.compiledDefinitions()
 		if err != nil {
 			return nil, err
 		}
@@ -229,7 +231,7 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		help["oauth_profiles"] = profiles
 		return help, nil
 	}
-	definitions, err := s.files.definitions()
+	definitions, err := s.compiledDefinitions()
 	if err != nil {
 		return nil, err
 	}
@@ -337,6 +339,7 @@ func (s *Service) propose(raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 	}
+	s.registry = nil
 	definition, err = s.files.installDefinition(manifest, input.SourceReference, replaces, affected)
 	if err != nil {
 		return nil, err
@@ -452,6 +455,7 @@ func (s *Service) Approve(ctx context.Context, digest string) (Definition, error
 		reviewReplaces = append(reviewReplaces, pending.SemanticDigest)
 	}
 	sort.Strings(reviewReplaces)
+	s.registry = nil
 	reviewed, err := s.files.installDefinition(reviewedManifest, pending.SourceReference, reviewReplaces, pending.AffectedConnections)
 	if err != nil {
 		return Definition{}, err
@@ -555,6 +559,7 @@ func (s *Service) adoptConnections(replacement Definition) error {
 		if before != len(connection.Overrides) || len(connection.Overrides) != 0 {
 			connection.PolicyRevision++
 		}
+		s.registry = nil
 		if _, err = s.files.replaceConnection(connection); err != nil {
 			return err
 		}
@@ -634,6 +639,7 @@ func (s *Service) ensureConnection(definition Definition) error {
 	}
 	sort.Strings(allowed)
 	id := randomHex()
+	s.registry = nil
 	_, err = s.files.installConnection(Connection{SchemaVersion: 2, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: definition.SemanticDigest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "none"}})
 	return err
 }
@@ -664,6 +670,7 @@ func (s *Service) SetupCredentialConnection(ctx context.Context, digest, replace
 	if replacement == "" {
 		id := randomHex()
 		connection = Connection{SchemaVersion: 2, ConnectionID: id, ConnectionSlug: "personal-" + id[:8], SemanticDigest: digest, Status: "active", ConnectionRevision: 1, PolicyRevision: 1, AllowedOperations: allowed, Overrides: map[string]OperationOverride{}, Authentication: ConnectionAuthentication{Kind: "credential", GenerationID: generationID, Revision: 1}}
+		s.registry = nil
 		connection, err = s.files.installCredentialConnection(connection, generation)
 	} else {
 		connection, err = s.files.loadConnection(replacement)
@@ -675,6 +682,7 @@ func (s *Service) SetupCredentialConnection(ctx context.Context, digest, replace
 		connection.Status = "active"
 		connection.AllowedOperations = allowed
 		connection.ConnectionRevision++
+		s.registry = nil
 		connection, err = s.files.replaceCredential(connection, generation)
 	}
 	if err == nil {
@@ -694,6 +702,7 @@ func (s *Service) Cancel(ctx context.Context, digest string) (bool, error) {
 	if definition.Manifest.Reviewed {
 		return false, errors.New("reviewed adapter definition cannot be cancelled")
 	}
+	s.registry = nil
 	if err = s.files.quarantine("definitions", digest); err != nil {
 		return false, err
 	}
@@ -711,6 +720,7 @@ func (s *Service) DeleteConnection(ctx context.Context, id string, revision int)
 	if value.ConnectionRevision != revision {
 		return false, errors.New("adapter connection revision changed")
 	}
+	s.registry = nil
 	if err = s.files.quarantine("connections", id); err != nil {
 		return false, err
 	}
@@ -753,6 +763,7 @@ func (s *Service) DeleteService(ctx context.Context, id, digest string) (bool, e
 		}
 	}
 	for _, definition := range family {
+		s.registry = nil
 		if err = s.files.quarantine("definitions", definition.SemanticDigest); err != nil {
 			return false, err
 		}
@@ -764,12 +775,20 @@ func (s *Service) DeleteService(ctx context.Context, id, digest string) (bool, e
 func (s *Service) Snapshot() (ServiceSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	definitions, err := s.files.definitions()
+	snapshot, err := s.snapshot()
 	if err != nil {
 		return ServiceSnapshot{}, err
 	}
-	connections, err := s.files.connections()
-	return ServiceSnapshot{definitions, connections}, err
+	// Callers own nested maps, slices, and pointers in the returned definitions.
+	raw, err := json.Marshal(snapshot.Definitions)
+	if err != nil {
+		return ServiceSnapshot{}, err
+	}
+	snapshot.Definitions = nil
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	err = decoder.Decode(&snapshot.Definitions)
+	return snapshot, err
 }
 
 // SetActive changes one exact connection lifecycle state.
@@ -792,6 +811,7 @@ func (s *Service) SetActive(ctx context.Context, id string, revision int, active
 		value.Status = "suspended"
 	}
 	value.ConnectionRevision++
+	s.registry = nil
 	value, err = s.files.replaceConnection(value)
 	if err == nil {
 		err = s.reconcile(ctx)
@@ -813,6 +833,7 @@ func (s *Service) SaveConnectionPolicy(ctx context.Context, id, revision string,
 	value.DataSharingPolicy, value.UnsafeActionPolicy = sharing, unsafe
 	value.PolicyRevision++
 	value.ConnectionRevision++
+	s.registry = nil
 	value, err = s.files.replaceConnection(value)
 	if err == nil {
 		err = s.reconcile(ctx)
@@ -841,6 +862,7 @@ func (s *Service) SaveConnectionLabel(ctx context.Context, id, revision string, 
 	}
 	value.ConnectionLabel = label
 	value.ConnectionRevision++
+	s.registry = nil
 	value, err = s.files.replaceConnection(value)
 	if err == nil {
 		err = s.reconcile(ctx)
@@ -907,6 +929,7 @@ func (s *Service) ChangeTool(ctx context.Context, id, revision, tool, source str
 	connection.Overrides[tool] = override
 	connection.PolicyRevision++
 	connection.ConnectionRevision++
+	s.registry = nil
 	_, err = s.files.replaceConnection(connection)
 	if err == nil {
 		err = s.reconcile(ctx)
@@ -1038,7 +1061,7 @@ func (s *Service) bindings() ([]Binding, error) {
 			}
 			route := reviewRoute(connection, behavior)
 			name := definition.Manifest.AdapterID + "_" + connection.ConnectionSlug + "." + operation.OperationID
-			binding := Binding{ServiceCatalogRow: provider.ServiceCatalogRow(connection.ConnectionID, definition.Manifest.DisplayName, connection.ConnectionLabel, ""), Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, InvokerKey: AdapterInvokerKey, OperationToken: operation.Token, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, AccountID: accountID, InputSchema: operation.InputSchema, Behavior: behavior, ReviewRoute: route}
+			binding := Binding{ServiceCatalogRow: provider.ServiceCatalogRow(connection.ConnectionID, definition.Manifest.DisplayName, connection.ConnectionLabel, ""), Name: name, Description: operation.Description + connectionDescription, ConnectionID: connection.ConnectionID, DefinitionID: definition.Manifest.DefinitionID, SemanticDigest: definition.SemanticDigest, OperationID: operation.OperationID, OperationDigest: operation.Digest, InvokerKey: AdapterInvokerKey, OperationToken: operation.Token, ConnectionRevision: connection.ConnectionRevision, PolicyRevision: connection.PolicyRevision, ToolPolicyRevision: toolRevision, CredentialRevision: authorityRevision, GrantID: grantID, AccountID: accountID, InputSchema: append(json.RawMessage(nil), operation.InputSchema...), Behavior: behavior, ReviewRoute: route}
 			authorityToken, tokenErr := makeOperationAuthority(binding, connection.ConnectionSlug)
 			if tokenErr != nil {
 				return nil, tokenErr
@@ -1063,7 +1086,13 @@ func (s *Service) bindings() ([]Binding, error) {
 
 // Binding returns one current exact model-visible operation.
 func (s *Service) Binding(name string) (Binding, error) {
-	values, err := s.Bindings()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.binding(name)
+}
+
+func (s *Service) binding(name string) (Binding, error) {
+	values, err := s.bindings()
 	if err != nil {
 		return Binding{}, err
 	}
@@ -1101,7 +1130,9 @@ func (s *Service) CallReviewed(ctx context.Context, authority Binding, raw json.
 
 // Validate checks arguments against one current exact operation without making a request.
 func (s *Service) Validate(authority Binding, raw json.RawMessage) error {
-	current, err := s.Binding(authority.Name)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.binding(authority.Name)
 	if err != nil || !sameBinding(current, authority) {
 		return errors.New("adapter call authority changed")
 	}
@@ -1112,8 +1143,6 @@ func (s *Service) Validate(authority Binding, raw json.RawMessage) error {
 		}
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	definition, err := s.files.loadDefinition(current.SemanticDigest)
 	if err != nil {
 		return err
@@ -1129,12 +1158,12 @@ func (s *Service) Validate(authority Binding, raw json.RawMessage) error {
 
 // Call invokes one operation after every filesystem revision check.
 func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessage) (json.RawMessage, bool, error) {
-	current, err := s.Binding(authority.Name)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.binding(authority.Name)
 	if err != nil || !sameBinding(current, authority) {
 		return nil, false, errors.New("adapter call authority changed")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	connection, err := s.files.loadConnection(current.ConnectionID)
 	if err != nil {
 		return nil, false, err
@@ -1241,6 +1270,7 @@ func (s *Service) Call(ctx context.Context, authority Binding, raw json.RawMessa
 			connection.Status = "authentication_required"
 			connection.ConnectionRevision++
 			connection.AllowedOperations = nil
+			s.registry = nil
 			if _, updateErr := s.files.replaceConnection(connection); updateErr != nil {
 				return nil, false, updateErr
 			}
@@ -1335,8 +1365,15 @@ func classifyHTTPOutcome(err error, behavior store.ActionBehavior) error {
 	return ErrOutcomeUncertain
 }
 
+func (s *Service) compiledDefinitions() ([]Definition, error) {
+	if s.registry == nil {
+		return nil, errors.New("adapter registry is unavailable; complete the managed change or restart")
+	}
+	return s.registry, nil
+}
+
 func (s *Service) snapshot() (ServiceSnapshot, error) {
-	definitions, err := s.files.definitions()
+	definitions, err := s.compiledDefinitions()
 	if err != nil {
 		return ServiceSnapshot{}, err
 	}
@@ -1344,19 +1381,28 @@ func (s *Service) snapshot() (ServiceSnapshot, error) {
 	return ServiceSnapshot{definitions, connections}, err
 }
 func (s *Service) reconcile(ctx context.Context) error {
-	snapshot, err := s.snapshot()
+	s.registry = nil
+	compiled, err := s.files.definitions()
 	if err != nil {
 		return err
 	}
-	definitions := make([]store.AdapterDefinitionIndex, len(snapshot.Definitions))
-	for i, value := range snapshot.Definitions {
+	current, err := s.files.connections()
+	if err != nil {
+		return err
+	}
+	definitions := make([]store.AdapterDefinitionIndex, len(compiled))
+	for i, value := range compiled {
 		definitions[i] = store.AdapterDefinitionIndex{Digest: value.SemanticDigest, DefinitionID: value.Manifest.DefinitionID, AdapterID: value.Manifest.AdapterID, DefinitionRevision: value.Manifest.DefinitionRevision, SourceReference: value.SourceReference, DisplayName: DisplayName(value), Reviewed: value.Manifest.Reviewed, Superseded: value.Superseded, OperationCount: len(value.Operations)}
 	}
-	connections := make([]store.AdapterConnectionIndex, len(snapshot.Connections))
-	for i, value := range snapshot.Connections {
+	connections := make([]store.AdapterConnectionIndex, len(current))
+	for i, value := range current {
 		connections[i] = store.AdapterConnectionIndex{ID: value.ConnectionID, Slug: value.ConnectionSlug, Label: value.ConnectionLabel, Digest: value.SemanticDigest, Status: value.Status, ConnectionRevision: value.ConnectionRevision, PolicyRevision: value.PolicyRevision, DataSharingPolicy: value.DataSharingPolicy, UnsafeActionPolicy: value.UnsafeActionPolicy, AllowedOperations: value.AllowedOperations}
 	}
-	return s.database.ReconcileAdapters(ctx, definitions, connections, time.Now())
+	if err := s.database.ReconcileAdapters(ctx, definitions, connections, time.Now()); err != nil {
+		return err
+	}
+	s.registry = compiled
+	return nil
 }
 func reviewRoute(connection Connection, behavior store.ActionBehavior) store.ActionReviewRoute {
 	risky := (!behavior.ReadOnly && (behavior.Destructive || behavior.OpenWorld)) || connection.DataSharingPolicy == "review_every_call"

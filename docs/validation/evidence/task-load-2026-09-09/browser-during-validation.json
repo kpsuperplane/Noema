@@ -1,0 +1,56 @@
+[
+  {
+    "name": "ChatBoot",
+    "start": 1742.1764909999997,
+    "end": 1792.6832909999998,
+    "bytes": 3018
+  },
+  {
+    "name": "TasksOverview",
+    "start": 2182.108673,
+    "end": 2459.352093,
+    "bytes": 70082
+  },
+  {
+    "name": "TasksTaskDetail",
+    "start": 2236.0927669999996,
+    "end": 2459.5620699999995,
+    "bytes": 9865
+  },
+  {
+    "name": "TasksProjects",
+    "start": 2248.6337200000003,
+    "end": 2459.6832499999996,
+    "bytes": 3406
+  },
+  {
+    "name": "ConversationTranscriptPage",
+    "start": 2450.497059,
+    "end": 4288.457498,
+    "bytes": 66936
+  },
+  {
+    "name": "TasksTaskRunItems",
+    "start": 3660.290549,
+    "end": 4293.651161,
+    "bytes": 13616
+  },
+  {
+    "name": "TasksTaskRunItems",
+    "start": 3672.5700549999997,
+    "end": 4380.601406,
+    "bytes": 23173
+  },
+  {
+    "name": "TasksTaskSchedulePreview",
+    "start": 3683.322643,
+    "end": 4380.878892000001,
+    "bytes": 147
+  },
+  {
+    "name": "TasksOverview",
+    "start": 4613.145399999999,
+    "end": 4873.982609000001,
+    "bytes": 70082
+  }
+]

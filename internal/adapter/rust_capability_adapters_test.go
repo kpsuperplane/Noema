@@ -548,6 +548,9 @@ func rustSeedCursorFixture(t *testing.T, service *Service) (Binding, string) {
 	if err = service.ensureConnection(definition); err != nil {
 		t.Fatal(err)
 	}
+	if err = service.reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	snapshot, err := service.Snapshot()
 	if err != nil || len(snapshot.Connections) != 1 {
 		t.Fatalf("snapshot = %#v, %v", snapshot, err)
@@ -2021,6 +2024,9 @@ func TestRustAdapters_reviewed_enablement_restores_one_disabled_adapter_tool(t *
 		t.Fatal(err)
 	}
 	if err = service.ensureConnection(definition); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := service.Snapshot()

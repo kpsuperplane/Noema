@@ -299,6 +299,7 @@ func (r *Resolver) adapterDefinitions(ctx context.Context) ([]*model.AdapterDefi
 	if err != nil {
 		return nil, err
 	}
+	var oauth *adapter.OAuthSnapshot
 	result := make([]*model.AdapterDefinition, len(snapshot.Definitions))
 	result = result[:0]
 	for _, value := range snapshot.Definitions {
@@ -311,11 +312,14 @@ func (r *Resolver) adapterDefinitions(ctx context.Context) ([]*model.AdapterDefi
 		}
 		view := definitionModel(value, snapshot)
 		if value.Manifest.Authentication.Kind == "oauth2_authorization_code_pkce" {
-			oauth, oauthErr := service.OAuthSnapshot()
-			if oauthErr != nil {
-				return nil, oauthErr
+			if oauth == nil {
+				loaded, oauthErr := service.OAuthSnapshot()
+				if oauthErr != nil {
+					return nil, oauthErr
+				}
+				oauth = &loaded
 			}
-			projectOAuthDefinition(view, value, snapshot, oauth)
+			projectOAuthDefinition(view, value, snapshot, *oauth)
 		}
 		result = append(result, view)
 	}

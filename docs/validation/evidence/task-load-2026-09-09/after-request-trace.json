@@ -1,0 +1,212 @@
+{
+  "traceEvents": [
+    {
+      "name": "Navigation to task transcript responses",
+      "cat": "page",
+      "ph": "X",
+      "ts": 0,
+      "dur": 3336432,
+      "pid": 1,
+      "tid": 1
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "name": "ChatBoot"
+      }
+    },
+    {
+      "name": "ChatBoot",
+      "cat": "request",
+      "ph": "X",
+      "ts": 1135102,
+      "dur": 46642,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "response_bytes": 3018,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 3,
+      "args": {
+        "name": "TasksOverview"
+      }
+    },
+    {
+      "name": "TasksOverview",
+      "cat": "request",
+      "ph": "X",
+      "ts": 1514351,
+      "dur": 262994,
+      "pid": 1,
+      "tid": 3,
+      "args": {
+        "response_bytes": 71703,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 4,
+      "args": {
+        "name": "TasksTaskDetail"
+      }
+    },
+    {
+      "name": "TasksTaskDetail",
+      "cat": "request",
+      "ph": "X",
+      "ts": 1550559,
+      "dur": 227675,
+      "pid": 1,
+      "tid": 4,
+      "args": {
+        "response_bytes": 9865,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "name": "TasksProjects"
+      }
+    },
+    {
+      "name": "TasksProjects",
+      "cat": "request",
+      "ph": "X",
+      "ts": 1555630,
+      "dur": 224519,
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "response_bytes": 3406,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 6,
+      "args": {
+        "name": "ConversationTranscriptPage"
+      }
+    },
+    {
+      "name": "ConversationTranscriptPage",
+      "cat": "request",
+      "ph": "X",
+      "ts": 1770505,
+      "dur": 1480837,
+      "pid": 1,
+      "tid": 6,
+      "args": {
+        "response_bytes": 67001,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 7,
+      "args": {
+        "name": "TasksTaskRunItems"
+      }
+    },
+    {
+      "name": "TasksTaskRunItems",
+      "cat": "request",
+      "ph": "X",
+      "ts": 2784463,
+      "dur": 468227,
+      "pid": 1,
+      "tid": 7,
+      "args": {
+        "response_bytes": 13616,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 8,
+      "args": {
+        "name": "TasksTaskRunItems"
+      }
+    },
+    {
+      "name": "TasksTaskRunItems",
+      "cat": "request",
+      "ph": "X",
+      "ts": 2791275,
+      "dur": 545158,
+      "pid": 1,
+      "tid": 8,
+      "args": {
+        "response_bytes": 23173,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 9,
+      "args": {
+        "name": "TasksTaskSchedulePreview"
+      }
+    },
+    {
+      "name": "TasksTaskSchedulePreview",
+      "cat": "request",
+      "ph": "X",
+      "ts": 2792044,
+      "dur": 544598,
+      "pid": 1,
+      "tid": 9,
+      "args": {
+        "response_bytes": 147,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 10,
+      "args": {
+        "name": "TasksOverview"
+      }
+    },
+    {
+      "name": "TasksOverview",
+      "cat": "request",
+      "ph": "X",
+      "ts": 3474583,
+      "dur": 125841,
+      "pid": 1,
+      "tid": 10,
+      "args": {
+        "response_bytes": 71703,
+        "measurement": "Browser request events through the inspection helper"
+      }
+    }
+  ],
+  "displayTimeUnit": "ms"
+}
