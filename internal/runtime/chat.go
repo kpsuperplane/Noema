@@ -583,6 +583,7 @@ func (c *Chat) execute(request queuedTurn) {
 	runtimeStatus := "completed"
 	if err != nil {
 		runtimeStatus = "failed"
+		_ = c.errors.Write("runtime.chat_context_failed", diagnostics.Text("turn_id", turn.ID), diagnostics.Text("error", err.Error()))
 	}
 	if runtimeSpan != "" {
 		_ = c.database.FinishRuntimeDebugSpan(context.WithoutCancel(c.ctx), runtimeSpan, runtimeStatus,

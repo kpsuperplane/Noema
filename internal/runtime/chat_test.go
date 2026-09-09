@@ -200,7 +200,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			return nil, err
 		}
-		if body["tools"] == nil {
+		if tools, _ := body["tools"].([]any); len(tools) == 0 {
 			return openRouterStreamResponse("The earlier Task inspection rounds are complete."), nil
 		}
 		requests <- body
@@ -1364,4 +1364,23 @@ func distinctConversationItems(events []Event) []Event {
 		result = append(result, event)
 	}
 	return result
+}
+
+func TestQueuedChatInputDefersPendingNotifications(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	chat.Close()
+	createQueuedRuntimeTask(t, database, chat.home, "Notification scheduling check")
+	before, err := database.PrimaryTaskNotificationCursor(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := &Chat{ctx: t.Context(), database: database, turns: make(chan queuedTurn, 1)}
+	worker.turns <- queuedTurn{}
+	if err := worker.drainPrimaryNotifications(); err == nil {
+		t.Fatal("pending notifications did not yield to queued Chat input")
+	}
+	after, err := database.PrimaryTaskNotificationCursor(t.Context())
+	if err != nil || before != after || len(worker.turns) != 1 {
+		t.Fatalf("deferred input or notification cursor changed: before=%d after=%d error=%v", before, after, err)
+	}
 }

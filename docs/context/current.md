@@ -40,7 +40,7 @@ The Go server includes authentication, onboarding, Chat, Projects, Agents, Artif
 OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments. Chat and Tasks now save live progress and readable reasoning as separate sections. Provider phases survive replay. Shared progress instructions extend the unchanged Rust prompts. See `docs/validation/live-progress.md` for checks and limits.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
 Migration 33 removes Apple model accounts and selections. Historical conversation and Task records remain intact.
-Primary Chat supports durable recovery, context admission, compaction checkpoints, A2UI, and bounded tool loops.
+Primary Chat supports durable recovery, context admission, compaction checkpoints, A2UI, and bounded tool loops. Main Chat returned a verified live response after launcher recovery. Pending input now takes priority over notification replay. See `docs/validation/chat-context-recovery.md`.
 It reviews exact `file.download` calls, pauses for decisions, and resumes from known or uncertain outcomes.
 Task placement, schedules, recurrences, occurrence documents, and due release now use Go authorities.
 Task runs snapshot and enforce continuation, tool, active-time, retry, review, and audit limits.

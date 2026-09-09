@@ -32,6 +32,9 @@ func (c *Chat) drainPrimaryNotifications() error {
 			return nil
 		}
 		for _, event := range events {
+			if len(c.turns) > 0 {
+				return fmt.Errorf("primary notifications deferred for queued Chat input")
+			}
 			write, prompt, mapped, mapErr := c.primaryNotification(*conversation, event)
 			if mapErr != nil {
 				return mapErr
