@@ -48,7 +48,9 @@ export const TaskTitleField = React.forwardRef<HTMLTextAreaElement, React.Textar
       observer.observe(input);
       return () => observer.disconnect();
     }, [props.value]);
-    return <textarea ref={inputRef} rows={1} aria-label="Task title" autoComplete="off" placeholder="What needs to be done?" {...props} {...stylex.props(styles.title)} />;
+    return <VStack gap={0} xstyle={[styles.instructions, !props.readOnly && !props.disabled && styles.editable]}>
+      <textarea ref={inputRef} rows={1} aria-label="Task title" autoComplete="off" placeholder="What needs to be done?" {...props} {...stylex.props(styles.title)} />
+    </VStack>;
   }
 );
 
@@ -119,7 +121,7 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     void field.finish(read());
   }}>
-    {edit && (edit.canEdit || edit.field === "DOCUMENT") ? <section inert={edit.busy || !edit.canEdit} {...stylex.props(styles.instructions)}>
+    {edit && (edit.canEdit || edit.field === "DOCUMENT") ? <section inert={edit.busy || !edit.canEdit} {...stylex.props(styles.instructions, edit.canEdit && !edit.busy && styles.editable)}>
       <MarkdownInlineEditor readValueRef={readValueRef} value={field.draft} onChange={field.change} label="Task instructions" placeholder="Add details or instructions…" sourceMode={sourceMode} onSourceModeChange={changeSource} />
     </section> : <MarkdownContent density="compact">{value || "No instructions added."}</MarkdownContent>}
     <HStack justify="between" align="center" gap={2} wrap="wrap">
@@ -131,6 +133,20 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
 
 const styles = stylex.create({
   title: { width: "100%", minWidth: 0, resize: "none", overflow: "hidden", lineHeight: "var(--text-heading-3-leading)", padding: "var(--spacing-0)", borderWidth: 0, backgroundColor: "transparent", color: "var(--noema-text-primary)", fontFamily: "var(--font-family-heading)", fontSize: "var(--text-heading-3-size)", fontWeight: "var(--text-heading-3-weight)", outline: "none", ":focus-visible": { boxShadow: "0 1px var(--ring)" }, "::placeholder": { color: "var(--muted-foreground)" } },
+  editable: {
+    position: "relative",
+    isolation: "isolate",
+    "--task-edit-hover-fill": { default: "transparent", ":hover": "var(--noema-surface-hover)" },
+    "::before": {
+      content: '""',
+      position: "absolute",
+      inset: "calc(-1 * var(--spacing-1))",
+      borderRadius: "var(--radius-element)",
+      backgroundColor: "var(--task-edit-hover-fill)",
+      pointerEvents: "none",
+      zIndex: -1
+    }
+  },
   instructions: { width: "100%", minWidth: 0 },
   feedback: { color: "var(--noema-text-secondary)", fontSize: "var(--text-supporting-size)", textWrap: "pretty", ":empty": { display: "none" } }
 });

@@ -124,12 +124,12 @@ function MilkdownCrepe({ readValueRef, initialValue, inline, placeholder, onChan
 
 const styles = stylex.create({
   root: { position: "relative", minWidth: 0, minHeight: 320, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", overflow: "hidden", backgroundColor: "var(--background)" },
-  inlineRoot: { minHeight: 0, overflow: "visible", borderWidth: 0, borderRadius: 0 },
+  inlineRoot: { minHeight: 0, overflow: "visible", borderWidth: 0, borderRadius: 0, backgroundColor: "transparent" },
   modeBar: { minHeight: 38, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border)", paddingInline: "var(--spacing-2)" },
   modeLabel: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 600 },
   editor: { minHeight: 280, color: "var(--foreground)", fontFamily: "var(--font-family-body)" },
   inlineEditor: { minHeight: 0 },
   source: { minHeight: 280, borderWidth: 0, borderRadius: 0, fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, resize: "vertical" },
-  inlineSource: { minHeight: 96 },
+  inlineSource: { minHeight: 96, backgroundColor: "transparent" },
   notice: { margin: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border)", padding: "var(--spacing-2)", color: "var(--muted-foreground)", fontSize: 12 }
 });

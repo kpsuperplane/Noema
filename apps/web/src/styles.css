@@ -339,6 +339,10 @@ a[href][data-slot="shell-sidebar-control"] {
   background: var(--color-border);
 }
 
+[data-slot="markdown-editor"][data-density="inline"] .milkdown {
+  background-color: transparent;
+}
+
 [data-slot="markdown-editor"][data-density="inline"] .milkdown .ProseMirror {
   min-height: var(--spacing-5);
   padding-block: 0;
