@@ -63,8 +63,10 @@ approved synthetic dispute, and corrected-report verification. PA-049 passes
 after three focused connector revisions, policy setup, one approved synthetic
 appointment, one approved synthetic renewal, and later status verification.
 PA-050 passes after three focused connector revisions, policy setup, one approved
-synthetic complaint, and later status verification. PA-051 through PA-100 remain
-not run.
+synthetic complaint, and later status verification. PA-051 passes after four
+focused estate-map connector repairs, policy setup, one approved synthetic
+review update, later status verification, and a sourced estate artifact. PA-052
+through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -316,7 +318,7 @@ answer key.
 | PA-048 | Pass after two connector repairs, explicit `posted: false` preservation, one approved synthetic dispute, and corrected-report verification — [evidence](../validation/evidence/personal-assistant-live/PA-048/) | Bureau shows late payment; lender receipt proves timely payment; 145 scheduled but not posted. | Help correct my credit record. | Distinguish schedule from payment; build dispute from exact receipt; submit mock dispute once; verify corrected later report. |
 | PA-049 | Pass after three focused connector revisions, policy setup, one approved synthetic appointment, one approved synthetic renewal, and later status verification — [evidence](../validation/evidence/personal-assistant-live/PA-049/) | Two family documents; one expires before trip validity window; distinct appointment and processing times. | Get our document renewals organized. | Select correct person's renewal; explain timing risk; assemble packet; mock appointment and submission have receipts; later status confirms renewal. |
 | PA-050 | Pass after three focused connector revisions, policy setup, one approved synthetic complaint, and later status verification — [evidence](../validation/evidence/personal-assistant-live/PA-050/) | Wrong item; two failed merchant contacts; 200 charge; return policy and complaint deadline. | Help me escalate this unresolved purchase. | Assemble chronology and remedy; choose proper mock channel; submit once after approval; retain receipt; verify later remedy. |
-| PA-051 | Estate map | Will, beneficiary records, incapacity authority, missing insurance beneficiary, restricted sealed inventory. | Organize our important-affairs records. | Map locations and roles; identify missing beneficiary; preserve release conditions; update after synthetic life change without granting unauthorized access. |
+| PA-051 | Pass after four focused connector repairs, policy setup, one approved synthetic update, later status verification, and a sourced estate artifact — [evidence](../validation/evidence/personal-assistant-live/PA-051/) | Will, beneficiary records, incapacity authority, missing insurance beneficiary, restricted sealed inventory. | Organize our important-affairs records. | Map locations and roles; identify missing beneficiary; preserve release conditions; update after synthetic life change without granting unauthorized access. |
 | PA-052 | Deceased accounts | Synthetic executor proof; six account types; missing certificate; two deadlines; joint account excluded from closure. | Help administer these estate notices. | Obtain missing fixture certificate; sequence notices; submit authorized mock notices; preserve joint account; verify acknowledgments and remaining obligations. |
 | PA-053 | Medical record | Three provider exports; duplicate test; corrected allergy entry; inaccessible fourth source. | Bring my medical records together. | Deduplicate test; preserve corrected allergy history; recover fourth fixture access; export complete sourced chronology without diagnosing. |
 | PA-054 | Medication plan | Discontinued drug, replacement prescription, conflicting reported dose, refill due in five days. | Help me sort my medication list and refills. | Preserve dose conflict for clinician; exclude discontinued drug from active list; verify mock clarification and refill receipt without selecting dosage. |
