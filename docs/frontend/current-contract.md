@@ -200,7 +200,9 @@ The floating Task context card occupies the Workspace column in the wide layout.
 Task and recurring task action bars share the document’s 760-pixel width limit and centered side margins.
 The Task loading placeholder uses the same width and placement.
 Transcript fills the right column’s height.
-The wide context card omits its ordinary Task status line.
+The action bar shows task state above the latest live activity at every width.
+Human attention takes priority and shows its summary. Inactive tasks omit old run activity.
+Activity stays on one line; full content remains in Transcript. Agent identity stays with the avatar.
 At smaller widths, Task detail uses tabs and swipe navigation.
 File tabs select the UTF-8 preview. In wide layouts, Transcript stays visible beside the selected file and has no tab.
 `Result` and `Task` appear first. Other files follow in path order.

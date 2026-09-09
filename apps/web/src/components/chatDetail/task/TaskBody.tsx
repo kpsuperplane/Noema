@@ -40,7 +40,7 @@ export function TaskBody({
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunEntryChange?: TaskRunLatestEntryChange;
-  renderContextCard: (showStatus: boolean) => React.ReactNode;
+  renderContextCard: () => React.ReactNode;
 }) {
   const [tabState, setTabState] = React.useState(() => ({
     taskId: detail.taskId,
@@ -170,7 +170,7 @@ export function TaskBody({
           />
         </section>
         <section aria-label="Task context" {...stylex.props(styles.contextPane)}>
-          {renderContextCard(activeTab !== "transcript")}
+          {renderContextCard()}
         </section>
       </Grid>
     </section>
@@ -401,8 +401,6 @@ const styles = stylex.create({
     "@container (width > 1200px)": {
       gridColumn: "1",
       gridRow: "3",
-      "--task-context-card-margin-block-start": "var(--spacing-0)",
-      "--task-context-status-display": "none"
     }
   },
   workspace: {

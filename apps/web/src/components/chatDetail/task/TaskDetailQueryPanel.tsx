@@ -77,9 +77,8 @@ export function TaskDetailQueryPanel({
         loading={result.loading}
         onRetry={() => { void refreshTask(); }}
         onOpenDetail={onOpenDetail}
-        renderSecondarySurface={(status) => (
+        renderSecondarySurface={() => (
           <PendingHumanInterventionsResult
-            emptyContent={status}
             placement="dock"
             result={result}
           />

@@ -1,5 +1,4 @@
 import * as React from "react";
-import { AvatarGroup } from "@astryxdesign/core/AvatarGroup";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
@@ -9,11 +8,8 @@ import * as m from "motion/react-m";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
 import { RollingSwap, RollingText } from "@/components/RollingText";
-import { ActivityRow, activityRendersAsSystemNotice } from "@/components/transcript/ActivityRow";
-import { Message } from "@/components/transcript/Message";
 import type { RenderTranscriptEntry } from "@/components/transcript/renderModel";
 import { ToolMarker } from "@/components/transcript/ToolMarker";
-import { TranscriptSystemNotice } from "@/components/transcript/TranscriptSystemNotice";
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskBody, TaskLoadingSkeleton } from "./TaskBody";
@@ -46,7 +42,7 @@ export function TaskDetailPanel({
   showTasksLink?: boolean;
   onRetry?: () => void;
   retrying?: boolean;
-  renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
+  renderSecondarySurface?: () => React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
   const currentDetail = detail?.taskId === taskId ? detail : null;
@@ -84,7 +80,7 @@ export function TaskDetailPanel({
   }
 
   const run = latestTaskRun(currentDetail);
-  const renderContextCard = (showStatus: boolean) => (
+  const renderContextCard = () => (
     <TaskContextCard
       key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
       detail={currentDetail}
@@ -92,7 +88,6 @@ export function TaskDetailPanel({
       renderSecondarySurface={renderSecondarySurface}
       run={run}
       controls={controls}
-      showStatus={showStatus && Boolean(run) && currentDetail.status !== "done"}
       showTasksLink={showTasksLink}
       taskId={taskId}
     />
@@ -128,7 +123,6 @@ function TaskContextCard({
   latestRunEntries,
   renderSecondarySurface,
   run,
-  showStatus,
   showTasksLink,
   taskId
 }: {
@@ -136,47 +130,37 @@ function TaskContextCard({
   detail: TaskDetail;
   controls?: React.ReactNode;
   latestRunEntries: ReadonlyMap<string, RenderTranscriptEntry>;
-  renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
+  renderSecondarySurface?: () => React.ReactNode;
   run: TaskRun | null;
-  showStatus: boolean;
   showTasksLink: boolean;
 }) {
   const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
-  const status = showStatus ? (
-    <div {...stylex.props(styles.statusCard)}>
-      <TaskSummaryEntry entry={latestEntry} run={run} />
-    </div>
-  ) : null;
-  const secondarySurface = renderSecondarySurface
-    ? renderSecondarySurface(status)
-    : status;
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
-      {secondarySurface}
-      <div {...stylex.props(
-        styles.contextCard,
-        (!showStatus || renderSecondarySurface) && styles.contextCardWithoutStatus
-      )}>
+      {renderSecondarySurface?.()}
+      <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader
+          entry={latestEntry}
           detail={detail}
           run={run}
           controls={controls}
           showTasksLink={showTasksLink}
           taskId={taskId}
         />
-
       </div>
     </aside>
   );
 }
 
 function TaskSummaryHeader({
+  entry,
   detail,
   run,
   controls,
   showTasksLink,
   taskId
 }: {
+  entry: RenderTranscriptEntry | null;
   detail: TaskDetail;
   run: TaskRun | null;
   controls?: React.ReactNode;
@@ -184,7 +168,7 @@ function TaskSummaryHeader({
   taskId: string;
 }) {
   const completed = detail.status === "done";
-  const contributors = completed ? detail.contributorInstanceNames : [];
+  const active = detail.stageBehavior === "ACTIVE" && (run?.status === "running" || run?.status === "leased");
   return (
     <header {...stylex.props(styles.summaryHeader, !run && !completed && styles.summaryHeaderWithoutAvatar)}>
       {run || completed ? (
@@ -200,28 +184,11 @@ function TaskSummaryHeader({
       ) : null}
       <div {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
-          {completed ? "Task Completed" : run ? run.instanceName : detail.status === "cancelled" ? "Task cancelled" : detail.stageBehavior === "DISPATCH" ? "Queued" : detail.stageBehavior === "ACTIVE" ? "Working" : detail.attention ? "Needs you" : detail.schedule ? "Scheduled" : "Ready when you are"}
+          {taskStateLabel(detail, run)}
         </strong>
-        {completed && contributors.length ? (
-          <AvatarGroup aria-label="Agents that worked on this task" size="xsm">
-            {contributors.map((instanceName, index) => (
-              <IdentityAvatar
-                key={instanceName}
-                actorId={`subagent:${instanceName}`}
-                actorType="agent"
-                className={stylex.props(
-                  styles.contributorAvatar,
-                  index > 0 && styles.contributorAvatarOverlap
-                ).className}
-                focusable={false}
-                label={instanceName}
-                size="xs"
-              />
-            ))}
-          </AvatarGroup>
-        ) : run ? (
-          <span {...stylex.props(styles.summaryOutput)}>{capitalize(run.role)}</span>
-        ) : null}
+        {!completed && detail.status !== "cancelled" && detail.attention?.summary.trim() ? (
+          <span {...stylex.props(styles.summaryOutput)}>{detail.attention.summary}</span>
+        ) : !detail.attention && active ? <TaskSummaryEntry entry={entry} /> : null}
       </div>
       <span {...stylex.props(styles.summaryActions)}>
         {controls ? <span {...stylex.props(styles.summaryControlsHost)}>{controls}</span> : null}
@@ -270,6 +237,7 @@ function TaskSummaryAvatar({
           activity={avatarMotion.activity}
           actorId={`subagent:${run.instanceName}`}
           actorType="agent"
+          label={run.instanceName}
           animated={avatarMotion.animated}
           size="sm"
         />
@@ -301,31 +269,10 @@ function latestTaskRun(detail: TaskDetail): TaskRun | null {
   return runs.find((run) => run.status === "running" || run.status === "leased" || run.status === "queued") ?? runs[0] ?? null;
 }
 
-function TaskSummaryEntry({
-  entry,
-  run
-}: {
-  entry: RenderTranscriptEntry | null;
-  run: TaskRun | null;
-}) {
-  const kind = taskSummaryEntryKind(entry);
-  return (
-    <RollingSwap transitionKey={kind}>
-      <TaskSummaryEntryContent entry={entry} run={run} />
-    </RollingSwap>
-  );
-}
-
-function TaskSummaryEntryContent({
-  entry,
-  run
-}: {
-  entry: RenderTranscriptEntry | null;
-  run: TaskRun | null;
-}) {
+function TaskSummaryEntry({ entry }: { entry: RenderTranscriptEntry | null }) {
   if (entry?.kind === "tool_marker" || entry?.kind === "tool_marker_group") {
     return (
-      <div {...stylex.props(styles.summaryEntry)}>
+      <RollingSwap transitionKey="tool" {...stylex.props(styles.summaryEntry)}>
         <ToolMarker
           animateText
           data={entry.kind === "tool_marker"
@@ -336,71 +283,42 @@ function TaskSummaryEntryContent({
           open={false}
           renderDetail={false}
         />
-      </div>
+      </RollingSwap>
     );
   }
-  if (entry?.kind === "entry" && entry.entry.type === "assistant") {
-    return (
-      <div {...stylex.props(styles.summaryEntry)}>
-        <Message
-          animate={false}
-          reserveAvatarSpace={false}
-          role="assistant"
-          rollingText
-          showAvatar={false}
-          singleLine
-          text={entry.entry.text}
-        />
-      </div>
-    );
-  }
-  if (entry?.kind === "entry" && entry.entry.type === "activity") {
-    return (
-      <div {...stylex.props(styles.summaryEntry)}>
-        <ActivityRow animateText item={entry.entry.item} onToggle={() => {}} open={false} singleLine />
-      </div>
-    );
-  }
-  return (
-    <div {...stylex.props(styles.summaryEntry)}>
-      <TranscriptSystemNotice role="status" singleLine>
-        <RollingText value={latestRunOutput(run)} {...stylex.props(styles.summaryOutput)} />
-      </TranscriptSystemNotice>
-    </div>
-  );
+  const text = entry?.kind === "entry"
+    ? entry.entry.type === "assistant"
+      ? entry.entry.text
+      : entry.entry.type === "activity"
+        ? entry.entry.item.summary || entry.entry.item.title
+        : null
+    : null;
+  return text?.trim() ? <RollingText {...stylex.props(styles.summaryOutput)} value={text.trim()} /> : null;
 }
 
-function taskSummaryEntryKind(entry: RenderTranscriptEntry | null): "activity_card" | "activity_notice" | "message" | "status" | "tool" {
-  if (entry?.kind === "tool_marker" || entry?.kind === "tool_marker_group") return "tool";
-  if (entry?.kind === "entry" && entry.entry.type === "assistant") return "message";
-  if (entry?.kind === "entry" && entry.entry.type === "activity") {
-    return activityRendersAsSystemNotice(entry.entry.item) ? "activity_notice" : "activity_card";
+function taskStateLabel(detail: TaskDetail, run: TaskRun | null): string {
+  if (detail.status === "done") return "Completed";
+  if (detail.status === "cancelled") return "Cancelled";
+  if (detail.attention) {
+    switch (detail.attention.kind) {
+      case "APPROVAL_REQUIRED": return "Needs your approval";
+      case "CLARIFICATION_REQUIRED": return "Needs your answer";
+      case "RECOVERY_REQUIRED": return "Needs your help";
+    }
   }
-  return "status";
-}
-
-function latestRunOutput(run: TaskRun | null): string {
-  if (run?.error) return run.error;
-  switch (run?.status) {
-    case "running": return "Running";
-    case "leased": return "Starting";
-    case "queued": return "Queued";
-    case "completed": return run.output?.trim() || "Completed";
-    case "failed": return "Failed";
-    case "cancelled": return "Cancelled";
-    case "interrupted": return "Interrupted";
-    case "waiting_for_approval": return "Waiting for approval";
-    default: return "No output yet";
-  }
+  if (detail.status === "failed") return "Failed";
+  if (detail.status === "waiting_for_human" || detail.stageBehavior === "HUMAN_GATE") return "Needs your help";
+  if (detail.stageBehavior === "INTAKE") return detail.schedule ? "Scheduled" : "Ready when you are";
+  if (detail.stageBehavior === "DISPATCH") return "Queued";
+  if (detail.stageBehavior === "ACTIVE" && run?.status === "failed") return "Failed";
+  if (detail.stageBehavior === "ACTIVE" && (run?.status === "running" || run?.status === "leased") && run.role === "planner") return "Planning";
+  if (detail.status === "reviewing" || (detail.stageBehavior === "ACTIVE" && run?.role === "reviewer")) return "Reviewing";
+  return "Working";
 }
 
 function parseTimestamp(value?: string | null): number {
   const timestamp = value ? Date.parse(value) : Number.NaN;
   return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function TaskUnavailable({ message, onRetry, retrying }: { message: string; onRetry?: () => void; retrying: boolean }) {
@@ -448,7 +366,7 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     flex: "0 0 auto",
-    marginBlockStart: "var(--task-context-card-margin-block-start, calc(-1 * var(--human-intervention-card-radius)))",
+    marginBlockStart: "var(--spacing-0)",
     overflow: "hidden",
     borderWidth: 1,
     borderStyle: "solid",
@@ -457,37 +375,15 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
-  contextCardWithoutStatus: { marginBlockStart: "var(--spacing-0)" },
-  contextBody: { minWidth: 0, minHeight: 0 },
-  statusCard: {
-    display: "var(--task-context-status-display, block)",
-    position: "relative",
-    zIndex: 1,
-    minWidth: 0,
-    paddingBlockStart: "var(--spacing-1)",
-    paddingBlockEnd: "calc(var(--spacing-0-5) + var(--human-intervention-card-radius))",
-    paddingInline: "var(--spacing-3)",
-    overflow: "hidden",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--noema-border-subtle)",
-    borderRadius: "var(--human-intervention-card-radius)",
-    borderEndStartRadius: 0,
-    borderEndEndRadius: 0,
-    backgroundColor: "var(--noema-surface-card)",
-    boxShadow: "var(--shadow-low)"
-  },
   summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInlineStart: "calc(var(--spacing-2) + var(--spacing-0-5))", paddingInlineEnd: "var(--spacing-4)" },
   summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto", paddingInlineStart: "var(--spacing-4)" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
   completedAvatar: { display: "inline-flex", width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "var(--color-success)", color: "var(--color-on-accent)" },
-  contributorAvatar: { boxSizing: "content-box", borderWidth: 2, borderStyle: "solid", borderColor: "var(--noema-surface-card)" },
-  contributorAvatarOverlap: { marginInlineStart: "calc(-1 * var(--spacing-1))" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  summaryEntry: { display: "block", minWidth: 0, overflow: "hidden" },
+  summaryEntry: { display: "block", minWidth: 0, maxHeight: "var(--spacing-6)", overflow: "hidden", whiteSpace: "nowrap" },
   summaryActions: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   summaryControlsHost: { display: "inline-flex", alignItems: "center" },
   summaryAction: { width: 28, height: 28 },
