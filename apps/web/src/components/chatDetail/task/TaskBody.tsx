@@ -365,13 +365,12 @@ const styles = stylex.create({
   loadingHeader: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingBlockStart: "var(--spacing-3)", paddingBlockEnd: "var(--spacing-1)" },
   loadingTitle: { width: "60%", height: "calc(var(--text-heading-3-size) * var(--text-heading-3-leading))" },
   loadingLine: { height: "var(--spacing-3)", borderRadius: "var(--radius-element)", backgroundColor: "var(--skeleton-glimmer-line)" },
-  loadingLines: { width: "100%", maxWidth: 720, marginInline: "auto", padding: "var(--spacing-4)" },
+  loadingLines: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingBlock: "var(--spacing-4)" },
   loadingContext: { height: "var(--spacing-12)", margin: "var(--spacing-4)", borderRadius: "var(--radius-page)", backgroundColor: "var(--skeleton-glimmer-line)" },
   heading: { minWidth: 0, "@container (width > 1200px)": { gridColumn: "1", gridRow: "1" } },
   tabBar: {
-    width: "100%", maxWidth: 720, marginInline: "auto",
+    width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto",
     minWidth: 0,
-    paddingInline: "var(--spacing-4)",
     "@container (width > 1200px)": { display: "none" }
   },
   frame: {
@@ -465,7 +464,7 @@ const styles = stylex.create({
     paddingBlockEnd: "var(--spacing-6)"
   },
 
-  editorContent: { width: "100%", maxWidth: 720, paddingInline: "var(--spacing-4)", marginInline: "auto", borderRadius: "var(--radius-element)" },
+  editorContent: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
   taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto" },
   plainText: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, margin: "var(--spacing-0) auto", color: "var(--noema-text-primary)", fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
   taskContent: {
