@@ -1,14 +1,13 @@
 import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Grid } from "@astryxdesign/core/Grid";
 import { TaskDocumentEditor, TaskTitleField } from "./TaskDocumentFields";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Popover } from "@astryxdesign/core/Popover";
-import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useBlocker } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
@@ -44,7 +43,6 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   const [draftRevision, setDraftRevision] = React.useState(0);
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
-  const [cwdOverride, setCwdOverride] = React.useState("");
   const [schedule, setSchedule] = React.useState(initialScheduleDraft);
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
@@ -129,7 +127,6 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
             taskDocument: readValueRef.current?.() ?? taskDocument,
             schedule: intent === "schedule" ? validSchedule : null,
             executorAgentId: defaultExecutorId,
-            cwdOverride: cwdOverride.trim() || null,
             clientMutationId: createClientId()
           }
         }
@@ -168,6 +165,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
         if (event.key === "Escape" && !event.defaultPrevented) close();
       }}
     >
+      <Grid height="100%" xstyle={styles.frame}>
       <Layout
         height="fill"
         header={
@@ -236,42 +234,29 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
         }
         footer={
           <LayoutFooter padding={0} className={stylex.props(styles.footer).className}>
-            <VStack gap={3} width="100%">
-              <Collapsible trigger="Advanced" defaultIsOpen={false}>
-                <VStack gap={3}>
-                  <TextInput label="Working folder (optional)" description={effectiveCwdSummary(cwdOverride, selectedProject?.folder)} value={cwdOverride} placeholder="/absolute/path" size="sm" onChange={setCwdOverride} />
-                </VStack>
-              </Collapsible>
-              <HStack align="center" justify="between" gap={2} wrap="wrap" className={stylex.props(styles.controlRow).className}>
-                <HStack gap={2} className={stylex.props(styles.createActions).className}>
-                  <Button type="button" size="md" variant="secondary" label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
-                  <Button form={captureFormId} type="submit" size="md" variant="primary" label={scheduling ? "Schedule task" : "Run now"} isLoading={submitting} isDisabled={mainDisabled} />
-                </HStack>
-              </HStack>
-            </VStack>
+            <HStack justify="end" gap={2} wrap="wrap">
+              <Button type="button" size="md" variant="secondary" label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
+              <Button form={captureFormId} type="submit" size="md" variant="primary" label={scheduling ? "Schedule task" : "Run now"} isLoading={submitting} isDisabled={mainDisabled} />
+            </HStack>
           </LayoutFooter>
         }
       />
+      <VStack aria-hidden="true" xstyle={styles.emptyPanel} />
+      </Grid>
     </section>
   );
 });
 
 const styles = stylex.create({
-  root: { width: "100%", height: "100%", minHeight: 0, backgroundColor: "var(--noema-surface-card)" },
+  root: { containerType: "inline-size", width: "100%", height: "100%", minHeight: 0, backgroundColor: "var(--noema-surface-card)" },
+  frame: { minWidth: 0, minHeight: 0, gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "minmax(0, 1fr)", "@container (width > 1200px)": { gridTemplateColumns: "minmax(0, 1fr) 600px" } },
+  emptyPanel: { display: { default: "none", "@container (width > 1200px)": "flex" }, borderInlineStartWidth: "var(--border-width)", borderInlineStartStyle: "solid", borderInlineStartColor: "var(--noema-border-subtle)" },
   header: { paddingBlockEnd: "var(--spacing-3)", borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
   content: { minHeight: 0, padding: "var(--spacing-0)" },
   footer: { paddingBlock: "var(--spacing-4)", paddingInline: "max(var(--spacing-6), calc((100% - 760px) / 2))" },
   form: { display: "flex", width: "100%", minHeight: "100%", flexDirection: "column", gap: "var(--spacing-2)" },
   document: { display: "flex", flexDirection: "column", flexGrow: 1, minHeight: "calc(var(--spacing-10) * 6)", color: "var(--foreground)", cursor: "text" },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
-  controlRow: { width: "100%" },
-  createActions: { display: "grid", gridTemplateColumns: "1fr 1fr", flexGrow: 1 },
 
   schedulePopover: { maxHeight: "calc(100vh - var(--spacing-8))", overflowY: "auto", overscrollBehavior: "contain" },
   });
-
-function effectiveCwdSummary(override: string, projectFolder?: string | null): string {
-  if (override.trim()) return `Task directory · under ${override.trim()}`;
-  if (projectFolder) return `Task directory · under ${projectFolder}`;
-  return "Task directory · Noema Tasks folder (created when queued)";
-}
