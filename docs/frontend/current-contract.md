@@ -206,6 +206,7 @@ Its first label aligns with the title text; the bar offsets the tabs’ built-in
 A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.
+Task, Result, Review, and support-file previews share a 760-pixel reading container with 24-pixel side margins.
 
 Artifact detail previews Markdown and plain text directly. It uses the shared
 file parser for supported spreadsheets. Raster images and PDFs use authorized

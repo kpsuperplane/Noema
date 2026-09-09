@@ -245,15 +245,15 @@ function TaskWorkspaceSupportFile({ path, taskId }: { path: string; taskId: stri
 function WorkspaceTextFile({ fileName, markdown = true, text }: { fileName: string; markdown?: boolean; text: string }) {
   const content = text.trim() || undefined;
   return (
-    <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
+    <TaskDocumentLayout>
       {content ? markdown ? (
-        <MarkdownContent density="compact" className={stylex.props(styles.taskDescription).className}>{content}</MarkdownContent>
+        <MarkdownContent density="compact">{content}</MarkdownContent>
       ) : (
         <pre {...stylex.props(styles.plainText)}>{text}</pre>
       ) : (
         <p {...stylex.props(styles.empty)}>{fileName} has no text content.</p>
       )}
-    </div>
+    </TaskDocumentLayout>
   );
 }
 
@@ -316,13 +316,9 @@ function TaskDocument({ citations = [], detail, edit, fileName, text }: { citati
   const response = text.trim() || undefined;
 
   return (
-    <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
-      <div {...stylex.props(styles.taskContent)}>
-        {response && detail ? (
-          <MarkdownContent density="compact" className={stylex.props(styles.taskDescription).className}>{response}</MarkdownContent>
-        ) : response ? (
+    <TaskDocumentLayout>
+        {response ? (
           <ProviderCitationMarkdown
-            className={stylex.props(styles.taskDescription).className}
             contentWidth="100%"
             density="default"
             headingLevelStart={1}
@@ -333,8 +329,7 @@ function TaskDocument({ citations = [], detail, edit, fileName, text }: { citati
         ) : (
           <p {...stylex.props(styles.empty)}>{fileName} has no text content.</p>
         )}
-      </div>
-    </div>
+    </TaskDocumentLayout>
   );
 }
 
@@ -431,30 +426,14 @@ const styles = stylex.create({
     overflowY: "auto"
   },
   workspaceStatus: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--noema-text-secondary)", fontSize: 13 },
-  taskScroller: {
-    overflowX: "hidden",
-    paddingBlockStart: "var(--spacing-4)",
-    paddingBlockEnd: "var(--spacing-6)"
-  },
-
-  taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto" },
-  plainText: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, margin: "var(--spacing-0) auto", color: "var(--noema-text-primary)", fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
-  taskContent: {
-    display: "grid",
-    gap: "var(--spacing-4)",
-    width: "100%"
-  },
-
+  plainText: { margin: "var(--spacing-0)", color: "var(--noema-text-primary)", fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
   markdown: {
     color: "var(--noema-text-primary)",
     fontSize: 14,
     lineHeight: 1.6
   },
   empty: {
-    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
-    maxWidth: 760,
-    marginInline: "auto",
-    marginBlock: "var(--spacing-0)",
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
     fontSize: 13
   }
