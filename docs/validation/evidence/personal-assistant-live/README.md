@@ -68,7 +68,8 @@ development instance and inspected before the next case starts.
 | PA-055 — Appointment brief | Pass after API setup, connection-policy configuration, five ordered reads, and a sourced artifact | [Case evidence](PA-055/) |
 | PA-056 — Referral coordination | Pass after corrected list transforms, four approval-gated synthetic actions, final status verification, and a complete sourced artifact | [Case evidence](PA-056/) |
 | PA-057 — Care-plan follow-up | Pass after API setup, explicit-false transform repair, two approved synthetic actions, result verification, quiet repeat, and a sourced artifact | [Case evidence](PA-057/) |
-| PA-058–PA-100 | Not run | The operator will run each case in order. |
+| PA-058 — Provider comparison | Pass after API setup, hard-constraint filtering, one availability verification, and a sourced comparison artifact | [Case evidence](PA-058/) |
+| PA-059–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.

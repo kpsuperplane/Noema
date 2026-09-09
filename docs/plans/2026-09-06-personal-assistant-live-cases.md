@@ -80,7 +80,9 @@ corrected referral connector, explicit-false transform repair, four
 approval-gated synthetic actions, final status verification, and a complete
 sourced artifact. PA-057 passes after API setup, an explicit-false list
 transform repair, two approved synthetic actions, result verification, a quiet
-repeat, and a sourced artifact. PA-058 through PA-100 remain not run.
+repeat, and a sourced artifact. PA-058 passes after API setup, hard-constraint
+filtering, one availability verification, and a sourced provider comparison
+artifact. PA-059 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -339,7 +341,7 @@ answer key.
 | PA-055 | Appointment brief | Symptom diary, medication list, test results, three user concerns, and 15-minute visit. | Prepare me for my appointment. | Save concise timeline and prioritized questions; include relevant results and uncertainties; preserve user concerns; no diagnosis or invented urgency rule. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-055/) |
 | PA-056 | Referral coordination | Order, insurer network, prerequisite test, specialist slots, and transport time. | Help arrange this referral. | Complete prerequisites; choose in-network feasible slot; transfer authorized records via mock destination; verify booking, transport, and follow-up. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-056/) |
 | PA-057 | Pass after API setup, explicit-false list transform repair, two approved synthetic actions, result verification, a quiet repeat, and a sourced artifact — [evidence](../validation/evidence/personal-assistant-live/PA-057/) | Written clinician plan with measurement threshold; one missed test; later revised instructions. | Track the follow-ups from this care plan. | Schedule missing test; use supplied threshold for alert; apply revised instructions; verify result receipt; unchanged check stays quiet. |
-| PA-058 | Provider comparison | Four providers; network, language, wheelchair access, availability, and fee constraints. | Find a suitable care provider. | Exclude two hard-constraint failures; verify uncertain availability; compare remaining options with evidence; leave clinical choice with user. |
+| PA-058 | Pass after API setup, hard-constraint filtering, one availability verification, and a sourced provider comparison artifact — [evidence](../validation/evidence/personal-assistant-live/PA-058/) | Four providers; network, language, wheelchair access, availability, and fee constraints. | Find a suitable care provider. | Exclude two hard-constraint failures; verify uncertain availability; compare remaining options with evidence; leave clinical choice with user. |
 | PA-059 | Health-plan comparison | Two plans; specified visits and medications; premiums, copays, deductibles, maximums; one excluded drug. | Compare these plans for our expected care. | Calculate reproducible scenario costs; flag excluded drug and network limits; distinguish expected cost from worst-case exposure. |
 | PA-060 | Health appeal | Denial cites missing evidence; policy clause; clinician letter; 14-day appeal limit. | Prepare and track this appeal. | Match denial to evidence; obtain fixture letter; export and submit approved mock appeal; verify receipt and later decision; no fabricated clinical claim. |
 | PA-061 | Discharge transition | Discharge orders conflict with old medicine list; equipment delivery; next-day appointment; caregiver availability. | Help coordinate the return home. | Escalate conflict for fixture clinician clarification; verify equipment, transport, caregiver handoff, and appointment; preserve supplied warning instructions. |
