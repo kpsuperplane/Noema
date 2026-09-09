@@ -406,7 +406,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			identity := promptJSONString(run.InstanceName)
 			instructions += "\n\nSubagent instance identity:\n- instance_name: " + identity + "\n- This label is assigned by Noema and remains stable for this run. Do not rename it or claim it is user-chosen."
 		}
-		instructions += "\n\n" + progressMessageInstructions
+		instructions += "\n\n" + progressMessageInstructions + "\n\n" + taskDocumentFormattingInstructions
 		if len(messages) > 0 {
 			messages[0].Content = instructions
 		}
@@ -808,7 +808,7 @@ func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, gene
 	}
 	messages = append([]provider.GenerationMessage(nil), messages...)
 	messages[0].Instructions = true
-	messages[0].Content = taskTerminalInstructions(taskFinalizationPrompt(run.Kind, reason, taskOriginalInput(messages)), terminal) + "\n\n" + progressMessageInstructions
+	messages[0].Content = taskTerminalInstructions(taskFinalizationPrompt(run.Kind, reason, taskOriginalInput(messages)), terminal) + "\n\n" + progressMessageInstructions + "\n\n" + taskDocumentFormattingInstructions
 	started := time.Now()
 	model, effort := r.taskModel(run, task)
 	round := run.ProviderCallCount

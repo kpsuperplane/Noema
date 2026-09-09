@@ -31,6 +31,11 @@ const taskPersistencePolicy = "Continue while a safe, authorized, in-scope actio
 const executorDeliveryPolicy = "Noema uses the current RESULT.md as the submitted Task result. Add another delivery destination only when the Task request requires it. If TASK.md lacks enough progress state, list Task files and read relevant support files before repeating work. Never guess values that TASK.md omits. Read the referenced support file before acting on those values. A new run receives persisted tool actions after the latest TASK.md save. It does not receive support-file contents automatically. Reference each needed support file in TASK.md. When an external action has an uncertain outcome, do not retry it. Use read-only tools to check its status. Ask the human only when status remains unknown."
 const plannerDeliveryPolicy = "Noema uses the current TASK.md throughout execution. Add another delivery destination only when the authenticated source request requires it."
 
+const taskDocumentFormattingInstructions = `Task document formatting:
+The Task title already serves as the top-level heading in the interface.
+In TASK.md, RESULT.md, and REVIEW.md, omit a document title and level-one Markdown headings, including underlined title headings.
+Start with useful content. Use level-two or deeper headings when sections help the reader.`
+
 func taskRoleInstructions(kind string) string {
 	switch kind {
 	case "executor":

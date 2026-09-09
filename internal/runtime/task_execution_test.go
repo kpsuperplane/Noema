@@ -325,6 +325,9 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 		if len(request.Messages) == 0 || !strings.Contains(request.Messages[0].Content, progressMessageInstructions) {
 			requestProblem = "progress instructions missing"
 		}
+		if len(request.Messages) == 0 || !strings.Contains(request.Messages[0].Content, taskDocumentFormattingInstructions) {
+			requestProblem = "Task document formatting instructions missing"
+		}
 		call := roleCalls[role]
 		if request.HostedWebSearch != (role == "executor") {
 			requestProblem = "hosted web search did not match the Task role"
