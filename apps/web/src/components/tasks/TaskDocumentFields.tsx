@@ -1,4 +1,6 @@
 import * as React from "react";
+import { Check } from "lucide-react";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -98,13 +100,19 @@ function useTaskField(value: string, field: "TITLE" | "DOCUMENT", edit?: TaskFie
   const feedback = edit?.field === field && edit.requiresAcknowledgement
     ? <HStack gap={2} wrap="wrap"><span role="alert">Changed elsewhere. Your draft is safe.</span><Button size="sm" variant="secondary" label="Use latest version" onClick={() => void edit.acknowledge().then(() => setFailed(true)).catch(() => undefined)} />{discardButton}</HStack>
     : error ? <HStack gap={2} wrap="wrap"><span role="alert">{error}</span>{!localError && !edit?.actionUnavailable ? <Button size="sm" variant="secondary" label="Retry" onClick={() => void finish()} /> : null}{discardButton}</HStack>
-    : failed && edit?.field === field ? <Button size="sm" variant="secondary" label="Retry" onClick={() => void finish()} /> : <span role="status">{edit?.field === field && edit.busy ? "Saving…" : saved ? "Saved" : null}</span>;
-  return { draft, change, begin, finish, feedback, error };
+    : failed && edit?.field === field ? <Button size="sm" variant="secondary" label="Retry" onClick={() => void finish()} /> : null;
+  const isSaving = edit?.field === field && edit.busy;
+  const saveStatus = <HStack align="center" justify="center" role="status" xstyle={styles.saveStatus}>
+    <span {...stylex.props(styles.statusText)}>{isSaving ? "Saving" : saved ? "Saved" : null}</span>
+    {isSaving ? <Spinner size="sm" shade="subtle" aria-hidden="true" /> : saved ? <Check size={12} aria-hidden="true" /> : null}
+  </HStack>;
+  return { draft, change, begin, finish, feedback, saveStatus, error };
 }
 
 export function EditableTaskTitle({ title, edit }: { title: string; edit?: TaskFieldEdit }) {
   const field = useTaskField(title, "TITLE", edit);
-  return <VStack gap={0} width="100%">
+  return <VStack gap={0} width="100%" xstyle={styles.fieldFrame}>
+    {field.saveStatus}
     <TaskTitleField value={field.draft} readOnly={!edit?.canEdit} disabled={edit?.busy} aria-invalid={Boolean(field.error)} onFocus={field.begin} onChange={(event) => field.change(event.currentTarget.value)} onBlur={() => { void field.finish(); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.blur(); } }} />
     <section {...stylex.props(styles.feedback)}>{field.feedback}</section>
   </VStack>;
@@ -117,10 +125,11 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
   const root = React.useRef<HTMLElement>(null);
   const read = () => readValueRef.current?.() ?? field.draft;
   const changeSource = (next: boolean) => { field.change(read()); setSourceMode(next); };
-  return <VStack ref={root} as="section" gap={2} aria-label="Task instructions" onFocus={field.begin} onBlur={(event) => {
+  return <VStack ref={root} as="section" gap={2} aria-label="Task instructions" xstyle={styles.fieldFrame} onFocus={field.begin} onBlur={(event) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     void field.finish(read());
   }}>
+    {field.saveStatus}
     {edit && (edit.canEdit || edit.field === "DOCUMENT") ? <section inert={edit.busy || !edit.canEdit} {...stylex.props(styles.instructions, edit.canEdit && !edit.busy && styles.editable)}>
       <MarkdownInlineEditor readValueRef={readValueRef} value={field.draft} onChange={field.change} label="Task instructions" placeholder="Add details or instructions…" sourceMode={sourceMode} onSourceModeChange={changeSource} />
     </section> : <MarkdownContent density="compact">{value || "No instructions added."}</MarkdownContent>}
@@ -132,6 +141,9 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
 }
 
 const styles = stylex.create({
+  fieldFrame: { position: "relative" },
+  saveStatus: { position: "absolute", insetInlineEnd: "calc(-1 * var(--spacing-3))", insetBlockStart: "var(--spacing-1)", width: "var(--spacing-3)", height: "var(--spacing-4)", color: "var(--noema-text-muted)", pointerEvents: "none" },
+  statusText: { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", borderWidth: 0 },
   title: { width: "100%", minWidth: 0, resize: "none", overflow: "hidden", lineHeight: "var(--text-heading-3-leading)", padding: "var(--spacing-0)", borderWidth: 0, backgroundColor: "transparent", color: "var(--noema-text-primary)", fontFamily: "var(--font-family-heading)", fontSize: "var(--text-heading-3-size)", fontWeight: "var(--text-heading-3-weight)", outline: "none", "::placeholder": { color: "var(--muted-foreground)" } },
   editable: {
     position: "relative",
