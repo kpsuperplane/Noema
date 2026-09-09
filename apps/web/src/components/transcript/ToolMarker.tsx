@@ -58,6 +58,24 @@ const styles = stylex.create({
   groupFrame: {
     gap: "var(--spacing-0)"
   },
+  recordRow: {
+    "--tool-record-opacity": {
+      default: 1,
+      "@media (hover: hover)": 0
+    },
+    "--tool-record-pointer-events": {
+      default: "auto",
+      "@media (hover: hover)": "none"
+    },
+    ":hover": {
+      "--tool-record-opacity": 1,
+      "--tool-record-pointer-events": "auto"
+    },
+    ":focus-within": {
+      "--tool-record-opacity": 1,
+      "--tool-record-pointer-events": "auto"
+    }
+  },
   row: {
     display: "inline-flex",
     width: "100%",
@@ -252,7 +270,7 @@ export function ToolMarker({
     return (
       <div {...stylex.props(styles.root)}>
         <div {...stylex.props(styles.frame, styles.groupFrame)} data-slot="tool-marker-group">
-          <HStack gap={0.5} vAlign="center">
+          <HStack gap={0.5} vAlign="center" {...stylex.props(styles.recordRow)}>
             <button
               type="button"
               {...stylex.props(styles.row, expandable && styles.rowButton)}
@@ -300,7 +318,7 @@ export function ToolMarker({
   return (
     <div {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.frame)} data-slot="tool-marker">
-        <HStack gap={0.5} vAlign="center">
+        <HStack gap={0.5} vAlign="center" {...stylex.props(styles.recordRow)}>
           <button
             type="button"
             {...stylex.props(styles.row, call.expandable && styles.rowButton)}

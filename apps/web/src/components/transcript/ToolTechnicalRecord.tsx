@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -7,6 +8,13 @@ import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { toolDetailRows, toolMarkerSummary } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailRow } from "./ToolDetailRow";
+
+const styles = stylex.create({
+  trigger: {
+    opacity: "var(--tool-record-opacity, 1)",
+    pointerEvents: "var(--tool-record-pointer-events, auto)"
+  }
+});
 
 export function ToolTechnicalRecord({ marker }: { marker: ToolMarkerGroup }) {
   const [open, setOpen] = useState(false);
@@ -18,6 +26,7 @@ export function ToolTechnicalRecord({ marker }: { marker: ToolMarkerGroup }) {
   return (
     <>
       <IconButton
+        {...stylex.props(styles.trigger)}
         type="button"
         size="sm"
         variant="ghost"
