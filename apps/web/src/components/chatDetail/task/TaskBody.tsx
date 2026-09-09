@@ -27,6 +27,7 @@ type TaskTab = (typeof TASK_TABS)[number];
 
 export function TaskBody({
   detail,
+  header,
   edit,
   liveRunItems,
   onOpenDetail,
@@ -34,6 +35,7 @@ export function TaskBody({
   renderContextCard
 }: {
   detail: TaskDetail;
+  header?: React.ReactNode;
   edit?: TaskInlineEditController;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
@@ -104,18 +106,21 @@ export function TaskBody({
         height="100%"
         xstyle={styles.frame}
       >
-        <div {...stylex.props(styles.tabBar)}>
-          <TabList
-            aria-label="Task detail view"
-            hasDivider
-            onChange={(value) => selectTab(value as TaskTab)}
-            size="sm"
-            value={activeTab}
-          >
-            <Tab label="Workspace" value="workspace" />
-            <Tab label="Transcript" value="transcript" />
-          </TabList>
-        </div>
+        <VStack gap={0} xstyle={styles.heading}>
+          {header}
+          <div {...stylex.props(styles.tabBar)}>
+            <TabList
+              aria-label="Task detail view"
+              hasDivider
+              onChange={(value) => selectTab(value as TaskTab)}
+              size="sm"
+              value={activeTab}
+            >
+              <Tab label="Workspace" value="workspace" />
+              <Tab label="Transcript" value="transcript" />
+            </TabList>
+          </div>
+        </VStack>
         <section
           aria-label="Workspace"
           {...stylex.props(styles.workspacePane, activeTab !== "workspace" && styles.inactivePane)}
@@ -333,6 +338,7 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%"
   },
+  heading: { minWidth: 0, "@container (width > 1200px)": { gridColumn: "1", gridRow: "1" } },
   tabBar: {
     width: "100%", maxWidth: 720, marginInline: "auto",
     minWidth: 0,
@@ -347,7 +353,7 @@ const styles = stylex.create({
     overflow: "hidden",
     "@container (width > 1200px)": {
       gridTemplateColumns: "minmax(0, 1fr) 600px",
-      gridTemplateRows: "minmax(0, 1fr) auto",
+      gridTemplateRows: "auto minmax(0, 1fr) auto",
       borderTopWidth: "var(--border-width)",
       borderTopStyle: "solid",
       borderTopColor: "var(--noema-border-subtle)"
@@ -360,7 +366,7 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     height: "100%",
-    "@container (width > 1200px)": { gridColumn: "1", gridRow: "1 / -1" }
+    "@container (width > 1200px)": { gridColumn: "1", gridRow: "2 / -1" }
   },
   transcript: {
     gridRow: "2",
@@ -371,7 +377,7 @@ const styles = stylex.create({
     "--task-transcript-bottom-inset": "var(--spacing-3)",
     "@container (width > 1200px)": {
       gridColumn: "2",
-      gridRow: "1",
+      gridRow: "1 / 3",
       borderInlineStartWidth: "var(--border-width)",
       borderInlineStartStyle: "solid",
       borderInlineStartColor: "var(--noema-border-subtle)"
@@ -383,7 +389,7 @@ const styles = stylex.create({
     minHeight: 0,
     "@container (width > 1200px)": {
       gridColumn: "2",
-      gridRow: "2",
+      gridRow: "3",
       borderInlineStartWidth: "var(--border-width)",
       borderInlineStartStyle: "solid",
       borderInlineStartColor: "var(--noema-border-subtle)",

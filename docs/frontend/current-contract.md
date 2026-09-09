@@ -224,7 +224,9 @@ Document saves retain revision and digest fences. Active tasks follow server-pro
 Project documents retain their existing explicit editing controls.
 The source editor remains available when rich parsing fails. iOS retains its native source editor.
 
-Task details keep a compact title, close control, and Workspace/Transcript tabs above scrolling content.
+Task titles use smaller text and wrap to show the complete title.
+Task details keep Close on mobile and Workspace/Transcript tabs above scrolling content.
+In the wide layout, the title stays above Workspace within its column.
 The header and selected tab remain stable from Inbox through Queued and Running.
 Project and Task agent choices appear in the Workspace body. Working folder and repeated revision/source metadata are omitted.
 Timing appears beside Schedule or Reschedule. Lifecycle controls remain in the existing floating bar.

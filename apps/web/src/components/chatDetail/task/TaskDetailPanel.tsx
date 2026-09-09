@@ -22,6 +22,7 @@ import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 export function TaskDetailPanel({
   taskId,
+  header,
   detail,
   loading = false,
   error = null,
@@ -35,6 +36,7 @@ export function TaskDetailPanel({
   retrying = false
 }: {
   taskId: string;
+  header?: React.ReactNode;
   detail?: TaskDetail | null;
   loading?: boolean;
   error?: string | null;
@@ -73,7 +75,7 @@ export function TaskDetailPanel({
 
   if (loading && !currentDetail) {
     return (
-      <div {...stylex.props(styles.root)}>
+      <div {...stylex.props(styles.root, styles.unavailableRoot)}>{header}
         <div role="status" {...stylex.props(styles.status)}>
           Loading task details...
         </div>
@@ -81,10 +83,10 @@ export function TaskDetailPanel({
     );
   }
   if (error && !currentDetail) {
-    return <div {...stylex.props(styles.root)}><TaskUnavailable message={error} onRetry={onRetry} retrying={retrying} /></div>;
+    return <div {...stylex.props(styles.root, styles.unavailableRoot)}>{header}<TaskUnavailable message={error} onRetry={onRetry} retrying={retrying} /></div>;
   }
   if (!currentDetail) {
-    return <div {...stylex.props(styles.root)}><TaskUnavailable message="Task details are unavailable." onRetry={onRetry} retrying={retrying} /></div>;
+    return <div {...stylex.props(styles.root, styles.unavailableRoot)}>{header}<TaskUnavailable message="Task details are unavailable." onRetry={onRetry} retrying={retrying} /></div>;
   }
 
   const run = latestTaskRun(currentDetail);
@@ -111,6 +113,7 @@ export function TaskDetailPanel({
           taskId={taskId}
         >
           <TaskBody
+            header={header}
             key={`task:${currentDetail.taskId}`}
             detail={currentDetail}
             edit={edit}
@@ -416,6 +419,7 @@ function TaskUnavailable({ message, onRetry, retrying }: { message: string; onRe
 }
 
 const styles = stylex.create({
+  unavailableRoot: { gridTemplateRows: "auto minmax(0, 1fr)" },
   viewport: { minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" },
   root: {
     display: "grid",

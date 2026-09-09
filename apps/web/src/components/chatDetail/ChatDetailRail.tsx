@@ -259,6 +259,22 @@ function RoutedChatDetailRail({
     }
   }, [closeTask, isContained, isModal]);
 
+  const taskHeader = (
+    <header {...stylex.props(styles.header, styles.taskHeader)}>
+      <div {...stylex.props(styles.taskTitleBar)}>
+        <div {...stylex.props(styles.taskIdentity)}>
+          {projectTargetId ? <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2> : <EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} />}
+        </div>
+        <div {...stylex.props(styles.taskHeaderActions, !projectTargetId && styles.mobileClose)}>
+          <ChatDetailCloseButton
+            closeButtonRef={taskCloseButtonRef}
+            onClose={() => void closeTask()}
+          />
+        </div>
+      </div>
+    </header>
+  );
+
   return (
     <m.aside
       data-slot="chat-detail-rail"
@@ -299,24 +315,12 @@ function RoutedChatDetailRail({
             initial={false}
             animate={target.type === "artifact" ? "nested" : "visible"}
             transition={reduceMotion ? { duration: 0 } : springs.surface}
-            {...stylex.props(styles.routeFrame)}
+            {...stylex.props(styles.routeFrame, Boolean(taskTargetId) && styles.taskRouteFrame)}
           >
-            <header {...stylex.props(styles.header, styles.taskHeader)}>
-              <div {...stylex.props(styles.taskTitleBar)}>
-                <div {...stylex.props(styles.taskIdentity)}>
-                  {projectTargetId ? <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2> : <EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} />}
-
-                </div>
-                <div {...stylex.props(styles.taskHeaderActions)}>
-                  <ChatDetailCloseButton
-                    closeButtonRef={taskCloseButtonRef}
-                    onClose={() => void closeTask()}
-                  />
-                </div>
-              </div>
-            </header>
+            {!taskTargetId ? taskHeader : null}
             <div {...stylex.props(styles.body, styles.taskBody)}>
               {projectTargetId ? <ProjectDocumentDetailPanel project={project} onProjectRefresh={onProjectRefresh} /> : taskTargetId ? <TaskDetailQueryPanel
+                header={taskHeader}
                 onOpenDetail={openDetail}
                 onTaskHeaderChange={handleTaskHeaderChange}
                 showTasksLink={showTasksLink}
@@ -537,6 +541,8 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     willChange: "transform"
   },
+  taskRouteFrame: { gridTemplateRows: "minmax(0, 1fr)" },
+  mobileClose: { display: { default: "inline-flex", "@media (min-width: 980px)": "none" } },
   header: {
     minWidth: 0,
     display: "grid",

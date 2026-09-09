@@ -27,11 +27,13 @@ type TasksDetail = NonNullable<TasksTaskDetailQuery["task"]>;
 
 export function TaskDetailQueryPanel({
   taskId,
+  header,
   showTasksLink = true,
   onOpenDetail,
   onTaskHeaderChange
 }: {
   taskId: string;
+  header?: React.ReactNode;
   showTasksLink?: boolean;
   onOpenDetail: (target: ChatDetailTarget) => void;
   onTaskHeaderChange?: (detail: Pick<TaskDetail, "title" | "schedule">, edit: TaskInlineEditController) => void;
@@ -69,6 +71,7 @@ export function TaskDetailQueryPanel({
     <>
       {detail && edit && onTaskHeaderChange ? <TaskHeaderSync detail={detail} edit={edit} onChange={onTaskHeaderChange} /> : null}
       <TaskDetailPanel
+        header={header}
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
         loading={result.loading}

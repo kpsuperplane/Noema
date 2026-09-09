@@ -49,7 +49,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [capture] = useMutation(TasksCaptureTaskDocument);
   const [queue] = useMutation(TasksQueueTaskDocument);
-  const titleRef = React.useRef<HTMLInputElement>(null);
+  const titleRef = React.useRef<HTMLTextAreaElement>(null);
   const readValueRef = React.useRef<(() => string) | null>(null);
   const documentRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -173,7 +173,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
         header={
           <HStack as="header" align="center" justify="between" gap={2} className={stylex.props(styles.header).className}>
             <h2 {...stylex.props(styles.heading)}>New task</h2>
-            <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={close} />
+            <HStack xstyle={styles.mobileClose}><ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={close} /></HStack>
           </HStack>
         }
         content={
@@ -256,6 +256,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
 
 const styles = stylex.create({
   root: { height: "100%", minHeight: 0, backgroundColor: "var(--noema-surface-card)" },
+  mobileClose: { display: { default: "inline-flex", "@media (min-width: 980px)": "none" } },
   header: { minWidth: 0, paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-4)" },
   heading: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: 16, fontWeight: 650, lineHeight: 1.25 },
   content: { minHeight: 0 },

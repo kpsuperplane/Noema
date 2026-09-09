@@ -32,9 +32,23 @@ export function useTaskEditFlush() {
 }
 
 // Capture and existing tasks use the same chromeless title field.
-export const TaskTitleField = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+export const TaskTitleField = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
   function TaskTitleField(props, ref) {
-    return <input ref={ref} aria-label="Task title" autoComplete="off" placeholder="What needs to be done?" {...props} {...stylex.props(styles.title)} />;
+    const inputRef = React.useRef<HTMLTextAreaElement>(null);
+    React.useImperativeHandle(ref, () => inputRef.current!, []);
+    React.useLayoutEffect(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      const resize = () => {
+        input.style.height = "0px";
+        input.style.height = `${input.scrollHeight}px`;
+      };
+      resize();
+      const observer = new ResizeObserver(resize);
+      observer.observe(input);
+      return () => observer.disconnect();
+    }, [props.value]);
+    return <textarea ref={inputRef} rows={1} aria-label="Task title" autoComplete="off" placeholder="What needs to be done?" {...props} {...stylex.props(styles.title)} />;
   }
 );
 
@@ -89,7 +103,7 @@ function useTaskField(value: string, field: "TITLE" | "DOCUMENT", edit?: TaskFie
 export function EditableTaskTitle({ title, edit }: { title: string; edit?: TaskFieldEdit }) {
   const field = useTaskField(title, "TITLE", edit);
   return <VStack gap={0} width="100%">
-    <TaskTitleField value={field.draft} readOnly={!edit?.canEdit} disabled={edit?.busy} aria-invalid={Boolean(field.error)} onFocus={field.begin} onChange={(event) => field.change(event.currentTarget.value)} onBlur={() => { void field.finish(); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+    <TaskTitleField value={field.draft} readOnly={!edit?.canEdit} disabled={edit?.busy} aria-invalid={Boolean(field.error)} onFocus={field.begin} onChange={(event) => field.change(event.currentTarget.value)} onBlur={() => { void field.finish(); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.blur(); } }} />
     <section {...stylex.props(styles.feedback)}>{field.feedback}</section>
   </VStack>;
 }
@@ -116,7 +130,7 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
 }
 
 const styles = stylex.create({
-  title: { width: "100%", minWidth: 0, height: 28, lineHeight: "28px", padding: "var(--spacing-0)", borderWidth: 0, backgroundColor: "transparent", color: "var(--noema-text-primary)", fontFamily: "var(--font-family-heading)", fontSize: "var(--text-heading-1-size)", fontWeight: "var(--text-heading-3-weight)", outline: "none", ":focus-visible": { boxShadow: "0 1px var(--ring)" }, "::placeholder": { color: "var(--muted-foreground)" } },
+  title: { width: "100%", minWidth: 0, resize: "none", overflow: "hidden", lineHeight: "var(--text-heading-3-leading)", padding: "var(--spacing-0)", borderWidth: 0, backgroundColor: "transparent", color: "var(--noema-text-primary)", fontFamily: "var(--font-family-heading)", fontSize: "var(--text-heading-3-size)", fontWeight: "var(--text-heading-3-weight)", outline: "none", ":focus-visible": { boxShadow: "0 1px var(--ring)" }, "::placeholder": { color: "var(--muted-foreground)" } },
   instructions: { width: "100%", minWidth: 0 },
   feedback: { color: "var(--noema-text-secondary)", fontSize: "var(--text-supporting-size)", textWrap: "pretty", ":empty": { display: "none" } }
 });
