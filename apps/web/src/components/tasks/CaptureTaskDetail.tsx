@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useMutation } from "@apollo/client/react";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { TaskDocumentEditor, TaskTitleField } from "./TaskDocumentFields";
@@ -10,7 +11,7 @@ import { Popover } from "@astryxdesign/core/Popover";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useBlocker } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { CalendarClock, Check, Folder } from "lucide-react";
+import { CalendarClock, Check, Folder, Inbox, Play } from "lucide-react";
 import { ChatDetailCloseButton } from "@/components/chatDetail/ChatDetailCloseButton";
 import { TaskDocumentLayout, TaskTitleHeader } from "./TaskDocumentLayout";
 import { TaskScheduleSummary } from "./TaskScheduleSummary";
@@ -21,7 +22,7 @@ import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
 import { createClientId } from "@/shared/clientId";
 import { initialScheduleDraft, scheduleInput, ScheduleFields } from "./ScheduleFields";
 import type { TasksProject } from "./tasksTypes";
-import { taskActionBarStyles } from "./taskActionBarStyles";
+import { TaskActionBar } from "./TaskActionBar";
 
 const captureFormId = "capture-task-form";
 const defaultExecutorId = "agent:task-executor";
@@ -45,7 +46,8 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   const [scheduling, setScheduling] = React.useState(false);
   const [scheduleOpen, setScheduleOpen] = React.useState(false);
   const [schedule, setSchedule] = React.useState(initialScheduleDraft);
-  const [submitting, setSubmitting] = React.useState(false);
+  const [pendingIntent, setPendingIntent] = React.useState<SubmitIntent | null>(null);
+  const submitting = pendingIntent !== null;
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [capture] = useMutation(TasksCaptureTaskDocument);
   const [queue] = useMutation(TasksQueueTaskDocument);
@@ -116,7 +118,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
 
   async function submit(intent: SubmitIntent) {
     if (baseDisabled || (intent === "schedule" && !validSchedule)) return;
-    setSubmitting(true);
+    setPendingIntent(intent);
     setSubmitError(null);
     try {
       const response = await capture({
@@ -151,7 +153,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Noema could not create this Task.");
     } finally {
-      setSubmitting(false);
+      setPendingIntent(null);
     }
   }
 
@@ -234,14 +236,12 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
           </LayoutContent>
         }
         footer={
-          <VStack as="aside" aria-label="New task actions" gap={0} xstyle={taskActionBarStyles.contextDock}>
-            <VStack gap={0} xstyle={taskActionBarStyles.contextCard}>
-              <HStack justify="end" gap={2} wrap="wrap" paddingBlock={2} paddingInline={4}>
-                <Button type="button" size="sm" variant="secondary" label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
-                <Button form={captureFormId} type="submit" size="sm" variant="primary" label={scheduling ? "Schedule task" : "Run now"} isLoading={submitting} isDisabled={mainDisabled} />
-              </HStack>
-            </VStack>
-          </VStack>
+          <TaskActionBar label="New task actions">
+            <HStack aria-busy={submitting || undefined} justify="end" gap={2} wrap="wrap" paddingBlock={2} paddingInline={4}>
+              <Button type="button" size="sm" variant="ghost" aria-label="Add to Inbox" icon={pendingIntent === "inbox" ? <Spinner size="md" shade="inherit" aria-label="Saving task" /> : <Inbox aria-hidden="true" size={15} strokeWidth={2} />} label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
+              <Button form={captureFormId} type="submit" size="sm" variant="ghost" aria-label={scheduling ? "Schedule task" : "Run now"} icon={pendingIntent === mainIntent ? <Spinner size="md" shade="inherit" aria-label={scheduling ? "Scheduling task" : "Starting task"} /> : scheduling ? <CalendarClock aria-hidden="true" size={15} strokeWidth={2} /> : <Play aria-hidden="true" size={15} strokeWidth={2} color="var(--noema-pine-700)" fill="var(--noema-pine-700)" />} label={scheduling ? "Schedule task" : "Run now"} isDisabled={mainDisabled} />
+            </HStack>
+          </TaskActionBar>
         }
       />
       <VStack aria-hidden="true" xstyle={styles.emptyPanel} />

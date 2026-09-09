@@ -242,7 +242,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).
 - Task creation uses `/tasks/new` and the normal Task detail area.
-  Capture and detail share the floating action bar frame and bottom spacing.
+  Capture and detail use one floating action bar component and matching action icons.
   Project creation uses a name-only row below Personal in the Tasks sidebar.
 - Task and project Markdown documents share explicit edit, save, cancel, source,
   error, and stale-reload behavior.

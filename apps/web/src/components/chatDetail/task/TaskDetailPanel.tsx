@@ -1,4 +1,4 @@
-import { taskActionBarStyles } from "@/components/tasks/taskActionBarStyles";
+import { TaskActionBar } from "@/components/tasks/TaskActionBar";
 import * as React from "react";
 import { AvatarGroup } from "@astryxdesign/core/AvatarGroup";
 import { Button } from "@astryxdesign/core/Button";
@@ -138,19 +138,16 @@ function TaskContextCard({
 }) {
   const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
   return (
-    <aside aria-label="Task summary" {...stylex.props(taskActionBarStyles.contextDock)}>
-      {renderSecondarySurface?.()}
-      <div {...stylex.props(taskActionBarStyles.contextCard)}>
-        <TaskSummaryHeader
-          entry={latestEntry}
-          detail={detail}
-          run={run}
-          controls={controls}
-          showTasksLink={showTasksLink}
-          taskId={taskId}
-        />
-      </div>
-    </aside>
+    <TaskActionBar label="Task summary" attention={renderSecondarySurface?.()}>
+      <TaskSummaryHeader
+        entry={latestEntry}
+        detail={detail}
+        run={run}
+        controls={controls}
+        showTasksLink={showTasksLink}
+        taskId={taskId}
+      />
+    </TaskActionBar>
   );
 }
 

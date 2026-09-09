@@ -1,6 +1,21 @@
+import type { ReactNode } from "react";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 
-export const taskActionBarStyles = stylex.create({
+export function TaskActionBar({ label, children, attention }: {
+  label: string;
+  children: ReactNode;
+  attention?: ReactNode;
+}) {
+  return (
+    <VStack as="aside" aria-label={label} gap={0} xstyle={styles.contextDock}>
+      {attention}
+      <VStack gap={0} xstyle={styles.contextCard}>{children}</VStack>
+    </VStack>
+  );
+}
+
+const styles = stylex.create({
   contextDock: {
     display: "flex",
     flexDirection: "column",
@@ -23,7 +38,8 @@ export const taskActionBarStyles = stylex.create({
     position: "relative",
     zIndex: 2,
     minWidth: 0,
-    minHeight: 0,
+    minHeight: "calc(2 * var(--spacing-6) + var(--spacing-2) + 2 * var(--border-width))",
+    justifyContent: "center",
     flex: "0 0 auto",
     marginBlockStart: "var(--spacing-0)",
     overflow: "hidden",
