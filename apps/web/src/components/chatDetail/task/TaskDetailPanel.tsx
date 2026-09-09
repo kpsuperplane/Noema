@@ -358,7 +358,7 @@ const styles = stylex.create({
     height: "100%",
     backgroundColor: "var(--noema-surface-card)"
   },
-  summaryHeader: { height: "calc(2 * var(--spacing-6) + var(--spacing-2))", boxSizing: "border-box", display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInlineStart: "calc(var(--spacing-2) + var(--spacing-0-5))", paddingInlineEnd: "var(--spacing-4)" },
+  summaryHeader: { height: "calc(2 * var(--spacing-6) + var(--spacing-2))", boxSizing: "border-box", display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInlineStart: "calc(var(--spacing-3) + var(--spacing-0-5))", paddingInlineEnd: "var(--spacing-4)" },
   summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto", paddingInlineStart: "var(--spacing-4)" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
