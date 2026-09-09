@@ -121,7 +121,7 @@ export function taskRunItemsToTranscriptEntries(
           entries.push({
             id: `${item.id}:output:${section.kind}:${section.index}:${section.section_index ?? 0}`,
             source: arrivalItemIds.has(item.id) ? undefined : "replay",
-            turnId: `${item.id}:${section.kind}:${section.phase ?? "default"}`,
+            turnId: item.id,
             type: "assistant",
             phase: isReasoning || section.phase !== "final_answer" ? "commentary" : "final_answer",
             text: isReasoning ? readableReasoningText(section.text) : section.text,
