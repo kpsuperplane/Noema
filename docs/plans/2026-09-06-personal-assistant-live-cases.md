@@ -110,7 +110,10 @@ meal-planning API setup, seven ordered source reads, Luau checks, one approved
 synthetic cart, receipt verification, and direct ledger verification. PA-070
 passes after reviewed vehicle-lifecycle API setup, six ordered source reads,
 Luau checks, one approved synthetic booking, receipt and status verification,
-and direct ledger verification. PA-071 through PA-100 remain not run.
+and direct ledger verification. PA-071 passes after reviewed synthetic
+pet-care API setup, seven ordered source reads, same-name identity checks,
+Luau validation, one approved synthetic action, one confirmation read, and
+direct ledger verification. PA-072 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 

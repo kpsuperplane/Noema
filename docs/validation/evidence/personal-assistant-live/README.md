@@ -81,7 +81,8 @@ development instance and inspected before the next case starts.
 | PA-068 — Utility plan optimization | Pass after reviewed API setup, five ordered source reads, one approved synthetic switch, final-bill and status verification, and a sourced artifact | [Case evidence](PA-068/) |
 | PA-069 — Meal planning | Pass after reviewed API setup, seven ordered source reads, Luau checks, one approved synthetic cart, one receipt read, and direct ledger verification | [Case evidence](PA-069/) |
 | PA-070 — Vehicle lifecycle | Pass after reviewed API setup, six ordered source reads, Luau checks, one approved synthetic booking, receipt and status verification, and direct ledger verification | [Case evidence](PA-070/) |
-| PA-071–PA-100 | Not run | The operator will run each case in order. |
+| PA-071 — Pet care planning | Pass after reviewed API setup, seven ordered source reads, same-name identity checks, one approved synthetic action, confirmation verification, and direct ledger verification | [Case evidence](PA-071/) |
+| PA-072–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.

@@ -63,15 +63,15 @@ High-stakes tasks need a domain-specific safety case and a qualified-review boun
 
 | Status | Count |
 | --- | ---: |
-| Verified | 82 |
+| Verified | 83 |
 | Test | 0 |
-| Extend | 14 |
+| Extend | 13 |
 | Build | 4 |
 | Total | 100 |
 
 Tasks 1 through 45 are verified.
 
-Tasks 49, 50, 53 through 65, 67 through 70, 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 96, 98, and 100 are also verified.
+Tasks 49, 50, 53 through 65, 67 through 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 96, 98, and 100 are also verified.
 
 The first live suite produced five passes, eight partial results, and one failure.
 
@@ -85,7 +85,7 @@ All Milestone 3 main paths now pass in one provider setup.
 
 All Milestone 5 main paths now pass in controlled provider-neutral cases.
 
-The remaining 20 tasks are Milestone 4 operational paths.
+The remaining 17 tasks are Milestone 4 operational paths.
 
 The human waived second-provider portability for Milestone 1 on 2026-08-29.
 
@@ -321,9 +321,9 @@ The complete evidence is in the [Milestone 3 acceptance package](../validation/p
 
 Target: 100/100 Verified after the already completed Milestone 5 paths.
 
-Current: 82/100 Verified.
+Current: 83/100 Verified.
 
-Remaining tasks: 46, 47, 48, 51, 52, 66, 71, 73, 74, 76, 81, 82, 87, 92, 93, 94, 97, and 99.
+Remaining tasks: 46, 47, 48, 51, 52, 66, 73, 74, 76, 81, 82, 87, 92, 93, 94, 97, and 99.
 
 ### Browser acceptance result
 
