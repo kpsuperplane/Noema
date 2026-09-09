@@ -57,7 +57,8 @@ development instance and inspected before the next case starts.
 | PA-044 — Coverage review | Pass after two focused projection repairs, complete policy and asset reads, and a sourced coverage-fit review | [Case evidence](PA-044/) |
 | PA-045 — Claim reconciliation | Pass after replacing an expired temporary tunnel, reviewing the exact connector revision, one approved synthetic follow-up, and paid-status verification | [Case evidence](PA-045/) |
 | PA-046 — Benefits application | Pass after three reviewed connector revisions, a repaired six-read packet, one approved synthetic application, and receipt/renewal verification | [Case evidence](PA-046/) |
-| PA-047–PA-100 | Not run | The operator will run each case in order. |
+| PA-047 — Retirement records | Pass after three reviewed connector revisions, one stalled repair retry, and a final seven-read reconciliation | [Case evidence](PA-047/) |
+| PA-048–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
