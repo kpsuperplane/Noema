@@ -147,6 +147,10 @@ function isRedundantLifecycleNotice(items: readonly TaskRunItem[], index: number
 }
 
 function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean): TranscriptEntry | null {
+  // Tool-only responses can retain replay metadata without visible assistant text.
+  if (item.sourceKind === "assistant_output" && !item.summary?.trim()) {
+    return null;
+  }
   if (item.sourceKind === "model_input" || item.sourceKind === "context_checkpoint") {
     return null;
   }

@@ -505,13 +505,12 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			}
 			return
 		}
-		assistant := store.TaskRunItemInput{Kind: "assistant_output", Status: "completed", Round: int64(round), Content: result.Text,
-			Payload: taskAssistantPayload(result)}
+		assistant := taskAssistantItems(result, int64(round))
 		persistenceStarted := time.Now()
 		persistenceSpan, _ := r.database.BeginRuntimeDebugSpan(ctx,
 			store.RuntimeDebugScope{Kind: "task_run", ID: run.ID}, "persistence", "Save Task response",
 			store.RuntimeDebugMetadata{RoundIndex: &round}, persistenceStarted)
-		err = r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{assistant}, usage, time.Now())
+		err = r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, assistant, usage, time.Now())
 		persistenceStatus := "completed"
 		if err != nil {
 			persistenceStatus = "failed"
@@ -810,8 +809,8 @@ func (r *TaskExecution) finalizeTaskRun(task store.Task, run store.TaskRun, gene
 	}
 	round := run.ProviderCallCount
 	usage := store.TaskRunUsage{ProviderCalls: 1, InputTokens: int64(result.Usage.InputTokens), CachedInputTokens: int64(result.Usage.CachedInputTokens), OutputTokens: int64(result.Usage.OutputTokens), ActiveMilliseconds: time.Since(started).Milliseconds()}
-	assistant := store.TaskRunItemInput{Kind: "assistant_output", Status: "completed", Round: round, Content: result.Text, Payload: taskAssistantPayload(result)}
-	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{assistant}, usage, time.Now()) != nil ||
+	assistant := taskAssistantItems(result, round)
+	if r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, assistant, usage, time.Now()) != nil ||
 		len(result.ToolCalls) != 1 || !taskTerminalTool(result.ToolCalls[0].Name) || !taskToolAllowed(run.Kind, result.ToolCalls[0].Name) {
 		r.failRun(ctx, run, "terminal_finalization_failed", false)
 		return
@@ -1472,6 +1471,14 @@ func replayTaskProgress(goal string, items []store.TaskRunItem) (toolProgress, m
 		}
 	}
 	return progress, audited
+}
+
+// Keep response metadata needed for replay without creating empty text records.
+func taskAssistantItems(result provider.GenerationResult, round int64) []store.TaskRunItemInput {
+	if strings.TrimSpace(result.Text) == "" && result.ID == "" && len(generationReasoning(result)) == 0 && len(result.Citations) == 0 && len(result.Searches) == 0 {
+		return nil
+	}
+	return []store.TaskRunItemInput{{Kind: "assistant_output", Status: "completed", Round: round, Content: result.Text, Payload: taskAssistantPayload(result)}}
 }
 
 func taskAssistantPayload(result provider.GenerationResult) map[string]any {

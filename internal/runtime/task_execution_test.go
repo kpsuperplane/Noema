@@ -390,6 +390,25 @@ func TestTaskExecutionCompletesPlannerExecutorReviewerLineage(t *testing.T) {
 		t.Fatalf("run lineage = %#v", runs)
 	}
 	for _, run := range runs {
+		items, err := database.TaskRunReplayItems(t.Context(), run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls, results := 0, 0
+		for _, item := range items {
+			if item.Kind == "assistant_output" && (item.Content == nil || strings.TrimSpace(*item.Content) == "") && item.Payload["provider_item_id"] == "" && item.Payload["reasoning"] == nil && item.Payload["searches"] == nil && item.Payload["citations"] == nil {
+				t.Fatal("tool-only response created an empty assistant item")
+			}
+			if item.Kind == "tool_call" {
+				calls++
+			}
+			if item.Kind == "tool_result" {
+				results++
+			}
+		}
+		if calls == 0 || calls != results {
+			t.Fatalf("lost tool history: %d calls, %d results", calls, results)
+		}
 		if run.Status != "completed" || run.ProviderCallCount == 0 || run.EndedAt == nil {
 			t.Fatalf("run metrics = %#v", run)
 		}
@@ -1665,5 +1684,24 @@ func TestTaskRuntimeRestartResumesEachRole(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestTaskAssistantItemsPreserveTextAndReplayMetadata(t *testing.T) {
+	for _, text := range []string{"", " \n\t"} {
+		if got := taskAssistantItems(provider.GenerationResult{Text: text}, 2); len(got) != 0 {
+			t.Fatal("empty text produced an assistant item")
+		}
+	}
+	for _, result := range []provider.GenerationResult{
+		{Text: "  Actual reply.\n"},
+		{ID: "response:replay"},
+		{Reasoning: []provider.GenerationReasoning{{ProviderDetails: []json.RawMessage{json.RawMessage(`{"type":"reasoning.encrypted","data":"ordinary-id"}`)}}}},
+		{Searches: []provider.HostedSearch{{ID: "search:replay"}}},
+	} {
+		items := taskAssistantItems(result, 2)
+		if len(items) != 1 || items[0].Content != result.Text || items[0].Round != 2 {
+			t.Fatal("response text or replay metadata lost")
+		}
 	}
 }
