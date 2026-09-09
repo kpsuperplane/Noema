@@ -219,6 +219,7 @@ The new task title sits above a full-width divider. Project and timing controls 
 The title and instructions have accessible names without visible field labels.
 The instructions fill the remaining height in rich text and source modes.
 Project and Schedule controls use visible labels. Add to Inbox and Run now remain visible together.
+Opening Schedule in capture enables scheduling immediately. Remove schedule at the bottom disables scheduling and closes the popover.
 Capture omits working-folder controls. Creation buttons stay compact and align to the right.
 Above 1200 pixels, capture reserves the same 600-pixel right panel as task details, with no content before creation.
 

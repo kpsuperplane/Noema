@@ -85,6 +85,11 @@ export function MobileDrawer({
             opener.focus({ preventScroll: true });
           }}
           onEscapeKeyDown={(event) => {
+            const dialog = event.target instanceof Element ? event.target.closest('[role="dialog"], [role="alertdialog"]') : null;
+            if (dialog && dialog !== contentRef.current) {
+              event.preventDefault();
+              return;
+            }
             if (dismissible) return;
             event.preventDefault();
             if (closeOnEscape) onOpenChange(false);

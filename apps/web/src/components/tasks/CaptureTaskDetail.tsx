@@ -3,7 +3,6 @@ import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { TaskDocumentEditor, TaskTitleField } from "./TaskDocumentFields";
-import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
@@ -43,6 +42,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   const [draftRevision, setDraftRevision] = React.useState(0);
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
+  const [scheduleOpen, setScheduleOpen] = React.useState(false);
   const [schedule, setSchedule] = React.useState(initialScheduleDraft);
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
@@ -203,7 +203,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                   ]} />
                 </HStack>
                 <TaskScheduleSummary value={scheduling ? validSchedule ? taskScheduleTimestampLabel(validSchedule.scheduledFor, schedule.timeZone) : "Choose a start time" : undefined}>
-                  <Popover placement="below" alignment="start" label="Task schedule" width="min(340px, calc(100vw - var(--spacing-4)))" xstyle={styles.schedulePopover} content={<VStack gap={3}><CheckboxInput label="Schedule for later" value={scheduling} onChange={setScheduling} />{scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}</VStack>}>
+                  <Popover isOpen={scheduleOpen} onOpenChange={(open) => { setScheduleOpen(open); if (open) setScheduling(true); }} placement="below" alignment="start" label="Task schedule" width="min(340px, calc(100vw - var(--spacing-4)))" xstyle={styles.schedulePopover} content={<VStack gap={3} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setScheduleOpen(false); } }}><ScheduleFields value={schedule} onChange={setSchedule} /><Button size="sm" variant="ghost" label="Remove schedule" onClick={() => { setScheduling(false); setScheduleOpen(false); }} /></VStack>}>
                     <Button size="sm" variant={scheduling ? "secondary" : "ghost"} label={scheduling ? "Reschedule" : "Schedule"} icon={<CalendarClock aria-hidden="true" size={16} />} isDisabled={submitting} />
                   </Popover>
                 </TaskScheduleSummary>
