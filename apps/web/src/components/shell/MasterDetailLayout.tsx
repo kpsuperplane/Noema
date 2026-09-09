@@ -123,3 +123,5 @@ const styles = stylex.create({
     }
   }
 });
+
+export { styles as masterDetailStyles };

@@ -10,6 +10,7 @@ import { normalizeTasksSearch } from "@/components/tasks/tasksTypes";
 import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
 import { TaskInstructionsField } from "@/components/tasks/TaskDocumentFields";
 import * as stylex from "@stylexjs/stylex";
+import { skeletonGlimmerStyles } from "@/components/skeletonGlimmerStyles";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, providerCitationsFromMetadata } from "@/components/transcript/ProviderCitationSources";
@@ -155,6 +156,29 @@ export function TaskBody({
       </Grid>
     </section>
   );
+}
+
+export function TaskLoadingSkeleton({ header, animateGlimmer = true }: { header?: React.ReactNode; animateGlimmer?: boolean }) {
+  const lines = <VStack gap={3} aria-hidden="true" xstyle={styles.loadingLines}>
+    {["72%", "100%", "92%", "64%"].map((width) => <HStack key={width} style={{ width }} xstyle={[styles.loadingLine, animateGlimmer && skeletonGlimmerStyles.animated]} />)}
+  </VStack>;
+  return <section aria-label="Loading task details" aria-busy="true" {...stylex.props(styles.root)}>
+    <Grid height="100%" xstyle={styles.frame}>
+      <VStack gap={0} xstyle={styles.heading}>
+        {header ?? <VStack aria-hidden="true" xstyle={styles.loadingHeader}><HStack xstyle={[styles.loadingLine, styles.loadingTitle, animateGlimmer && skeletonGlimmerStyles.animated]} /></VStack>}
+        <div inert {...stylex.props(styles.tabBar)}>
+          <TabList aria-label="Task detail view" hasDivider size="sm" value="workspace" onChange={() => undefined}>
+            <Tab label="Workspace" value="workspace" /><Tab label="Transcript" value="transcript" />
+          </TabList>
+        </div>
+      </VStack>
+      <section aria-label="Workspace" {...stylex.props(styles.workspacePane)}>{lines}</section>
+      <section aria-label="Transcript" {...stylex.props(styles.transcript, styles.inactivePane)}>{lines}</section>
+      <section aria-label="Task context" {...stylex.props(styles.contextPane)}>
+        <HStack aria-hidden="true" xstyle={[styles.loadingContext, animateGlimmer && skeletonGlimmerStyles.animated]} />
+      </section>
+    </Grid>
+  </section>;
 }
 
 function TaskWorkspace({
@@ -338,6 +362,11 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%"
   },
+  loadingHeader: { width: "100%", maxWidth: 720, marginInline: "auto", paddingInline: "var(--spacing-4)", paddingBlockStart: "var(--spacing-3)", paddingBlockEnd: "var(--spacing-1)" },
+  loadingTitle: { width: "60%", height: "calc(var(--text-heading-3-size) * var(--text-heading-3-leading))" },
+  loadingLine: { height: "var(--spacing-3)", borderRadius: "var(--radius-element)", backgroundColor: "var(--skeleton-glimmer-line)" },
+  loadingLines: { width: "100%", maxWidth: 720, marginInline: "auto", padding: "var(--spacing-4)" },
+  loadingContext: { height: "var(--spacing-12)", margin: "var(--spacing-4)", borderRadius: "var(--radius-page)", backgroundColor: "var(--skeleton-glimmer-line)" },
   heading: { minWidth: 0, "@container (width > 1200px)": { gridColumn: "1", gridRow: "1" } },
   tabBar: {
     width: "100%", maxWidth: 720, marginInline: "auto",

@@ -16,7 +16,7 @@ import { ToolMarker } from "@/components/transcript/ToolMarker";
 import { TranscriptSystemNotice } from "@/components/transcript/TranscriptSystemNotice";
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
-import { TaskBody } from "./TaskBody";
+import { TaskBody, TaskLoadingSkeleton } from "./TaskBody";
 import { TaskTranscriptSourceProvider } from "./TaskTranscript";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
@@ -74,13 +74,7 @@ export function TaskDetailPanel({
   }, []);
 
   if (loading && !currentDetail) {
-    return (
-      <div {...stylex.props(styles.root, styles.unavailableRoot)}>{header}
-        <div role="status" {...stylex.props(styles.status)}>
-          Loading task details...
-        </div>
-      </div>
-    );
+    return <TaskLoadingSkeleton header={header} />;
   }
   if (error && !currentDetail) {
     return <div {...stylex.props(styles.root, styles.unavailableRoot)}>{header}<TaskUnavailable message={error} onRetry={onRetry} retrying={retrying} /></div>;

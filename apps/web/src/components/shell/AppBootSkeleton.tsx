@@ -1,15 +1,25 @@
 import * as stylex from "@stylexjs/stylex";
+import { routeFromPathname } from "@/app/routes";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
+import { TaskLoadingSkeleton } from "@/components/chatDetail/task/TaskBody";
+import { skeletonGlimmerStyles } from "@/components/skeletonGlimmerStyles";
+import { masterDetailStyles } from "./MasterDetailLayout";
 import { Composer } from "@/components/Composer";
 import { TranscriptLoadingSkeleton } from "@/components/transcript/TranscriptLoadingSkeleton";
 import { PrimarySurfaceNavigation, shellRootStyle } from "./AppShell";
 
 export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: boolean }) {
+  const pathname = typeof window === "undefined" ? "/" : window.location.pathname;
+  const route = routeFromPathname(pathname);
+  const taskPage = route.kind === "tasks";
+  const taskDetail = /^\/tasks\/[^/]+\/?$/.test(pathname) && pathname !== "/tasks/new";
   return (
     <main style={shellRootStyle()} {...stylex.props(styles.shellRoot)} aria-label="Loading Noema">
-      <header {...stylex.props(styles.navbar)}>
+      <header {...stylex.props(styles.navbar, taskDetail && styles.taskDetailNavbar)}>
         <div aria-hidden="true" inert {...stylex.props(styles.headerOffset)}>
           <PrimarySurfaceNavigation
-            route={{ kind: "chat" }}
+            route={taskPage ? route : { kind: "chat" }}
             agentName={null}
             agentAvatarActivity="idle"
             attention={null}
@@ -17,7 +27,13 @@ export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: bo
           />
         </div>
       </header>
-      <section {...stylex.props(styles.deck)} aria-label="Home">
+      <section {...stylex.props(styles.deck, taskPage && styles.tasksDeck)} aria-label={taskPage ? "Tasks" : "Home"}>
+        {taskPage ? <div {...stylex.props(masterDetailStyles.layout)}>
+          <VStack aria-hidden="true" gap={4} className={stylex.props(masterDetailStyles.listPane, styles.taskList).className}>
+            {[0, 1, 2, 3].map((index) => <HStack key={index} xstyle={[styles.taskRow, animateGlimmer && skeletonGlimmerStyles.animated]} />)}
+          </VStack>
+          {taskDetail ? <div {...stylex.props(masterDetailStyles.detailPane, styles.loadingTaskDetail)}><TaskLoadingSkeleton animateGlimmer={animateGlimmer} /></div> : null}
+        </div> : <>
         <div {...stylex.props(styles.chatSurface)}>
           <div {...stylex.props(styles.contentLayer)}>
             <TranscriptLoadingSkeleton animateGlimmer={animateGlimmer} />
@@ -37,12 +53,18 @@ export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: bo
             </div>
           </div>
         </div>
+        </>}
       </section>
     </main>
   );
 }
 
 const styles = stylex.create({
+  taskDetailNavbar: { "@media (max-width: 979px)": { visibility: "hidden" } },
+  tasksDeck: { left: { default: "var(--shell-sidebar-width)", "@media (max-width: 760px)": 0 } },
+  taskList: { padding: "var(--spacing-4)" },
+  taskRow: { width: "100%", height: "var(--spacing-12)", borderRadius: "var(--radius-element)", backgroundColor: "var(--skeleton-glimmer-line)" },
+  loadingTaskDetail: { "@media (max-width: 979px)": { display: "block", position: "fixed", insetInline: 0, top: "var(--spacing-6)", bottom: 0, zIndex: 50, borderWidth: 0, borderStartStartRadius: "var(--radius-page)", borderStartEndRadius: "var(--radius-page)", overflow: "hidden", backgroundColor: "var(--noema-surface-card)" } },
   shellRoot: {
     position: "relative",
     height: "100dvh",

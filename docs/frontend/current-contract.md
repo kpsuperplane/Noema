@@ -227,6 +227,8 @@ The source editor remains available when rich parsing fails. iOS retains its nat
 Task titles use smaller text and wrap to show the complete title.
 Task details keep Close on mobile and Workspace/Transcript tabs above scrolling content.
 In the wide layout, the title stays above Workspace within its column.
+Task loading uses the same columns, title position, tabs, and context placement.
+Startup uses a Tasks placeholder when the current route opens a task.
 The header and selected tab remain stable from Inbox through Queued and Running.
 Project and Task agent choices appear in the Workspace body. Working folder and repeated revision/source metadata are omitted.
 Timing appears beside Schedule or Reschedule. Lifecycle controls remain in the existing floating bar.
