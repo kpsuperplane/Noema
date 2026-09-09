@@ -185,7 +185,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - [Server authentication and public access](../server-security.md) is the
   implemented server contract. Development and local-access features fail
   closed by default.
-- Codex `noema-build` supports Git, caches, sockets, and complete read-only development-home inspection. See [development permissions](../development/codex-permissions.md).
+- Codex `noema-build` supports Git, caches, sockets, live frontend builds, and complete read-only development-home inspection. Linux root builds use the served asset directory. See [development permissions](../development/codex-permissions.md).
 - `./attach` owns the public development supervisor through one tmux session.
   Tmux runs a guardian that gives the supervisor a parent-death signal. The
   supervisor then stops its child watchers during session shutdown.

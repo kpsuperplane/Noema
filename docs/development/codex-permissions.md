@@ -104,3 +104,16 @@ For example, `noema --socket /tmp/noema-codex/graphql.sock status` reads server 
 The CLI also works with normal Linux and macOS installations.
 See [Noema CLI](../cli.md) for commands and socket selection.
 The CLI does not use the browser inspection HTTP credential.
+
+## Frontend build output
+
+On Linux as root, normal frontend builds write to `/run/noema-dev/web-assets`.
+The development launcher serves this same directory. Builds fail if it is not writable.
+They do not fall back to a separate preview directory.
+Other development environments use `target/web-assets`.
+Both the app and GraphiQL use the same output selection and readable file permissions.
+The release packaging script explicitly selects `target/web-assets` before packaging those files.
+`NOEMA_DEV_ASSET_DIR` remains an explicit output override for isolated builds.
+
+After frontend changes, inspect the served page through the private socket.
+A preview that substitutes local assets does not verify the running app.

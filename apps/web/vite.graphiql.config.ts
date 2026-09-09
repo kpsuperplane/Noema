@@ -2,10 +2,10 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const assetOutDir = process.env.NOEMA_DEV_ASSET_DIR ?? "../../target/web-assets";
+import { assetOutDir, serviceReadableAssets } from "./web-assets";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), serviceReadableAssets],
   base: "/assets/",
   publicDir: false,
   build: {

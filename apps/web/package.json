@@ -18,7 +18,7 @@
     "build:graphiql": "vite build --config vite.graphiql.config.ts",
     "build:tauri": "bun run gen:types && bun run gen:routes && vite build --config vite.desktop.config.ts",
     "check:generated": "bun run gen:types && bun run gen:routes && bun run scripts/check-generated-clean.ts",
-    "test": "bun test src",
+    "test": "bun test src ./web-assets.test.ts",
     "lint": "bun run gen:types && bun run gen:routes && tsc --noEmit && eslint src --max-warnings=0",
     "astryx": "node node_modules/@astryxdesign/cli/bin/astryx.mjs",
     "dev:assets:graphiql": "vite build --config vite.graphiql.config.ts --watch"

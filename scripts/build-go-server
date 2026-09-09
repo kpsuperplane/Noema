@@ -7,7 +7,7 @@ readonly asset_stage="${repository}/internal/web/release-assets"
 readonly output="${1:-${repository}/target/go/noema}"
 
 cd -- "${repository}/apps/web"
-bun run build:web-assets
+NOEMA_DEV_ASSET_DIR="${asset_source}" bun run build:web-assets
 for required in index.html graphiql.html favicon.ico manifest.webmanifest sw.js apple-touch-icon.png pwa-192x192.png pwa-512x512.png; do
   if [[ ! -f "${asset_source}/${required}" ]]; then
     echo "missing release web asset: ${required}" >&2

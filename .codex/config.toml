@@ -14,6 +14,8 @@ extends = ":workspace"
 "/root/.cache/go-build" = "write"
 "/root/go/pkg/mod" = "write"
 "/var/tmp" = "write"
+# Normal frontend builds update the directory served by the development instance.
+"/run/noema-dev/web-assets" = "write"
 "/tmp/noema-codex/home" = "read"
 
 [permissions.noema-build.filesystem.":workspace_roots"]
