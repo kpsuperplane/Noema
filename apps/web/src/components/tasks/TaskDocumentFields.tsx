@@ -143,7 +143,7 @@ export function TaskInstructionsField({ value, edit, scope }: { value: string; e
 
 const styles = stylex.create({
   fieldFrame: { position: "relative" },
-  saveStatus: { position: "absolute", insetInlineEnd: "calc(-1 * var(--spacing-3))", insetBlockStart: "var(--spacing-1)", width: "var(--spacing-3)", height: "var(--spacing-4)", color: "var(--noema-text-muted)", pointerEvents: "none" },
+  saveStatus: { position: "absolute", insetInlineEnd: "calc(-1 * var(--spacing-0-5))", insetBlockStart: "var(--spacing-1)", width: "var(--spacing-3)", height: "var(--spacing-4)", color: "var(--noema-text-muted)", pointerEvents: "none" },
   statusText: { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", borderWidth: 0 },
   title: { width: "100%", minWidth: 0, resize: "none", overflow: "hidden", lineHeight: "var(--text-heading-3-leading)", padding: "var(--spacing-0)", borderWidth: 0, backgroundColor: "transparent", color: "var(--noema-text-primary)", fontFamily: "var(--font-family-heading)", fontSize: "var(--text-heading-3-size)", fontWeight: "var(--text-heading-3-weight)", outline: "none", "::placeholder": { color: "var(--muted-foreground)" } },
   editable: {
