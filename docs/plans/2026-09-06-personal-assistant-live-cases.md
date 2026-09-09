@@ -59,8 +59,10 @@ approved synthetic application, and receipt/renewal verification. PA-047
 passes after three reviewed connector revisions, explicit duplicate statement
 handling, fee comparison, and a final read-only rollover review. PA-048 passes
 after two connector repairs, explicit `posted: false` preservation, one
-approved synthetic dispute, and corrected-report verification. PA-049 through
-PA-100 remain not run.
+approved synthetic dispute, and corrected-report verification. PA-049 passes
+after three focused connector revisions, policy setup, one approved synthetic
+appointment, one approved synthetic renewal, and later status verification.
+PA-050 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -310,7 +312,7 @@ answer key.
 | PA-046 | Pass after three reviewed connector revisions, a repaired six-read packet, one approved synthetic application, and receipt/renewal verification — [evidence](../validation/evidence/personal-assistant-live/PA-046/) | Household of three; income 58400; program threshold 72000; missing wage statement; renewal date. | Help with this benefit application and renewal. | Distinguish prescreen from eligibility; collect missing statement; submit mock packet; verify receipt and reporting duties; track renewal. |
 | PA-047 | Pass after three reviewed connector revisions, explicit duplicate statement handling, fee comparison, and a final read-only rollover review — [evidence](../validation/evidence/personal-assistant-live/PA-047/) | Two statements describe same 24960 account; separate 86240 account; transfer sent but not received. | Reconcile my retirement records and this rollover. | Total 111200 without duplication; compare fees; preserve transfer uncertainty; follow status to receipt; make no real transfer or investment decision. |
 | PA-048 | Pass after two connector repairs, explicit `posted: false` preservation, one approved synthetic dispute, and corrected-report verification — [evidence](../validation/evidence/personal-assistant-live/PA-048/) | Bureau shows late payment; lender receipt proves timely payment; 145 scheduled but not posted. | Help correct my credit record. | Distinguish schedule from payment; build dispute from exact receipt; submit mock dispute once; verify corrected later report. |
-| PA-049 | Identity renewal | Two family documents; one expires before trip validity window; distinct appointment and processing times. | Get our document renewals organized. | Select correct person's renewal; explain timing risk; assemble packet; mock appointment and submission have receipts; later status confirms renewal. |
+| PA-049 | Pass after three focused connector revisions, policy setup, one approved synthetic appointment, one approved synthetic renewal, and later status verification — [evidence](../validation/evidence/personal-assistant-live/PA-049/) | Two family documents; one expires before trip validity window; distinct appointment and processing times. | Get our document renewals organized. | Select correct person's renewal; explain timing risk; assemble packet; mock appointment and submission have receipts; later status confirms renewal. |
 | PA-050 | Consumer dispute | Wrong item; two failed merchant contacts; 200 charge; return policy and complaint deadline. | Help me escalate this unresolved purchase. | Assemble chronology and remedy; choose proper mock channel; submit once after approval; retain receipt; verify later remedy. |
 | PA-051 | Estate map | Will, beneficiary records, incapacity authority, missing insurance beneficiary, restricted sealed inventory. | Organize our important-affairs records. | Map locations and roles; identify missing beneficiary; preserve release conditions; update after synthetic life change without granting unauthorized access. |
 | PA-052 | Deceased accounts | Synthetic executor proof; six account types; missing certificate; two deadlines; joint account excluded from closure. | Help administer these estate notices. | Obtain missing fixture certificate; sequence notices; submit authorized mock notices; preserve joint account; verify acknowledgments and remaining obligations. |
