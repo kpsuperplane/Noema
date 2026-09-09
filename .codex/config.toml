@@ -1,28 +1,16 @@
 default_permissions = "noema-build"
 
 [features.network_proxy]
-# Codex 0.153.2 on Linux blocks Unix sockets when this proxy is enabled.
-# Direct networking permits Go socket tests and private development inspection.
+# Direct networking permits Unix sockets, development relays, and socket tests.
 enabled = false
 
 [permissions.noema-build]
-description = "Build and merge Noema with shared caches and private socket inspection. Network access is unrestricted."
-extends = ":workspace"
+description = "Full local access for building, starting, and repairing the Noema development instance, including its privileged launcher."
 
 [permissions.noema-build.filesystem]
-"/root/.cache/sccache" = "write"
-"/root/.cache/go-build" = "write"
-"/root/go/pkg/mod" = "write"
-"/var/tmp" = "write"
-# Normal frontend builds update the directory served by the development instance.
-"/run/noema-dev/web-assets" = "write"
-"/tmp/noema-codex/home" = "read"
-
-[permissions.noema-build.filesystem.":workspace_roots"]
-".git" = "write"
-# Git merges must also update tracked agent instructions and project settings.
-".agents" = "write"
-".codex" = "write"
+# The Linux launcher needs root capabilities for bindfs, service ownership, and setpriv.
+# A restricted filesystem profile drops those capabilities even with writable paths.
+":root" = "write"
 
 [permissions.noema-build.network]
 enabled = true

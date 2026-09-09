@@ -64,13 +64,13 @@
 ## Noema Development Access
 
 These instructions describe the Linux root development instance in `/root/noema`.
-Use `noema-build` for development and inspection. It permits Git operations, shared build caches, and direct network access.
-Filesystem limits remain active. Network access has no domain filter.
+Use `noema-build` for development and inspection. It grants full local filesystem access and direct network access for the privileged development launcher.
+Keep credential values in protected stores and secure bindings.
 
 ### Start and check the instance
 
 - Use the existing development session when it is running.
-- To start the complete session, run `./attach` from an unrestricted host terminal in `/root/noema`.
+- To start the complete session, run `./attach` with `noema-build` in `/root/noema`.
 - The launcher requires `bindfs`. It starts the server, private socket relay, and read-only home view.
 - Do not substitute `go run ./cmd/noema-dev` for this launcher. That command does not start the inspection relays or home view.
 - Check actual socket access with this read-only request:
@@ -107,7 +107,7 @@ The expected response is `{"state":"authenticated"}`. A socket file alone does n
 - If commands still have old restrictions, select `noema-build` and start a new Codex session.
 - To check the saved profile explicitly, prefix a command with `codex sandbox -C /root/noema -P noema-build --`.
 - If the socket refuses connections or the home view is missing, check the host development session and launcher output.
-- Start or repair the launcher from the host terminal. The restricted profile cannot create its privileged filesystem mount.
+- Start or repair the launcher with `noema-build`. A stale restricted session must reload the updated profile first.
 - The default profile needs no HTTP inspection credential. The helper uses the authenticated relay when proxy environment variables are present.
 - Do not print or manually copy the relay credential. The helper loads it internally.
 - See [development permissions](docs/development/codex-permissions.md) for profile settings, setup, and verified checks.
