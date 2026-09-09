@@ -1,0 +1,260 @@
+{
+  "browser": [
+    {
+      "name": "ChatBoot",
+      "start": 423.1185459999999,
+      "end": 466.06256899999994,
+      "bytes": 3018
+    },
+    {
+      "name": "TasksProjects",
+      "start": 771.6294539999999,
+      "end": 856.351195,
+      "bytes": 3406
+    },
+    {
+      "name": "ConversationTranscriptPage",
+      "start": 812.3236730000001,
+      "end": 934.5041759999999,
+      "bytes": 68416
+    },
+    {
+      "name": "TasksOverview",
+      "start": 752.772052,
+      "end": 1346.607887,
+      "bytes": 70091
+    },
+    {
+      "name": "TasksTaskDetail",
+      "start": 767.2951889999999,
+      "end": 1870.059629,
+      "bytes": 9865
+    },
+    {
+      "name": "TasksTaskRunItems",
+      "start": 2030.635333,
+      "end": 2060.4232629999997,
+      "bytes": 13616
+    },
+    {
+      "name": "TasksTaskRunItems",
+      "start": 2032.721809,
+      "end": 2062.312274,
+      "bytes": 23173
+    },
+    {
+      "name": "TasksTaskSchedulePreview",
+      "start": 2048.451999,
+      "end": 2062.471445,
+      "bytes": 147
+    }
+  ],
+  "isolated": [
+    {
+      "name": "TasksTaskDetail",
+      "pass": 0,
+      "ms": 492.356935,
+      "bytes": 9865
+    },
+    {
+      "name": "TasksTaskDetail.task",
+      "pass": 0,
+      "ms": 19.990545999999995,
+      "bytes": 6605
+    },
+    {
+      "name": "TasksTaskDetail.pendingHumanInterventions",
+      "pass": 0,
+      "ms": 558.954412,
+      "bytes": 3270
+    },
+    {
+      "name": "TasksOverview",
+      "pass": 0,
+      "ms": 501.94552,
+      "bytes": 70091
+    },
+    {
+      "name": "TasksOverview.tasks",
+      "pass": 0,
+      "ms": 8.810363000000052,
+      "bytes": 42905
+    },
+    {
+      "name": "TasksOverview.taskRecurrences",
+      "pass": 0,
+      "ms": 1.9469280000000708,
+      "bytes": 875
+    },
+    {
+      "name": "TasksOverview.taskHistory",
+      "pass": 0,
+      "ms": 3.9164210000001276,
+      "bytes": 13905
+    },
+    {
+      "name": "TasksOverview.pendingHumanInterventions",
+      "pass": 0,
+      "ms": 485.80323299999986,
+      "bytes": 12436
+    },
+    {
+      "name": "task minimal",
+      "pass": 0,
+      "ms": 2.153345000000172,
+      "bytes": 68
+    },
+    {
+      "name": "TasksTaskDetail",
+      "pass": 1,
+      "ms": 485.56788300000017,
+      "bytes": 9865
+    },
+    {
+      "name": "TasksTaskDetail.task",
+      "pass": 1,
+      "ms": 3.6129900000000816,
+      "bytes": 6605
+    },
+    {
+      "name": "TasksTaskDetail.pendingHumanInterventions",
+      "pass": 1,
+      "ms": 463.8302910000002,
+      "bytes": 3270
+    },
+    {
+      "name": "TasksOverview",
+      "pass": 1,
+      "ms": 507.133104,
+      "bytes": 70091
+    },
+    {
+      "name": "TasksOverview.tasks",
+      "pass": 1,
+      "ms": 5.658466999999746,
+      "bytes": 42905
+    },
+    {
+      "name": "TasksOverview.taskRecurrences",
+      "pass": 1,
+      "ms": 0.8474820000001273,
+      "bytes": 875
+    },
+    {
+      "name": "TasksOverview.taskHistory",
+      "pass": 1,
+      "ms": 2.4048350000002756,
+      "bytes": 13905
+    },
+    {
+      "name": "TasksOverview.pendingHumanInterventions",
+      "pass": 1,
+      "ms": 479.6091900000001,
+      "bytes": 12436
+    },
+    {
+      "name": "task minimal",
+      "pass": 1,
+      "ms": 1.2700230000000374,
+      "bytes": 68
+    },
+    {
+      "name": "TasksTaskDetail",
+      "pass": 2,
+      "ms": 480.5743390000007,
+      "bytes": 9865
+    },
+    {
+      "name": "TasksTaskDetail.task",
+      "pass": 2,
+      "ms": 1.8676470000000336,
+      "bytes": 6605
+    },
+    {
+      "name": "TasksTaskDetail.pendingHumanInterventions",
+      "pass": 2,
+      "ms": 490.1096319999997,
+      "bytes": 3270
+    },
+    {
+      "name": "TasksOverview",
+      "pass": 2,
+      "ms": 493.9091179999996,
+      "bytes": 70091
+    },
+    {
+      "name": "TasksOverview.tasks",
+      "pass": 2,
+      "ms": 6.657239000000118,
+      "bytes": 42905
+    },
+    {
+      "name": "TasksOverview.taskRecurrences",
+      "pass": 2,
+      "ms": 0.8683539999992718,
+      "bytes": 875
+    },
+    {
+      "name": "TasksOverview.taskHistory",
+      "pass": 2,
+      "ms": 2.802697999999509,
+      "bytes": 13905
+    },
+    {
+      "name": "TasksOverview.pendingHumanInterventions",
+      "pass": 2,
+      "ms": 482.4560620000002,
+      "bytes": 12436
+    },
+    {
+      "name": "task minimal",
+      "pass": 2,
+      "ms": 1.5680130000000645,
+      "bytes": 68
+    }
+  ],
+  "additional": [
+    {
+      "name": "pending actions only",
+      "pass": 0,
+      "ms": 70.96219599999995,
+      "bytes": 69,
+      "count": 1
+    },
+    {
+      "name": "all connector definitions",
+      "pass": 0,
+      "ms": 2621.83429,
+      "bytes": 1748,
+      "count": 49
+    },
+    {
+      "name": "pending actions only",
+      "pass": 1,
+      "ms": 29.134708000000046,
+      "bytes": 69,
+      "count": 1
+    },
+    {
+      "name": "all connector definitions",
+      "pass": 1,
+      "ms": 8023.48344,
+      "bytes": 1748,
+      "count": 49
+    },
+    {
+      "name": "pending actions only",
+      "pass": 2,
+      "ms": 258.9159319999999,
+      "bytes": 69,
+      "count": 1
+    },
+    {
+      "name": "all connector definitions",
+      "pass": 2,
+      "ms": 2093.427581,
+      "bytes": 1748,
+      "count": 49
+    }
+  ]
+}

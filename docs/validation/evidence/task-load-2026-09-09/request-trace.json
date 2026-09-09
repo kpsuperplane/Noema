@@ -1,0 +1,199 @@
+{
+  "traceEvents": [
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "name": "Page load"
+      }
+    },
+    {
+      "name": "Navigation to task transcript responses",
+      "cat": "page",
+      "ph": "X",
+      "ts": 0,
+      "dur": 2062312.274,
+      "pid": 1,
+      "tid": 1
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "name": "ChatBoot"
+      }
+    },
+    {
+      "name": "ChatBoot",
+      "cat": "request",
+      "ph": "X",
+      "ts": 423119,
+      "dur": 42944,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "response_bytes": 3018,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 3,
+      "args": {
+        "name": "TasksProjects"
+      }
+    },
+    {
+      "name": "TasksProjects",
+      "cat": "request",
+      "ph": "X",
+      "ts": 771629,
+      "dur": 84722,
+      "pid": 1,
+      "tid": 3,
+      "args": {
+        "response_bytes": 3406,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 4,
+      "args": {
+        "name": "ConversationTranscriptPage"
+      }
+    },
+    {
+      "name": "ConversationTranscriptPage",
+      "cat": "request",
+      "ph": "X",
+      "ts": 812324,
+      "dur": 122181,
+      "pid": 1,
+      "tid": 4,
+      "args": {
+        "response_bytes": 68416,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "name": "TasksOverview"
+      }
+    },
+    {
+      "name": "TasksOverview",
+      "cat": "request",
+      "ph": "X",
+      "ts": 752772,
+      "dur": 593836,
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "response_bytes": 70091,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 6,
+      "args": {
+        "name": "TasksTaskDetail"
+      }
+    },
+    {
+      "name": "TasksTaskDetail",
+      "cat": "request",
+      "ph": "X",
+      "ts": 767295,
+      "dur": 1102764,
+      "pid": 1,
+      "tid": 6,
+      "args": {
+        "response_bytes": 9865,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 7,
+      "args": {
+        "name": "TasksTaskRunItems"
+      }
+    },
+    {
+      "name": "TasksTaskRunItems",
+      "cat": "request",
+      "ph": "X",
+      "ts": 2030635,
+      "dur": 29788,
+      "pid": 1,
+      "tid": 7,
+      "args": {
+        "response_bytes": 13616,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 8,
+      "args": {
+        "name": "TasksTaskRunItems"
+      }
+    },
+    {
+      "name": "TasksTaskRunItems",
+      "cat": "request",
+      "ph": "X",
+      "ts": 2032722,
+      "dur": 29590,
+      "pid": 1,
+      "tid": 8,
+      "args": {
+        "response_bytes": 23173,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 9,
+      "args": {
+        "name": "TasksTaskSchedulePreview"
+      }
+    },
+    {
+      "name": "TasksTaskSchedulePreview",
+      "cat": "request",
+      "ph": "X",
+      "ts": 2048452,
+      "dur": 14019,
+      "pid": 1,
+      "tid": 9,
+      "args": {
+        "response_bytes": 147,
+        "measurement": "Browser request to requestfinished through inspection helper"
+      }
+    }
+  ],
+  "displayTimeUnit": "ms"
+}
