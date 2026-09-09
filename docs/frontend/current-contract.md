@@ -224,6 +224,7 @@ Capture omits working-folder controls. Creation buttons stay compact and align t
 Above 1200 pixels, capture reserves the same 600-pixel right panel as task details, with no content before creation.
 
 Editable task and recurrence titles and instructions show a light hover background that extends 12 pixels horizontally and 4 pixels vertically beyond the field.
+Body editors add 8 pixels of internal vertical padding, giving the highlight a 12-pixel inset on every side.
 A non-interactive pseudo-element draws the highlight without changing layout. Focus replaces its background with a light border.
 Hover and focus colors use the micro transition; reduced motion removes the transition.
 Task body editors omit the block drag handle and the manual Markdown source switch.

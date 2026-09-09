@@ -168,7 +168,7 @@ const styles = stylex.create({
       zIndex: -1
     }
   },
-  editor: { display: "flex", flexDirection: "column", flexGrow: 1 },
+  editor: { display: "flex", flexDirection: "column", flexGrow: 1, paddingBlock: "var(--spacing-2)" },
   instructions: { width: "100%", minWidth: 0 },
   feedback: { color: "var(--noema-text-secondary)", fontSize: "var(--text-supporting-size)", textWrap: "pretty", ":empty": { display: "none" } }
 });
