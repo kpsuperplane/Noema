@@ -354,11 +354,7 @@ export function TranscriptScroller({
     (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
       const totalSize = instance.getTotalSize();
       const bottomOffset = Math.max(0, availableHeight - totalSize);
-      const previousBottomOffset = bottomOffsetRef.current;
       bottomOffsetRef.current = bottomOffset;
-      if (bottomOffset === 0 && previousBottomOffset === 0) {
-        return;
-      }
       const sizer = virtualSizerRef.current;
       if (sizer) {
         sizer.style.height = `${Math.max(totalSize, availableHeight)}px`;
@@ -376,7 +372,6 @@ export function TranscriptScroller({
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: entries.length,
-    directDomUpdates: true,
     getScrollElement: () => viewportRef.current,
     initialMeasurementsCache: initialMeasurements,
     initialOffset: restoredSnapshot?.scrollOffset ?? 0,
@@ -397,13 +392,6 @@ export function TranscriptScroller({
   const totalSize = rowVirtualizer.getTotalSize();
   const firstVirtualIndex = virtualItems[0]?.index ?? null;
   const lastVirtualIndex = virtualItems.at(-1)?.index ?? null;
-  const setVirtualSizer = React.useCallback(
-    (node: HTMLDivElement | null) => {
-      virtualSizerRef.current = node;
-      rowVirtualizer.containerRef(node);
-    },
-    [rowVirtualizer, virtualSizerRef]
-  );
   const requestLoadBefore = React.useCallback(() => {
     logTranscriptScroll("load-before", {});
     requestedOldestKeyRef.current = oldestEntryKey;
@@ -577,8 +565,9 @@ export function TranscriptScroller({
   }, [historyPrependDeferred, loadingBefore, oldestEntryKey, settlingPrepend]);
 
   React.useLayoutEffect(() => {
+    // One writer positions all rows, including the short-transcript bottom offset.
     syncVirtualLayout(rowVirtualizer);
-  }, [rowVirtualizer, syncVirtualLayout]);
+  });
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -689,7 +678,7 @@ export function TranscriptScroller({
             ) : null}
           </div>
           <div
-            ref={setVirtualSizer}
+            ref={virtualSizerRef}
             {...stylex.props(styles.virtualSizer)}
           >
             {virtualItems.map((virtualItem) => {
