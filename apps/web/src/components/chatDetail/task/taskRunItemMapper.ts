@@ -94,7 +94,7 @@ export function taskRunItemsToTranscriptEntries(
         entries.push({
           id: `${item.id}:reasoning:${sectionIndex}`,
           source: "replay",
-          turnId: `${item.id}:reasoning:${sectionIndex}`,
+          turnId: `${item.id}:reasoning`,
           type: "assistant",
           phase: "commentary",
           text: reasoning
