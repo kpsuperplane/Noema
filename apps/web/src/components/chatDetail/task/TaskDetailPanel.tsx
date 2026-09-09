@@ -477,8 +477,8 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "var(--shadow-low)"
   },
-  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
-  summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto" },
+  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInlineStart: "calc(var(--spacing-2) + var(--spacing-0-5))", paddingInlineEnd: "var(--spacing-4)" },
+  summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto", paddingInlineStart: "var(--spacing-4)" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
   completedAvatar: { display: "inline-flex", width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "var(--color-success)", color: "var(--color-on-accent)" },
