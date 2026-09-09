@@ -199,6 +199,14 @@ func (c *Chat) consolidateMemoryRange(
 	assignment store.ModelAssignment,
 	captured store.MemorySourceRange,
 ) error {
+	window, err := contextWindow(ctx, c.database, assignment.ProviderAccountID, assignment.ProviderKind, assignment.ModelProfile)
+	if err != nil {
+		return err
+	}
+	if window == 0 {
+		window = memoryContextTokens
+	}
+	budget := max((int(window)-memoryOutputTokens)*memoryCharsPerToken, 1)
 	items := captured.Items
 	for offset := 0; offset < len(items); {
 		pages, err := c.memory.ListPages()
@@ -210,7 +218,6 @@ func (c *Chat) consolidateMemoryRange(
 		if err != nil {
 			return err
 		}
-		budget := (memoryContextTokens - memoryOutputTokens) * memoryCharsPerToken
 		if len([]rune(minimal)) >= budget {
 			return errors.New("Memory page catalog exceeds the model context budget")
 		}

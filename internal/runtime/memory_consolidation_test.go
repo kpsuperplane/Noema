@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -192,6 +193,55 @@ func TestMemorySourceOmitsTaskHistory(t *testing.T) {
 	}
 	if rendered := renderMemorySourceItem(item); rendered != "" {
 		t.Fatalf("task history was rendered for memory: %s", rendered)
+	}
+}
+
+func TestMemoryUpdateUsesSelectedModelContextWindow(t *testing.T) {
+	for _, window := range []uint32{128_000, 8_000, 1_024} {
+		t.Run(fmt.Sprint(window), func(t *testing.T) {
+			chat, database, conversation := chatFixture(t)
+			profiles, _ := json.Marshal([]provider.ModelProfile{{ID: "memory-test", Label: "Memory test", ContextWindowTokens: &window}})
+			account, err := database.CreateProviderAccount(t.Context(), provider.Account{
+				ID: "provider_account:openrouter:memory-test", ProviderKind: "openrouter",
+				AccountKey: "memory-test", DisplayName: "Memory test", AuthMethod: provider.AuthSecretInput,
+				IsActive: true, Status: provider.StatusAuthenticated,
+				Metadata: provider.AccountMetadata{"profiles": profiles}, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			template := strings.Repeat("connector setup code", 2_000)
+			item := store.ConversationItem{ID: "item:template", Sequence: 1, Kind: "activity", Payload: map[string]any{
+				"activity_kind": "tool_result",
+				"metadata": map[string]any{"action": map[string]any{
+					"name": "adapter.definition_template", "payload": map[string]any{"revision_base": template},
+				}},
+			}}
+			called := false
+			generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+				called = true
+				if request.Messages[1].Content != renderMemorySourceItem(item) {
+					t.Fatal("memory input lost source content")
+				}
+				return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{
+					Name: memorySubmitTool, Payload: json.RawMessage(`{"upserts":[],"metadata_updates":[],"deletes":[]}`),
+				}}}, nil
+			})
+			err = chat.consolidateMemoryRange(t.Context(), generator, store.ModelAssignment{
+				ProviderAccountID: account.ID, ProviderKind: account.ProviderKind, ModelProfile: "memory-test",
+			}, store.MemorySourceRange{ConversationID: conversation.ID, CapturedHead: 1, Items: []store.ConversationItem{item}})
+			state, stateErr := chat.memory.State()
+			if stateErr != nil {
+				t.Fatal(stateErr)
+			}
+			if window == 128_000 {
+				if err != nil || !called || state.LastConsolidatedSequence != 1 {
+					t.Fatalf("large model update failed: %#v, %v, called %t", state, err, called)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "exceeds the model context budget") || called || state.LastConsolidatedSequence != 0 {
+				t.Fatalf("small model limit was not enforced: %#v, %v, called %t", state, err, called)
+			}
+		})
 	}
 }
 
