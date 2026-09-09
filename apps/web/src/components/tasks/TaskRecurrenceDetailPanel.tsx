@@ -305,7 +305,7 @@ const styles = stylex.create({
   dialogActions: { display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(0, 1fr)" },
   meta: { margin: "var(--spacing-0)", color: "var(--noema-text-secondary)", fontSize: "var(--text-supporting-size)", lineHeight: 1.4, fontVariantNumeric: "tabular-nums" },
   advanced: { borderBlockStart: "var(--border-width) solid var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-3)" },
-  sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-primary)", fontSize: "var(--text-supporting-size)", fontWeight: 650 },
+  sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-primary)", fontSize: "var(--text-heading-3-size)", lineHeight: "var(--text-heading-3-leading)", fontWeight: "var(--text-heading-3-weight)" },
   count: { color: "var(--noema-text-muted)", fontSize: "var(--text-supporting-size)" },
   occurrenceDay: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: "var(--text-supporting-size)", fontWeight: 650 },
   history: { margin: "var(--spacing-0)", padding: "var(--spacing-0)", listStyle: "none" },
