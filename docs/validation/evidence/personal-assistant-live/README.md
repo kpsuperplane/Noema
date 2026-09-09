@@ -1,6 +1,6 @@
 # Live personal-assistant acceptance ledger
 
-Updated: 2026-09-08
+Updated: 2026-09-09
 
 This ledger records the fresh Go-backend acceptance run. It does not import
 the superseded replay report. Every case is run through the live Noema
@@ -54,7 +54,8 @@ development instance and inspected before the next case starts.
 | PA-041 — Cash flow | Pass after a focused bill-ID projection repair, two-week cash-flow planning, duplicate-notice reconciliation, and one approved synthetic payment with receipt verification | [Case evidence](PA-041/) |
 | PA-042 — Tax packet | Pass after two reviewed tax-API projection repairs, a complete five-record read, duplicate and supersession handling, missing-form retrieval, and independent packet inspection | [Case evidence](PA-042/) |
 | PA-043 — Subscription cancellation | Pass after three connector repairs, one approved monthly cancellation, complete receipt capture, and post-cycle verification | [Case evidence](PA-043/) |
-| PA-044–PA-100 | Not run | The operator will run each case in order. |
+| PA-044 — Coverage review | Pass after two focused projection repairs, complete policy and asset reads, and a sourced coverage-fit review | [Case evidence](PA-044/) |
+| PA-045–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
