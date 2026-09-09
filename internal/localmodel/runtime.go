@@ -464,7 +464,7 @@ func (s *Service) generateAt(
 			return provider.GenerationResult{}, errors.New("local runtime returned invalid tool arguments")
 		}
 		result.ToolCalls = append(result.ToolCalls, provider.GenerationToolCall{
-			Index: call.Index, ProviderCallID: call.ID, ProviderName: call.Name,
+			Index: call.OutputIndex, ProviderCallID: call.ID, ProviderName: call.Name,
 			Name: canonical, Payload: json.RawMessage(call.Arguments),
 		})
 	}

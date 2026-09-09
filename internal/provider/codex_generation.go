@@ -1334,6 +1334,7 @@ func normalizeCodexGeneration(
 				return GenerationResult{}, err
 			}
 			if keep {
+				reasoning.Index = output.Index
 				result.Reasoning = append(result.Reasoning, reasoning)
 			}
 		case "web_search_call":

@@ -189,7 +189,7 @@ func TestOpenRouterResponseNormalizesToolsAndProviderMetadata(t *testing.T) {
 	parsed := ChatStreamResult{
 		ID: "chat_2", Text: "Working.",
 		ToolCalls: []ToolCall{{
-			Index: 2, ID: "call_2", Name: providerName,
+			Index: 2, OutputIndex: 2, ID: "call_2", Name: providerName,
 			Arguments: `{"document_id":"doc_1","context":{"mode":null,"nullable":null}}`,
 		}},
 		Reasoning: []json.RawMessage{

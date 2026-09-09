@@ -125,10 +125,11 @@ type StreamEvent struct {
 
 // ToolCall is one assembled native tool call.
 type ToolCall struct {
-	Index     int
-	ID        string
-	Name      string
-	Arguments string
+	OutputIndex int
+	Index       int
+	ID          string
+	Name        string
+	Arguments   string
 }
 
 // Citation is one provider citation.
@@ -300,21 +301,22 @@ func (r *contextReader) Read(buffer []byte) (int, error) {
 }
 
 type chatAccumulator struct {
-	output         []GenerationOutput
-	outputKeys     map[string]int
-	id             string
-	model          string
-	text           strings.Builder
-	tools          map[int]*toolAccumulator
-	reasoning      []json.RawMessage
-	plainReasoning strings.Builder
-	citations      []Citation
-	searches       []HostedSearch
-	searchFields   []hostedSearchFields
-	searchIndex    map[string]int
-	usage          Usage
-	citationKeys   map[string]struct{}
-	resultSize     int
+	nextOutputIndex int
+	output          []GenerationOutput
+	outputKeys      map[string]int
+	id              string
+	model           string
+	text            strings.Builder
+	tools           map[int]*toolAccumulator
+	reasoning       []json.RawMessage
+	plainReasoning  strings.Builder
+	citations       []Citation
+	searches        []HostedSearch
+	searchFields    []hostedSearchFields
+	searchIndex     map[string]int
+	usage           Usage
+	citationKeys    map[string]struct{}
+	resultSize      int
 }
 
 type toolAccumulator struct {
@@ -565,7 +567,9 @@ func (a *chatAccumulator) consumeDelta(delta chatDelta, onEvent func(StreamEvent
 		tool.Arguments += fragment.Function.Arguments
 		if !tool.started && tool.ID != "" && tool.Name != "" {
 			tool.started = true
-			onEvent(StreamEvent{Kind: ToolCallStarted, Index: tool.Index, ID: tool.ID, Name: tool.Name})
+			tool.OutputIndex = a.nextOutputIndex
+			a.nextOutputIndex++
+			onEvent(StreamEvent{Kind: ToolCallStarted, Index: tool.OutputIndex, ID: tool.ID, Name: tool.Name})
 		}
 	}
 
@@ -634,17 +638,18 @@ func (a *chatAccumulator) captureHostedSearch(
 		return err
 	}
 	search := HostedSearch{
-		Index: len(a.searches), ID: id, Name: name, Status: status,
+		Index: a.nextOutputIndex, ID: id, Name: name, Status: status,
 		Arguments: arguments, Result: result,
 	}
-	a.searchIndex[key] = search.Index
+	a.nextOutputIndex++
+	a.searchIndex[key] = len(a.searches)
 	a.searches = append(a.searches, search)
 	a.searchFields = append(a.searchFields, hostedSearchFields{
 		name: namePresent, status: statusPresent, arguments: argumentsPresent, result: resultPresent,
 	})
 	eventID := id
 	if eventID == "" {
-		eventID = fmt.Sprintf("anonymous:%d", search.Index)
+		eventID = fmt.Sprintf("anonymous:%d", len(a.searches)-1)
 	}
 	eventName := name
 	if !namePresent {
@@ -911,12 +916,9 @@ func (a *chatAccumulator) normalizedSearches() []HostedSearch {
 			"provider": "openrouter", "source_count": sourceCount, "summary": summary,
 		})
 		searches = append(searches, HostedSearch{
-			Index: index, ID: id, Name: "web.search", Status: "completed",
+			Index: a.nextOutputIndex + index - len(a.searches), ID: id, Name: "web.search", Status: "completed",
 			Arguments: json.RawMessage(`{}`), Result: result,
 		})
-	}
-	for index := range searches {
-		searches[index].Index = index
 	}
 	return searches
 }

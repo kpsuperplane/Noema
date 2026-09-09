@@ -162,6 +162,7 @@ type GenerationToolCall struct {
 
 // GenerationReasoning holds provider reasoning for replay.
 type GenerationReasoning struct {
+	Index            int
 	ID               string
 	EncryptedContent string
 	Summary          []string

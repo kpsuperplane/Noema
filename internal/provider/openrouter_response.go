@@ -72,7 +72,7 @@ func normalizeOpenRouterToolCalls(
 			return nil, errors.New("OpenRouter native tool arguments are invalid")
 		}
 		result = append(result, GenerationToolCall{
-			Index: call.Index, ProviderCallID: call.ID, ProviderName: call.Name,
+			Index: call.OutputIndex, ProviderCallID: call.ID, ProviderName: call.Name,
 			Name: rule.canonical, Payload: encoded,
 		})
 	}

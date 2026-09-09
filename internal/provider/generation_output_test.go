@@ -29,7 +29,7 @@ func TestCodexReadableOutputPreservesSectionsAndReplayPhase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Output) != 4 || result.Text != "Checking.Done." || result.Output[0].Phase != "commentary" || result.Output[3].Phase != "final_answer" || result.Output[2].Text != "Second\nsection" || result.Output[2].SectionIndex != 1 {
+	if len(result.Reasoning) != 1 || result.Reasoning[0].Index != 1 || len(result.Output) != 4 || result.Text != "Checking.Done." || result.Output[0].Phase != "commentary" || result.Output[3].Phase != "final_answer" || result.Output[2].Text != "Second\nsection" || result.Output[2].SectionIndex != 1 {
 		t.Fatalf("output: %#v", result.Output)
 	}
 	if events[0].Kind != MessageStarted || events[1].Phase != "commentary" || events[1].ID != "m1" {
@@ -78,5 +78,43 @@ func TestChatReadableOutputStreamsPlainAndStructuredReasoningOnce(t *testing.T) 
 		if events[0].Kind != ReasoningDelta || events[len(events)-1].Kind != MessageCompleted {
 			t.Fatalf("events: %#v", events)
 		}
+	}
+}
+
+func TestReplayMessagesPreservesMixedProviderOrderOnce(t *testing.T) {
+	result := GenerationResult{
+		Text: "Checking.Done.",
+		Output: []GenerationOutput{
+			{Kind: "message", Index: 0, ID: "m1", Phase: "commentary", Text: "Checking."},
+			{Kind: "reasoning", Index: 1, Text: "Readable summary"},
+			{Kind: "message", Index: 4, ID: "m2", Phase: "final_answer", Text: "Done."},
+		},
+		Reasoning: []GenerationReasoning{{Index: 1, ID: "r1", EncryptedContent: "opaque", ProviderDetails: []json.RawMessage{json.RawMessage(`{"type":"reasoning","id":"r1","encrypted_content":"opaque"}`)}}, {Index: 5, ID: "r2", EncryptedContent: "opaque-only"}},
+		Searches:  []HostedSearch{{Index: 2, ID: "s1"}},
+		ToolCalls: []GenerationToolCall{{Index: 3, ProviderCallID: "call1", Name: "inspect", Payload: json.RawMessage(`{}`)}},
+	}
+	messages := result.ReplayMessages()
+	if len(messages) != 6 || messages[0].ProviderItemID != "m1" || messages[0].Phase != "commentary" || messages[1].ReasoningID != "r1" || messages[2].HostedSearch == nil || len(messages[3].ToolCalls) != 1 || messages[4].ProviderItemID != "m2" || messages[5].EncryptedReasoning != "opaque-only" {
+		t.Fatalf("replay: %#v", messages)
+	}
+	for _, message := range messages {
+		if message.Content == "Readable summary" {
+			t.Fatal("summary duplicated as assistant text")
+		}
+	}
+	if fallback := (GenerationResult{Text: "Legacy"}).ReplayMessages(); len(fallback) != 1 || fallback[0].Content != "Legacy" || fallback[0].Phase != "" {
+		t.Fatalf("fallback: %#v", fallback)
+	}
+}
+
+func TestChatOutputIndexesKeepTextBeforeNativeCall(t *testing.T) {
+	stream := "data: {\"choices\":[{\"delta\":{\"reasoning\":\"Checking\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\"Progress\",\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"inspect\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n"
+	parsed, err := ParseChatStream(context.Background(), io.NopCloser(strings.NewReader(stream)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Output) != 2 || parsed.Output[1].Index != 1 || len(parsed.ToolCalls) != 1 || parsed.ToolCalls[0].OutputIndex != 2 {
+		t.Fatalf("ordered output: %#v %#v", parsed.Output, parsed.ToolCalls)
 	}
 }
