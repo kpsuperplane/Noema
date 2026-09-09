@@ -140,7 +140,8 @@ const styles = stylex.create({
     "::before": {
       content: '""',
       position: "absolute",
-      inset: "calc(-1 * var(--spacing-1))",
+      insetBlock: "calc(-1 * var(--spacing-1))",
+      insetInline: "calc(-1 * var(--spacing-3))",
       borderRadius: "var(--radius-element)",
       backgroundColor: "var(--task-edit-hover-fill)",
       pointerEvents: "none",

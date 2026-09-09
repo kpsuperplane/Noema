@@ -219,7 +219,7 @@ The instructions fill the remaining height in rich text and source modes.
 Project and Schedule controls use visible labels. Add to Inbox and Run now remain visible together.
 Advanced capture controls sit above the action row.
 
-Editable task and recurrence titles and instructions show a light hover background that extends 4 pixels beyond the field.
+Editable task and recurrence titles and instructions show a light hover background that extends 12 pixels horizontally and 4 pixels vertically beyond the field.
 A non-interactive pseudo-element draws the background without changing layout or borders. Read-only and busy fields keep their normal appearance.
 Existing task and recurrence fields save on blur. Both reuse the capture title and Markdown editor.
 The editor reads current text before saving, changing source mode, starting, or leaving a task.
