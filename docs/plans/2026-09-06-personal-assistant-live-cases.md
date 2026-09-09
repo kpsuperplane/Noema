@@ -68,7 +68,10 @@ focused estate-map connector repairs, policy setup, one approved synthetic
 review update, later status verification, and a sourced estate artifact. PA-052
 passes after ten reviewed connector revisions, five approval-gated synthetic
 notices, final reconciliation, and a sourced estate-notice artifact. PA-053
-through PA-100 remain not run.
+passes after bounded API setup, a reviewed response-contract repair that
+preserves explicit false values, four baseline reads, one approval-gated source
+access request, two recovered-record reads, and a sourced medical-record
+artifact. PA-054 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 

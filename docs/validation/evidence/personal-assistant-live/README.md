@@ -63,7 +63,8 @@ development instance and inspected before the next case starts.
 | PA-050 — Consumer dispute | Pass after three focused connector revisions, policy setup, one approved synthetic complaint, and later status verification | [Case evidence](PA-050/) |
 | PA-051 — Estate map | Pass after four focused connector repairs, policy setup, one approved synthetic update, and later status verification | [Case evidence](PA-051/) |
 | PA-052 — Deceased accounts | Pass after ten reviewed connector revisions, five approval-gated synthetic notices, final reconciliation, and a sourced artifact | [Case evidence](PA-052/) |
-| PA-053–PA-100 | Not run | The operator will run each case in order. |
+| PA-053 — Medical record | Pass after API setup, response-contract repair, four baseline reads, one approval-gated access request, two recovered reads, and a sourced artifact | [Case evidence](PA-053/) |
+| PA-054–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
