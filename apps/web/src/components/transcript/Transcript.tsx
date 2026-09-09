@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Text } from "@astryxdesign/core/Text";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import {
@@ -484,6 +485,8 @@ function renderTranscriptEntry(
     return <TranscriptInputMessage text={entry.text} />;
   }
   if (entry.type === "assistant") {
+    const interrupted = entry.metadata !== null && typeof entry.metadata === "object"
+      && "output_status" in entry.metadata && entry.metadata.output_status === "failed";
     const debugUsage = parseProviderUsageDebug(entry.metadata);
     const citations = providerCitationsFromMetadata(entry.metadata);
     const debugTarget = messageDebugTarget(
@@ -507,8 +510,9 @@ function renderTranscriptEntry(
         debugUsage={debugUsage}
         onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
         attachment={
-          entry.taskReferences?.length ? (
+          interrupted || entry.taskReferences?.length ? (
             <>
+              {interrupted ? <Text type="supporting">Response interrupted</Text> : null}
               {entry.taskReferences?.map((reference, index) => (
                 <TaskReferenceCard
                   key={`${reference.task_id}:${index}`}

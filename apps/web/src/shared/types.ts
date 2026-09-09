@@ -138,6 +138,7 @@ export type TranscriptEntry =
       turnId?: string;
       debugScope?: RuntimeDebugScope;
       type: "activity";
+      metadata?: unknown;
       item: Extract<TurnTranscriptItem, { kind: "activity" }>;
     }
   | {

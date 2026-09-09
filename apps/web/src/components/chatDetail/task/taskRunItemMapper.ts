@@ -1,3 +1,4 @@
+import { readableReasoningText } from "@/shared/reasoning";
 import type { TaskRunItem, TaskRunRole } from "./taskTypes";
 import type { TurnActivityStatus } from "@/generated/graphql";
 import type { TranscriptEntry } from "@/shared/types";
@@ -19,7 +20,7 @@ export type TaskRunItemSource = {
   updatedAt?: string | null;
 };
 
-export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): TaskRunItem {
+export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole | undefined): TaskRunItem {
   const sourceKind = item.kind.toLowerCase();
   const isToolCall = sourceKind === "tool_call";
   const isToolResult = sourceKind === "tool_result";
@@ -90,6 +91,45 @@ export function taskRunItemsToTranscriptEntries(
       continue;
     }
     if (item.sourceKind === "assistant_output") {
+      const output = recordValue(item.payload)?.output;
+      if (Array.isArray(output) && output.length > 0) {
+        const searches = recordValue(item.payload)?.searches;
+        const sections = output.map(recordValue).filter((value) => value !== null);
+        if (Array.isArray(searches)) {
+          for (const value of searches) {
+            const search = recordValue(value);
+            if (search) sections.push({ kind: "hosted_search", index: search.Index, search });
+          }
+        }
+        sections.sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0));
+        for (const section of sections) {
+          if (section.kind === "hosted_search") {
+            const search = recordValue(section.search);
+            const searchItem = mapTaskRunItem({
+              itemId: `${item.id}:search:${section.index}`, runId: item.runId, roundIndex: item.roundIndex,
+              kind: "tool_result", contentText: "web.search", status: "completed", createdAt: item.occurredAt ?? "",
+              correlationId: `${item.id}:search:${section.index}`,
+              payload: { name: "web.search", arguments: search?.Arguments, result: search?.Result, success: true,
+                display: { name: "Web Search", marker: { label: "Web Search", visibility: "show" } } }
+            }, item.role);
+            const entry = taskRunItemToTranscriptEntry(searchItem, false);
+            if (entry) entries.push(entry);
+            continue;
+          }
+          if (!section || (section.kind !== "message" && section.kind !== "reasoning") || typeof section.text !== "string" || !section.text.trim()) continue;
+          const isReasoning = section.kind === "reasoning";
+          entries.push({
+            id: `${item.id}:output:${section.kind}:${section.index}:${section.section_index ?? 0}`,
+            source: "replay",
+            turnId: `${item.id}:${section.kind}:${section.phase ?? "default"}`,
+            type: "assistant",
+            phase: isReasoning || section.phase !== "final_answer" ? "commentary" : "final_answer",
+            text: isReasoning ? readableReasoningText(section.text) : section.text,
+            metadata: { output_status: section.status === "running" && (item.status === "failed" || item.status === "cancelled") ? "failed" : section.status }
+          });
+        }
+        continue;
+      }
       for (const [sectionIndex, reasoning] of readableReasoning(item.payload).entries()) {
         entries.push({
           id: `${item.id}:reasoning:${sectionIndex}`,
@@ -345,10 +385,7 @@ function readableReasoning(payload: unknown): string[] {
   const texts: string[] = [];
   const add = (value: unknown) => {
     if (typeof value !== "string" || !value.trim()) return;
-    const bold = value.match(/^(\s*)(\*\*|__)(\S(?:[\s\S]*\S)?)\2(\s*)$/);
-    texts.push(bold && !bold[3].includes(bold[2])
-      ? `${bold[1]}${bold[3]}${bold[4]}`
-      : value);
+    texts.push(readableReasoningText(value));
   };
   for (const detail of details) {
     const item = recordValue(detail);

@@ -49,7 +49,7 @@ export function renderableTranscriptEntries(
   collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
   const visibleEntries = attachTaskNotificationTasks(
-    latestA2UISurfaces(entries).filter((entry) => {
+    latestA2UISurfaces(orderedProviderSections(entries)).filter((entry) => {
       if (entry.type !== "activity") return true;
       if (entry.item.activity_kind === "hosted_web_search") return false;
       // The intervention card owns approval controls; the tool marker owns activity.
@@ -65,6 +65,37 @@ export function renderableTranscriptEntries(
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
   return renderedEntries;
+}
+
+// Hosted tools finish inside the provider response. Native tools run afterward
+// and remain chronological boundaries for these response sections.
+function orderedProviderSections(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const order = (entry: TranscriptEntry) => {
+    if (entry.type !== "assistant" && entry.type !== "activity") return null;
+    const metadata = recordValue(entry.metadata);
+    const hosted = entry.type === "activity"
+      && recordValue(recordValue(entry.item.metadata)?.action)?.hosted_web_search === true;
+    if (!hosted && !metadata?.provider_output_kind) return null;
+    if (!entry.turnId || typeof metadata?.provider_round !== "number"
+      || typeof metadata.output_index !== "number") return null;
+    return { key: `${entry.turnId}:${metadata.provider_round}`, index: metadata.output_index,
+      section: typeof metadata.section_index === "number" ? metadata.section_index : 0 };
+  };
+  const result = [...entries];
+  for (let start = 0; start < result.length;) {
+    const first = order(result[start]);
+    if (!first) { start++; continue; }
+    let end = start + 1;
+    while (end < result.length && order(result[end])?.key === first.key) end++;
+    const block = result.slice(start, end).sort((left, right) => {
+      const a = order(left)!;
+      const b = order(right)!;
+      return a.index - b.index || a.section - b.section;
+    });
+    result.splice(start, block.length, ...block);
+    start = end;
+  }
+  return result;
 }
 
 function latestA2UISurfaces(entries: TranscriptEntry[]): TranscriptEntry[] {

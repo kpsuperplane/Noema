@@ -283,3 +283,27 @@ describe("renderedChatBubbleGroup", () => {
     );
   });
 });
+
+test("orders saved provider sections around hosted search without moving native tools", () => {
+  const message = (id: string, index: number): TranscriptEntry => ({
+    id, turnId: "turn:1", type: "assistant", text: id,
+    metadata: { provider_round: 0, output_index: index, provider_output_kind: "message" }
+  });
+  const tool = (id: string, result: boolean, hosted: boolean): TranscriptEntry => ({
+    id, turnId: "turn:1", type: "activity",
+    metadata: { provider_round: 0, output_index: 1 },
+    item: { kind: "activity", id, activity_kind: result ? "tool_result" : "tool_call",
+      status: "COMPLETED", title: id,
+      metadata: { action: { ...(result ? { call_id: "search" } : { id: "search" }),
+        name: "web.search", hosted_web_search: hosted } } }
+  });
+  const reasoning = message("reasoning", 0);
+  const answer = message("answer", 2);
+  const rendered = renderableTranscriptEntries([
+    reasoning, answer, tool("search-call", false, true), tool("search-result", true, true),
+    tool("native", false, false), message("later", 0)
+  ], false, "IDLE");
+  assert.deepEqual(rendered.map((entry) => entry.id), ["reasoning", "search-call", "answer", "native", "later"]);
+  assert.equal(rendered[1].kind, "tool_marker");
+  if (rendered[1].kind === "tool_marker") assert.equal(rendered[1].marker.result?.id, "search-result");
+});

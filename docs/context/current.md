@@ -37,7 +37,7 @@ The Go server uses a fresh home. It does not open or convert a Rust home. INFO-0
 The Go server is the production authority. Rust remains only for retained support targets.
 Rust behavior is the default target; the [divergence review](../validation/2026-09-08-rust-go-divergence-review.md) records exceptions and test gaps.
 The Go server includes authentication, onboarding, Chat, Projects, Agents, Artifacts, Task lifecycle, integrations, and notifications.
-OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments.
+OpenAI, OpenRouter, and Codex preserve text, tools, hosted search, replay, reasoning, citations, usage, and current model assignments. Chat and Tasks now save live progress and readable reasoning as separate sections. Provider phases survive replay. Shared progress instructions extend the unchanged Rust prompts. See `docs/validation/live-progress.md` for checks and limits.
 OpenAI and Codex reuse bounded Responses WebSocket sessions within each Chat turn or Task run.
 Migration 33 removes Apple model accounts and selections. Historical conversation and Task records remain intact.
 Primary Chat supports durable recovery, context admission, compaction checkpoints, A2UI, and bounded tool loops.

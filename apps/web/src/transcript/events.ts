@@ -1,3 +1,4 @@
+import { readableReasoningText } from "@/shared/reasoning";
 import type {
   ConversationEventsSubscription,
   ConversationTranscriptPageQuery
@@ -145,7 +146,7 @@ function entryFromConversationItem(
     };
   }
   if (transcriptItem.kind === "assistant_text") {
-    if (isLegacyTaskDelegationReceipt(metadata)) {
+    if (isLegacyTaskDelegationReceipt(metadata) || !transcriptItem.text.trim()) {
       return null;
     }
     return {
@@ -159,7 +160,9 @@ function entryFromConversationItem(
       streamId: streamIdFromMetadata(metadata),
       responseIndex: responseIndexFromMetadata(metadata),
       metadata,
-      text: transcriptItem.text
+      text: isRecord(metadata) && metadata.provider_output_kind === "reasoning"
+        ? readableReasoningText(transcriptItem.text)
+        : transcriptItem.text
     };
   }
   if (transcriptItem.kind === "activity") {
@@ -170,6 +173,7 @@ function entryFromConversationItem(
       turnId,
       debugScope: turnId ? { kind: "CONVERSATION_TURN", scopeId: turnId } : undefined,
       type: "activity",
+      metadata,
       item: transcriptItem
     };
   }
