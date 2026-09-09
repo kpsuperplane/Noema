@@ -1,3 +1,4 @@
+import { taskActionBarStyles } from "@/components/tasks/taskActionBarStyles";
 import * as React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -136,9 +137,9 @@ function TaskContextCard({
 }) {
   const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
   return (
-    <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
+    <aside aria-label="Task summary" {...stylex.props(taskActionBarStyles.contextDock)}>
       {renderSecondarySurface?.()}
-      <div {...stylex.props(styles.contextCard)}>
+      <div {...stylex.props(taskActionBarStyles.contextCard)}>
         <TaskSummaryHeader
           entry={latestEntry}
           detail={detail}
@@ -341,39 +342,6 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%",
     backgroundColor: "var(--noema-surface-card)"
-  },
-  contextDock: {
-    display: "flex",
-    flexDirection: "column",
-    position: "relative",
-    zIndex: 2,
-    minWidth: 0,
-    minHeight: 0,
-    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
-    maxWidth: 760,
-    marginInline: "auto",
-    marginBlockEnd: "var(--spacing-4)",
-    marginBlockStart: "calc(-1 * var(--spacing-3))",
-    "--human-intervention-card-radius": "24px",
-    "--human-intervention-card-bottom-radius": "0px",
-    "--human-intervention-card-overlap": "var(--human-intervention-card-radius)"
-  },
-  contextCard: {
-    display: "flex",
-    flexDirection: "column",
-    position: "relative",
-    zIndex: 2,
-    minWidth: 0,
-    minHeight: 0,
-    flex: "0 0 auto",
-    marginBlockStart: "var(--spacing-0)",
-    overflow: "hidden",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--noema-border-subtle)",
-    borderRadius: "var(--human-intervention-card-radius)",
-    backgroundColor: "var(--noema-surface-card)",
-    boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
   summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInlineStart: "calc(var(--spacing-2) + var(--spacing-0-5))", paddingInlineEnd: "var(--spacing-4)" },
   summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto", paddingInlineStart: "var(--spacing-4)" },

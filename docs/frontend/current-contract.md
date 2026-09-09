@@ -227,6 +227,7 @@ The instructions fill the remaining height in rich text and source modes.
 Project and Schedule controls use visible labels. Add to Inbox and Run now remain visible together.
 Opening Schedule in capture enables scheduling immediately. Remove schedule at the bottom disables scheduling and closes the popover.
 Capture omits working-folder controls. Creation buttons stay compact and align to the right.
+Capture and task detail share the floating bar frame, width, border, shadow, and bottom spacing.
 Above 1200 pixels, capture reserves the same 600-pixel right panel as task details, with no content before creation.
 
 Editable task and recurrence titles and instructions show a light hover background that extends 12 pixels horizontally and 4 pixels vertically beyond the field.

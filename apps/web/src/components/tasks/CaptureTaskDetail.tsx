@@ -5,7 +5,7 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { TaskDocumentEditor, TaskTitleField } from "./TaskDocumentFields";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
-import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { Popover } from "@astryxdesign/core/Popover";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useBlocker } from "@tanstack/react-router";
@@ -21,6 +21,7 @@ import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
 import { createClientId } from "@/shared/clientId";
 import { initialScheduleDraft, scheduleInput, ScheduleFields } from "./ScheduleFields";
 import type { TasksProject } from "./tasksTypes";
+import { taskActionBarStyles } from "./taskActionBarStyles";
 
 const captureFormId = "capture-task-form";
 const defaultExecutorId = "agent:task-executor";
@@ -233,12 +234,14 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
           </LayoutContent>
         }
         footer={
-          <LayoutFooter padding={0} className={stylex.props(styles.footer).className}>
-            <HStack justify="end" gap={2} wrap="wrap">
-              <Button type="button" size="md" variant="secondary" label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
-              <Button form={captureFormId} type="submit" size="md" variant="primary" label={scheduling ? "Schedule task" : "Run now"} isLoading={submitting} isDisabled={mainDisabled} />
-            </HStack>
-          </LayoutFooter>
+          <VStack as="aside" aria-label="New task actions" gap={0} xstyle={taskActionBarStyles.contextDock}>
+            <VStack gap={0} xstyle={taskActionBarStyles.contextCard}>
+              <HStack justify="end" gap={2} wrap="wrap" paddingBlock={2} paddingInline={4}>
+                <Button type="button" size="sm" variant="secondary" label="Add to Inbox" isDisabled={baseDisabled} onClick={() => void submit("inbox")} />
+                <Button form={captureFormId} type="submit" size="sm" variant="primary" label={scheduling ? "Schedule task" : "Run now"} isLoading={submitting} isDisabled={mainDisabled} />
+              </HStack>
+            </VStack>
+          </VStack>
         }
       />
       <VStack aria-hidden="true" xstyle={styles.emptyPanel} />
@@ -253,7 +256,6 @@ const styles = stylex.create({
   emptyPanel: { display: { default: "none", "@container (width > 1200px)": "flex" }, borderInlineStartWidth: "var(--border-width)", borderInlineStartStyle: "solid", borderInlineStartColor: "var(--noema-border-subtle)" },
   header: { paddingBlockEnd: "var(--spacing-3)", borderBottomWidth: "var(--border-width)", borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
   content: { minHeight: 0, padding: "var(--spacing-0)" },
-  footer: { paddingBlock: "var(--spacing-4)", paddingInline: "max(var(--spacing-6), calc((100% - 760px) / 2))" },
   form: { display: "flex", width: "100%", minHeight: "100%", flexDirection: "column", gap: "var(--spacing-2)" },
   document: { display: "flex", flexDirection: "column", flexGrow: 1, minHeight: "calc(var(--spacing-10) * 6)", color: "var(--foreground)", cursor: "text" },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
