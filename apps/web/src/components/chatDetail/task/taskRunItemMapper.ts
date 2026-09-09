@@ -90,12 +90,11 @@ export function taskRunItemsToTranscriptEntries(
       continue;
     }
     if (item.sourceKind === "assistant_output") {
-      const reasoning = readableReasoning(item.payload);
-      if (reasoning) {
+      for (const [sectionIndex, reasoning] of readableReasoning(item.payload).entries()) {
         entries.push({
-          id: `${item.id}:reasoning`,
+          id: `${item.id}:reasoning:${sectionIndex}`,
           source: "replay",
-          turnId: `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:reasoning`,
+          turnId: `${item.id}:reasoning:${sectionIndex}`,
           type: "assistant",
           phase: "commentary",
           text: reasoning
@@ -340,9 +339,9 @@ function humanize(value: string): string {
 }
 
 // Select readable protocol fields only. Never render opaque data or signatures.
-function readableReasoning(payload: unknown): string {
+function readableReasoning(payload: unknown): string[] {
   const details = recordValue(payload)?.reasoning;
-  if (!Array.isArray(details)) return "";
+  if (!Array.isArray(details)) return [];
   const texts: string[] = [];
   const add = (value: unknown) => {
     if (typeof value === "string" && value.trim()) texts.push(value);
@@ -368,5 +367,5 @@ function readableReasoning(payload: unknown): string {
       }
     }
   }
-  return texts.join("\n\n");
+  return texts;
 }
