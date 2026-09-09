@@ -55,7 +55,8 @@ development instance and inspected before the next case starts.
 | PA-042 — Tax packet | Pass after two reviewed tax-API projection repairs, a complete five-record read, duplicate and supersession handling, missing-form retrieval, and independent packet inspection | [Case evidence](PA-042/) |
 | PA-043 — Subscription cancellation | Pass after three connector repairs, one approved monthly cancellation, complete receipt capture, and post-cycle verification | [Case evidence](PA-043/) |
 | PA-044 — Coverage review | Pass after two focused projection repairs, complete policy and asset reads, and a sourced coverage-fit review | [Case evidence](PA-044/) |
-| PA-045–PA-100 | Not run | The operator will run each case in order. |
+| PA-045 — Claim reconciliation | Pass after replacing an expired temporary tunnel, reviewing the exact connector revision, one approved synthetic follow-up, and paid-status verification | [Case evidence](PA-045/) |
+| PA-046–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.

@@ -51,8 +51,10 @@ packet inspection. PA-043 passes after three focused subscription-API mapping
 repairs, one approved monthly cancellation, complete receipt capture, and a
 post-cycle no-charge check. PA-044 passes after a reviewed synthetic coverage
 API connection, two focused projection repairs, complete policy and asset
-reads, and a sourced coverage-fit review. PA-045 through PA-100 remain not
-run.
+reads, and a sourced coverage-fit review. PA-045 passes after replacing an
+expired temporary tunnel, reviewing the exact claim connector revision, one
+approved synthetic follow-up, and paid-status verification. PA-046 through
+PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -298,7 +300,7 @@ answer key.
 | PA-042 | Tax packet | Corrected wage form replaces original; interest statement; deductible receipt duplicates; one missing form. | Get my records ready for tax review. | Use corrected form; remove duplicate expenses; obtain missing fixture form; export indexed packet for professional review without filing a real return. | Pass — [evidence](../validation/evidence/personal-assistant-live/PA-042/) |
 | PA-043 | Pass after three focused connector repairs, one approved monthly cancellation, receipt capture, and post-cycle verification — [evidence](../validation/evidence/personal-assistant-live/PA-043/) | Two similar subscriptions; one annual commitment; cancel only monthly plan; later billing cycle occurs. | Cancel the monthly subscription I no longer use. | Select exact account; explain fees; approve mock cancellation; save receipt; verify later billing stopped and annual plan remains active. |
 | PA-044 | Pass after two focused projection repairs, complete policy and asset reads, and a sourced coverage-fit review — [evidence](../validation/evidence/personal-assistant-live/PA-044/) | Home and auto policies; new asset absent from schedule; deductible and exclusion differences. | Check whether our insurance still fits. | Normalize limits and deductibles; identify unscheduled asset and exclusions; save questions for licensed review; do not bind coverage. |
-| PA-045 | Claim reconciliation | Loss 3000; deductible 500; insurer payment 2000; estimate and receipts support remaining 500. | Help resolve the missing claim payment. | Reconcile amounts; assemble evidence for remaining 500; submit approved mock follow-up once; verify insurer status and later payment. |
+| PA-045 | Pass after replacing an expired temporary tunnel, reviewing the exact claim connector revision, one approved synthetic follow-up, and paid-status verification — [evidence](../validation/evidence/personal-assistant-live/PA-045/) | Loss 3000; deductible 500; insurer payment 2000; estimate and receipts support remaining 500. | Help resolve the missing claim payment. | Reconcile amounts; assemble evidence for remaining 500; submit approved mock follow-up once; verify insurer status and later payment. |
 | PA-046 | Benefits application | Household of three; income 58400; program threshold 72000; missing wage statement; renewal date. | Help with this benefit application and renewal. | Distinguish prescreen from eligibility; collect missing statement; submit mock packet; verify receipt and reporting duties; track renewal. |
 | PA-047 | Retirement records | Two statements describe same 24960 account; separate 86240 account; transfer sent but not received. | Reconcile my retirement records and this rollover. | Total 111200 without duplication; compare fees; preserve transfer uncertainty; follow status to receipt; make no real transfer or investment decision. |
 | PA-048 | Credit correction | Bureau shows late payment; lender receipt proves timely payment; 145 scheduled but not posted. | Help correct my credit record. | Distinguish schedule from payment; build dispute from exact receipt; submit mock dispute once; verify corrected later report. |
