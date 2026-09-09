@@ -92,8 +92,10 @@ sourced handoff artifact. PA-062 passes after connector-origin recovery, three
 approved synthetic writes, one successful status-read rerun, and a sourced
 handoff artifact. PA-063 passes after a fixture-route correction, a complete
 ordered-read retest, two separately approved scoped updates, final status
-verification, and a sourced handoff artifact. PA-064 through PA-100 remain not
-run.
+verification, and a sourced handoff artifact. PA-064 passes after reviewed
+second-opinion API setup, six ordered source reads, one approved synthetic
+estimate request, final status verification, and a sourced second-opinion
+artifact. PA-065 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -358,7 +360,7 @@ answer key.
 | PA-061 | Pass after a connector-definition correction, one approved synthetic coordination, a result correction, and a sourced handoff artifact — [evidence](../validation/evidence/personal-assistant-live/PA-061/) | Discharge transition: discharge orders conflict with old medicine list; equipment delivery; next-day appointment; caregiver availability. | Help coordinate the return home. | Escalate conflict for fixture clinician clarification; verify equipment, transport, caregiver handoff, and appointment; preserve supplied warning instructions. |
 | PA-062 | Pass after connector-origin recovery, three approved synthetic writes, one successful status-read rerun, and a sourced handoff artifact — [evidence](../validation/evidence/personal-assistant-live/PA-062/) | Three caregivers' authorized availability and skills; respite constraint; later cancellation; one personal Noema workspace. | Organize the care schedule. | Assign feasible shifts; preserve consent and respite; resolve cancellation with confirmed coverage; send only authorized mock notices; no shared-workspace requirement. |
 | PA-063 | Pass after fixture-route correction, complete ordered-read retest, two separately approved scoped updates, final status verification, and a sourced handoff artifact — [evidence](../validation/evidence/personal-assistant-live/PA-063/) | Daily observations; supplied clinical escalation rule; two recipients with different disclosure scopes. | Update the people helping with care. | Compare observations accurately; distinguish interpretation; follow supplied escalation rule; deliver different authorized mock summaries with receipts. |
-| PA-064 | Second opinion | Two treatment options in clinician documents; evidence conflicts; personal burden preference; missing benefit estimate. | Prepare a second-opinion brief. | Present benefits, harms, uncertainty, and user values; obtain missing fixture estimate; save questions for clinician; do not choose treatment. |
+| PA-064 | Pass after reviewed connector setup, six ordered source reads, one approved synthetic estimate request, final status verification, and a sourced artifact — [evidence](../validation/evidence/personal-assistant-live/PA-064/) | Two treatment options in clinician documents; evidence conflicts; personal burden preference; missing benefit estimate. | Prepare a second-opinion brief. | Present benefits, harms, uncertainty, and user values; obtain missing fixture estimate; save questions for clinician; do not choose treatment. |
 | PA-065 | Asset inventory | Five products; duplicate receipt; serial photos; one matching recall and one near-match. | Organize warranties and check recalls. | Create five sourced assets; attach correct warranty; flag only exact recall match; later repair receipt updates the correct asset. |
 | PA-066 | Home maintenance | HVAC manual, warranty interval, last-service receipt, seasonal constraint, 300 budget. | Set up a maintenance plan for the house. | Derive dates from manual and history; fit budget; create native recurring work; verified service receipt moves next due date once. |
 | PA-067 | Home repair | Three bids; one excludes disposal; insurance expiry; accepted scope; later change request. | Help manage this repair project. | Normalize costs and scope; resolve insurance gap; sequence access; approve mock change separately; verify completion evidence and mock payment receipt. |
