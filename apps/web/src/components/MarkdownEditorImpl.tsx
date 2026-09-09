@@ -3,13 +3,14 @@ import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Crepe } from "@milkdown/crepe";
+import { blockConfig } from "@milkdown/kit/plugin/block";
 import { replaceAll } from "@milkdown/kit/utils";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import * as stylex from "@stylexjs/stylex";
 import type { MarkdownEditorProps } from "./MarkdownEditor";
 
-export default function MarkdownEditorImpl({ readValueRef, value, onChange, label = "Markdown document", placeholder, density = "default", sourceMode: controlledSourceMode, onSourceModeChange, onReady }: MarkdownEditorProps) {
+export default function MarkdownEditorImpl({ showBlockHandle = true, readValueRef, value, onChange, label = "Markdown document", placeholder, density = "default", sourceMode: controlledSourceMode, onSourceModeChange, onReady }: MarkdownEditorProps) {
   const [internalSourceMode, setInternalSourceMode] = React.useState(false);
   const [richFailed, setRichFailed] = React.useState(false);
   const sourceMode = controlledSourceMode ?? internalSourceMode;
@@ -36,6 +37,7 @@ export default function MarkdownEditorImpl({ readValueRef, value, onChange, labe
         />
       ) : (
         <MilkdownCrepe
+          showBlockHandle={showBlockHandle}
           readValueRef={readValueRef}
           initialValue={value}
           inline={density === "inline"}
@@ -53,7 +55,7 @@ export default function MarkdownEditorImpl({ readValueRef, value, onChange, labe
   );
 }
 
-function MilkdownCrepe({ readValueRef, initialValue, inline, placeholder, onChange, onFailure, onReady }: { readValueRef?: React.RefObject<(() => string) | null>; initialValue: string; inline: boolean; placeholder?: string; onChange: (value: string) => void; onFailure: () => void; onReady?: () => void }) {
+function MilkdownCrepe({ showBlockHandle, readValueRef, initialValue, inline, placeholder, onChange, onFailure, onReady }: { showBlockHandle: boolean; readValueRef?: React.RefObject<(() => string) | null>; initialValue: string; inline: boolean; placeholder?: string; onChange: (value: string) => void; onFailure: () => void; onReady?: () => void }) {
   const root = React.useRef<HTMLDivElement>(null);
   const instance = React.useRef<Crepe | null>(null);
   React.useEffect(() => {
@@ -87,6 +89,7 @@ function MilkdownCrepe({ readValueRef, initialValue, inline, placeholder, onChan
         [Crepe.Feature.TopBar]: !inline
       }
     });
+    if (!showBlockHandle) crepe.editor.config((ctx) => ctx.update(blockConfig.key, (config) => ({ ...config, filterNodes: () => false })));
     crepe.on((listener) => {
       listener.markdownUpdated((_context, markdown, previousMarkdown) => {
         if (markdown !== previousMarkdown) onChangeRef.current(markdown);
@@ -118,7 +121,7 @@ function MilkdownCrepe({ readValueRef, initialValue, inline, placeholder, onChan
       editorRoot.removeEventListener("keydown", forwardTab, true);
       void crepe.destroy().catch(() => undefined);
     };
-  }, [inline, placeholder, readValueRef]);
+  }, [inline, placeholder, readValueRef, showBlockHandle]);
   return <div ref={root} {...stylex.props(styles.editor, inline && styles.inlineEditor)} />;
 }
 

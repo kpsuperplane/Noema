@@ -40,7 +40,6 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
   const [title, setTitle] = React.useState("");
   const [taskDocument, setTaskDocument] = React.useState("");
   const [draftRevision, setDraftRevision] = React.useState(0);
-  const [sourceMode, setSourceMode] = React.useState(false);
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
   const [cwdOverride, setCwdOverride] = React.useState("");
@@ -208,14 +207,13 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                 }}
               >
                 <MarkdownInlineEditor
+                  showBlockHandle={false}
                   readValueRef={readValueRef}
                   key={draftRevision}
                   value={taskDocument}
                   onChange={setTaskDocument}
                   label="Task document"
                   placeholder="Add details or instructions…"
-                  sourceMode={sourceMode}
-                  onSourceModeChange={setSourceMode}
                 />
               </section>
               {submitError ? <p role="alert" {...stylex.props(styles.error)}>{submitError}</p> : null}
@@ -228,7 +226,6 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
               <Collapsible trigger="Advanced" defaultIsOpen={false}>
                 <VStack gap={3}>
                   <TextInput label="Working folder (optional)" description={effectiveCwdSummary(cwdOverride, selectedProject?.folder)} value={cwdOverride} placeholder="/absolute/path" size="sm" onChange={setCwdOverride} />
-                  <CheckboxInput label="Markdown source" value={sourceMode} onChange={(next) => { setTaskDocument(readValueRef.current?.() ?? taskDocument); setSourceMode(next); }} />
                 </VStack>
               </Collapsible>
               <HStack align="center" justify="between" gap={2} wrap="wrap" className={stylex.props(styles.controlRow).className}>

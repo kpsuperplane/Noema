@@ -221,6 +221,8 @@ Advanced capture controls sit above the action row.
 
 Editable task and recurrence titles and instructions show a light hover background that extends 12 pixels horizontally and 4 pixels vertically beyond the field.
 A non-interactive pseudo-element draws the highlight without changing layout. Focus replaces its background with a light border.
+Hover and focus colors use the micro transition; reduced motion removes the transition.
+Task body editors omit the block drag handle and the manual Markdown source switch.
 Task titles have no focus underline. Read-only and busy fields keep their normal appearance.
 Saving and saved states use a muted spinner and checkmark in a fixed field gutter, with screen-reader announcements and no layout shift.
 Error and retry messages remain visible.

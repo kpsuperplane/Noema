@@ -121,21 +121,18 @@ export function EditableTaskTitle({ title, edit }: { title: string; edit?: TaskF
 export function TaskInstructionsField({ value, edit, scope }: { value: string; edit?: TaskFieldEdit; scope?: string }) {
   const readValueRef = React.useRef<(() => string) | null>(null);
   const field = useTaskField(value, "DOCUMENT", edit, readValueRef);
-  const [sourceMode, setSourceMode] = React.useState(false);
   const root = React.useRef<HTMLElement>(null);
   const read = () => readValueRef.current?.() ?? field.draft;
-  const changeSource = (next: boolean) => { field.change(read()); setSourceMode(next); };
   return <VStack ref={root} as="section" gap={2} aria-label="Task instructions" xstyle={styles.fieldFrame} onFocus={field.begin} onBlur={(event) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     void field.finish(read());
   }}>
     {field.saveStatus}
     {edit && (edit.canEdit || edit.field === "DOCUMENT") ? <section inert={edit.busy || !edit.canEdit} {...stylex.props(styles.instructions, edit.canEdit && !edit.busy && styles.editable)}>
-      <MarkdownInlineEditor readValueRef={readValueRef} value={field.draft} onChange={field.change} label="Task instructions" placeholder="Add details or instructions…" sourceMode={sourceMode} onSourceModeChange={changeSource} />
+      <MarkdownInlineEditor readValueRef={readValueRef} value={field.draft} onChange={field.change} label="Task instructions" placeholder="Add details or instructions…" showBlockHandle={false} />
     </section> : <MarkdownContent density="compact">{value || "No instructions added."}</MarkdownContent>}
     <HStack justify="between" align="center" gap={2} wrap="wrap">
       <VStack gap={1} className={stylex.props(styles.feedback).className}>{scope ? <span>{scope}</span> : null}{field.feedback}</VStack>
-      {edit?.canEdit && edit.field === "DOCUMENT" ? <Button size="sm" variant="ghost" label={sourceMode ? "Use rich editor" : "Markdown source"} isDisabled={edit.busy} onClick={() => changeSource(!sourceMode)} /> : null}
     </HStack>
   </VStack>;
 }
@@ -160,6 +157,9 @@ const styles = stylex.create({
       borderWidth: "var(--border-width)",
       borderStyle: "solid",
       borderColor: "var(--task-edit-focus-border)",
+      transitionProperty: "background-color, border-color",
+      transitionDuration: "var(--motion-spring-micro-duration)",
+      transitionTimingFunction: "var(--motion-spring-critical-easing)",
       pointerEvents: "none",
       zIndex: -1
     }
