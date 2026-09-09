@@ -22,6 +22,36 @@ type AdapterConnectionIndex struct {
 	AllowedOperations                                                      []string
 }
 
+// AdapterConnectionNames reads display names only. These indexes cannot authorize calls.
+func (s *Store) AdapterConnectionNames(ctx context.Context, ids []string) (map[string]string, error) {
+	names := make(map[string]string)
+	if len(ids) == 0 {
+		return names, nil
+	}
+	if len(ids) > 100 {
+		return nil, errors.New("too many adapter connection names requested")
+	}
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT c.connection_id, d.display_name
+FROM adapter_connections c JOIN adapter_definitions d USING (semantic_digest)
+WHERE c.connection_id IN (SELECT value FROM json_each(?))`, string(raw))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name
+	}
+	return names, rows.Err()
+}
+
 // ReconcileAdapters replaces disposable adapter indexes in one transaction.
 func (s *Store) ReconcileAdapters(ctx context.Context, definitions []AdapterDefinitionIndex, connections []AdapterConnectionIndex, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})

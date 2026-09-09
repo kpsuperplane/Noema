@@ -874,25 +874,20 @@ func (r *Resolver) pendingAdapterAuthentications(ctx context.Context, conversati
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := r.Adapters.Snapshot()
+	ids := make([]string, len(values))
+	for i, value := range values {
+		ids[i] = value.AuthorityID
+		if value.AdapterConnectionID != "" {
+			ids[i] = value.AdapterConnectionID
+		}
+	}
+	names, err := r.Store.AdapterConnectionNames(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	names := map[string]string{}
-	for _, connection := range snapshot.Connections {
-		for _, definition := range snapshot.Definitions {
-			if definition.SemanticDigest == connection.SemanticDigest {
-				names[connection.ConnectionID] = adapter.DisplayName(definition)
-			}
-		}
-	}
 	result := make([]model.HumanIntervention, 0, len(values))
-	for _, value := range values {
-		connectionID := value.AuthorityID
-		if value.AdapterConnectionID != "" {
-			connectionID = value.AdapterConnectionID
-		}
-		display := names[connectionID]
+	for i, value := range values {
+		display := names[ids[i]]
 		if display == "" {
 			display = value.AuthorityID
 		}

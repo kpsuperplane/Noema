@@ -1350,7 +1350,7 @@ func (s *Service) reconcile(ctx context.Context) error {
 	}
 	definitions := make([]store.AdapterDefinitionIndex, len(snapshot.Definitions))
 	for i, value := range snapshot.Definitions {
-		definitions[i] = store.AdapterDefinitionIndex{Digest: value.SemanticDigest, DefinitionID: value.Manifest.DefinitionID, AdapterID: value.Manifest.AdapterID, DefinitionRevision: value.Manifest.DefinitionRevision, SourceReference: value.SourceReference, DisplayName: value.Manifest.DisplayName, Reviewed: value.Manifest.Reviewed, Superseded: value.Superseded, OperationCount: len(value.Operations)}
+		definitions[i] = store.AdapterDefinitionIndex{Digest: value.SemanticDigest, DefinitionID: value.Manifest.DefinitionID, AdapterID: value.Manifest.AdapterID, DefinitionRevision: value.Manifest.DefinitionRevision, SourceReference: value.SourceReference, DisplayName: DisplayName(value), Reviewed: value.Manifest.Reviewed, Superseded: value.Superseded, OperationCount: len(value.Operations)}
 	}
 	connections := make([]store.AdapterConnectionIndex, len(snapshot.Connections))
 	for i, value := range snapshot.Connections {

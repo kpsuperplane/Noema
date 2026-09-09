@@ -4,6 +4,8 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
+Task page reads use indexed connector names and focused task attention. The live median fell from 558 ms to 4.6 ms. The compiled registry remains the next unit. See [task-load evidence](../validation/task-load-2026-09-09.md).
+
 Rust prompt text is restored from `4d29f6ba`. See [prompt parity](../validation/rust-prompt-parity.md) for exact reference checks, provider delivery checks, and context-history limits.
 
 The [local CLI](../cli.md) uses the private socket for GraphQL, Tasks, and streaming Chat.
@@ -258,8 +260,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 
 ## Open loops
 
-- The current calculation and artifact paths passed focused live regression.
-  Task `task:18d07a17681adac7353` completed with a reviewed accessible HTML artifact.
 - Browser review compares parsed interaction meaning across snapshots and optional input shapes.
   The unchanged retry returned `human_declined_equivalent_action` before a second action request.
 - Current reviewer policy can execute an authorized medium-risk write.

@@ -55,12 +55,19 @@ func (r *Resolver) pendingHumanInterventions(
 	}
 	result := make([]model.HumanIntervention, 0, len(actions))
 	if taskID != nil {
-		task, err := r.task(ctx, *taskID)
+		task, err := r.Store.Task(ctx, *taskID)
 		if err != nil {
 			return nil, err
 		}
-		if task.Attention != nil {
-			result = append(result, task.Attention)
+		if task.ActiveGateID != "" {
+			document, err := home.ReadTaskDocument(r.home, task.ID)
+			if err != nil {
+				return nil, err
+			}
+			summary := r.taskSummaryModel(ctx, task, personalWorkspaceID, document.Content)
+			if summary.Attention != nil {
+				result = append(result, summary.Attention)
+			}
 		}
 	}
 
