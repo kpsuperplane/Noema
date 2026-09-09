@@ -362,7 +362,7 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%"
   },
-  loadingHeader: { width: "100%", maxWidth: 720, marginInline: "auto", paddingInline: "var(--spacing-4)", paddingBlockStart: "var(--spacing-3)", paddingBlockEnd: "var(--spacing-1)" },
+  loadingHeader: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingBlockStart: "var(--spacing-3)", paddingBlockEnd: "var(--spacing-1)" },
   loadingTitle: { width: "60%", height: "calc(var(--text-heading-3-size) * var(--text-heading-3-leading))" },
   loadingLine: { height: "var(--spacing-3)", borderRadius: "var(--radius-element)", backgroundColor: "var(--skeleton-glimmer-line)" },
   loadingLines: { width: "100%", maxWidth: 720, marginInline: "auto", padding: "var(--spacing-4)" },
