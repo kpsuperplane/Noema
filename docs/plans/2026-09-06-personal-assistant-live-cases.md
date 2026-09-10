@@ -1,8 +1,9 @@
 # Live Noema acceptance plan: connections and 100 assistant tasks
 
 Date: 2026-09-06
-Status: In progress. The direct local CLI is implemented and validated. Gmail,
-Notion, and Calendar setup work is live. PA-001 through PA-003 are accepted.
+Status: Setup cases are accepted. The direct local CLI is implemented and
+validated. Gmail, Notion, and Calendar setup work is live. PA-001 through
+PA-003 are accepted.
 PA-004 passes after a continuation-authorization repair and rerun. PA-005
 passes after a reviewed Calendar connector revision and rerun. PA-006 passes
 after a source-read correction and full Task-document reread. PA-007 passes

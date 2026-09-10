@@ -18,7 +18,7 @@ The earlier 100-case replay completion report is invalid: successful process exi
 No new acceptance pass is established by that report.
 
 The Go provider fixture exposes Gmail, Notion MCP, and Calendar contracts at
-`noema-provider-fixtures-v3.service`, revision `2026-09-08-gmail-v1-notion-mcp-v8`; it uses synthetic OAuth and two accounts. Setup and live reads work, while recovery and delegated reuse remain open.
+`noema-provider-fixtures-v3.service`, revision `2026-09-08-gmail-v1-notion-mcp-v8`; it uses synthetic OAuth and two accounts. Gmail and Notion setup, live reads, recovery, pagination, account boundaries, and delegated reuse now pass. Gmail rate-limit recovery uses an explicit user follow-up, and real provider consent remains outside this acceptance.
 PA-001 through PA-008 pass. `ConversationAuthorizationContext` follows continuation triggers to the original human turn, and the memory updater omits nested screenshots and internal Task lists. Focused and broad Go checks pass at `c1f9ecbe`.
 The active ledger is [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -274,7 +274,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - The consolidated follow-up evidence is `docs/validation/personal-assistant-remaining-acceptance-2026-08-31.md`.
 - The uncertain Build evidence is `docs/validation/personal-assistant-uncertain-build-acceptance-2026-08-31.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS; Linux can validate authored GraphQL operations against the shared schema.
-- Synthetic Gmail and Notion OAuth callbacks pass through a hosted fixture; real provider consent remains outside this acceptance.
+- Synthetic Gmail and Notion OAuth callbacks pass through a hosted fixture; real provider consent remains outside this acceptance. Setup evidence is in `docs/validation/evidence/personal-assistant-live/setup-gmail/` and `setup-notion/`.
 - PA-073 passes through the live Go backend with two approved writes and an
   exact nine-call ledger.
 - PA-074 through PA-100 ran sequentially through one provider-neutral fixture.

@@ -8,8 +8,8 @@ development instance and inspected before the next case starts.
 
 | Case | Verdict | Evidence |
 | --- | --- | --- |
-| Setup 1 — Gmail API | In progress | OAuth and live reads work. Full setup recovery, rate-limit, account-boundary, and delegated reuse checks remain. |
-| Setup 2 — Notion MCP | In progress | OAuth, discovery, pagination, nested reads, expiry recovery, and account isolation work. Full setup evidence and delegated reuse remain. |
+| Setup 1 — Gmail API | Pass with explicit rate-limit follow-up | [Setup evidence](setup-gmail/README.md). The agent generated and accepted a read-only Gmail API connection. Expiry, pagination, empty results, attachments, account boundaries, and delegated reuse passed. A one-shot 429 was reported safely and recovered after a normal user follow-up. |
+| Setup 2 — Notion MCP | Pass with normal reauthentication on expiry | [Setup evidence](setup-notion/README.md). The agent generated and accepted the MCP connection. Discovery, pagination, nested blocks, empty results, account boundaries, invalid-cursor recovery, expiry reauthentication, and delegated reuse passed. |
 | Calendar prerequisite | Pass | Documentation proposal, reviewed v3 revision, account-A read, pagination correction, and no-write rerun all work. Full downstream reuse remains. |
 | PA-001 — Daily brief | Pass | [Case evidence](PA-001/) |
 | PA-002 — Promise register | Pass | [Case evidence](PA-002/) |
