@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent preserved A's schedule-only grant and recorded B's withdrawal and
 removal while retaining expiry and receipt rules.
 

@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent sequenced twelve synthetic address changes, preserved the utility
 overlap, and kept the household identities separate.
 

@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent allocated six chores within capacity and moved shopping when one
 person's available time dropped to six hours.
 

@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent rejected the inaccessible option, selected the accessible
 replacement, reconciled the hotel, and suppressed the unchanged alert.
 

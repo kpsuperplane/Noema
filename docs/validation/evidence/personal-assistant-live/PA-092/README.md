@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent selected the 60, 45, and 80 USD gifts, kept spend at 185 USD, and
 respected the no-contact boundary.
 

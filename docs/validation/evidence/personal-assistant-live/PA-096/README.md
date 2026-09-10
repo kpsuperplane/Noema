@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent revoked G1 and G2, tracked delayed deletion R and its reappearance,
 and kept unchanged settings quiet.
 

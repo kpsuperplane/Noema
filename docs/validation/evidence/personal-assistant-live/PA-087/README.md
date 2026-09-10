@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent selected Camp B at 320 USD after the sibling discount and kept Camp
 C waitlisted.
 

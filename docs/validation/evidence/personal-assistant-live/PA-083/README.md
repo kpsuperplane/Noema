@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent chose listing A within the rent, commute, and pet constraints and
 recorded one synthetic application.
 

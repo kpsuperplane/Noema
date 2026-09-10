@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 The agent recorded an accessible HTML and structured-text export plan. It kept
 table, caption, attachment, keyboard, and screen-reader checks in scope.
 
