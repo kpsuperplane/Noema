@@ -315,6 +315,8 @@ visually verified unless browser inspection is explicitly authorized.
 
 The server saves separate paragraphs in completed Chat replies as separate messages.
 Web and native clients render those saved boundaries without splitting text.
+Adjacent web messages from the same speaker and turn share one visual group.
+Progress text and final answers keep that group while retaining their text styles.
 Blank lines and standalone three-dash separators create boundaries outside fenced code.
 Code fences retain their internal blank lines.
 Citations use each paragraph's source range.

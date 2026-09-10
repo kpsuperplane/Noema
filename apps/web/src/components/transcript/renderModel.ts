@@ -425,13 +425,6 @@ function isAdjacentChatBubble(
   if (transcriptEntryLane(candidate.entry.type) !== transcriptEntryLane(entry.entry.type)) {
     return false;
   }
-  if (
-    candidate.entry.type === "assistant" &&
-    entry.entry.type === "assistant" &&
-    candidate.entry.phase !== entry.entry.phase
-  ) {
-    return false;
-  }
   return sameConcreteTurn(candidate.entry, entry.entry);
 }
 
