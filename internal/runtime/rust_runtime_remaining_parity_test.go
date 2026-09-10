@@ -189,7 +189,7 @@ func TestRustRuntime_parser_rejects_invalid_source_indexes_and_provenance(t *tes
 func TestRustRuntime_parser_requires_memory_page_icons(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/turn/finalization.rs::parser_requires_memory_page_icons.
 	result := provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: memorySubmitTool, Payload: json.RawMessage(`{"upserts":[{"path":"root.md","title":"Momo","body":"Momo has a memory.","citations":[]}],"metadata_updates":[],"deletes":[]}`)}}}
-	if _, err := parseMemoryChanges(result, map[string]bool{}, nil, nil); err == nil || !strings.Contains(err.Error(), "missing a required field") {
+	if _, err := parseMemoryChanges(result, map[string]bool{}, nil, nil); err == nil || !strings.Contains(err.Error(), "required: missing properties") || !strings.Contains(err.Error(), "icon") {
 		t.Fatalf("missing Memory icon error = %v", err)
 	}
 }

@@ -134,6 +134,52 @@ func TestMemoryUpdateRetriesOnceWithoutPublishingInvalidSources(t *testing.T) {
 	}
 }
 
+func TestMemoryUpdateCorrectsMisplacedExpectedHash(t *testing.T) {
+	chat, _, conversation := chatFixture(t)
+	root, err := chat.memory.ReadRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		calls++
+		payload := map[string]any{
+			"upserts": []any{}, "metadata_updates": []any{}, "deletes": []any{},
+		}
+		if calls == 1 {
+			payload["metadata_updates"] = []any{map[string]any{
+				"path": root.Path, "icon": root.Icon, "expected_hash": root.Hash,
+			}}
+		} else {
+			correction := request.Messages[0].Content
+			if !strings.Contains(correction, "metadata_updates") || !strings.Contains(correction, "expected_hash") {
+				t.Errorf("correction does not locate the rejected field: %s", correction)
+			}
+			current, readErr := chat.memory.ReadRoot()
+			state, stateErr := chat.memory.State()
+			if readErr != nil || stateErr != nil || current.Hash != root.Hash || state.LastConsolidatedSequence != 0 {
+				t.Errorf("invalid proposal changed Memory: %v, %v", readErr, stateErr)
+			}
+			payload["upserts"] = []any{map[string]any{
+				"id": root.ID, "expected_hash": root.Hash, "path": root.Path,
+				"title": root.Title, "icon": root.Icon, "body": root.Body, "citations": []any{},
+			}}
+		}
+		encoded, _ := json.Marshal(payload)
+		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: memorySubmitTool, Payload: encoded}}}, nil
+	})
+	err = chat.generateAndPublishMemory(context.Background(), generator, store.ModelAssignment{}, "", "",
+		[]noemamemory.Page{root}, map[string]bool{root.Path: true}, nil,
+		noemamemory.State{ConversationID: conversation.ID, LastConsolidatedSequence: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := chat.memory.State()
+	if err != nil || calls != 2 || state.LastConsolidatedSequence != 1 {
+		t.Fatalf("corrected publication: calls=%d state=%+v error=%v", calls, state, err)
+	}
+}
+
 func TestMemorySourceOmitsBrowserScreenshotAndPreservesOrdinaryPayload(t *testing.T) {
 	payload := map[string]any{
 		"snapshot": map[string]any{"url": "https://example.test", "node_id": "node:opaque"},

@@ -1,14 +1,14 @@
 package runtime
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/google/jsonschema-go/jsonschema"
 
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -44,14 +44,24 @@ func parseMemoryChanges(
 	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != memorySubmitTool {
 		return noemamemory.ChangeSet{}, errors.New("expected exactly one native Memory change call")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(result.ToolCalls[0].Payload))
-	decoder.DisallowUnknownFields()
-	var proposed modelMemoryChangeSet
-	if err := decoder.Decode(&proposed); err != nil {
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(memoryChangesSchema, &schema); err != nil {
+		return noemamemory.ChangeSet{}, fmt.Errorf("invalid Memory schema: %w", err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		return noemamemory.ChangeSet{}, fmt.Errorf("invalid Memory schema: %w", err)
+	}
+	var value any
+	if err := json.Unmarshal(result.ToolCalls[0].Payload, &value); err != nil {
 		return noemamemory.ChangeSet{}, fmt.Errorf("invalid Memory change set: %w", err)
 	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return noemamemory.ChangeSet{}, errors.New("invalid Memory change set: trailing JSON")
+	if err := resolved.Validate(value); err != nil {
+		return noemamemory.ChangeSet{}, fmt.Errorf("invalid Memory change set: %w", err)
+	}
+	var proposed modelMemoryChangeSet
+	if err := json.Unmarshal(result.ToolCalls[0].Payload, &proposed); err != nil {
+		return noemamemory.ChangeSet{}, fmt.Errorf("invalid Memory change set: %w", err)
 	}
 	if proposed.Upserts == nil || proposed.MetadataUpdates == nil || proposed.Deletes == nil {
 		return noemamemory.ChangeSet{}, errors.New("invalid Memory change set: operation lists are required")
