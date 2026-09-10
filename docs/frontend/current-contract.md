@@ -310,3 +310,14 @@ Clients do not parse `[^noema-source-N]` markers or definitions.
 For frontend changes, run `bun run lint` and `bun run build` from `apps/web`.
 Run focused existing tests when the changed logic has coverage. UI work is not
 visually verified unless browser inspection is explicitly authorized.
+
+## Assistant message bubbles
+
+Web Chat displays separate paragraphs in ordinary assistant replies as separate bubbles.
+This is a display rule. The saved response and its provider text remain intact.
+The last bubble owns the response attachment and the visible avatar, when present.
+Streaming text uses the same display rule as saved history.
+
+Structured Markdown, cited responses, and progress text retain one document context.
+This preserves code blocks, lists, tables, citation offsets, and compact progress displays.
+Human messages remain unchanged.

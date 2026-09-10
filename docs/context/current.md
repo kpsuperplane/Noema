@@ -4,7 +4,7 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
-Fresh web setup confirms a missing public address before passkey creation. The initial Chat welcome now uses the normal provider session. See [domain setup evidence](../validation/domain-setup-2026-09-10.md) and [welcome request evidence](../validation/fresh-chat-welcome-2026-09-10.md).
+Fresh web setup confirms a missing public address before passkey creation. The initial Chat welcome now uses the normal provider session. Web Chat now shows ordinary assistant paragraphs as separate bubbles. See [domain setup evidence](../validation/domain-setup-2026-09-10.md) and [welcome request evidence](../validation/fresh-chat-welcome-2026-09-10.md).
 
 Task pages use indexed connector names and focused attention. The connector service now retains compiled definitions. The live task-detail median fell from 558 ms to 6.1 ms. See [task-load evidence](../validation/task-load-2026-09-09.md).
 
