@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 This is the clean direct-Chat recheck of the Tuesday school-pickup case.
 The school records and transport are synthetic.
 

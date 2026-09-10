@@ -2,6 +2,8 @@
 
 Updated: 2026-09-10
 
+Verdict: **Pass — synthetic bounded verification**
+
 This is the clean direct-Chat recheck of the Northstar entry-readiness case.
 It uses the provider-neutral fixture. No legal decision was made.
 
