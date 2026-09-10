@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1004,7 +1005,89 @@ func (r *TaskExecution) taskMessages(ctx context.Context, task store.Task, run s
 		manifest = "(none)"
 	}
 	input += "\n\nCurrent complete support-file manifest. Read a listed file only when relevant.\n<SUPPORT_FILE_MANIFEST>\n" + manifest + "\n</SUPPORT_FILE_MANIFEST>"
+	if run.Kind == "reviewer" {
+		audit, auditErr := r.taskToolAuditPrompt(ctx, task.ID)
+		if auditErr != nil {
+			return nil, false, auditErr
+		}
+		input += "\n\nNoema's persisted Task tool-call audit follows. It is authoritative for calls that occurred; use it to check any call-count or no-retry claim in RESULT.md. It contains names and outcomes only, not arguments.\n<TOOL_CALL_AUDIT>\n" + audit + "\n</TOOL_CALL_AUDIT>"
+	}
 	return []provider.GenerationMessage{{Role: "system", Instructions: true, Content: taskRoleInstructions(run.Kind)}, {Role: "system", Content: runtimeEnvironment(store.Conversation{}, location, time.Now())}, {Role: "user", Content: input}}, false, nil
+}
+
+// taskToolAuditPrompt gives the Reviewer the one persisted source of truth for
+// tool-call counts. It omits arguments so secrets and private values cannot
+// enter the review prompt through this diagnostic summary.
+func (r *TaskExecution) taskToolAuditPrompt(ctx context.Context, taskID string) (string, error) {
+	runs, err := r.database.TaskRuns(ctx, taskID, 100)
+	if err != nil {
+		return "", err
+	}
+	lines := make([]string, 0, len(runs))
+	for index := len(runs) - 1; index >= 0; index-- {
+		run := runs[index]
+		if run.Kind == "reviewer" {
+			continue
+		}
+		items, err := r.database.TaskRunReplayItems(ctx, run.ID)
+		if err != nil {
+			return "", err
+		}
+		type tally struct{ total, failed, uncertain int }
+		counts := make(map[string]tally)
+		results := make(map[string]store.TaskRunItem)
+		for _, item := range items {
+			if item.Kind == "tool_result" && item.ParentID != nil {
+				results[*item.ParentID] = item
+			}
+		}
+		for _, item := range items {
+			if item.Kind != "tool_call" || item.Status == "skipped" {
+				continue
+			}
+			name, _ := item.Payload["name"].(string)
+			if item.Content != nil {
+				name = strings.TrimSpace(*item.Content)
+			}
+			if name == "" {
+				continue
+			}
+			value := counts[name]
+			value.total++
+			result, found := results[item.ID]
+			if !found {
+				value.uncertain++
+			} else if success, ok := result.Payload["success"].(bool); !ok || !success {
+				value.failed++
+			}
+			counts[name] = value
+		}
+		if len(counts) == 0 {
+			continue
+		}
+		names := make([]string, 0, len(counts))
+		for name := range counts {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		parts := make([]string, 0, len(names))
+		for _, name := range names {
+			value := counts[name]
+			part := fmt.Sprintf("%s x%d", name, value.total)
+			if value.failed > 0 {
+				part += fmt.Sprintf(" (%d failed)", value.failed)
+			}
+			if value.uncertain > 0 {
+				part += fmt.Sprintf(" (%d uncertain)", value.uncertain)
+			}
+			parts = append(parts, part)
+		}
+		lines = append(lines, fmt.Sprintf("- run=%s kind=%s attempt=%d review_round=%d: %s", run.ID, run.Kind, run.AttemptIndex, run.ReviewRound, strings.Join(parts, "; ")))
+	}
+	if len(lines) == 0 {
+		return "(no persisted Executor tool calls)", nil
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func taskFilePrompt(path, tag, content string) string {

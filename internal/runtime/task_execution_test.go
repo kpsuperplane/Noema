@@ -1109,6 +1109,45 @@ func TestTaskMessagesSeparateRequestAndCurrentClocks(t *testing.T) {
 	}
 }
 
+func TestTaskToolAuditPromptUsesPersistedCallResults(t *testing.T) {
+	chat, database, _ := chatFixture(t)
+	task := createQueuedRuntimeTask(t, database, chat.home, "Audit tool calls.")
+	_, run, found, err := database.ClaimTaskExecution(t.Context(), time.Now())
+	if err != nil || !found || run.TaskID != task.ID {
+		t.Fatalf("claim Task run = %#v, %t, %v", run, found, err)
+	}
+	if err := database.StartTaskExecution(t.Context(), run.ID, run.Generation, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AppendTaskRunItems(t.Context(), run.ID, run.Generation, []store.TaskRunItemInput{{
+		Kind: "tool_call", Status: "running", Content: "code.run_lua",
+		Payload: map[string]any{"name": "code.run_lua", "arguments": map[string]any{"token": "ordinary-test-value"}},
+	}}, store.TaskRunUsage{ToolCalls: 1}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(t.Context(), run.ID)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("saved tool call = %#v, %v", items, err)
+	}
+	if err := database.AppendTaskRunItems(t.Context(), run.ID, run.Generation, []store.TaskRunItemInput{{
+		Kind: "tool_result", Status: "failed", ParentID: items[0].ID, Content: "code.run_lua",
+		Payload: map[string]any{"name": "code.run_lua", "success": false, "result": map[string]any{"code": "execution_failed"}},
+	}}, store.TaskRunUsage{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &TaskExecution{database: database, root: chat.home}
+	audit, err := runtime.taskToolAuditPrompt(t.Context(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(audit, "code.run_lua x1 (1 failed)") {
+		t.Fatalf("audit omitted failed call: %s", audit)
+	}
+	if strings.Contains(audit, "ordinary-test-value") || strings.Contains(audit, "execution_failed") {
+		t.Fatalf("audit exposed tool data: %s", audit)
+	}
+}
+
 func TestTaskReviewCorrectionUsesCurrentFiles(t *testing.T) {
 	chat, database, _ := chatFixture(t)
 	request := "# Correction audit\n\nInclude both alpha and café 日本語 in the result.\n"
