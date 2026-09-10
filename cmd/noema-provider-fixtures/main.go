@@ -47,6 +47,7 @@ type fixture struct {
 	requests           []requestTrace
 	oauth              fixtureOAuth
 	notionAuthRequired bool
+	gmailRateLimitOnce bool
 	calendar           map[string][]calendarEvent
 	gmailData          map[string]gmailAccount
 	obligationsStage   int
@@ -346,6 +347,20 @@ func (f *fixture) gmail(w http.ResponseWriter, r *http.Request) {
 		f.trace(r, http.StatusForbidden)
 		writeJSON(w, http.StatusForbidden, gmailError(http.StatusForbidden, "Insufficient Permission"))
 		return
+	}
+	if r.Method == http.MethodGet && requiredScope == fixtureScope {
+		f.mu.Lock()
+		rateLimited := f.gmailRateLimitOnce
+		if rateLimited {
+			f.gmailRateLimitOnce = false
+		}
+		f.mu.Unlock()
+		if rateLimited {
+			f.trace(r, http.StatusTooManyRequests)
+			w.Header().Set("Retry-After", "0")
+			writeJSON(w, http.StatusTooManyRequests, gmailError(http.StatusTooManyRequests, "Rate Limit Exceeded"))
+			return
+		}
 	}
 	if r.Method == http.MethodPost && path == "messages/send" {
 		f.gmailSend(w, r, account)
@@ -913,6 +928,15 @@ func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	stage := f.obligationsStage
 	switch request.Action {
+	case "gmail_expire_tokens":
+		for token, value := range f.oauth.tokens {
+			if gmailScopeIncludes(value.scope, fixtureScope) {
+				value.expires = time.Unix(1, 0)
+				f.oauth.tokens[token] = value
+			}
+		}
+	case "gmail_rate_limit_once":
+		f.gmailRateLimitOnce = true
 	case "notion_require_auth":
 		f.notionAuthRequired = true
 	case "notion_allow_anonymous":
@@ -944,11 +968,12 @@ func (f *fixture) operatorControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	required := f.notionAuthRequired
+	rateLimit := f.gmailRateLimitOnce
 	stage = f.obligationsStage
 	repliesStage := f.repliesStage
 	f.mu.Unlock()
 	f.trace(r, http.StatusOK)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notion_auth_required": required, "obligations_stage": stage, "replies_stage": repliesStage})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notion_auth_required": required, "gmail_rate_limit_once": rateLimit, "obligations_stage": stage, "replies_stage": repliesStage})
 }
 
 func notionBlockChildren(blocks []notionBlock) []map[string]any {

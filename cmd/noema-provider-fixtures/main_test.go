@@ -45,6 +45,47 @@ func TestGmailListHasThreeCompletePages(t *testing.T) {
 	}
 }
 
+func TestGmailControlExpiresTokens(t *testing.T) {
+	f := &fixture{oauth: fixtureOAuth{tokens: map[string]fixtureToken{
+		"gmail-token": {account: "account-a", scope: fixtureScope, expires: time.Now().Add(time.Minute)},
+	}}}
+	control := httptest.NewRecorder()
+	f.operatorControl(control, httptest.NewRequest(http.MethodPost, "/fixture/control", strings.NewReader(`{"action":"gmail_expire_tokens"}`)))
+	if control.Code != http.StatusOK {
+		t.Fatalf("expire control status = %d, body = %s", control.Code, control.Body)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/gmail/v1/users/me/profile", nil)
+	request.Header.Set("Authorization", "Bearer gmail-token")
+	response := httptest.NewRecorder()
+	f.gmail(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("expired Gmail token status = %d, body = %s", response.Code, response.Body)
+	}
+}
+
+func TestGmailControlRateLimitsOneRead(t *testing.T) {
+	f := &fixture{oauth: fixtureOAuth{tokens: map[string]fixtureToken{
+		"gmail-token": {account: "account-a", scope: fixtureScope, expires: time.Now().Add(time.Minute)},
+	}}}
+	control := httptest.NewRecorder()
+	f.operatorControl(control, httptest.NewRequest(http.MethodPost, "/fixture/control", strings.NewReader(`{"action":"gmail_rate_limit_once"}`)))
+	if control.Code != http.StatusOK {
+		t.Fatalf("rate-limit control status = %d, body = %s", control.Code, control.Body)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/gmail/v1/users/me/profile", nil)
+	request.Header.Set("Authorization", "Bearer gmail-token")
+	first := httptest.NewRecorder()
+	f.gmail(first, request)
+	if first.Code != http.StatusTooManyRequests || first.Header().Get("Retry-After") != "0" {
+		t.Fatalf("first rate-limited read = %d, retry-after %q, body = %s", first.Code, first.Header().Get("Retry-After"), first.Body)
+	}
+	second := httptest.NewRecorder()
+	f.gmail(second, request)
+	if second.Code != http.StatusOK {
+		t.Fatalf("recovered Gmail read status = %d, body = %s", second.Code, second.Body)
+	}
+}
+
 func TestObligationControlAddsDateRevisionAndReceipt(t *testing.T) {
 	f := &fixture{}
 	if got := len(f.gmailAccount("account-a").Messages); got != 20 {
