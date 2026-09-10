@@ -1001,14 +1001,32 @@ func (s *Service) executeBinding(ctx context.Context, current Binding, arguments
 			_ = s.errors.Write("mcp.call_failed", diagnostics.Text("server_id", server.ID),
 				diagnostics.Text("tool_name", current.Name), diagnostics.Text("detail", detail))
 		}
-		authStatus := server.AuthStatus
-		if errors.Is(err, ErrAuthenticationRequired) {
-			authStatus = "needs_auth"
+		// A remote tool can return a structured application error, such as an
+		// invalid cursor, without making the MCP connection unhealthy. Only
+		// transport and authentication failures fence the connection.
+		if !structuredToolFailure(err) {
+			authStatus := server.AuthStatus
+			if errors.Is(err, ErrAuthenticationRequired) {
+				authStatus = "needs_auth"
+			}
+			_ = s.database.MarkMCPUnavailable(ctx, server.ID, server.ConnectionRevision, authStatus, time.Now())
 		}
-		_ = s.database.MarkMCPUnavailable(ctx, server.ID, server.ConnectionRevision, authStatus, time.Now())
 		return nil, false, err
 	}
 	return result, success, nil
+}
+
+func structuredToolFailure(err error) bool {
+	var failure *toolTransportFailure
+	if !errors.As(err, &failure) || strings.TrimSpace(failure.detail) == "" {
+		return false
+	}
+	var payload map[string]any
+	if json.Unmarshal([]byte(failure.detail), &payload) != nil {
+		return false
+	}
+	code, ok := payload["code"].(string)
+	return ok && strings.TrimSpace(code) != ""
 }
 
 // Delete removes durable references before abandoned protected credentials.

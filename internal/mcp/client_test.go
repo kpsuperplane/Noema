@@ -85,6 +85,41 @@ func TestHTTPDiscoveryCallAndExactSourceFence(t *testing.T) {
 	}
 }
 
+func TestToolErrorDoesNotFenceHealthyMCPConnection(t *testing.T) {
+	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "notes", Version: "1"}, nil)
+	remote.AddTool(&mcpsdk.Tool{
+		Name: "search", Description: "Search notes", InputSchema: map[string]any{"type": "object"},
+		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
+			DestructiveHint: boolTestPointer(false), OpenWorldHint: boolTestPointer(true)},
+	}, func(context.Context, *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+		return &mcpsdk.CallToolResult{IsError: true, Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: `{"code":"invalid_cursor"}`}}}, nil
+	})
+	httpServer := httptest.NewServer(mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return remote }, nil))
+	t.Cleanup(httpServer.Close)
+	_, _, service := newMCPParityService(t, false)
+	created, err := service.Create(t.Context(), SetupInput{DisplayName: "Notes", TransportKind: "streamable_http", URL: httpServer.URL, AuthPreference: "USE_ANONYMOUS"})
+	if err != nil || created.Server == nil {
+		t.Fatalf("create = %#v, %v", created, err)
+	}
+	if _, err := service.SaveConnectionPolicy(t.Context(), created.Server.ID, created.Server.ConnectionRevision, 0, "allow_automatically", "always_ask"); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := service.Binding(t.Context(), "mcp."+created.Server.ID+".search")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.Call(t.Context(), binding, json.RawMessage(`{"start_cursor":"page-999"}`)); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("tool error = %v, want capability unavailable", err)
+	}
+	current, err := service.Server(t.Context(), created.Server.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.HealthStatus != "healthy" || current.AuthStatus != "none" {
+		t.Fatalf("tool error fenced connection = %#v", current)
+	}
+}
+
 func TestConnectServiceUsesExplicitPathCardFallback(t *testing.T) {
 	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "notes", Version: "1"}, nil)
 	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "search"},
