@@ -46,7 +46,8 @@ export function renderableTranscriptEntries(
   entries: TranscriptEntry[],
   pending: boolean,
   agentStatus: ConversationAgentStatus,
-  collapseConsecutiveToolCalls = false
+  collapseConsecutiveToolCalls = false,
+  showTypingIndicator = shouldShowTypingIndicator(entries, pending, agentStatus)
 ): RenderTranscriptEntry[] {
   const visibleEntries = attachTaskNotificationTasks(
     latestA2UISurfaces(orderedProviderSections(entries)).filter((entry) => {
@@ -61,7 +62,7 @@ export function renderableTranscriptEntries(
   const renderedEntries = collapseConsecutiveToolCalls
     ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(visibleEntries))
     : groupTranscriptMarkers(visibleEntries);
-  if (shouldShowTypingIndicator(entries, pending, agentStatus)) {
+  if (showTypingIndicator) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
   return renderedEntries;

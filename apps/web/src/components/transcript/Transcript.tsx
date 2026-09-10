@@ -83,6 +83,7 @@ export function Transcript({
   onOpenDetail,
   density = "full",
   showActorAvatars = true,
+  showTypingIndicator,
   collapseConsecutiveToolCalls = false,
   ariaLabel = "Conversation transcript"
 }: {
@@ -104,6 +105,7 @@ export function Transcript({
   onOpenDetail?: (target: ChatDetailTarget) => void;
   density?: TranscriptDensity;
   showActorAvatars?: boolean;
+  showTypingIndicator?: boolean;
   collapseConsecutiveToolCalls?: boolean;
   ariaLabel?: string;
 }) {
@@ -139,8 +141,8 @@ export function Transcript({
     onLoadOlderTranscript();
   }, [entries, onLoadOlderTranscript]);
   const renderedEntries = React.useMemo(
-    () => renderableTranscriptEntries(visibleEntries, pending, agentStatus, collapseConsecutiveToolCalls),
-    [agentStatus, collapseConsecutiveToolCalls, pending, visibleEntries]
+    () => renderableTranscriptEntries(visibleEntries, pending, agentStatus, collapseConsecutiveToolCalls, showTypingIndicator),
+    [agentStatus, collapseConsecutiveToolCalls, pending, showTypingIndicator, visibleEntries]
   );
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)

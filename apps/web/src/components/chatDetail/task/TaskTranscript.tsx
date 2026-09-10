@@ -244,6 +244,7 @@ export function TaskTranscript({
         pending={false}
         sentMessageScrollRequest={0}
         showActorAvatars={false}
+        showTypingIndicator={runs.some(({ run }) => run.status === "running" || run.status === "leased")}
         collapseConsecutiveToolCalls
       />
     </div>
