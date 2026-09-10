@@ -35,7 +35,8 @@ Current implementation direction:
 - The update model supplies ordered citation groups and matching numeric
   references. Each group contains the smallest direct set of exact evidence
   identifiers for one nearby claim. The runtime validates those identifiers
-  and generates every footnote definition.
+  and generates every footnote definition. A citation group can appear more than
+  once when its sources support each cited claim.
 - Human messages and exact saved tool results can provide evidence. Assistant
   messages remain context and cannot become evidence.
 - Current connector state, tool counts, temporary failures, task history,

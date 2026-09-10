@@ -8,7 +8,7 @@ Fresh web setup confirms a missing public address before passkey creation. The i
 
 Task pages use indexed connector names and focused attention. The connector service now retains compiled definitions. The live task-detail median fell from 558 ms to 6.1 ms. See [task-load evidence](../validation/task-load-2026-09-09.md).
 
-Rust prompt text is restored from `4d29f6ba`. Memory instructions now require splitting only at the word limit. Memory correction errors now identify rejected fields and their schema locations. See [correction evidence](../validation/memory-change-correction-2026-09-10.md). See [prompt parity](../validation/rust-prompt-parity.md) for exact reference checks, provider delivery checks, and context-history limits.
+Rust prompt text is restored from `4d29f6ba`. Memory instructions now require splitting only at the word limit. Memory correction errors now identify rejected fields and their schema locations. Repeated references to valid citation groups now pass. A live update saved its article and checkpoint. See [live evidence](../validation/live-memory-update-2026-09-10.md). See [correction evidence](../validation/memory-change-correction-2026-09-10.md). See [prompt parity](../validation/rust-prompt-parity.md) for exact reference checks, provider delivery checks, and context-history limits.
 
 The [local CLI](../cli.md) uses the private socket for GraphQL, Tasks, and streaming Chat. Linux and macOS enable the socket by default. Public authentication remains separate.
 

@@ -237,9 +237,6 @@ func numericFootnoteReferences(body string) (map[int]bool, error) {
 		if strings.HasPrefix(remainder, ":") {
 			return nil, errors.New("Memory body must omit footnote definitions")
 		}
-		if references[index] {
-			return nil, fmt.Errorf("Memory body repeats citation marker [^%d]", index)
-		}
 		references[index] = true
 	}
 }

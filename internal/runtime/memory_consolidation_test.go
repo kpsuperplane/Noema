@@ -17,7 +17,7 @@ import (
 func TestMemoryUpdatePublishesValidatedEvidenceAndCheckpoint(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
 	ctx := context.Background()
-	turn, human, err := database.BeginConversationTurn(ctx, conversation.ID, "Alice likes tea.", nil, time.Now())
+	turn, human, err := database.BeginConversationTurn(ctx, conversation.ID, "Alice likes tea and lives in Oslo.", nil, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestMemoryUpdatePublishesValidatedEvidenceAndCheckpoint(t *testing.T) {
 		payload, _ := json.Marshal(map[string]any{
 			"upserts": []any{map[string]any{
 				"id": root.ID, "expected_hash": root.Hash, "path": root.Path,
-				"title": "Alice", "icon": "user", "body": "Alice likes tea.[^1]",
+				"title": "Alice", "icon": "user", "body": "Alice likes tea.[^1] She lives in Oslo.[^1]",
 				"citations": []any{map[string]any{"sources": []string{human.ID}}},
 			}},
 			"metadata_updates": []any{}, "deletes": []any{},
@@ -59,7 +59,7 @@ func TestMemoryUpdatePublishesValidatedEvidenceAndCheckpoint(t *testing.T) {
 		request.StoreResponse || len(request.Tools) != 1 || request.Tools[0].Name != memorySubmitTool {
 		t.Fatalf("Memory generation request = %#v", request)
 	}
-	if !strings.Contains(request.Messages[1].Content, "human ["+human.ID+"] Alice likes tea.") ||
+	if !strings.Contains(request.Messages[1].Content, "human ["+human.ID+"] Alice likes tea and lives in Oslo.") ||
 		!strings.Contains(request.Messages[1].Content, "assistant I will remember that.") {
 		t.Fatalf("Memory source = %q", request.Messages[1].Content)
 	}
@@ -67,7 +67,7 @@ func TestMemoryUpdatePublishesValidatedEvidenceAndCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if published.Title != "Alice" || len(published.Citations) != 1 || published.Citations[0].Sources[0] != human.ID {
+	if published.Body != "Alice likes tea.[^1] She lives in Oslo.[^1]" || published.Title != "Alice" || len(published.Citations) != 1 || published.Citations[0].Sources[0] != human.ID {
 		t.Fatalf("published Memory = %#v", published)
 	}
 	checkpoint, err := chat.memory.State()

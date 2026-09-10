@@ -175,7 +175,6 @@ func TestRustRuntime_parser_rejects_invalid_source_indexes_and_provenance(t *tes
 	}{
 		{"Missing a marker.", "item:human"},
 		{"Named marker.[^name]", "item:human"},
-		{"Duplicate sources.[^1][^1]", "item:human"},
 		{"Unknown source.[^1]", "item:unknown"},
 	} {
 		payload := `{"upserts":[{"path":"root.md","title":"Momo","icon":"user","body":` + strconvQuote(candidate.body) + `,"citations":[{"sources":[` + strconvQuote(candidate.source) + `]}]}],"metadata_updates":[],"deletes":[]}`
