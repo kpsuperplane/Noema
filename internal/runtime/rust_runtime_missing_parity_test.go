@@ -718,12 +718,14 @@ func TestRustRuntime_prompt_context_sends_prior_transcript_as_provider_messages(
 func TestRustRuntime_start_primary_conversation_generates_initial_name_onboarding_message(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/replay_and_tools.rs::start_primary_conversation_generates_initial_name_onboarding_message.
 	chat, database, conversation := chatFixture(t)
-	chat.openRouter = generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+	session := &sessionTestGenerator{closed: make(chan struct{}, 1)}
+	session.generate = generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		if len(request.Tools) != 0 || request.ToolTransport != provider.ToolTransportNone || !strings.Contains(request.Messages[0].Content, "newly started primary conversation") {
 			t.Fatalf("initial onboarding request = %#v", request)
 		}
 		return provider.GenerationResult{Model: "openai/gpt-5.6-luna", Text: "hey, i’m glad to be here with you 👋\n---\ni can help you think, plan, make, untangle, and keep life moving with a little more ease\n---\nwhat would you like to name me?"}, nil
 	})
+	chat.openRouter = session
 	if err := chat.StartPrimaryConversation(context.Background(), conversation.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -735,6 +737,9 @@ func TestRustRuntime_start_primary_conversation_generates_initial_name_onboardin
 		if item.Kind == store.ConversationUserText {
 			t.Errorf("initial onboarding created a fake user item: %#v", item)
 		}
+	}
+	if session.direct != 0 || session.opens != 1 || session.closes != 1 {
+		t.Fatal("initial welcome bypassed the provider session and its request policy")
 	}
 	got := make([]string, 0, 3)
 	for _, item := range items.Items {

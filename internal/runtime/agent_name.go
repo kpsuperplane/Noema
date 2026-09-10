@@ -135,6 +135,8 @@ func (c *Chat) StartPrimaryConversation(ctx context.Context, conversationID stri
 	if err != nil {
 		return err
 	}
+	generator, closeSession, _ := openGenerationSession(generator)
+	defer closeSession()
 	turn, err := c.database.BeginAgentConversationTurn(ctx, conversationID, time.Now())
 	if err != nil {
 		return err
