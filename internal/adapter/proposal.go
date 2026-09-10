@@ -458,7 +458,7 @@ func generatedResponse(kind, sourcePointer, outputName string, maxItems int, fie
 		}
 		return OutputSchema{}, errors.New("response field type is invalid")
 	}
-	base := "return function(response)\n local body=json.decode(response.body)\n local function at(v,p) for _,k in ipairs(p) do if type(v)~='table' then return nil end v=v[k] end return v end\n local output=json.object()\n"
+	base := "return function(response)\n local body=json.decode(response.body)\n local function at(v,p) for _,k in ipairs(p) do if type(v)~='table' then return nil end v=v[k] end return v end\n local function as_boolean(v) if type(v)=='boolean' then return v end return nil end\n local output=json.object()\n"
 	properties, required, assignments := map[string]OutputSchema{}, []string{}, ""
 	for _, field := range fields {
 		if !validOutputName(field.Name) || !validPointer(field.SourcePointer) {
@@ -522,7 +522,7 @@ func luaValue(source, kind string, max *int, truncate bool) string {
 	case "number":
 		return "(type(" + source + ")==\"number\" and " + source + " or nil)"
 	case "boolean":
-		return "(type(" + source + ")==\"boolean\" and " + source + " or nil)"
+		return "as_boolean(" + source + ")"
 	}
 	return "nil"
 }

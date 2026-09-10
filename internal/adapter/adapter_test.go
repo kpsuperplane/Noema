@@ -317,6 +317,23 @@ func TestLuaResponseTransformAndPaginationAreBounded(t *testing.T) {
 	}
 }
 
+func TestGeneratedResponsePreservesFalseBooleanValues(t *testing.T) {
+	contract, err := generatedResponse("object_list", "/items", "items", 2, []responseField{{
+		Name: "enabled", SourcePointer: "/enabled", Type: "boolean", Required: true,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := decodeResponse(httpResponse{status: 200, contentType: "application/json", body: []byte(`{"items":[{"enabled":false}]}`)}, contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := value.(map[string]any)["items"].([]any)
+	if items[0].(map[string]any)["enabled"] != false {
+		t.Fatalf("generated response = %#v, want false boolean", value)
+	}
+}
+
 func TestPrivateNetworkTargetIsRejectedBeforeHTTP(t *testing.T) {
 	_, err := executeHTTPOnce(context.Background(), encodedRequest{method: "GET", rawURL: "https://127.0.0.1/private"})
 	if err == nil {

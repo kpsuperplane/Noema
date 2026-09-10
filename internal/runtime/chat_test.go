@@ -200,8 +200,25 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			return nil, err
 		}
-		if tools, _ := body["tools"].([]any); len(tools) == 0 {
+		tools, _ := body["tools"].([]any)
+		if len(tools) == 0 {
 			return openRouterStreamResponse("The earlier Task inspection rounds are complete."), nil
+		}
+		// Chat schedules memory consolidation after a turn. That provider call
+		// uses the same test transport but is not part of the inspection loop.
+		// Keep it out of the bounded request channel so the test cannot deadlock
+		// while waiting for the three inspection requests below.
+		hasInspectTool := false
+		for _, raw := range tools {
+			wire, _ := raw.(map[string]any)
+			function, _ := wire["function"].(map[string]any)
+			if function["name"] == taskInspectName || function["name"] == "inspect" {
+				hasInspectTool = true
+				break
+			}
+		}
+		if !hasInspectTool {
+			return openRouterStreamResponse("Memory update complete."), nil
 		}
 		requests <- body
 		requestMu.Lock()
@@ -1070,8 +1087,6 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 		case 1:
 			return openRouterToolResponse(taskID, "context_call", "Checking."), nil
 		case 2:
-			return openRouterStreamResponse("Earlier Task context."), nil
-		case 3:
 			return &http.Response{
 				StatusCode: http.StatusBadRequest, Header: make(http.Header),
 				Body: io.NopCloser(strings.NewReader("context exceeded")),
@@ -1089,7 +1104,7 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if requestCount != 4 || finalRequest == nil || finalRequest["max_completion_tokens"] != float64(1024) {
+	if requestCount != 3 || finalRequest == nil || finalRequest["max_completion_tokens"] != float64(1024) {
 		t.Fatalf("finalization requests = %d, final = %#v", requestCount, finalRequest)
 	}
 	if _, exists := finalRequest["tools"]; exists {

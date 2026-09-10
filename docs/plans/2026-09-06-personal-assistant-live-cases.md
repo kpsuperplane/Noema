@@ -106,14 +106,17 @@ final status verification, and a sourced repair artifact. PA-068 passes after
 reviewed utility API setup, five ordered source reads, hard reliability
 filtering, one approved synthetic switch, old-provider bill and status
 verification, and a sourced utility artifact. PA-069 passes after reviewed
-meal-planning API setup, seven ordered source reads, Luau checks, one approved
+meal-planning API setup, seven ordered source reads, Lua 5.4 checks, one approved
 synthetic cart, receipt verification, and direct ledger verification. PA-070
 passes after reviewed vehicle-lifecycle API setup, six ordered source reads,
-Luau checks, one approved synthetic booking, receipt and status verification,
+Lua 5.4 checks, one approved synthetic booking, receipt and status verification,
 and direct ledger verification. PA-071 passes after reviewed synthetic
 pet-care API setup, seven ordered source reads, same-name identity checks,
-Luau validation, one approved synthetic action, one confirmation read, and
-direct ledger verification. PA-072 through PA-100 remain not run.
+Lua 5.4 validation, one approved synthetic action, one confirmation read, and
+direct ledger verification. PA-072 passes after a fresh returns API connector,
+an explicit boolean-transform repair, six ordered source reads, Lua 5.4 checks,
+one approved synthetic return, one status read, and direct eight-call ledger
+verification. PA-073 through PA-100 remain not run.
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -386,7 +389,7 @@ answer key.
 | PA-069 | Meal planning | Nut allergy; pantry inventory; budget 90; two dinners away; leftovers; changing attendance. | Plan meals and groceries for the week. | Exclude allergens; use pantry and leftovers; total within 90; revise portions after attendance change; verify mock cart without real purchase. |
 | PA-070 | Vehicle lifecycle | Service mileage interval; current mileage; recall VIN range; registration deadline; later service receipt. | Keep the car's maintenance and paperwork current. | Identify correct recall and service timing; book mock service; verify receipt; update next interval and registration status without duplicates. |
 | PA-071 | Pet care | Vet plan, refill date, boarding vaccination requirement, travel dates, two pets with similar names. | Organize the pets' upcoming care. | Keep identities separate; satisfy boarding requirement; schedule correct visits; verify mock confirmations; preserve vet instructions without changing doses. |
-| PA-072 | Routine return | Two similar purchases; only one eligible; return deadline; shipping receipt; refund expected 80. | Return the faulty item and track the refund. | Choose correct purchase; submit mock return once; save label and tracking; verify refund 80 against original charge. |
+| PA-072 | Pass after a fresh returns connector, explicit boolean-transform repair, one approved synthetic return, one status read, and direct eight-call ledger verification — [evidence](../validation/evidence/personal-assistant-live/PA-072/) | Two similar purchases; only one eligible; return deadline; shipping receipt; refund expected 80. | Return the faulty item and track the refund. | Choose correct purchase; submit mock return once; save label and tracking; verify refund 80 against original charge. |
 | PA-073 | Household service | Three cleaners; pet and access constraints; 120 visit ceiling; cancellation and backup policy. | Arrange recurring cleaning that fits our needs. | Select eligible provider; protect access information; confirm mock schedule and price; handle one cancellation with approved backup. |
 | PA-074 | Emergency readiness | Two evacuation routes; mobility need; pet; expired supplies; later road closure. | Update our household emergency plan. | Replace expired supply tasks; include accessible route and pet plan; revise for closure; verify saved offline-readable contact packet. |
 | PA-075 | Itinerary | Flight, hotel, rail confirmations; duplicate booking email; timezone change; missing airport transfer. | Pull my trip into one itinerary. | Merge duplicates; preserve references and local times; obtain transfer details from fixture; produce feasible sourced timeline and artifact. |
