@@ -15,7 +15,9 @@ Personal-assistant acceptance now follows [the live case plan](../plans/2026-09-
 Use direct GraphQL interaction through a thin CLI and examine each outcome before advancing.
 First verify agent-generated Gmail API and Notion MCP connections, then retain all 100 original assistant cases.
 The earlier 100-case replay completion report is invalid: successful process exits concealed blocked outcomes.
-No new acceptance pass is established by that report.
+The accepted provider-neutral case connector now has a v3 fixture with receipt
+and verification fields. Direct Go-server rechecks for PA-078, PA-085, and
+PA-097 pass; the other 97 cases still need a fresh direct-Chat rerun.
 
 The Go provider fixture exposes Gmail, Notion MCP, and Calendar contracts at
 `noema-provider-fixtures-v3.service`, revision `2026-09-08-gmail-v1-notion-mcp-v8`; it uses synthetic OAuth and two accounts. Gmail and Notion setup, live reads, recovery, pagination, account boundaries, and delegated reuse now pass. Gmail rate-limit recovery uses an explicit user follow-up, and real provider consent remains outside this acceptance.

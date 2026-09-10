@@ -473,4 +473,7 @@ Before changing production behavior, state the defect, patch budget, affected fi
 Use repository validation rules for each affected language. Documentation-only updates require link, coverage, and whitespace checks.
 
 This document defines the work. The CLI is complete and independently validated.
-Faithful provider fixtures, accepted connections, and case passes remain to be implemented and verified.
+The provider-neutral case fixture is accepted at revision v3, and direct Go
+server rechecks for PA-078, PA-085, and PA-097 pass with receipt-backed
+read-back. The remaining cases still require a fresh direct-Chat rerun before
+the whole 100-case set can be called current.

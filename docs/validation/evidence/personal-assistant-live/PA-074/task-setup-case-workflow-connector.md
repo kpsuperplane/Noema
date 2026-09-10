@@ -69,3 +69,27 @@ and approval-gated. The compiled GET retry must be
   and remains approval-gated.
 - Setup makes no `/v1` request, no state-changing request, and no provider
   switch. Record the pending semantic digest for operator acceptance.
+
+## Current accepted revision
+
+The original setup notes above are retained as the contract. The first
+temporary host was retired before the clean acceptance run. On 2026-09-10,
+the agent corrected the pending proposal to the current fixture host and the
+operator accepted that exact proposal.
+
+- Current fixture: `2026-09-10-case-workflow-api-v3`.
+- Current origin: `https://dispatched-conscious-minimum-fat.trycloudflare.com/`.
+- Current source reference:
+  `https://dispatched-conscious-minimum-fat.trycloudflare.com/docs`.
+- Corrected pending digest:
+  `8f0f1ff998ac4a7a31b4f181db5f7bd1ee5256670ca2b9471714b25d8bf09ff9`.
+- Accepted reviewed digest:
+  `8c49054349ae4ab55fee5213578d69ce8e3a3d41b60296c9ee0c6c97210117b0`.
+- Connection: `2d79d72190362a19d0a25ab4af1c607b`.
+- Accepted revision: `v3`.
+
+The accepted manifest contains only `get_case_context`,
+`get_case_status`, and `record_case_action`. The two reads use
+`transport_safe_read`. The action uses `retry: never` and remains behind the
+normal human approval card. The clean direct rechecks are recorded in
+[PA-078](../PA-078/), [PA-085](../PA-085/), and [PA-097](../PA-097/).

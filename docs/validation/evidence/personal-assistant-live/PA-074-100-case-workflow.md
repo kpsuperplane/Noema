@@ -7,6 +7,11 @@ live Go Noema development server. Each task received a short conversational
 request. The operator inspected the task state, approval gate, action request,
 fixture ledger, result, and review before starting the next case.
 
+The report also records a later direct-Chat recheck of PA-078, PA-085, and
+PA-097 after the provider-neutral fixture was enriched. That recheck uses the
+current Go server and the accepted v3 connector. It does not replace the
+historical 100-case table or claim a fresh run of the other 97 cases.
+
 The original first-pass table below remains as historical evidence. Its six
 `Needs repair` rows were rerun on 2026-09-10 with a refreshed fixture and a
 reviewer prompt that includes the persisted tool-call audit. The latest results
@@ -97,7 +102,42 @@ did not turn a plan-recording fixture into a physical migration, a legal
 clearance service, or a school-update transport system. Those capability gaps
 remain explicit above.
 
-## Findings for the next run
+## Direct Go-server recheck
+
+On 2026-09-10, the operator reset only the synthetic fixture ledger and ran
+these three former repair cases through the primary Chat conversation. The
+fixture remained provider-neutral and synthetic. Each case was inspected before
+the next case started.
+
+- Backend source revision: `91a8e2ba`.
+- Conversation: `conversation:a39407c5e9686f34225273862829bf0f`.
+- Connector: `definition:synthetic_case_workflow_api_v1`, connection
+  `2d79d72190362a19d0a25ab4af1c607b`.
+- Reviewed definition: v3, semantic digest
+  `8c49054349ae4ab55fee5213578d69ce8e3a3d41b60296c9ee0c6c97210117b0`.
+- Fixture: `2026-09-10-case-workflow-api-v3` at
+  `https://dispatched-conscious-minimum-fat.trycloudflare.com/`.
+- Fixture ledger snapshot: [direct recheck ledger](direct-recheck-ledger.json).
+
+The first natural PA-078 request (turn 818) selected an older identity
+connector. A follow-up naming the synthetic case service (turn 819) selected
+the correct connector. The clean reset run below names the case ID and service
+so the recheck tests the intended interface without changing any real account.
+
+| Case | Chat turns | Named connector calls | Verified outcome | Verdict |
+| --- | --- | --- | --- | --- |
+| PA-078 | Executor turn 824; read-only verification turn 830 | context 1, pre-action status 1, action 1, post-action status 1 | Passport expires `2027-01-15`, but the pinned rule requires validity through `2027-04-13`; Cedar transit requires a visa under notice `2026-09-20`; rule `2026-08-01` is recorded; legal clearance stays open. Receipt `entry-checklist-001`. | Pass. |
+| PA-085 | Executor turn 826; read-only verification turn 831 | context 1, pre-action status 1, action 1, post-action status 1 | The other parent collects Child A at Northstar School at 15:00. Approved caregiver C collects Child B at Cedar School at 15:15. The 22-minute school-to-school route cannot cover the 15-minute gap. Receipts `school-a-update-001` and `school-b-update-001`. | Pass. |
+| PA-097 | Executor turn 828; read-only verification turn 832 | context 1, pre-action status 1, action 1, post-action status 1 | All 20 selected ordinary files and settings are verified on target T. F-17 is repaired. Authenticator data stays in its protected boundary. Source S remains available. Disposal is not authorized. Receipts `transfer-001`, `repair-f17-001`, and `target-verify-001`. | Pass. |
+
+Each write used the normal human approval card. The operator approved only the
+exact synthetic payload after reading its target and consequence. Each final
+status read returned `action_count: 1` and the matching receipts. No real
+provider, school, device, file, account, payment, or credential was touched.
+
+Individual evidence: [PA-078](PA-078/), [PA-085](PA-085/), and [PA-097](PA-097/).
+
+## Findings from the historical six-case rerun
 
 1. The runner and reviewer should count named connector calls from persisted
    tool records, not from broad provider-call totals or model-written prose.
@@ -110,7 +150,7 @@ remain explicit above.
 4. The executor can call `code.run_lua` while preparing connector arguments.
    These calls are now visible to the Reviewer as successful or failed tool
    records instead of being mistaken for connector retries.
-5. The fixture and task contract still need executable read-back operations for
-   PA-078, PA-085, and PA-097. A plan record or generic status count cannot
-   prove rule application, transport feasibility, school receipts, file
-   repair, or target-device verification.
+5. The v3 fixture now returns executable verification and receipt fields for
+   PA-078, PA-085, and PA-097. The direct recheck above proves those three
+   outcomes. Other cases still need their own provider-neutral read-back
+   contracts when a plan record cannot prove the requested effect.
