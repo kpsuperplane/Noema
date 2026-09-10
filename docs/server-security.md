@@ -71,7 +71,8 @@ NOEMA_MCP__STDIO_ENABLED=true
 ```
 
 The flags load only during startup. Changing one requires a server restart.
-Recovery-code reads and rotations are the sole live config-file exception.
+Recovery-code reads and rotations can update the configuration file.
+First-run address confirmation can also set `web.public_origin` and `web.rp_id`.
 GraphQL and other remote APIs must not change these values.
 `web.recovery_code` is filesystem-only. An environment override would prevent
 durable one-time rotation and is therefore not supported.
@@ -83,6 +84,23 @@ exception does not permit other credentials in that file.
 
 Recovery writes must serialize and atomically replace only the file-backed
 field. They must preserve unrelated file values and exclude environment values.
+
+### First-run web address
+
+When no public origin or passkey exists, the public listener shows address setup.
+An explicit environment origin, development authentication bypass, or desktop launch skips this step.
+Existing passkeys retain the configured or default localhost access rules.
+
+The first visitor confirms the address already open in the browser.
+The server accepts HTTPS domain names, or HTTP on localhost.
+The submitted origin must match the request Origin and Host exactly.
+The server saves that origin and its hostname as the passkey domain.
+It preserves other configuration values and accepts only one confirmation.
+
+Before confirmation, only application pages, static assets, authentication status,
+and address confirmation are available. Normal services start with the saved
+address before the confirmation response completes. The browser then shows
+initial passkey registration without a server restart.
 
 ## 4. Required Authentication Mode
 

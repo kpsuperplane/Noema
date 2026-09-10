@@ -1,4 +1,5 @@
 import React from "react";
+import * as stylex from "@stylexjs/stylex";
 import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -25,6 +26,7 @@ import {
 type AuthState =
   | "loading"
   | "authenticated"
+  | "domain_setup_required"
   | "setup_ready"
   | "login_required"
   | "recovery_required"
@@ -32,7 +34,7 @@ type AuthState =
   | "recovery_expired"
   | "recovery_complete"
   | "unavailable";
-type AuthStatus = { state: "authenticated" | "setup_ready" | "login_required" };
+type AuthStatus = { state: "authenticated" | "domain_setup_required" | "setup_ready" | "login_required" };
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const desktop = isTauriRuntime();
@@ -183,6 +185,26 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function configureDomain() {
+    if (working) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const response = await fetch("/auth/domain", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ origin: window.location.origin })
+      });
+      if (!response.ok) throw new Error("Address setup failed");
+      setState(await readAuthStatus());
+    } catch {
+      setError("Noema could not save this address. Open Noema through HTTPS or localhost, then try again.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
   function showLogin() {
     if (window.history.state?.noemaAccess === "recovery") {
       window.history.back();
@@ -200,6 +222,24 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
   if (visibleState === "loading") return <AppBootSkeleton />;
   if (visibleState === "authenticated") return children;
+  if (visibleState === "domain_setup_required") {
+    return (
+      <SetupFrame>
+        <SetupCard title="Set your Noema address" intro="Confirm this address before you create a passkey.">
+          <SetupNote>
+            <strong><code {...stylex.props(styles.address)}>{window.location.origin}</code></strong>
+          </SetupNote>
+          <SetupNote>
+            Use the address you will open each time. To use another domain, open Noema there first.
+          </SetupNote>
+          {error ? <ErrorMarker message={error} /> : null}
+          <SetupActions>
+            <Button variant="primary" label="Use this address" isLoading={working} onClick={() => void configureDomain()} />
+          </SetupActions>
+        </SetupCard>
+      </SetupFrame>
+    );
+  }
   const supported = passkeysSupported();
   const unavailable = visibleState === "unavailable";
   const recovery = visibleState === "recovery_required";
@@ -380,3 +420,12 @@ async function readAuthStatus(): Promise<AuthState> {
     return "unavailable";
   }
 }
+
+const styles = stylex.create({
+  address: {
+    color: "var(--primary)",
+    fontFamily: "var(--font-mono)",
+    fontWeight: "var(--font-weight-bold)",
+    overflowWrap: "anywhere"
+  }
+});

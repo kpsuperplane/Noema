@@ -215,6 +215,51 @@ func runWithLoadedProviderConfig(
 	if err != nil {
 		return err
 	}
+	var server *http.Server
+	serveResult := make(chan error, 1)
+	var application http.Handler
+	applicationReady := make(chan struct{})
+	if desktop == nil && authConfig.DomainSetupRequired {
+		hasPasskey, err := taskStore.HasPasskey(ctx)
+		if err != nil {
+			return err
+		}
+		if !hasPasskey {
+			setup, configured := auth.DomainSetup(authConfig, recovery, applicationReady)
+			saved := make(chan struct{})
+			listener, err = net.Listen("tcp", authConfig.ListenAddress)
+			if err != nil {
+				return fmt.Errorf("listen for domain setup: %w", err)
+			}
+			server = &http.Server{
+				ReadHeaderTimeout: 10 * time.Second,
+				ReadTimeout:       30 * time.Second,
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					select {
+					case <-saved:
+						select {
+						case <-applicationReady:
+							application.ServeHTTP(w, r)
+						case <-r.Context().Done():
+						}
+					default:
+						setup.ServeHTTP(w, r)
+					}
+				}),
+			}
+			defer server.Close()
+			go func() { serveResult <- server.Serve(listener) }()
+			fmt.Fprintf(output, "Noema address setup listening on %s\n", listener.Addr())
+			select {
+			case authConfig = <-configured:
+				close(saved)
+			case <-ctx.Done():
+				return nil
+			case err := <-serveResult:
+				return fmt.Errorf("serve domain setup: %w", err)
+			}
+		}
+	}
 	if err := adapterService.SetOAuthCallback(authConfig.Origin + "/adapter/oauth/callback"); err != nil {
 		return err
 	}
@@ -387,14 +432,19 @@ func runWithLoadedProviderConfig(
 	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("GET /favicons/{hostname}", web.NewFaviconHandler(paths.FaviconCacheDir()))
 	mux.Handle("/", web.NewAssetHandler())
-	server := &http.Server{
-		Handler:           browserAuth.Handler(mux),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-	}
+	application = browserAuth.Handler(mux)
 	if desktop != nil {
-		server.Handler = desktopHandler(desktop.Token, mux, server.Handler)
+		application = desktopHandler(desktop.Token, mux, application)
 	}
+	if server == nil {
+		server = &http.Server{
+			Handler:           application,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+		}
+		go func() { serveResult <- server.Serve(listener) }()
+	}
+	defer server.Close()
 	serverContext, stopServers := context.WithCancel(ctx)
 	defer stopServers()
 	var localResult <-chan error
@@ -415,10 +465,7 @@ func runWithLoadedProviderConfig(
 		go func() { result <- local.Serve(serverContext) }()
 	}
 
-	serveResult := make(chan error, 1)
-	go func() {
-		serveResult <- server.Serve(listener)
-	}()
+	close(applicationReady)
 	observeAuthConfig(output, authConfig)
 	if desktop == nil {
 		fmt.Fprintf(output, "Noema listening on %s\n", listener.Addr())

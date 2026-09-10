@@ -172,6 +172,7 @@ func runStartupEntryPointChild(t *testing.T, mode string) {
 
 func runHostForRustTest(t *testing.T, configuredProvider *auth.ResolvedProviderConfig) error {
 	t.Helper()
+	t.Setenv("NOEMA_WEB__PUBLIC_ORIGIN", "http://localhost:3737")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -240,10 +241,11 @@ func runLoadedHostForRustTest(t *testing.T, config auth.Config) error {
 }
 
 type rustHostReadyWriter struct {
-	ready    chan struct{}
-	observed chan auth.Config
-	once     sync.Once
-	buffer   bytes.Buffer
+	ready      chan struct{}
+	setupReady chan struct{}
+	observed   chan auth.Config
+	once       sync.Once
+	buffer     bytes.Buffer
 }
 
 func (w *rustHostReadyWriter) ObserveAuthConfig(config auth.Config) {
@@ -254,6 +256,9 @@ func (w *rustHostReadyWriter) ObserveAuthConfig(config auth.Config) {
 
 func (w *rustHostReadyWriter) Write(value []byte) (int, error) {
 	_, _ = w.buffer.Write(value)
+	if w.setupReady != nil && strings.Contains(string(value), "Noema address setup listening on ") {
+		close(w.setupReady)
+	}
 	if strings.Contains(string(value), "Noema listening on ") {
 		w.once.Do(func() { close(w.ready) })
 	}

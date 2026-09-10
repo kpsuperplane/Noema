@@ -24,6 +24,7 @@ const configLimit = 1024 * 1024
 
 // Config contains non-secret browser authentication configuration.
 type Config struct {
+	DomainSetupRequired  bool
 	Authority            string
 	Origin               string
 	RPID                 string
@@ -242,6 +243,8 @@ func loadConfig(paths home.Paths, listenAddress string, ensureRecovery bool) (Co
 	if err != nil {
 		return Config{}, nil, err
 	}
+	_, originFromEnvironment := os.LookupEnv("NOEMA_WEB__PUBLIC_ORIGIN")
+	config.DomainSetupRequired = web["public_origin"] == nil && !originFromEnvironment && !devNoAuth
 	config.ListenAddress = resolvedAddress
 	config.GraphiQL = graphiQL
 	config.LocalGraphQLSocket = localSocket

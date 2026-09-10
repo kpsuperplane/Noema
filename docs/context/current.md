@@ -4,24 +4,21 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
+Fresh web setup now confirms a missing public address before passkey creation. See [domain setup evidence](../validation/domain-setup-2026-09-10.md).
+
 Task pages use indexed connector names and focused attention. The connector service now retains compiled definitions. The live task-detail median fell from 558 ms to 6.1 ms. See [task-load evidence](../validation/task-load-2026-09-09.md).
 
 Rust prompt text is restored from `4d29f6ba`. Memory instructions now require splitting only at the word limit. See [prompt parity](../validation/rust-prompt-parity.md) for exact reference checks, provider delivery checks, and context-history limits.
 
-The [local CLI](../cli.md) uses the private socket for GraphQL, Tasks, and streaming Chat.
-Linux and macOS enable the socket by default. Public authentication remains separate.
+The [local CLI](../cli.md) uses the private socket for GraphQL, Tasks, and streaming Chat. Linux and macOS enable the socket by default. Public authentication remains separate.
 
 Personal-assistant acceptance now follows [the live case plan](../plans/2026-09-06-personal-assistant-live-cases.md).
 Use direct GraphQL interaction through a thin CLI and examine each outcome before advancing.
 First verify agent-generated Gmail API and Notion MCP connections, then retain all 100 original assistant cases.
 The earlier 100-case replay completion report is invalid: successful process exits concealed blocked outcomes.
-The accepted provider-neutral case connector now has a v4 fixture with receipt
-and verification fields. A direct Go-server recheck covers PA-074 through
-PA-100 with one approved action and a final status read per case. The normalized
-evidence is `docs/validation/evidence/personal-assistant-live/direct-recheck-ledger-v4.json`.
+The accepted provider-neutral case connector now has a v4 fixture with receipt and verification fields. A direct Go-server recheck covers PA-074 through PA-100 with one approved action and a final status read per case. The normalized evidence is `docs/validation/evidence/personal-assistant-live/direct-recheck-ledger-v4.json`.
 
-The Go provider fixture exposes Gmail, Notion MCP, and Calendar contracts at
-`noema-provider-fixtures-v3.service`, revision `2026-09-08-gmail-v1-notion-mcp-v8`; it uses synthetic OAuth and two accounts. Gmail and Notion setup, live reads, recovery, pagination, account boundaries, and delegated reuse now pass. Gmail rate-limit recovery uses an explicit user follow-up, and real provider consent remains outside this acceptance.
+The Go provider fixture exposes Gmail, Notion MCP, and Calendar contracts at `noema-provider-fixtures-v3.service`, revision `2026-09-08-gmail-v1-notion-mcp-v8`; it uses synthetic OAuth and two accounts. Gmail and Notion setup, live reads, recovery, pagination, account boundaries, and delegated reuse now pass. Gmail rate-limit recovery uses an explicit user follow-up, and real provider consent remains outside this acceptance.
 PA-001 through PA-008 pass. `ConversationAuthorizationContext` follows continuation triggers to the original human turn, and the memory updater omits nested screenshots and internal Task lists. Focused and broad Go checks pass at `c1f9ecbe`.
 The active ledger is [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
@@ -299,6 +296,4 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 
 ## Validation
 
-Follow [AGENTS.md](../../AGENTS.md#validation) for check scope, commands, retries, and result reuse.
-Use focused checks during implementation. The integrating agent owns broad validation for each completed server or native code unit.
-Commits, pushes, and report edits do not invalidate successful checks with unchanged inputs.
+Follow [AGENTS.md](../../AGENTS.md#validation) for check scope, commands, and reuse of valid results.

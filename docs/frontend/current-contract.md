@@ -35,6 +35,10 @@ add disabled navigation merely to reserve future information architecture.
 Onboarding is a bounded readiness flow. It replaces the product shell until
 the human confirms one complete model setup. It then opens Chat.
 
+When the public address is missing and no passkey exists, the first visitor
+confirms the current browser address. The address uses bold monospace text and the primary theme color.
+To select another domain, the visitor must open Noema at that domain first.
+
 Before product onboarding, the first visitor creates the initial passkey
 without a recovery code. When a passkey already exists, the login surface keeps
 recovery-code entry behind the `Recover access` action.
