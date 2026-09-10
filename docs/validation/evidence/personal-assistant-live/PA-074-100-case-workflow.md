@@ -7,6 +7,11 @@ live Go Noema development server. Each task received a short conversational
 request. The operator inspected the task state, approval gate, action request,
 fixture ledger, result, and review before starting the next case.
 
+The original first-pass table below remains as historical evidence. Its six
+`Needs repair` rows were rerun on 2026-09-10 with a refreshed fixture and a
+reviewer prompt that includes the persisted tool-call audit. The latest results
+are in the rerun table below; no earlier evidence was deleted.
+
 ## Test boundary
 
 - Backend: live Noema development server through
@@ -64,6 +69,34 @@ For every row, the normal connector order was `get_case_context`, approval,
 action and `action_count: 1` for each case that reached the write. No real
 external service was contacted.
 
+## Latest six-case rerun
+
+The six earlier repair rows were rerun sequentially with natural-language
+requests. The refreshed reviewed definition is revision `v2`, semantic digest
+`658538cd06df15f45bab1911ea0ffece33c44e042fe9b2f4859954a5c73e0979`, on the
+same connection `2d79d72190362a19d0a25ab4af1c607b`. It points to the temporary
+synthetic fixture at `https://rat-kings-width-editors.trycloudflare.com/`.
+The fresh fixture ledger is `/tmp/noema-case-workflow-rerun-ledger.json`.
+
+Counts in this table are named connector calls from Executor runs. Planner and
+Reviewer reads are not counted. The reviewer used the persisted audit supplied
+by Noema, so model-written count claims do not replace the run records.
+
+| Case | Rerun task | Executor connector calls | Result | Verdict and remaining gap |
+| --- | --- | --- | --- | --- |
+| PA-078 | `task:cb9137ac7dc54e943bff58711f290e49` | context 1, action 0, status 1 | Returned a bounded readiness limitation. The context named nationality, transit, passport expiry, a pinned rule version, and an updated notice, but returned none of the dates or rule/notice text needed for comparison. The checklist stayed unchanged. | Reviewer-approved honest limitation. Full entry-readiness evaluation still needs a fixture response with the actual passport expiry, validity rule, notice content, and applicability. |
+| PA-081 | `task:7858dbd078f8599f174ef841f92b2d8d` | context 3, action 1, status 3 | Proposed Venue B and the approved caterer for 18 guests, received approval in a separate continuation, recorded one synthetic final-plan action, and completed a later read-only status/context check. | Pass after conversational approval, reviewer correction, and post-write verification. Deposit amount, refund timing, cancellation fees, and extra charges remain unavailable in the fixture. |
+| PA-085 | `task:355322686bbec9da921019972ccebe40` | context 1, action 1, status 2 | Proposed the other parent for Child A at 15:00 and approved caregiver C for Child B at 15:15, received approval, recorded one synthetic save, and verified its status. | Reviewer-approved bounded result. The fixture does not expose numeric travel times, C's transport capability, or both school-update receipts, so one-vehicle feasibility is not proven. |
+| PA-086 | `task:48081da116574a80f206887c3d44c927` | context 1, action 1, status 3 | Built a child-specific checklist, kept the corrected trip date at May 21, merged the four repeated deadlines, received approval, recorded Child A's permission and 35 USD synthetic fee, and verified status. | Pass within available evidence. Individual notice text, exact deadline, child/item mapping for the repeated notices, and distinct submission instructions remain unavailable. |
+| PA-097 | `task:6356c3b961f1d3cc27139059240e2f1c` | context 1, action 1, status 2 | Preserved the protected-authenticator boundary, F-17 repair requirement, target verification prerequisite, and no-disposal rule in one approved synthetic migration-plan record, then verified status. | Reviewer-approved plan-only limitation. The fixture has no migration, repair, target read-back, or disposal-verification operation. |
+| PA-099 | `task:969570bf3f4a11d82c1ec5dce7c89eac` | context 1, action 1, status 2 | Prepared the bounded five-account legacy update, received approval, recorded it once, and verified the status. Credentials stayed outside the plan and no release or closure occurred. | Pass for the bounded aggregate update. Itemized account rules, role authority, executor-change state/date, waiting-period details, and freshness fields remain unavailable. |
+
+All six rerun tasks reached terminal success with Reviewer approval. The rerun
+removed the earlier false duplicate-count and review-exhaustion findings. It
+did not turn a plan-recording fixture into a physical migration, a legal
+clearance service, or a school-update transport system. Those capability gaps
+remain explicit above.
+
 ## Findings for the next run
 
 1. The runner and reviewer should count named connector calls from persisted
@@ -74,9 +107,10 @@ external service was contacted.
 3. The case fixture needs executable read-back behavior for migration and other
    cases whose acceptance criteria require a completed physical or provider
    operation. Recording a plan is not verification.
-4. The executor still sometimes calls `code.run_lua` even when the task names a
-   different reviewed connection. The failed calls caused no side effect, but
-   they make the no-extra-tool condition fail.
-5. Reviewer prompts need a clear boundary between connector calls, task-file
-   calls, and failed tool calls. PA-078, PA-085, PA-086, and PA-097 exposed
-   mismatches between the live ledger and the written review.
+4. The executor can call `code.run_lua` while preparing connector arguments.
+   These calls are now visible to the Reviewer as successful or failed tool
+   records instead of being mistaken for connector retries.
+5. The fixture and task contract still need executable read-back operations for
+   PA-078, PA-085, and PA-097. A plan record or generic status count cannot
+   prove rule application, transport feasibility, school receipts, file
+   repair, or target-device verification.

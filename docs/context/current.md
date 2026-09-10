@@ -277,9 +277,9 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Synthetic Gmail and Notion OAuth callbacks pass through a hosted fixture; real provider consent remains outside this acceptance.
 - PA-073 passes through the live Go backend with two approved writes and an
   exact nine-call ledger.
-- PA-074 through PA-100 were run sequentially through one provider-neutral
-  fixture. Twenty-one pass or pass after repair; six need repair or evidence
-  correction. See `docs/validation/evidence/personal-assistant-live/PA-074-100-case-workflow.md`.
+- PA-074 through PA-100 ran sequentially through one provider-neutral fixture.
+  Six repair rows now have Reviewer-approved reruns; entry detail, transport receipts,
+  and device migration remain fixture-limited. See `docs/validation/evidence/personal-assistant-live/PA-074-100-case-workflow.md`.
 - The Go backend embeds Lua 5.4 through `github.com/arnodel/golua`; `code.run_lua`
   accepts standard Lua 5.4. Existing connector transforms retain `language:
   "luau"` until deliberate revision.

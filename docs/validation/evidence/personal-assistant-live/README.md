@@ -84,7 +84,7 @@ development instance and inspected before the next case starts.
 | PA-071 — Pet care planning | Pass after reviewed API setup, seven ordered source reads, same-name identity checks, one approved synthetic action, confirmation verification, and direct ledger verification | [Case evidence](PA-071/) |
 | PA-072 — Routine return | Pass after a fresh connector, boolean-transform repair, approval-gated synthetic return, and direct eight-call ledger | [Case evidence](PA-072/) |
 | PA-073 — Household service | Pass after two proposal corrections, live synthetic connector setup, two separately approved schedule writes, cancellation handling, and exact nine-call ledger verification | [Case evidence](PA-073/) |
-| PA-074–PA-100 | 21 pass or pass after fixture repair; 6 need repair or evidence correction | [Detailed live ledger](PA-074-100-case-workflow.md) |
+| PA-074–PA-100 | Original first pass: 21 pass or pass after fixture repair; 6 needed repair or evidence correction. Latest rerun: all six reached Reviewer-approved terminal results, with fixture limits retained explicitly. | [Detailed live ledger](PA-074-100-case-workflow.md) |
 
 The test service is synthetic. It uses one provider-neutral connection and does
 not touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
