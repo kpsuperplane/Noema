@@ -295,7 +295,7 @@ func providerMessagesFromItems(
 			messages = append(messages, provider.GenerationMessage{Role: "user", Content: item.ContentText})
 			rounds = append(rounds, providerRound(item))
 		case store.ConversationAssistantText:
-			if textValue(item.Metadata["provider_output_kind"]) == "reasoning" {
+			if textValue(item.Metadata["provider_output_kind"]) == "reasoning" || numberField(item.Metadata, "paragraph_index") > 0 {
 				continue
 			}
 			round := providerRound(item)

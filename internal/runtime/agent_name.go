@@ -206,12 +206,10 @@ func initialNameOnboardingPrompt(conversation store.Conversation, agent store.Ag
 }
 
 func splitInitialNameOnboarding(text string) []string {
-	parts := strings.Split(text, "---")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if value := strings.TrimSpace(part); value != "" {
-			result = append(result, value)
-		}
+	segments := provider.SplitMarkdownSegments(text)
+	result := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		result = append(result, segment.Text)
 	}
 	return result
 }

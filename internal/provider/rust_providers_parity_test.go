@@ -3103,7 +3103,7 @@ func TestRustProviders_BubbleBoundariesSplitAcrossChunksButFencedRulesDoNot(t *t
 
 // Rust source: crates/noema-providers/src/generation/message_splitter.rs::segment_ranges_preserve_utf16_offsets_and_removed_separators (baseline a007a4fa984f0d2eaeb2c101337dbbe7881d9379).
 func TestRustProviders_SegmentRangesPreserveUtf16OffsetsAndRemovedSeparators(t *testing.T) {
-	segments := splitMarkdownSegments("😀 first\n\nsecond\n---\nthird")
+	segments := SplitMarkdownSegments("😀 first\n\nsecond\n---\nthird")
 	if len(segments) != 3 || segments[0].Text != "😀 first" || segments[1].Text != "second" || segments[2].Text != "third" {
 		t.Fatalf("markdown segments = %#v", segments)
 	}

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -62,5 +63,56 @@ func TestChatOutputPreservesMessagePhasesAndReasoningDisplay(t *testing.T) {
 	result.Output[0].Text = "stale changed output"
 	if err := stream.finish(&result, nil); err == nil {
 		t.Fatal("failed turn accepted output")
+	}
+}
+
+func TestChatOutputSavesParagraphsAndPreservesNativeReplay(t *testing.T) {
+	for _, streamed := range []bool{false, true} {
+		t.Run(fmt.Sprint(streamed), func(t *testing.T) {
+			chat, database, conversation := chatFixture(t)
+			ctx := context.Background()
+			turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "hello", nil, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := "😀 hello\n\n```text\none\n\ntwo\n```\n\nQuestion?"
+			stream := chat.outputStream(turn, 0, nil)
+			if streamed {
+				stream.event(provider.StreamEvent{Kind: provider.TextDelta, Index: 0, Delta: "😀 hello\n"})
+				stream.event(provider.StreamEvent{Kind: provider.MessageCompleted, Index: 0, ID: "m1", Phase: "final_answer", Text: text})
+			}
+			start, end := utf16CodeUnitCount(text)-9, utf16CodeUnitCount(text)
+			result := provider.GenerationResult{Text: text, Citations: []provider.Citation{{URL: "https://example.com", StartIndex: &start, EndIndex: &end}}}
+			if err := stream.finish(&result, nil); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := database.CompleteConversationTurn(ctx, turn, text, text, nil, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Items) != 4 {
+				t.Fatalf("saved messages = %#v", page.Items)
+			}
+			for i, want := range []string{"😀 hello", "```text\none\n\ntwo\n```", "Question?"} {
+				if page.Items[i+1].ContentText != want || page.Items[i+1].Status != "completed" || page.Items[i+1].Metadata["phase"] != "final_answer" {
+					t.Fatalf("paragraph %d = %#v", i, page.Items[i+1])
+				}
+			}
+			if page.Items[1].Metadata["citations"] != nil || page.Items[2].Metadata["citations"] != nil {
+				t.Fatal("citation attached to the wrong paragraph")
+			}
+			citations := page.Items[3].Metadata["citations"].([]any)
+			citation := citations[0].(map[string]any)
+			if citation["start_index"] != float64(0) || citation["end_index"] != float64(9) {
+				t.Fatalf("paragraph citation offsets = %#v", citation)
+			}
+			replay, err := providerMessagesFromItems(page.Items, turn.ID, conversation.Provider)
+			if err != nil || len(replay) != 2 || replay[1].Content != text {
+				t.Fatalf("native replay changed: %#v, %v", replay, err)
+			}
+		})
 	}
 }

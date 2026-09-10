@@ -556,7 +556,8 @@ func (p *foundationBridgeProcess) cancelRequest(requestID string) error {
 	return nil
 }
 
-type providerMarkdownSegment struct {
+// MarkdownSegment keeps display text and its range in the original response.
+type MarkdownSegment struct {
 	Text        string
 	SourceUTF16 [2]int
 }
@@ -637,9 +638,9 @@ func (s *providerMarkdownDeltaSplitter) process(line string) []providerMarkdownD
 	return []providerMarkdownDeltaChunk{{Index: s.segment, Text: line}}
 }
 
-// splitMarkdownSegments preserves the Rust splitter's bubble boundaries,
+// SplitMarkdownSegments preserves the Rust splitter's bubble boundaries,
 // fenced blocks, and UTF-16 source ranges.
-func splitMarkdownSegments(text string) []providerMarkdownSegment {
+func SplitMarkdownSegments(text string) []MarkdownSegment {
 	type chunk struct {
 		index      int
 		text       string
@@ -706,10 +707,10 @@ func splitMarkdownSegments(text string) []providerMarkdownSegment {
 	if pending != "" {
 		process(pending)
 	}
-	segments := make([]providerMarkdownSegment, 0, segment+1)
+	segments := make([]MarkdownSegment, 0, segment+1)
 	for _, c := range chunks {
 		for len(segments) <= c.index {
-			segments = append(segments, providerMarkdownSegment{SourceUTF16: [2]int{c.start, c.start}})
+			segments = append(segments, MarkdownSegment{SourceUTF16: [2]int{c.start, c.start}})
 		}
 		current := &segments[c.index]
 		if current.Text == "" {
@@ -718,7 +719,7 @@ func splitMarkdownSegments(text string) []providerMarkdownSegment {
 		current.Text += c.text
 		current.SourceUTF16[1] = c.end
 	}
-	result := make([]providerMarkdownSegment, 0, len(segments))
+	result := make([]MarkdownSegment, 0, len(segments))
 	for _, segment := range segments {
 		trimmed := strings.TrimRight(segment.Text, "\r\n")
 		removed := len(utf16.Encode([]rune(segment.Text[len(trimmed):])))
@@ -732,7 +733,7 @@ func splitMarkdownSegments(text string) []providerMarkdownSegment {
 }
 
 func splitMarkdownMessages(text string) []string {
-	segments := splitMarkdownSegments(text)
+	segments := SplitMarkdownSegments(text)
 	result := make([]string, len(segments))
 	for i := range segments {
 		result[i] = segments[i].Text

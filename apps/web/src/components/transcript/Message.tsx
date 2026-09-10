@@ -1,6 +1,5 @@
 import * as React from "react";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
-import { parseMarkdown } from "@astryxdesign/core/Markdown";
 import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
@@ -97,39 +96,7 @@ const userMarkdownComponents: MarkdownComponents = {
   link: UserBubbleMarkdownLink
 };
 
-export function Message(props: React.ComponentProps<typeof MessageBubble>) {
-  const paragraphs = React.useMemo(() => {
-    // Structured Markdown and cited answers keep their shared document context.
-    if (props.role !== "assistant" || props.progress || props.singleLine ||
-      props.variant === "typing" || props.citations?.length ||
-      parseMarkdown(props.text).some((block) => block.type !== "paragraph")) {
-      return [props.text];
-    }
-    return props.text.split(/\r?\n[ \t]*\r?\n/).map((text) => text.trim()).filter(Boolean);
-  }, [props.role, props.progress, props.singleLine, props.variant, props.citations, props.text]);
-  if (paragraphs.length <= 1) return <MessageBubble {...props} />;
-  return (
-    <VStack gap={1}>
-      {paragraphs.map((text, index) => {
-        const last = index === paragraphs.length - 1;
-        const previous = index > 0 || props.group === "middle" || props.group === "last";
-        const next = !last || props.group === "first" || props.group === "middle";
-        return (
-          <MessageBubble
-            {...props}
-            key={index}
-            text={text}
-            group={previous ? (next ? "middle" : "last") : "first"}
-            showAvatar={last && props.showAvatar}
-            attachment={last ? props.attachment : undefined}
-          />
-        );
-      })}
-    </VStack>
-  );
-}
-
-function MessageBubble({
+export function Message({
   animate,
   avatarActivity = "idle",
   avatarAnimated = false,

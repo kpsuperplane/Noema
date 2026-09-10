@@ -313,11 +313,14 @@ visually verified unless browser inspection is explicitly authorized.
 
 ## Assistant message bubbles
 
-Web Chat displays separate paragraphs in ordinary assistant replies as separate bubbles.
-This is a display rule. The saved response and its provider text remain intact.
-The last bubble owns the response attachment and the visible avatar, when present.
-Streaming text uses the same display rule as saved history.
+The server saves separate paragraphs in completed Chat replies as separate messages.
+Web and native clients render those saved boundaries without splitting text.
+Blank lines and standalone three-dash separators create boundaries outside fenced code.
+Code fences retain their internal blank lines.
+Citations use each paragraph's source range.
+The first paragraph retains the complete provider message for model history.
+Later paragraphs are display records and do not duplicate model history.
 
-Structured Markdown, cited responses, and progress text retain one document context.
-This preserves code blocks, lists, tables, citation offsets, and compact progress displays.
-Human messages remain unchanged.
+A message streams in one record until its completion supplies stable boundaries.
+Existing saved messages remain unchanged.
+Human messages and readable reasoning remain unchanged.
