@@ -96,11 +96,71 @@ function stateFor(caseId: string): CaseState {
 
 function outcomeFor(caseId: string): CaseOutcome {
   switch (caseId) {
+    case "PA-074":
+      return {
+        verification: "Emergency plan verified: route B remains accessible after the route-A closure, expired supplies were replaced, the dog plan is included, and an offline-readable contact packet was saved.",
+        receipts: "supplies-001,offline-packet-001",
+        status: "verified_synthetic_emergency"
+      };
+    case "PA-075":
+      return {
+        verification: "Itinerary verified: only the duplicate booking was merged, booking references and local times were preserved, and the missing airport transfer remains an explicit gap.",
+        receipts: "itinerary-001",
+        status: "verified_synthetic_itinerary"
+      };
+    case "PA-076":
+      return {
+        verification: "Trip booking verified: one feasible synthetic booking was committed within the 1200 USD budget, the post-commit 502 was reconciled by status, and no duplicate submission occurred.",
+        receipts: "trip-booking-001",
+        status: "verified_synthetic_booking"
+      };
+    case "PA-077":
+      return {
+        verification: "Travel recovery verified: the accessible replacement was selected, the downstream hotel was reconciled, and the unchanged alert was suppressed.",
+        receipts: "replacement-001,hotel-reconcile-001",
+        status: "verified_synthetic_disruption"
+      };
     case "PA-078":
       return {
         verification: "Checklist verified: the passport-validity gap and Cedar transit-visa requirement remain flagged. Rule 2026-08-01 and notice 2026-09-20 are recorded. No legal clearance was granted.",
         receipts: "entry-checklist-001",
         status: "verified_synthetic_checklist"
+      };
+    case "PA-079":
+      return {
+        verification: "Value recovery verified: the restricted 150 USD credit and pending 80 USD refund remain separate, one eligible synthetic request was recorded, no double claim was made, and the credit-expiry reminder is retained.",
+        receipts: "recovery-request-001,refund-reminder-001",
+        status: "verified_synthetic_value_recovery"
+      };
+    case "PA-080":
+      return {
+        verification: "Group travel verified: Nov 13 is the only date shared by all three travelers, the selected hotel has confirmed wheelchair access, and the transport-plus-hotel total is 1080 USD within the 1200 USD budget.",
+        receipts: "group-plan-001",
+        status: "verified_synthetic_group_travel"
+      };
+    case "PA-081":
+      return {
+        verification: "Event plan verified: undersized venue A was rejected, venue B and the approved caterer cover the final 18 guests, the plan stays within 1000 USD, and the venue-B deposit refund terms are retained.",
+        receipts: "venue-001,caterer-001,closeout-001",
+        status: "verified_synthetic_event"
+      };
+    case "PA-082":
+      return {
+        verification: "Move coordination verified: all twelve scoped address changes were acknowledged, new utilities start before old utilities end, later changes follow the move date, and identities A and B stayed separate.",
+        receipts: "address-change-001,address-change-002,address-change-003,address-change-004,address-change-005,address-change-006,address-change-007,address-change-008,address-change-009,address-change-010,address-change-011,address-change-012",
+        status: "verified_synthetic_move"
+      };
+    case "PA-083":
+      return {
+        verification: "Housing search verified: hard rent, pet, commute, fee, and availability constraints produced a valid shortlist, stale listing F was excluded, and one application was recorded for verified listing A.",
+        receipts: "application-001",
+        status: "verified_synthetic_housing"
+      };
+    case "PA-084":
+      return {
+        verification: "Closeout verified: unique spend is 800 USD after removing the duplicate receipt, the 300 USD deposit and 50 USD refund remain separate open items, and the utility cancellation is not closed without its completion receipt.",
+        receipts: "utility-cancel-001,closeout-001",
+        status: "verified_synthetic_closeout"
       };
     case "PA-085":
       return {
@@ -108,11 +168,95 @@ function outcomeFor(caseId: string): CaseOutcome {
         receipts: "school-a-update-001,school-b-update-001",
         status: "verified_synthetic_schedule"
       };
+    case "PA-086":
+      return {
+        verification: "School digest verified: notices remain separated by child, the corrected trip date is May 21, the four repeated deadlines are deduplicated, and only Child A's approved permission and 35 USD fee were recorded.",
+        receipts: "permission-001,fee-001",
+        status: "verified_synthetic_school_digest"
+      };
+    case "PA-087":
+      return {
+        verification: "Activity plan verified: age and allergy conflicts were rejected, Camp C remains waitlisted, Camp B uses the 40 USD sibling discount for a 320 USD total, and its supplied bus route is feasible.",
+        receipts: "camp-b-001,waitlist-001",
+        status: "verified_synthetic_activity"
+      };
+    case "PA-088":
+      return {
+        verification: "Household allocation verified: planning work remains visible, the supplied consent and capacities are used, the allocation was rebalanced when adult A dropped to six hours, and no activity surveillance was inferred.",
+        receipts: "allocation-001,rebalanced-001",
+        status: "verified_synthetic_household"
+      };
+    case "PA-089":
+      return {
+        verification: "Application tracking verified: programs A, B, and C retain their separate requirements and owners, the deadline is October 15, the supplied transcript is used only for A, and missing evidence is not marked complete.",
+        receipts: "application-a-001,application-b-001,application-c-001",
+        status: "verified_synthetic_applications"
+      };
+    case "PA-090":
+      return {
+        verification: "Permission delivery verified: recipient A received only the school schedule, recipient B's earlier scope is recorded, and withdrawal, removal, or consent expiry blocks later delivery to B.",
+        receipts: "packet-a-001,packet-b-001",
+        status: "verified_synthetic_permissions"
+      };
+    case "PA-091":
+      return {
+        verification: "Volunteer placement verified: eligible Role B matches the supplied skills, access, and schedule, its training record is present, and only the later shift change to Wednesday at 18:00 was applied.",
+        receipts: "registration-001,training-001,shift-update-001",
+        status: "verified_synthetic_volunteer"
+      };
+    case "PA-092":
+      return {
+        verification: "Occasion plan verified: the six contacts' preferences and lead times are retained, contact C remains blocked, selected gifts total 185 USD within budget, and no unapproved message was sent.",
+        receipts: "occasion-calendar-001",
+        status: "verified_synthetic_occasions"
+      };
+    case "PA-093":
+      return {
+        verification: "Archive preservation verified: 25 unique files and both differing same-name files remain, metadata and source locators are retained, the backup was repaired and compared, and no removal was authorized.",
+        receipts: "archive-001,backup-001",
+        status: "verified_synthetic_archive"
+      };
+    case "PA-094":
+      return {
+        verification: "Security inventory verified: metadata for accounts A through D is retained, stale device D and the MFA gap on C are reported, one supplied unrecognized session was revoked, valid access remains, and no credentials were exposed.",
+        receipts: "session-revocation-001",
+        status: "verified_synthetic_security"
+      };
+    case "PA-095":
+      return {
+        verification: "Account recovery verified: mail containment at 09:00 precedes the 09:10 bank alert, both supplied unauthorized sessions were revoked, bureau case IDs remain attached, the delayed confirmation is tracked, and no money moved.",
+        receipts: "mail-containment-001,session-revocation-001,follow-up-001",
+        status: "verified_synthetic_account_recovery"
+      };
+    case "PA-096":
+      return {
+        verification: "Privacy reduction verified: only approved controls changed, grants G1 and G2 were revoked, deletion of R remains tracked while delayed, reappearance was reported, and the unchanged setting stayed quiet.",
+        receipts: "grant-g1-001,grant-g2-001,deletion-001,reappearance-001",
+        status: "verified_synthetic_privacy"
+      };
     case "PA-097":
       return {
         verification: "Migration verified: all 20 selected ordinary files and settings are present on target T, F-17 was repaired, authenticator data stayed in its protected transfer boundary, and source S remains available. Disposal is not authorized.",
         receipts: "transfer-001,repair-f17-001,target-verify-001",
         status: "verified_synthetic_migration"
+      };
+    case "PA-098":
+      return {
+        verification: "Memory maintenance verified: source locators and correction history remain visible, duplicate evidence is deduplicated, preference X is replaced by later preference Y, and retrieval uses Y.",
+        receipts: "memory-update-001",
+        status: "verified_synthetic_memory"
+      };
+    case "PA-099":
+      return {
+        verification: "Digital legacy plan verified: five account release rules and waiting periods are retained, executor B replaces executor A, credentials stay protected and outside the plan, and no account was released or closed early.",
+        receipts: "legacy-plan-001,executor-update-001",
+        status: "verified_synthetic_legacy"
+      };
+    case "PA-100":
+      return {
+        verification: "Accessible export verified: the scanned table keeps its row and column relationships, the image caption is retained, the email attachment is included, and the exported HTML and structured text preserve keyboard and screen-reader order.",
+        receipts: "accessible-html-001,structured-text-001",
+        status: "verified_synthetic_accessibility"
       };
     default:
       return {
