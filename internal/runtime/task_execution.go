@@ -207,6 +207,9 @@ func (r *TaskExecution) runWorker() {
 		go func() {
 			defer close(finished)
 			defer r.markInactiveTask(task.ID)
+			if r.web != nil {
+				defer r.web.CloseBrowser(taskBrowserOwner(task.ID, run.Generation))
+			}
 			r.execute(runContext, task, run)
 		}()
 		for {
