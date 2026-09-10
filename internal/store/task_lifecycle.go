@@ -291,6 +291,11 @@ func (s *Store) CancelTask(ctx context.Context, id string, revision, generation 
 		if err = rows.Close(); err != nil {
 			return TaskCommandResult{}, err
 		}
+		if _, err = tx.ExecContext(ctx, `UPDATE mcp_auth_requests SET state='cancelled',
+ oauth_attempt_id=NULL,adapter_attempt_id=NULL,failure_code='task_cancelled',updated_at_ms=?
+ WHERE task_id=? AND task_generation=? AND state IN ('awaiting_user','authorizing','resuming')`, millis(now), id, generation); err != nil {
+			return TaskCommandResult{}, err
+		}
 		for _, actionID := range interrupted {
 			if err = insertActionEvent(ctx, tx, actionID, "outcome_uncertain", "actor:human:local",
 				map[string]any{"failure_code": "outcome_uncertain", "reason": "task_cancelled"}, now); err != nil {

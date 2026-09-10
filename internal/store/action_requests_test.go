@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -235,6 +236,30 @@ func TestTaskCancellationClosesPendingActionApproval(t *testing.T) {
 	if err != nil || action.State != ActionAwaitingApproval {
 		t.Fatalf("pending action = %#v, %v", action, err)
 	}
+	serverID := "mcp_server:" + strings.Repeat("a", 32)
+	_, err = database.CommitMCPConnection(ctx, NewMCPConnection{
+		Definition: MCPDefinition{
+			ID:          "mcp_definition:" + strings.Repeat("b", 32),
+			Revision:    "mcp_definition_revision:" + strings.Repeat("c", 32),
+			DisplayName: "Synthetic MCP", TransportKind: "streamable_http",
+			SafeConfig: json.RawMessage(`{"url":"http://example.invalid/mcp"}`),
+		},
+		ServerID: serverID, ConnectionRevision: "mcp_connection_revision:" + strings.Repeat("d", 32), AuthStatus: "none",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authRequest, _, err := database.CreateMCPAuthRequest(ctx, MCPAuthRequest{
+		TaskID: id, RunID: run.ID, RunItemID: items[0].ID, TaskGeneration: run.Generation,
+		OwnerHumanID: "human:local", AuthorityKind: "mcp_server", AuthorityID: serverID,
+		CapabilityName: "audit.write", BindingJSON: `{}`, ArgumentsJSON: `{}`,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authRequest.State != "awaiting_user" {
+		t.Fatalf("pending authentication = %#v", authRequest)
+	}
 	pending, err := database.PendingActionRequests(ctx, "human:local", nil, nil, 10)
 	if err != nil || len(pending) != 1 {
 		t.Fatalf("pending before cancellation = %#v, %v", pending, err)
@@ -245,6 +270,14 @@ func TestTaskCancellationClosesPendingActionApproval(t *testing.T) {
 	}
 	if _, err = database.CancelTask(ctx, id, task.Revision, task.Generation, "Stop", testTaskLifecycleCommand("cancel_task", "pending-cancel"), now.Add(time.Second)); err != nil {
 		t.Fatal(err)
+	}
+	authRequest, err = database.MCPAuthRequest(ctx, authRequest.ID, authRequest.Revision)
+	if err != nil || authRequest.State != "cancelled" || authRequest.Failure != "task_cancelled" {
+		t.Fatalf("cancelled authentication = %#v, %v", authRequest, err)
+	}
+	pendingAuth, err := database.PendingMCPAuthRequests(ctx, "human:local", nil, nil, 10)
+	if err != nil || len(pendingAuth) != 0 {
+		t.Fatalf("pending authentication after cancellation = %#v, %v", pendingAuth, err)
 	}
 	action, err = database.ActionRequest(ctx, action.ID, action.Revision)
 	if err != nil || action.State != ActionCancelled || action.FailureCode != "task_cancelled" {

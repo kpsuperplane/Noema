@@ -146,6 +146,17 @@ func (s *Store) initialize(ctx context.Context) error {
  oauth_attempt_id=NULL,failure_code='outcome_uncertain' WHERE state='resuming'`); err != nil {
 		return fmt.Errorf("recover MCP call resumption: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE mcp_auth_requests SET state='cancelled',
+ oauth_attempt_id=NULL,adapter_attempt_id=NULL,failure_code='task_cancelled',updated_at_ms=?
+ WHERE task_id IS NOT NULL AND state IN ('awaiting_user','authorizing','resuming')
+ AND NOT EXISTS (
+   SELECT 1 FROM tasks t JOIN task_runs r ON r.run_id=mcp_auth_requests.run_id
+   WHERE t.task_id=mcp_auth_requests.task_id AND t.generation=mcp_auth_requests.task_generation
+     AND t.current_run_id=mcp_auth_requests.run_id AND r.task_id=t.task_id
+     AND r.task_generation=t.generation AND r.status IN ('running','waiting_for_approval')
+ )`, millis(time.Now().UTC())); err != nil {
+		return fmt.Errorf("close stale Task authentication: %w", err)
+	}
 	if version != schemaVersion {
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
