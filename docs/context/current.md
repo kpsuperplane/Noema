@@ -284,6 +284,13 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   Linux can validate the authored GraphQL operations against the shared schema.
 - Synthetic Gmail and Notion OAuth callbacks have been exercised through the
   live hosted fixture. Real provider consent remains outside this acceptance.
+- PA-073 household-service acceptance passes through the live Go backend. Its
+  connector setup required explicit custom response content types and argument
+  descriptions. The case completed five ordered reads, two separately approved
+  synthetic writes, cancellation handling, and an exact nine-call ledger.
+- The Go backend embeds a bounded Lua 5.4 runtime through `github.com/arnodel/golua`.
+  Public `code.run_luau` and `language: "luau"` labels remain compatibility
+  names for existing task and connector definitions.
 - Production iOS notifications need enabled entitlements, regenerated signing
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated

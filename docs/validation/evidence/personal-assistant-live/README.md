@@ -1,6 +1,6 @@
 # Live personal-assistant acceptance ledger
 
-Updated: 2026-09-09
+Updated: 2026-09-10
 
 This ledger records the fresh Go-backend acceptance run. It does not import
 the superseded replay report. Every case is run through the live Noema
@@ -83,7 +83,8 @@ development instance and inspected before the next case starts.
 | PA-070 — Vehicle lifecycle | Pass after reviewed API setup, six ordered source reads, Luau checks, one approved synthetic booking, receipt and status verification, and direct ledger verification | [Case evidence](PA-070/) |
 | PA-071 — Pet care planning | Pass after reviewed API setup, seven ordered source reads, same-name identity checks, one approved synthetic action, confirmation verification, and direct ledger verification | [Case evidence](PA-071/) |
 | PA-072 — Routine return | Pass after a fresh connector, boolean-transform repair, approval-gated synthetic return, and direct eight-call ledger | [Case evidence](PA-072/) |
-| PA-073–PA-100 | Not run | The operator will run each case in order. |
+| PA-073 — Household service | Pass after two proposal corrections, live synthetic connector setup, two separately approved schedule writes, cancellation handling, and exact nine-call ledger verification | [Case evidence](PA-073/) |
+| PA-074–PA-100 | Not run | The operator will run each case in order. |
 
 The test service is synthetic. It uses two fixture accounts and does not
 touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
