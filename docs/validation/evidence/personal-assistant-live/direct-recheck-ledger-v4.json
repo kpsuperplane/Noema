@@ -1,0 +1,53 @@
+{
+  "capturedAt": "2026-09-10",
+  "backend": "live Go Noema development server",
+  "socket": "/tmp/noema-codex/graphql.sock",
+  "conversationId": "conversation:a39407c5e9686f34225273862829bf0f",
+  "connector": {
+    "definition": "synthetic_case_workflow_api_v1",
+    "connectionId": "2d79d72190362a19d0a25ab4af1c607b",
+    "acceptedRevision": "v4",
+    "semanticDigest": "b7143a837465c5e61db9db6c4c15a34a3bd8bfd0b661d46268dd1d069e2eb170"
+  },
+  "fixture": {
+    "version": "2026-09-10-case-workflow-api-v3",
+    "origin": "https://tony-authorities-logs-whatever.trycloudflare.com",
+    "scope": "provider-neutral synthetic records only"
+  },
+  "ledger": {
+    "requestCount": 84,
+    "caseCount": 27,
+    "failedFixtureRequests": [],
+    "oneActionPerCase": true
+  },
+  "cases": [
+    {"case":"PA-074","initialTurn":835,"approvalTurn":836,"statusTurn":838,"actionId":"action:35d6ebf5cc3a1c644e3ea64d596d66a0","fixtureActionId":"pa-074-action-001","status":"verified_synthetic_emergency","receipts":["supplies-001","offline-packet-001"]},
+    {"case":"PA-075","initialTurn":839,"approvalTurn":840,"statusTurn":842,"actionId":"action:ab4d911343335ad43f0b63467c390901","fixtureActionId":"pa-075-action-001","status":"verified_synthetic_itinerary","receipts":["itinerary-001"]},
+    {"case":"PA-076","initialTurn":843,"approvalTurn":844,"statusTurn":846,"actionId":"action:00171d8f5cf7b38e269d86562ccaaa96","fixtureActionId":"pa-076-action-001","status":"verified_synthetic_booking","receipts":["trip-booking-001"]},
+    {"case":"PA-077","initialTurn":847,"approvalTurn":848,"statusTurn":850,"actionId":"action:cd865e07f00f0519bbd27707b67a21ce","fixtureActionId":"pa-077-action-001","status":"verified_synthetic_disruption","receipts":["replacement-001","hotel-reconcile-001"]},
+    {"case":"PA-078","initialTurn":851,"approvalTurn":852,"statusTurn":854,"actionId":"action:edcc282b136130c6c76cc81726834f71","fixtureActionId":"pa-078-action-001","status":"verified_synthetic_checklist","receipts":["entry-checklist-001"]},
+    {"case":"PA-079","initialTurn":855,"approvalTurn":856,"statusTurn":858,"actionId":"action:2b937724a29810946ff9d9000a388d9f","fixtureActionId":"pa-079-action-001","status":"verified_synthetic_value_recovery","receipts":["recovery-request-001","refund-reminder-001"]},
+    {"case":"PA-080","initialTurn":859,"approvalTurn":860,"statusTurn":862,"actionId":"action:f182726fd1e87212e301fe3082b54750","fixtureActionId":"pa-080-action-001","status":"verified_synthetic_group_travel","receipts":["group-plan-001"]},
+    {"case":"PA-081","initialTurn":863,"approvalTurn":864,"statusTurn":866,"actionId":"action:536814102fe6c136cd9ff0637b4fe5af","fixtureActionId":"pa-081-action-001","status":"verified_synthetic_event","receipts":["venue-001","caterer-001","closeout-001"]},
+    {"case":"PA-082","initialTurn":867,"approvalTurn":868,"statusTurn":870,"actionId":"action:f25e704fbda2c6842808db0042430072","fixtureActionId":"pa-082-action-001","status":"verified_synthetic_move","receipts":["address-change-001","address-change-002","address-change-003","address-change-004","address-change-005","address-change-006","address-change-007","address-change-008","address-change-009","address-change-010","address-change-011","address-change-012"]},
+    {"case":"PA-083","initialTurn":871,"approvalTurn":872,"statusTurn":875,"actionId":"action:cec1df2a0d77f4f11f55dc2819007ca7","fixtureActionId":"pa-083-action-001","status":"verified_synthetic_housing","receipts":["application-001"],"note":"The first fixture response named listing C by mistake. The source and saved fixture state were corrected, then a status-only recheck confirmed listing A. No second action was submitted."},
+    {"case":"PA-084","initialTurn":876,"approvalTurn":877,"statusTurn":879,"actionId":"action:ad36a8b34808069c9b1c4712161dc62c","fixtureActionId":"pa-084-action-001","status":"verified_synthetic_closeout","receipts":["utility-cancel-001","closeout-001"]},
+    {"case":"PA-085","initialTurn":880,"approvalTurn":881,"statusTurn":883,"actionId":"action:f261b188e022d830ee052c0e4b9de6e7","fixtureActionId":"pa-085-action-001","status":"verified_synthetic_schedule","receipts":["school-a-update-001","school-b-update-001"]},
+    {"case":"PA-086","initialTurn":884,"approvalTurn":885,"statusTurn":887,"actionId":"action:0f1565e4b87518ca9a56e817d2b6d709","fixtureActionId":"pa-086-action-001","status":"verified_synthetic_school_digest","receipts":["permission-001","fee-001"]},
+    {"case":"PA-087","initialTurn":888,"approvalTurn":null,"statusTurn":892,"actionId":"action:c017ae82a83b580a379f8e7c5f35777e","fixtureActionId":"pa-087-action-001","status":"verified_synthetic_activity","receipts":["camp-b-001","waitlist-001"],"note":"A shell expansion changed the first approval text from 40 USD to 0. The agent caught the mismatch and made no action. A corrected human follow-up approved the intended 320 USD result."},
+    {"case":"PA-088","initialTurn":893,"approvalTurn":894,"statusTurn":896,"actionId":"action:58206a8d8f013e15e24491b2c8154a00","fixtureActionId":"pa-088-action-001","status":"verified_synthetic_household","receipts":["allocation-001","rebalanced-001"]},
+    {"case":"PA-089","initialTurn":897,"approvalTurn":898,"statusTurn":900,"actionId":"action:757468b6b8e7d7e2748bec070de539e8","fixtureActionId":"pa-089-action-001","status":"verified_synthetic_applications","receipts":["application-a-001","application-b-001","application-c-001"],"note":"The first turn prepared the tracker but did not write. The approved follow-up recorded the single action."},
+    {"case":"PA-090","initialTurn":901,"approvalTurn":902,"statusTurn":904,"actionId":"action:68dc0915ca3efe5727208b69aeb172b8","fixtureActionId":"pa-090-action-001","status":"verified_synthetic_permissions","receipts":["packet-a-001","packet-b-001"]},
+    {"case":"PA-091","initialTurn":905,"approvalTurn":906,"statusTurn":908,"actionId":"action:0fa6d0f197a8e737eb94cf19c8e1fb47","fixtureActionId":"pa-091-action-001","status":"verified_synthetic_volunteer","receipts":["registration-001","training-001","shift-update-001"]},
+    {"case":"PA-092","initialTurn":909,"approvalTurn":910,"statusTurn":912,"actionId":"action:ccc73f5d5870b3e5b4a587406a5f06b3","fixtureActionId":"pa-092-action-001","status":"verified_synthetic_occasions","receipts":["occasion-calendar-001"],"note":"The first turn built the calendar but did not write. The approved follow-up recorded the single action."},
+    {"case":"PA-093","initialTurn":914,"approvalTurn":915,"statusTurn":917,"actionId":"action:68d049134cfea541b28f6b44db722a8b","fixtureActionId":"pa-093-action-001","status":"verified_synthetic_archive","receipts":["archive-001","backup-001"],"note":"The first provider request at turn 913 failed before the case was read. A retry completed the case. The fixture ledger contains no action from the failed request."},
+    {"case":"PA-094","initialTurn":918,"approvalTurn":919,"statusTurn":921,"actionId":"action:0d74e1ae7236a081d3ad34a3bc0fc535","fixtureActionId":"pa-094-action-001","status":"verified_synthetic_security","receipts":["session-revocation-001"]},
+    {"case":"PA-095","initialTurn":922,"approvalTurn":923,"statusTurn":925,"actionId":"action:924dcfe2ce8cc31eee9e87e601b46d8b","fixtureActionId":"pa-095-action-001","status":"verified_synthetic_account_recovery","receipts":["mail-containment-001","session-revocation-001","follow-up-001"]},
+    {"case":"PA-096","initialTurn":926,"approvalTurn":927,"statusTurn":929,"actionId":"action:eb42e425d210a7420b1cd18579035b9f","fixtureActionId":"pa-096-action-001","status":"verified_synthetic_privacy","receipts":["grant-g1-001","grant-g2-001","deletion-001","reappearance-001"]},
+    {"case":"PA-097","initialTurn":930,"approvalTurn":931,"statusTurn":933,"actionId":"action:237b86398fad344ea9241559c6665b5b","fixtureActionId":"pa-097-action-001","status":"verified_synthetic_migration","receipts":["transfer-001","repair-f17-001","target-verify-001"]},
+    {"case":"PA-098","initialTurn":934,"approvalTurn":935,"statusTurn":937,"actionId":"action:a02255f067975a9502225480284cabe3","fixtureActionId":"pa-098-action-001","status":"verified_synthetic_memory","receipts":["memory-update-001"]},
+    {"case":"PA-099","initialTurn":938,"approvalTurn":939,"statusTurn":941,"actionId":"action:5b9f4ff9c50206dc16edcec7e26986e1","fixtureActionId":"pa-099-action-001","status":"verified_synthetic_legacy","receipts":["legacy-plan-001","executor-update-001"]},
+    {"case":"PA-100","initialTurn":942,"approvalTurn":943,"statusTurn":945,"actionId":"action:134a921aadd977a088cd4700d3c0b098","fixtureActionId":"pa-100-action-001","status":"verified_synthetic_accessibility","receipts":["accessible-html-001","structured-text-001"]}
+  ],
+  "verdict": "All 27 cases passed within the bounded synthetic fixture. This does not prove effects in real services, accounts, devices, files, schools, travel systems, or payment systems."
+}

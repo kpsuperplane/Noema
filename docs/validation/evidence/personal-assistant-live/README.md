@@ -84,10 +84,11 @@ development instance and inspected before the next case starts.
 | PA-071 — Pet care planning | Pass after reviewed API setup, seven ordered source reads, same-name identity checks, one approved synthetic action, confirmation verification, and direct ledger verification | [Case evidence](PA-071/) |
 | PA-072 — Routine return | Pass after a fresh connector, boolean-transform repair, approval-gated synthetic return, and direct eight-call ledger | [Case evidence](PA-072/) |
 | PA-073 — Household service | Pass after two proposal corrections, live synthetic connector setup, two separately approved schedule writes, cancellation handling, and exact nine-call ledger verification | [Case evidence](PA-073/) |
-| PA-074–PA-100 | Historical first pass: 21 pass or pass after fixture repair; 6 needed repair or evidence correction. The later six-case rerun reached Reviewer-approved terminal results. A clean direct Go-server recheck now passes PA-078, PA-085, and PA-097 with executable receipts and post-write status reads. The other 97 cases retain their earlier evidence and are not claimed as a fresh 100-case run. | [Detailed live ledger](PA-074-100-case-workflow.md) |
+| PA-074–PA-100 | Current v4 direct Go-server recheck passes all 27 cases with one approved synthetic action, one final status read, and receipt-backed outcomes. PA-083 includes a fixture correction, PA-087 includes a corrected approval follow-up, and PA-093 includes one provider-error retry. Historical first-pass and six-case rerun evidence remain below the current result. | [Detailed live ledger](PA-074-100-case-workflow.md) |
 
 The test service is synthetic. It uses one provider-neutral connection and does
 not touch real Gmail, Notion, Calendar, banking, travel, or payment accounts.
 The detailed ledger separates connector calls from task-file calls and records
-the cases that need another repair or a better fixture. The current direct
-recheck ledger is [captured separately](direct-recheck-ledger.json).
+the cases that need another repair or a better fixture. The historical direct
+recheck ledger is [captured separately](direct-recheck-ledger.json), and the
+current all-27-case snapshot is [captured in the v4 ledger](direct-recheck-ledger-v4.json).

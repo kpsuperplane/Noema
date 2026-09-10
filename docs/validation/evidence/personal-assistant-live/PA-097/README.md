@@ -47,3 +47,11 @@ The final read returned:
 | Verify the final status and three receipts | Pass |
 | Keep the no-real-device boundary | Pass |
 
+## Current v4 direct recheck
+
+The later all-range recheck used turns `930`, `931`, and `933`, action
+`action:237b86398fad344ea9241559c6665b5b`, and fixture action
+`pa-097-action-001`. It returned `verified_synthetic_migration` with
+`transfer-001`, `repair-f17-001`, and `target-verify-001`. The [v4 ledger](../direct-recheck-ledger-v4.json)
+is the current call-count authority; this section supersedes the older v3
+turn and connector details above.

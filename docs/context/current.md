@@ -15,9 +15,10 @@ Personal-assistant acceptance now follows [the live case plan](../plans/2026-09-
 Use direct GraphQL interaction through a thin CLI and examine each outcome before advancing.
 First verify agent-generated Gmail API and Notion MCP connections, then retain all 100 original assistant cases.
 The earlier 100-case replay completion report is invalid: successful process exits concealed blocked outcomes.
-The accepted provider-neutral case connector now has a v3 fixture with receipt
-and verification fields. Direct Go-server rechecks for PA-078, PA-085, and
-PA-097 pass; the other 97 cases still need a fresh direct-Chat rerun.
+The accepted provider-neutral case connector now has a v4 fixture with receipt
+and verification fields. A direct Go-server recheck covers PA-074 through
+PA-100 with one approved action and a final status read per case. The normalized
+evidence is `docs/validation/evidence/personal-assistant-live/direct-recheck-ledger-v4.json`.
 
 The Go provider fixture exposes Gmail, Notion MCP, and Calendar contracts at
 `noema-provider-fixtures-v3.service`, revision `2026-09-08-gmail-v1-notion-mcp-v8`; it uses synthetic OAuth and two accounts. Gmail and Notion setup, live reads, recovery, pagination, account boundaries, and delegated reuse now pass. Gmail rate-limit recovery uses an explicit user follow-up, and real provider consent remains outside this acceptance.
@@ -279,9 +280,11 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Synthetic Gmail and Notion OAuth callbacks pass through a hosted fixture; real provider consent remains outside this acceptance. Setup evidence is in `docs/validation/evidence/personal-assistant-live/setup-gmail/` and `setup-notion/`.
 - PA-073 passes through the live Go backend with two approved writes and an
   exact nine-call ledger.
-- PA-074 through PA-100 ran sequentially through one provider-neutral fixture.
-  Six repair rows now have Reviewer-approved reruns; entry detail, transport receipts,
-  and device migration remain fixture-limited. See `docs/validation/evidence/personal-assistant-live/PA-074-100-case-workflow.md`.
+- PA-074 through PA-100 have current sequential direct-Go evidence through one
+  provider-neutral fixture. Each case has one approved action and a final
+  receipt-backed status read. The fixture remains synthetic and cannot prove
+  real provider, travel, school, payment, device, or file effects. See
+  `docs/validation/evidence/personal-assistant-live/PA-074-100-case-workflow.md`.
 - The Go backend embeds Lua 5.4 through `github.com/arnodel/golua`; `code.run_lua`
   accepts standard Lua 5.4. Existing connector transforms retain `language:
   "luau"` until deliberate revision.

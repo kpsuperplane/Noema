@@ -45,3 +45,11 @@ The final read returned:
 | Verify the final status without a duplicate action | Pass |
 | Keep the no-real-provider boundary | Pass |
 
+## Current v4 direct recheck
+
+The later all-range recheck used turns `851`, `852`, and `854`, action
+`action:edcc282b136130c6c76cc81726834f71`, and fixture action
+`pa-078-action-001`. It returned `verified_synthetic_checklist` with one
+`entry-checklist-001` receipt. The [v4 ledger](../direct-recheck-ledger-v4.json)
+is the current call-count authority; this section supersedes the older v3
+turn and connector details above.

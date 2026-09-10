@@ -8,16 +8,17 @@ request. The operator inspected the task state, approval gate, action request,
 fixture ledger, result, and review before starting the next case.
 
 The report also records a later direct-Chat recheck of PA-078, PA-085, and
-PA-097 after the provider-neutral fixture was enriched. That recheck uses the
-current Go server and the accepted v3 connector. It does not replace the
-historical 100-case table or claim a fresh run of the other 97 cases.
+PA-097 after the provider-neutral fixture was enriched. A current v4 direct
+recheck now covers every case in this range. The historical sections remain
+for comparison; the v4 section is the current evidence for PA-074 through
+PA-100.
 
 The original first-pass table below remains as historical evidence. Its six
 `Needs repair` rows were rerun on 2026-09-10 with a refreshed fixture and a
 reviewer prompt that includes the persisted tool-call audit. The latest results
 are in the rerun table below; no earlier evidence was deleted.
 
-## Test boundary
+## Historical first-pass boundary
 
 - Backend: live Noema development server through
   `/tmp/noema-codex/graphql.sock`.
@@ -137,6 +138,72 @@ provider, school, device, file, account, payment, or credential was touched.
 
 Individual evidence: [PA-078](PA-078/), [PA-085](PA-085/), and [PA-097](PA-097/).
 
+## Current v4 direct Go-server recheck
+
+On 2026-09-10, the operator ran PA-074 through PA-100 one at a time through
+the live Go server. Each request used normal conversational language. The
+operator inspected the context response, the proposed action, the approval
+card, the result, and the final status before starting the next case.
+
+- Backend: live Go development server through
+  `/tmp/noema-codex/graphql.sock`.
+- Conversation: `conversation:a39407c5e9686f34225273862829bf0f`.
+- Connector: `definition:synthetic_case_workflow_api_v1`, connection
+  `2d79d72190362a19d0a25ab4af1c607b`.
+- Accepted connector revision: v4, semantic digest
+  `b7143a837465c5e61db9db6c4c15a34a3bd8bfd0b661d46268dd1d069e2eb170`.
+- Fixture: `2026-09-10-case-workflow-api-v3` at
+  `https://tony-authorities-logs-whatever.trycloudflare.com`.
+- Request ledger: [normalized v4 ledger](direct-recheck-ledger-v4.json).
+
+The fixture ledger has 84 requests for 27 cases. Every case has one context
+read, one approved action, and one status read. Every final status is a
+`verified_synthetic_*` value with `action_count: 1` and the receipts listed
+below.
+
+| Case | Chat turns (request / approval / status) | Final status | Receipts |
+| --- | --- | --- | --- |
+| PA-074 | 835 / 836 / 838 | `verified_synthetic_emergency` | `supplies-001`, `offline-packet-001` |
+| PA-075 | 839 / 840 / 842 | `verified_synthetic_itinerary` | `itinerary-001` |
+| PA-076 | 843 / 844 / 846 | `verified_synthetic_booking` | `trip-booking-001` |
+| PA-077 | 847 / 848 / 850 | `verified_synthetic_disruption` | `replacement-001`, `hotel-reconcile-001` |
+| PA-078 | 851 / 852 / 854 | `verified_synthetic_checklist` | `entry-checklist-001` |
+| PA-079 | 855 / 856 / 858 | `verified_synthetic_value_recovery` | `recovery-request-001`, `refund-reminder-001` |
+| PA-080 | 859 / 860 / 862 | `verified_synthetic_group_travel` | `group-plan-001` |
+| PA-081 | 863 / 864 / 866 | `verified_synthetic_event` | `venue-001`, `caterer-001`, `closeout-001` |
+| PA-082 | 867 / 868 / 870 | `verified_synthetic_move` | `address-change-001` through `address-change-012` |
+| PA-083 | 871 / 872 / 875 | `verified_synthetic_housing` | `application-001` |
+| PA-084 | 876 / 877 / 879 | `verified_synthetic_closeout` | `utility-cancel-001`, `closeout-001` |
+| PA-085 | 880 / 881 / 883 | `verified_synthetic_schedule` | `school-a-update-001`, `school-b-update-001` |
+| PA-086 | 884 / 885 / 887 | `verified_synthetic_school_digest` | `permission-001`, `fee-001` |
+| PA-087 | 888 / corrected approval / 892 | `verified_synthetic_activity` | `camp-b-001`, `waitlist-001` |
+| PA-088 | 893 / 894 / 896 | `verified_synthetic_household` | `allocation-001`, `rebalanced-001` |
+| PA-089 | 897 / 898 / 900 | `verified_synthetic_applications` | `application-a-001`, `application-b-001`, `application-c-001` |
+| PA-090 | 901 / 902 / 904 | `verified_synthetic_permissions` | `packet-a-001`, `packet-b-001` |
+| PA-091 | 905 / 906 / 908 | `verified_synthetic_volunteer` | `registration-001`, `training-001`, `shift-update-001` |
+| PA-092 | 909 / 910 / 912 | `verified_synthetic_occasions` | `occasion-calendar-001` |
+| PA-093 | 914 retry / 915 / 917 | `verified_synthetic_archive` | `archive-001`, `backup-001` |
+| PA-094 | 918 / 919 / 921 | `verified_synthetic_security` | `session-revocation-001` |
+| PA-095 | 922 / 923 / 925 | `verified_synthetic_account_recovery` | `mail-containment-001`, `session-revocation-001`, `follow-up-001` |
+| PA-096 | 926 / 927 / 929 | `verified_synthetic_privacy` | `grant-g1-001`, `grant-g2-001`, `deletion-001`, `reappearance-001` |
+| PA-097 | 930 / 931 / 933 | `verified_synthetic_migration` | `transfer-001`, `repair-f17-001`, `target-verify-001` |
+| PA-098 | 934 / 935 / 937 | `verified_synthetic_memory` | `memory-update-001` |
+| PA-099 | 938 / 939 / 941 | `verified_synthetic_legacy` | `legacy-plan-001`, `executor-update-001` |
+| PA-100 | 942 / 943 / 945 | `verified_synthetic_accessibility` | `accessible-html-001`, `structured-text-001` |
+
+Three events need explicit interpretation. PA-083 first returned the wrong
+listing label, so the fixture source and saved state were corrected and a
+status-only read confirmed listing A. PA-087 had a shell-quoting error in the
+first approval text; the agent caught it before writing, and the corrected
+approval produced the only action. PA-093 had one provider error before the
+case was read; its retry completed normally and created no duplicate action.
+
+These are synthetic acceptance results. They do not prove a real email,
+calendar, school, travel, payment, device, file, or account change. The
+fixture supplies the case facts and receipts, including the expected outcome,
+so the result proves Noema's connector, approval, and read-back flow within
+that bounded contract.
+
 ## Findings from the historical six-case rerun
 
 1. The runner and reviewer should count named connector calls from persisted
@@ -150,7 +217,7 @@ Individual evidence: [PA-078](PA-078/), [PA-085](PA-085/), and [PA-097](PA-097/)
 4. The executor can call `code.run_lua` while preparing connector arguments.
    These calls are now visible to the Reviewer as successful or failed tool
    records instead of being mistaken for connector retries.
-5. The v3 fixture now returns executable verification and receipt fields for
-   PA-078, PA-085, and PA-097. The direct recheck above proves those three
-   outcomes. Other cases still need their own provider-neutral read-back
-   contracts when a plan record cannot prove the requested effect.
+5. The v3 fixture returned executable verification and receipt fields for
+   PA-078, PA-085, and PA-097. The current v4 fixture extends that same bounded
+   read-back contract to every case in this range. A synthetic status still
+   proves only the fixture contract; it does not prove a real external effect.

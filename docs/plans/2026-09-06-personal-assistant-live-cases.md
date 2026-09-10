@@ -120,10 +120,11 @@ one approved synthetic return, one status read, and direct eight-call ledger
 verification. PA-074 through PA-100 were then run sequentially through the
 provider-neutral synthetic case-workflow connection. The original first pass
 had twenty-one passes and six rows needing repair or evidence correction. A
-fresh six-case rerun now has Reviewer-approved terminal results for all six.
-The rerun still records honest fixture limits for entry-rule detail, transport
-feasibility, school-update receipts, and physical device migration. The
-detailed outcomes, task IDs, connector ledgers, and limitations are in the
+current v4 direct-Go recheck now covers all 27 cases with one approved action
+and a final status read per case. The evidence still records honest fixture
+limits for real entry-rule decisions, transport effects, school records, and
+physical device migration. The detailed outcomes, task IDs, connector ledgers,
+and limitations are in the
 [PA-074 to PA-100 live
 ledger](../validation/evidence/personal-assistant-live/PA-074-100-case-workflow.md).
 
@@ -473,7 +474,10 @@ Before changing production behavior, state the defect, patch budget, affected fi
 Use repository validation rules for each affected language. Documentation-only updates require link, coverage, and whitespace checks.
 
 This document defines the work. The CLI is complete and independently validated.
-The provider-neutral case fixture is accepted at revision v3, and direct Go
-server rechecks for PA-078, PA-085, and PA-097 pass with receipt-backed
-read-back. The remaining cases still require a fresh direct-Chat rerun before
-the whole 100-case set can be called current.
+The provider-neutral case fixture is accepted at revision v4. A direct Go
+server recheck now covers PA-074 through PA-100 with one approved synthetic
+action and receipt-backed status read per case. The current result and its
+three correction notes are in the [v4 ledger](../validation/evidence/personal-assistant-live/direct-recheck-ledger-v4.json).
+This closes the fresh recheck for the final 27 cases. It does not turn the
+synthetic fixture into proof of real provider, device, travel, school, or
+payment effects.

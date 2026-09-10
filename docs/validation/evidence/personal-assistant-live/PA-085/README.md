@@ -45,3 +45,11 @@ The final read returned:
 | Verify the final status and both receipts | Pass |
 | Keep the no-real-school boundary | Pass |
 
+## Current v4 direct recheck
+
+The later all-range recheck used turns `880`, `881`, and `883`, action
+`action:f261b188e022d830ee052c0e4b9de6e7`, and fixture action
+`pa-085-action-001`. It returned `verified_synthetic_schedule` with
+`school-a-update-001` and `school-b-update-001`. The [v4 ledger](../direct-recheck-ledger-v4.json)
+is the current call-count authority; this section supersedes the older v3
+turn and connector details above.
