@@ -184,3 +184,89 @@ func TestTaskCancellationPreservesUncertainActionOutcome(t *testing.T) {
 		t.Fatalf("late outcome changed cancellation: %#v, %v", task, err)
 	}
 }
+
+func TestTaskCancellationClosesPendingActionApproval(t *testing.T) {
+	database := openTestStore(t)
+	ctx, now := t.Context(), time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
+	account := createReadyModelAccount(t, database)
+	if _, err := database.ConfirmHostedModelAssignments(ctx, account.ID, testModelAssignments(account, "model-a")); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := NewTaskID()
+	_, err := database.CreateTaskWithOptions(ctx, id, "Pending approval cancellation", testTaskLifecycleCommand("create_task", "pending-cancel"), TaskCreateOptions{
+		ExecutorAgentID: TaskExecutorAgentID, InitialRunKind: "executor", ExecutionComplexity: "simple",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, found, err := database.ClaimTaskExecution(ctx, now)
+	if err != nil || !found {
+		t.Fatalf("claim = %t, %v", found, err)
+	}
+	if err = database.StartTaskExecution(ctx, run.ID, run.Generation, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.AppendTaskRunItems(ctx, run.ID, run.Generation, []TaskRunItemInput{{
+		Kind: "tool_call", Status: "running", Payload: map[string]any{
+			"name": "audit.write", "arguments": map[string]any{"value": "pending"},
+		},
+	}}, TaskRunUsage{}, now); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(ctx, run.ID)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("call = %#v, %v", items, err)
+	}
+	action, err := database.CreateActionRequest(ctx, NewActionRequest{
+		TaskID: id, RunID: run.ID, RunItemID: items[0].ID, TaskGeneration: run.Generation,
+		OwnerHumanID: "human:local", RequestingAgentID: run.AgentID, CapabilityName: "audit.write",
+		OperationToken: "audit.write", ReviewRoute: ActionLLMReview, Behavior: ActionBehavior{OpenWorld: true},
+		Arguments: json.RawMessage(`{"value":"pending"}`), InputSchema: json.RawMessage(`{"type":"object"}`),
+		AuthorizationContext: map[string]any{"source": "pending-cancel"}, SafeSummary: "Write the pending value",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, _, err = database.RecordActionAssessment(ctx, action.ID, action.Revision, ActionAssessment{
+		Status: "completed", Authorization: "absent", Risk: "high",
+		ReviewerSelection: map[string]any{"model": "reviewer"}, ReasonCodes: []string{"authorization_absent"},
+		Explanation: "Approval is required.",
+	}, now)
+	if err != nil || action.State != ActionAwaitingApproval {
+		t.Fatalf("pending action = %#v, %v", action, err)
+	}
+	pending, err := database.PendingActionRequests(ctx, "human:local", nil, nil, 10)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending before cancellation = %#v, %v", pending, err)
+	}
+	task, err := database.Task(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.CancelTask(ctx, id, task.Revision, task.Generation, "Stop", testTaskLifecycleCommand("cancel_task", "pending-cancel"), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	action, err = database.ActionRequest(ctx, action.ID, action.Revision)
+	if err != nil || action.State != ActionCancelled || action.FailureCode != "task_cancelled" {
+		t.Fatalf("cancelled pending action = %#v, %v", action, err)
+	}
+	pending, err = database.PendingActionRequests(ctx, "human:local", nil, nil, 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pending after cancellation = %#v, %v", pending, err)
+	}
+	var decisionState string
+	if err = database.db.QueryRowContext(ctx, `SELECT state FROM action_request_decisions WHERE action_id=? AND action_revision=?`, action.ID, action.Revision).Scan(&decisionState); err != nil || decisionState != "superseded" {
+		t.Fatalf("cancelled decision = %q, %v", decisionState, err)
+	}
+	// A legacy row may still be awaiting approval after an older cancellation.
+	if _, err = database.db.ExecContext(ctx, `UPDATE action_requests SET state='awaiting_approval',failure_code=NULL,completed_at_ms=NULL WHERE action_id=?`, action.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.db.ExecContext(ctx, `UPDATE action_request_decisions SET state='pending',decided_by_human_id=NULL,decided_at_ms=NULL,consumed_at_ms=NULL WHERE action_id=? AND action_revision=?`, action.ID, action.Revision); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = database.PendingActionRequests(ctx, "human:local", nil, nil, 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("legacy pending after cancellation = %#v, %v", pending, err)
+	}
+}

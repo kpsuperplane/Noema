@@ -637,6 +637,13 @@ func (s *Store) PendingActionRequests(
 WHERE a.owner_human_id = ? AND a.state = 'awaiting_approval'
   AND (? IS NULL OR a.conversation_id = ?)
   AND (? IS NULL OR a.task_id = ?)
+  AND (a.task_id IS NULL OR EXISTS (
+    SELECT 1 FROM tasks t
+    WHERE t.task_id = a.task_id
+      AND t.state NOT IN ('completed','cancelled')
+      AND t.generation = a.task_generation
+      AND t.current_run_id = a.run_id
+  ))
 ORDER BY a.created_at_ms DESC, a.action_id DESC LIMIT ?`, humanID, conversationID, conversationID, taskID, taskID, limit)
 	if err != nil {
 		return nil, err

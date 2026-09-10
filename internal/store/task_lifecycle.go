@@ -317,6 +317,39 @@ WHERE item_id=(SELECT run_item_id FROM action_requests WHERE action_id=?) AND st
 			}
 
 		}
+		rows, err = tx.QueryContext(ctx, `UPDATE action_requests SET state='cancelled',
+ failure_code='task_cancelled',completed_at_ms=?,updated_at_ms=?
+ WHERE task_id=? AND task_generation=? AND state IN ('proposed','awaiting_approval','executable')
+ RETURNING action_id`, millis(now), millis(now), id, generation)
+		if err != nil {
+			return TaskCommandResult{}, err
+		}
+		var pending []string
+		for rows.Next() {
+			var actionID string
+			if err = rows.Scan(&actionID); err != nil {
+				rows.Close()
+				return TaskCommandResult{}, err
+			}
+			pending = append(pending, actionID)
+		}
+		if err = rows.Err(); err != nil {
+			rows.Close()
+			return TaskCommandResult{}, err
+		}
+		if err = rows.Close(); err != nil {
+			return TaskCommandResult{}, err
+		}
+		for _, actionID := range pending {
+			if _, err = tx.ExecContext(ctx, `UPDATE action_request_decisions SET state='superseded'
+ WHERE action_id=? AND state IN ('pending','approved')`, actionID); err != nil {
+				return TaskCommandResult{}, err
+			}
+			if err = insertActionEvent(ctx, tx, actionID, "cancelled", "actor:human:local",
+				map[string]any{"failure_code": "task_cancelled", "reason": "task_cancelled"}, now); err != nil {
+				return TaskCommandResult{}, err
+			}
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='cancelled', ended_at_ms=?, updated_at_ms=?
 WHERE task_id=? AND status IN ('queued','leased','running','waiting_for_approval')`, millis(now), millis(now), id)
 		if err != nil {
