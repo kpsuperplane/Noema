@@ -1,3 +1,5 @@
+import type * as React from "react";
+import { TaskRows } from "./TaskRows";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
@@ -23,11 +25,13 @@ import { recurrenceSummary, relativeTime, taskRunLabel, timestampLabel } from ".
 import { normalizeTasksSearch, PERSONAL_WORKSPACE_ID, type TasksProject, type TasksTask } from "./tasksTypes";
 
 export function TasksList({
+  scrollRef,
   project,
   projectId,
   selectedTaskId,
   terminal
 }: {
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   project?: TasksProject;
   projectId?: string;
   selectedTaskId?: string;
@@ -86,10 +90,10 @@ export function TasksList({
             {!taskConnection ? (
               <ListMessage loading={rootResult.loading} error={Boolean(rootResult.error)} retry={() => rootResult.refetch()} label="tasks" />
             ) : null}
-            {running.length ? <TaskGroup title="Running" tasks={running} /> : null}
-            {oneTimeScheduled.length || recurrences.length ? <ScheduledGroup oneTimeTasks={oneTimeScheduled} recurrences={recurrences} /> : null}
-            {upNext.length ? <TaskGroup title="Up next" tasks={upNext} /> : null}
-            {inbox.length ? <TaskGroup title="Inbox" tasks={inbox} /> : null}
+            {running.length ? <TaskGroup scrollRef={scrollRef} title="Running" tasks={running} /> : null}
+            {oneTimeScheduled.length || recurrences.length ? <ScheduledGroup scrollRef={scrollRef} oneTimeTasks={oneTimeScheduled} recurrences={recurrences} /> : null}
+            {upNext.length ? <TaskGroup scrollRef={scrollRef} title="Up next" tasks={upNext} /> : null}
+            {inbox.length ? <TaskGroup scrollRef={scrollRef} title="Inbox" tasks={inbox} /> : null}
             <ListLoadMore
               visible={Boolean(taskConnection?.pageInfo.hasNextPage)}
               loading={rootResult.loading}
@@ -105,6 +109,7 @@ export function TasksList({
               })}
             />
             <TasksHistory
+              scrollRef={scrollRef}
               firstTask={tasks.length === 0 && recurrences.length === 0 && terminal === "all" && !projectId}
               terminal={terminal}
               connection={rootResult.data?.taskHistory}
@@ -285,32 +290,32 @@ function AttachedTaskIntervention({
   );
 }
 
-function TaskGroup({ title, tasks }: { title: string; tasks: readonly TasksTask[] }) {
+function TaskGroup({ title, tasks, scrollRef }: { title: string; tasks: readonly TasksTask[]; scrollRef: React.RefObject<HTMLDivElement | null> }) {
   const id = `tasks-group-${title.toLowerCase().replaceAll(" ", "-")}`;
   return (
     <VStack as="section" aria-labelledby={id} gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id={id} title={title} count={tasks.length} />
-      <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
+      <TaskRows scrollRef={scrollRef}>
         {tasks.map((task) => (
-          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
+          <TaskCard listItem={false} key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
         ))}
-      </VStack>
+      </TaskRows>
     </VStack>
   );
 }
 
 type TasksRecurrence = TasksOverviewQuery["taskRecurrences"][number];
 
-function ScheduledGroup({ oneTimeTasks, recurrences }: { oneTimeTasks: readonly TasksTask[]; recurrences: readonly TasksRecurrence[] }) {
+function ScheduledGroup({ oneTimeTasks, recurrences, scrollRef }: { oneTimeTasks: readonly TasksTask[]; recurrences: readonly TasksRecurrence[]; scrollRef: React.RefObject<HTMLDivElement | null> }) {
   return (
     <VStack as="section" aria-labelledby="tasks-group-scheduled" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="tasks-group-scheduled" title="Scheduled" count={oneTimeTasks.length + recurrences.length} />
-      <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
+      <TaskRows scrollRef={scrollRef}>
         {oneTimeTasks.map((task) => (
-          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status="queued" statusLabel="Scheduled" timestamp={task.schedule!.scheduledFor} />
+          <TaskCard listItem={false} key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status="queued" statusLabel="Scheduled" timestamp={task.schedule!.scheduledFor} />
         ))}
         {recurrences.map((recurrence) => <RecurrenceTaskCard key={recurrence.recurrenceId} recurrence={recurrence} />)}
-      </VStack>
+      </TaskRows>
     </VStack>
   );
 }
@@ -320,6 +325,7 @@ function RecurrenceTaskCard({ recurrence }: { recurrence: TasksRecurrence }) {
   const repeat = recurrenceSummary(recurrence.cronExpression);
   return (
     <TaskCard
+      listItem={false}
       recurrenceId={recurrence.recurrenceId}
       title={recurrence.title}
       note={recurrence.nextRunAt ? `${repeat} · Next ${timestampLabel(recurrence.nextRunAt)}` : repeat}
@@ -381,7 +387,8 @@ export function TaskCard({ taskId = "", recurrenceId, title, note, project, stat
   return listItem ? <li {...stylex.props(styles.cardListItem)}>{link}</li> : link;
 }
 
-function TasksHistory({ connection, error, loading, onRefetch, onLoadMore, firstTask, terminal }: {
+function TasksHistory({ scrollRef, connection, error, loading, onRefetch, onLoadMore, firstTask, terminal }: {
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   firstTask: boolean;
   terminal: "all" | "completed" | "cancelled";
   connection?: TasksOverviewQuery["taskHistory"];
@@ -396,9 +403,9 @@ function TasksHistory({ connection, error, loading, onRefetch, onLoadMore, first
       {!firstTask || tasks.length ? <SectionHeader id="tasks-history" title="History" count={tasks.length} /> : null}
       {!connection ? <ListMessage loading={loading} error={error} retry={onRefetch} label="history" /> : null}
       {connection && !tasks.length ? <ListEmpty title={firstTask ? "Your first task starts here" : terminal === "cancelled" ? "No cancelled tasks yet" : "No completed tasks yet"} detail={firstTask ? "Choose New task to get started." : "Finished tasks will appear here."} /> : null}
-      <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
-        {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
-      </VStack>
+      <TaskRows scrollRef={scrollRef}>
+        {tasks.map((task) => <TaskCard listItem={false} key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
+      </TaskRows>
       <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={loading} onLoad={() => {
         const cursor = connection?.pageInfo.endCursor;
         if (cursor) onLoadMore(cursor);

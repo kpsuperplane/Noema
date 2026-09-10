@@ -38,6 +38,7 @@ export function TasksSurface({
   const client = useApolloClient();
   const projectsResult = useTaskProjects();
   const projects = projectsResult.projects;
+  const scrollRef = React.useRef<HTMLDivElement>(null);
   const captureRef = React.useRef<CaptureTaskDetailHandle>(null);
   const [eventCursor, recordEventCursor] = useTasksEventCursor(PERSONAL_WORKSPACE_ID);
   const seenEventIdsRef = React.useRef(new Set<string>());
@@ -73,7 +74,7 @@ export function TasksSurface({
             if (!open) onCloseDetail?.();
           }}
           list={
-            <VStack {...stylex.props(styles.listScroller)}>
+            <VStack ref={scrollRef} {...stylex.props(styles.listScroller)}>
               <TasksToolbar onNewTask={() => {
                 if (creatingTask) {
                   captureRef.current?.focus();
@@ -92,6 +93,7 @@ export function TasksSurface({
               <section aria-label="Tasks" {...stylex.props(styles.panel)}>
                 <ShellPageTrack>
                   <TasksList
+                    scrollRef={scrollRef}
                     project={projects.find((project) => project.projectId === search.project)}
                     projectId={search.project}
                     selectedTaskId={selectedTaskId}
