@@ -274,7 +274,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		function := wire["function"].(map[string]any)
 		toolNames[function["name"].(string)] = true
 	}
-	if !toolNames["run_luau"] || !toolNames["parse"] || !toolNames["inspect"] || !toolNames["download"] ||
+	if !toolNames["run_lua"] || !toolNames["parse"] || !toolNames["inspect"] || !toolNames["download"] ||
 		!toolNames["read_memory_page"] || !toolNames["search_memory"] || !toolNames["hosted_web_search"] {
 		t.Fatalf("advertised tools = %#v", toolNames)
 	}

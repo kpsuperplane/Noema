@@ -161,7 +161,7 @@ type AdapterCredentialSetup struct {
 	RequestAuthTransform   *AdapterCredentialTransform `json:"requestAuthTransform,omitempty"`
 }
 
-// Exact reviewed Luau safe to disclose under technical details.
+// Exact reviewed Lua 5.4 safe to disclose under technical details.
 type AdapterCredentialTransform struct {
 	Language     string `json:"language"`
 	SourceDigest string `json:"sourceDigest"`

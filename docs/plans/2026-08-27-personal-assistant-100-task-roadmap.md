@@ -279,7 +279,7 @@ Tasks: 23, 25, 27, 29, 30, 34, 36, 37, 40, 42, 44, 49, 50, 55, 58, 64, 65, 67, 6
 | --- | --- | --- |
 | Add private Task artifact intake. | Public downloads cannot receive private records. Task-owned artifacts already provide the correct authority. | 23, 25, 30, 36, 42, 44, 50, 55, 64, 65, 72, 78, 79, 84, 100 |
 | Add raster OCR and email parsing to the current file parser. | Mixed packets often include images and saved messages. | 25, 36, 42, 49, 65, 84, 86 |
-| Let agents run bounded Luau over read-only JSON. | Calculations and transformations need a general deterministic execution path. | 25, 30, 37, 42, 44, 68, 79, 89, 91 |
+| Let agents run bounded Lua 5.4 over read-only JSON. | Calculations and transformations need a general deterministic execution path. | 25, 30, 37, 42, 44, 68, 79, 89, 91 |
 | Keep exact artifact and version IDs in exports and citations. | A result needs stable evidence links without a separate provenance manifest. | 23, 25, 27, 29, 36, 42, 50, 55, 64, 89, 100 |
 | Test accessibility at the requested deliverable boundary. | One hidden HTML gate cannot validate every format, renderer, or user need. | 23, 25, 29, 37, 42, 89, 100 |
 | Upload exact Task artifacts through reviewed browser actions. | Portal work needs controlled file selection and disclosure. | 27, 29, 49, 50, 72, 78, 79, 89, 91 |
@@ -291,7 +291,7 @@ The live cases did not require dedicated case, option, application, inventory, o
 
 They also did not require a general spreadsheet generator, map subsystem, or stored accessibility profile.
 
-Task files, Task artifacts, current public research, bounded Luau, and reviewed browser actions cover the bounded paths.
+Task files, Task artifacts, current public research, bounded Lua 5.4, and reviewed browser actions cover the bounded paths.
 
 Add a domain system only after a current path cannot continue safely without it.
 
@@ -310,7 +310,7 @@ No accepted generated number depends only on model arithmetic.
 Every cited local document has an exact artifact ID and locator.
 
 The earlier Milestone 3 exit conditions passed on 2026-08-29.
-The simplified Luau and artifact paths need focused live regression tests.
+The simplified Lua 5.4 and artifact paths need focused live regression tests.
 
 The human waived affected-user review for the controlled accessibility fixture.
 This waiver does not prove usability for an affected user.

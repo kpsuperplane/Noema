@@ -337,7 +337,7 @@ func TestRustRuntime_complete_catalog_is_stable_for_native_transport(t *testing.
 		names = append(names, tool.Name)
 	}
 	want := []string{
-		"read_memory_page", "search_memory", "file.parse", "update_own_name", "artifact.create_local_file", "code.run_luau", "file.download",
+		"read_memory_page", "search_memory", "file.parse", "update_own_name", "artifact.create_local_file", "code.run_lua", "file.download",
 		"noema.present_multiple_choice", "noema.present_a2ui", "task.capture", "task.list", "task.inspect", "task.update", "task.queue", "task.schedule",
 		"task.reschedule", "task.unschedule", "task.schedule.run_now", "task.recurrence.update", "task.recurrence.pause", "task.recurrence.resume",
 		"task.recurrence.skip_next", "task.recurrence.end", "task.recurrence.run_now", "task.delegate", "task.answer", "task.retry", "task.cancel",

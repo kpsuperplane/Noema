@@ -135,7 +135,7 @@ func TestRustRuntime_display_name_with_prompt_like_newline_is_json_escaped(t *te
 
 func TestRustRuntime_executes_general_json_computation(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/luau_tool.rs::executes_general_json_computation.
-	payload, ok := executeLuaTool(context.Background(), json.RawMessage(`{"source":"local total = 0 for _, value in input.values do total += value end return { total = total, count = #input.values }","input":{"values":[125,250,375]}}`))
+	payload, ok := executeLuaTool(context.Background(), json.RawMessage(`{"source":"local total = 0 for _, value in ipairs(input.values) do total = total + value end return { total = total, count = #input.values }","input":{"values":[125,250,375]}}`))
 	if !ok {
 		t.Fatalf("Lua execution failed: %s", payload)
 	}

@@ -9487,7 +9487,7 @@ type AdapterCredentialSetup {
 }
 
 """
-Exact reviewed Luau safe to disclose under technical details.
+Exact reviewed Lua 5.4 safe to disclose under technical details.
 """
 type AdapterCredentialTransform {
 	language: String!

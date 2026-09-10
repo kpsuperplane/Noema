@@ -67,7 +67,7 @@ The Task parsed all four files and merged duplicate records into three inventory
 
 | Check | Current result |
 | --- | --- |
-| General calculation | `code.run_luau` calculated `79,300` cents and returned `USD 793.00`. |
+| General calculation | `code.run_lua` calculated `79,300` cents and returned `USD 793.00`. |
 | Private file intake | Four Task-owned source artifacts preserved the original bytes and immutable version IDs. |
 | Mixed parsing | PDF, spreadsheet, email, and image parsing completed successfully. |
 | Deduplication | The Task merged matching desk records and retained three physical items. |
@@ -76,7 +76,7 @@ The Task parsed all four files and merged duplicate records into three inventory
 | Accessibility | Manual checks passed for language, title, main landmark, heading, caption, headers, image alternatives, and link names. |
 | Review | Reviewer run `run:18d07afb344139d285b` approved the result. |
 
-The first live attempts exposed an invalid provider schema for open Luau input.
+The first live attempts exposed an invalid provider schema for open Lua input.
 Noema now sends that open input schema without strict conversion.
 Planner attempt 5 then completed through the current provider path.
 
@@ -131,7 +131,7 @@ Other live cases reproduced these results:
 
 No accepted generated number depends only on model arithmetic.
 
-The 2026-08-30 focused regression used `code.run_luau` instead of the removed calculator.
+The 2026-08-30 focused regression used `code.run_lua` instead of the removed calculator.
 It reproduced the asset total as `79,300` cents and `USD 793.00`.
 
 ### Source and disclosure preservation

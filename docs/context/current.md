@@ -289,8 +289,9 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   descriptions. The case completed five ordered reads, two separately approved
   synthetic writes, cancellation handling, and an exact nine-call ledger.
 - The Go backend embeds a bounded Lua 5.4 runtime through `github.com/arnodel/golua`.
-  Public `code.run_luau` and `language: "luau"` labels remain compatibility
-  names for existing task and connector definitions.
+  The agent script tool is `code.run_lua` and accepts standard Lua 5.4 source.
+  Existing reviewed connector transforms retain their stored `language: "luau"`
+  label until those definitions receive a deliberate revision.
 - Production iOS notifications need enabled entitlements, regenerated signing
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
