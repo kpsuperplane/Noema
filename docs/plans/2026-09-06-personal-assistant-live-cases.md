@@ -116,7 +116,12 @@ Lua 5.4 validation, one approved synthetic action, one confirmation read, and
 direct ledger verification. PA-072 passes after a fresh returns API connector,
 an explicit boolean-transform repair, six ordered source reads, Lua 5.4 checks,
 one approved synthetic return, one status read, and direct eight-call ledger
-verification. PA-073 through PA-100 remain not run.
+verification. PA-074 through PA-100 were then run sequentially through the
+provider-neutral synthetic case-workflow connection. Twenty-one cases pass,
+including the PA-080 rerun after fixture enrichment. Six cases need repair or
+evidence correction. The detailed outcomes, task IDs, connector ledgers, and
+limitations are in the [PA-074 to PA-100 live
+ledger](../validation/evidence/personal-assistant-live/PA-074-100-case-workflow.md).
 
 Current ledger: [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 

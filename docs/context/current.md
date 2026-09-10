@@ -17,16 +17,9 @@ First verify agent-generated Gmail API and Notion MCP connections, then retain a
 The earlier 100-case replay completion report is invalid: successful process exits concealed blocked outcomes.
 No new acceptance pass is established by that report.
 
-The Go provider fixture now exposes Gmail, Notion MCP, and Calendar contracts under
-`noema-provider-fixtures-v3.service` at fixture revision `2026-09-08-gmail-v1-notion-mcp-v8`. It uses synthetic OAuth and two accounts.
-Gmail and Notion proposal setup, OAuth callbacks, account boundaries, and live
-read paths work. Calendar proposal acceptance, nested-body writes, and reads
-also work. Full setup recovery and delegated reuse remain open.
-PA-001 through PA-008 pass. Detailed cases and evidence remain in the active acceptance ledger below.
-`ConversationAuthorizationContext` now follows continuation trigger items to
-the original human turn, with a focused store regression test.
-The memory updater now omits nested browser screenshots and internal Task-list results. A live update completed at sequence 1881 and saved the 16:00 weekday
-work-stop preference. Focused and broad Go checks pass at `c1f9ecbe`.
+The Go provider fixture exposes Gmail, Notion MCP, and Calendar contracts at
+`noema-provider-fixtures-v3.service`, revision `2026-09-08-gmail-v1-notion-mcp-v8`; it uses synthetic OAuth and two accounts. Setup and live reads work, while recovery and delegated reuse remain open.
+PA-001 through PA-008 pass. `ConversationAuthorizationContext` follows continuation triggers to the original human turn, and the memory updater omits nested screenshots and internal Task lists. Focused and broad Go checks pass at `c1f9ecbe`.
 The active ledger is [live acceptance evidence](../validation/evidence/personal-assistant-live/README.md).
 
 The Go server source replacement is complete. The server links no Rust or CGo.
@@ -280,18 +273,16 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   The remaining 20 tasks need complete operational main paths.
 - The consolidated follow-up evidence is `docs/validation/personal-assistant-remaining-acceptance-2026-08-31.md`.
 - The uncertain Build evidence is `docs/validation/personal-assistant-uncertain-build-acceptance-2026-08-31.md`.
-- Apollo iOS 2.3 code generation and native builds require macOS.
-  Linux can validate the authored GraphQL operations against the shared schema.
-- Synthetic Gmail and Notion OAuth callbacks have been exercised through the
-  live hosted fixture. Real provider consent remains outside this acceptance.
-- PA-073 household-service acceptance passes through the live Go backend. Its
-  connector setup required explicit custom response content types and argument
-  descriptions. The case completed five ordered reads, two separately approved
-  synthetic writes, cancellation handling, and an exact nine-call ledger.
-- The Go backend embeds a bounded Lua 5.4 runtime through `github.com/arnodel/golua`.
-  The agent script tool is `code.run_lua` and accepts standard Lua 5.4 source.
-  Existing reviewed connector transforms retain their stored `language: "luau"`
-  label until those definitions receive a deliberate revision.
+- Apollo iOS 2.3 code generation and native builds require macOS; Linux can validate authored GraphQL operations against the shared schema.
+- Synthetic Gmail and Notion OAuth callbacks pass through a hosted fixture; real provider consent remains outside this acceptance.
+- PA-073 passes through the live Go backend with two approved writes and an
+  exact nine-call ledger.
+- PA-074 through PA-100 were run sequentially through one provider-neutral
+  fixture. Twenty-one pass or pass after repair; six need repair or evidence
+  correction. See `docs/validation/evidence/personal-assistant-live/PA-074-100-case-workflow.md`.
+- The Go backend embeds Lua 5.4 through `github.com/arnodel/golua`; `code.run_lua`
+  accepts standard Lua 5.4. Existing connector transforms retain `language:
+  "luau"` until deliberate revision.
 - Production iOS notifications need enabled entitlements, regenerated signing
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
