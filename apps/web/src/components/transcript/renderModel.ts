@@ -412,7 +412,8 @@ function isChatBubbleRenderEntry(entry: RenderTranscriptEntry): boolean {
 function isGroupableChatBubbleRenderEntry(
   entry: RenderTranscriptEntry | undefined
 ): entry is Extract<RenderTranscriptEntry, { kind: "entry" }> {
-  return !!entry && isChatBubbleRenderEntry(entry);
+  return !!entry && isChatBubbleRenderEntry(entry)
+    && !(entry.kind === "entry" && entry.entry.type === "assistant" && entry.entry.presentation === "marker");
 }
 
 function isAdjacentChatBubble(

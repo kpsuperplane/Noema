@@ -505,7 +505,7 @@ function renderTranscriptEntry(
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
-        progress={entry.phase === "commentary"}
+        presentation={entry.presentation}
         text={entry.text}
         showAvatar={showAvatar}
         citations={citations}

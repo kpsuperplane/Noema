@@ -111,7 +111,7 @@ export type TranscriptEntry =
       source?: TranscriptEntrySource;
       turnId?: string;
       type: "assistant";
-      phase?: "commentary" | "final_answer";
+      presentation?: "bubble" | "marker";
       streamId?: string;
       responseIndex?: number;
       debugRoundIndex?: number;

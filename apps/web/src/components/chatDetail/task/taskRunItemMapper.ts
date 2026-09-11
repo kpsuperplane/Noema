@@ -123,7 +123,7 @@ export function taskRunItemsToTranscriptEntries(
             source: arrivalItemIds.has(item.id) ? undefined : "replay",
             turnId: item.id,
             type: "assistant",
-            phase: isReasoning || section.phase !== "final_answer" ? "commentary" : "final_answer",
+            presentation: section.presentation === "marker" ? "marker" : "bubble",
             text: isReasoning ? readableReasoningText(section.text) : section.text,
             metadata: { output_status: section.status === "running" && (item.status === "failed" || item.status === "cancelled") ? "failed" : section.status }
           });
@@ -136,7 +136,7 @@ export function taskRunItemsToTranscriptEntries(
           source: arrivalItemIds.has(item.id) ? undefined : "replay",
           turnId: `${item.id}:reasoning`,
           type: "assistant",
-          phase: "commentary",
+          presentation: recordValue(item.payload)?.presentation === "marker" ? "marker" : "bubble",
           text: reasoning
         });
       }
@@ -286,6 +286,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
   return {
     ...base,
     type: "assistant",
+    presentation: recordValue(item.payload)?.presentation === "marker" ? "marker" : "bubble",
     responseIndex: item.responseIndex ?? undefined,
     debugRoundIndex: item.roundIndex ?? undefined,
     text: item.summary ?? item.details ?? item.title

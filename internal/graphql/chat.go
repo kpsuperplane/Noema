@@ -185,7 +185,7 @@ func (r *Resolver) conversationEventModel(ctx context.Context, event runtime.Eve
 		return model.ConversationItemEvent{
 			ConversationID: event.ConversationID, ClientMessageID: event.ClientMessageID,
 			ItemID: event.Item.ID, Cursor: cursor, TurnID: turnID,
-			Metadata: event.Item.Metadata, Item: item,
+			Metadata: transcriptMetadata(*event.Item), Item: item,
 		}, nil
 	case runtime.EventTurnCompleted:
 		return model.TurnCompletedEvent{
@@ -236,7 +236,7 @@ func (r *Resolver) conversationTranscriptPageModel(
 		}
 		items = append(items, &model.ConversationItem{
 			ItemID: stored.ID, Cursor: stored.Cursor, TurnID: chatOptionalString(stored.TurnID),
-			Metadata: stored.Metadata, Item: item,
+			Metadata: transcriptMetadata(stored), Item: item,
 		})
 	}
 	return &model.ConversationTranscriptPage{
@@ -507,4 +507,32 @@ func (r *Resolver) primaryConversationModel(
 		ConversationID: conversation.ID, Provider: conversation.Provider,
 		LatestTranscriptPage: transcript,
 	}, nil
+}
+
+// Transcript presentation is derived from provider facts for both replay and live reads.
+func assistantPresentation(kind, phase string) string {
+	if kind == "message" && phase == "commentary" {
+		return "marker"
+	}
+	return "bubble"
+}
+
+func transcriptMetadata(item store.ConversationItem) map[string]any {
+	if item.Kind != store.ConversationAssistantText {
+		return item.Metadata
+	}
+	metadata := make(map[string]any, len(item.Metadata)+1)
+	for key, value := range item.Metadata {
+		metadata[key] = value
+	}
+	kind, _ := metadata["provider_output_kind"].(string)
+	if kind == "" {
+		kind = "message"
+	}
+	phase, ok := metadata["provider_phase"].(string)
+	if !ok {
+		phase, _ = metadata["phase"].(string)
+	}
+	metadata["presentation"] = assistantPresentation(kind, phase)
+	return metadata
 }

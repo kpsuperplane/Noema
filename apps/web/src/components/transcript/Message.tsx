@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
-import { VStack } from "@astryxdesign/core/Stack";
+import { BrainIcon } from "lucide-react";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import {
@@ -11,6 +12,7 @@ import { RollingSwap } from "@/components/RollingText";
 import type { IdentityAvatarActivity } from "../IdentityAvatar";
 import type { ProviderUsageDebug } from "./debugUsage";
 import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
+import { TranscriptRow } from "./TranscriptRow";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
 import { TypingMessageContent } from "./TypingMessage";
@@ -69,7 +71,16 @@ const styles = stylex.create({
   progress: {
     color: "var(--color-text-secondary)",
     fontSize: "var(--font-size-sm)",
-    opacity: 0.82
+    minWidth: 0,
+    paddingBlock: "var(--spacing-0-5)"
+  },
+  progressIcon: {
+    flexShrink: 0,
+    marginBlockStart: "var(--spacing-0-5)"
+  },
+  progressContent: {
+    minWidth: 0,
+    flex: 1
   },
   content: {
     display: "grid",
@@ -112,7 +123,7 @@ export function Message({
   onDebug,
   attachment,
   citations = [],
-  progress = false
+  presentation = "bubble"
 }: {
   animate: boolean;
   avatarActivity?: IdentityAvatarActivity;
@@ -129,11 +140,21 @@ export function Message({
   onDebug?: () => void;
   attachment?: ReactNode;
   citations?: readonly ProviderCitation[];
-  progress?: boolean;
+  presentation?: "bubble" | "marker";
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
-  const bubble = (
+  const bubble = presentation === "marker" && role === "assistant" && variant === "message" ? (
+    <TranscriptRow lane="assistant" showAvatar={false} reserveAvatarSpace={reserveAvatarSpace}>
+      <HStack gap={1.5} vAlign="start" xstyle={styles.progress} data-slot="progress-marker">
+        <BrainIcon aria-hidden="true" size="1em" {...stylex.props(styles.progressIcon)} />
+        <VStack gap={1} xstyle={styles.progressContent}>
+          <MessageMarkdown animate={animate} role={role} citations={citations} text={text} />
+          {attachment}
+        </VStack>
+      </HStack>
+    </TranscriptRow>
+  ) : (
     <TranscriptChatBubble
       avatarActivity={avatarActivity}
       avatarAnimated={avatarAnimated}
@@ -177,9 +198,9 @@ export function Message({
 
   return (
     <div
-      aria-label={progress ? "Assistant progress" : undefined}
-      role={progress ? "group" : undefined}
-      {...stylex.props(styles.assistantContextMenu, progress && styles.progress)}
+      aria-label={presentation === "marker" ? "Assistant progress" : undefined}
+      role={presentation === "marker" ? "group" : undefined}
+      {...stylex.props(styles.assistantContextMenu)}
     >
       <ContextMenu items={[{ label: "Debug", isDisabled: !onDebug && !debugUsage, onClick: onDebug }]}>
         {bubble}

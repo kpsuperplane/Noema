@@ -231,6 +231,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   session-bound registrations. Installed mode can erase its private local data.
 - The iOS client stores normalized reads in one protected per-client cache. It
   clears that cache during disconnect and does not queue offline writes.
+- The backend selects bubble or marker for Chat and Task text. Web progress markers use a small brain icon.
 - Frontend route and interaction truth is in
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).
@@ -251,7 +252,6 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Optimize total system simplicity. Follow
   [engineering simplicity](../development/simplicity.md) before nontrivial
   architecture, workflow, harness, or testing-policy work.
-
 ## Open loops
 
 - Browser review compares parsed interaction meaning across snapshots and optional input shapes.

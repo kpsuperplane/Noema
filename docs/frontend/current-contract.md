@@ -316,7 +316,11 @@ visually verified unless browser inspection is explicitly authorized.
 The server saves separate paragraphs in completed Chat replies as separate messages.
 Web and native clients render those saved boundaries without splitting text.
 Adjacent web messages from the same speaker and turn share one visual group.
-Progress text and final answers keep that group while retaining their text styles.
+The backend supplies `presentation: bubble | marker` in Chat metadata and each Task output section.
+Only message output with the commentary phase uses markers. Reasoning and untyped responses use bubbles.
+Saved pages and live snapshots use the same choice. Clients do not classify provider phases.
+Web progress updates use compact markers with a small brain icon and complete readable text.
+Progress markers separate adjacent bubble groups. Final answers retain message bubbles.
 Blank lines and standalone three-dash separators create boundaries outside fenced code.
 Code fences retain their internal blank lines.
 Citations use each paragraph's source range.

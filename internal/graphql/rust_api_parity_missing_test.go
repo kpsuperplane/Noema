@@ -1277,7 +1277,7 @@ func rustAPIPortConversationLiveEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	transientValue, ok := transientEvent.(model.ConversationItemEvent)
-	if !ok || transientValue.Cursor != nil || len(transientValue.Metadata) != 2 || transientValue.Metadata["runtime_item_id"] != "activity_1" || transientValue.Metadata["transient"] != true {
+	if !ok || transientValue.Cursor != nil || len(transientValue.Metadata) != 3 || transientValue.Metadata["presentation"] != "bubble" || transientValue.Metadata["runtime_item_id"] != "activity_1" || transientValue.Metadata["transient"] != true {
 		t.Fatalf("transient conversation item event = %#v", transientEvent)
 	}
 }

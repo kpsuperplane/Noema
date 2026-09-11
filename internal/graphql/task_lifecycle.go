@@ -516,6 +516,31 @@ func taskMessageModel(value store.TaskMessage) *model.TaskMessage {
 	return &model.TaskMessage{MessageID: value.ID, BodyMarkdown: value.Body, Author: value.Author, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
 }
 func taskRunItemModel(v store.TaskRunItem) *model.TaskRunItem {
+	if v.Kind == "assistant_output" {
+		payload := make(map[string]any, len(v.Payload)+1)
+		for key, value := range v.Payload {
+			payload[key] = value
+		}
+		payload["presentation"] = "bubble"
+		if output, ok := v.Payload["output"].([]any); ok {
+			sections := make([]any, len(output))
+			for i, value := range output {
+				sections[i] = value
+				if source, ok := value.(map[string]any); ok {
+					section := make(map[string]any, len(source)+1)
+					for key, value := range source {
+						section[key] = value
+					}
+					kind, _ := section["kind"].(string)
+					phase, _ := section["phase"].(string)
+					section["presentation"] = assistantPresentation(kind, phase)
+					sections[i] = section
+				}
+			}
+			payload["output"] = sections
+		}
+		v.Payload = payload
+	}
 	if v.Kind == "tool_call" || v.Kind == "tool_result" {
 		if name, _ := v.Payload["name"].(string); name != "" {
 			payload := make(map[string]any, len(v.Payload)+1)
