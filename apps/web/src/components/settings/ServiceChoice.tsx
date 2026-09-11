@@ -5,13 +5,14 @@ import * as stylex from "@stylexjs/stylex";
 import { FaviconImage } from "@/components/FaviconImage";
 import { ListCardButton } from "@/components/ListCardLink";
 
-export function ServiceChoice({ name, description, hostname, onClick }: {
+export function ServiceChoice({ name, description, hostname, disabled = false, onClick }: {
   name: string;
   description: string;
   hostname: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
-  return <ListCardButton xstyle={styles.choice} onClick={onClick}>
+  return <ListCardButton xstyle={styles.choice} disabled={disabled} onClick={onClick}>
     <HStack as="span" gap={2} vAlign="start">
       <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.icon)}>
         <FaviconImage hostname={hostname} size="large" fallback={<Plug aria-hidden="true" {...stylex.props(styles.chevron)} />} />

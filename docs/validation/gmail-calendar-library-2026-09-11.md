@@ -115,3 +115,30 @@ Definitions were checked against official Google discovery documents and referen
 
 Broad scopes do not divide into smaller permissions during consent.
 Narrower grants enable only operations whose declared scope contracts are satisfied.
+
+## Setup correction
+
+Follow-up base: `c583f570`.
+
+Selecting an API now opens setup directly. The redundant Connect step was removed.
+Unconnected reviewed APIs show Resume setup under Finish setup.
+That action remains available when application import is incomplete or already complete.
+Cancellation preserves the installed definition and allows setup to resume.
+
+The correction changes only frontend code and contracts.
+The two frontend files have 24 added lines and 38 removed lines.
+No server, generated GraphQL, or test code changed.
+
+Validation against these frontend changes:
+
+- `bun run check:generated` passed.
+- `bun run build` passed.
+- `bunx eslint src --max-warnings=0` passed.
+- `bun run lint` still fails on the unchanged Task model settings error documented above.
+
+Browser inspection used synthetic setup replies at desktop and phone widths.
+It checked direct selection, error recovery, cancellation, and Resume setup.
+It also checked resuming after application import and selecting an existing account.
+Focus remained inside the account dialog. Neither width had horizontal overflow.
+No inspection mutation reached the development server.
+Screenshots and logs use `/var/tmp/noema-resume-*` and `/var/tmp/noema-library-resume-*`.

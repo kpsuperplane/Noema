@@ -10,7 +10,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { Switch } from "@astryxdesign/core/Switch";
 import { VStack } from "@astryxdesign/core/VStack";
-import { ArrowLeft, Check, FileKey2, MoreHorizontal, Pencil, Plus, Trash2, Unplug } from "lucide-react";
+import { Check, FileKey2, MoreHorizontal, Pencil, Plus, Trash2, Unplug } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -78,7 +78,6 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const oauthResult = rootResult;
   const integrationsResult = rootResult;
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(null);
   const [connectLibrary, librarySelection] = useMutation(ConnectAdapterLibraryDocument);
   const [resumeDefinitionDigest, setResumeDefinitionDigest] = useState<string | null>(null);
   const [approve, approval] = useMutation(ApproveAdapterDefinitionDocument);
@@ -177,10 +176,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         return grant ? { ...connection, name: grant.accountLabel ?? "Unlabeled account" } : connection;
       })
     }));
-  const selectedLibraryEntry = rootResult.data?.adapterManagement.library.find((entry) => entry.id === selectedLibraryId);
   const pendingDefinitions = definitions.filter((item) => !item.reviewed);
-  const availableDefinitions = definitions.filter((item) => item.reviewed && item.connectionCount === 0
-    && !oauth?.applications.some((application) => application.profileDigest === item.oauthProfileDigest));
+  const availableDefinitions = definitions.filter((item) => item.reviewed && item.connectionCount === 0);
   const selectedConnection = integrations.flatMap((item) => item.connections)
     .find((item) => item.connectionId === connectionId) ?? null;
   const selectedDefinition = selectedConnection
@@ -406,7 +403,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       connectionId={connectionId}
       defaultConnectionId={apiIntegrations[0]?.connections[0]?.connectionId}
       title="APIs"
-      primaryAction={{ label: "Connect API", onClick: () => { setError(null); setSelectedLibraryId(null); setLibraryOpen(true); } }}
+      primaryAction={{ label: "Connect API", onClick: () => { setError(null); setLibraryOpen(true); } }}
       serviceName={selectedDefinition?.displayName}
       connectionName={selectedGrant ? selectedGrant.accountLabel ?? "Unlabeled account" : undefined}
       sourceActions={sourceActions}
@@ -539,17 +536,14 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           }}
         /> : null}
         {availableDefinitions.length > 0 ? <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
-          <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Connect an API</h2>
+          <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Finish setup</h2>
           <SettingsList density="compact" hasDividers>
             {availableDefinitions.map((definition) => (
               <SettingsListItem key={definition.semanticDigest} label={definition.displayName}
                 description={nextActionDescription(definition)}
-                endContent={definition.connectionActions.length > 0 ? <Button type="button" size="sm"
-                  label={definition.connectionActions.length === 1
-                    ? connectionActionLabel(definition, definition.connectionActions[0], oauth)
-                    : "Choose account"}
+                endContent={<Button type="button" size="sm" label="Resume setup"
                   isLoading={oauthStartState.loading || attachState.loading}
-                  onClick={() => requestConnection(definition)} /> : null} />
+                  onClick={() => { setError(null); requestConnection(definition); }} />} />
             ))}
           </SettingsList>
         </VStack></SettingsSection> : null}
@@ -598,43 +592,34 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       submitLabel="Replace OAuth client" onOpenChange={(open) => { if (!open) setReplacementApplicationId(null); }}
       onSubmit={replaceOauthApplication} />
     <Dialog isOpen={libraryOpen} purpose="form" width={620} aria-label="Connect API"
-      onOpenChange={(open) => { if (!librarySelection.loading) { setLibraryOpen(open); if (!open) setSelectedLibraryId(null); } }}>
+      onOpenChange={(open) => { if (!librarySelection.loading) setLibraryOpen(open); }}>
       <Layout height="auto"
-        header={<DialogHeader title={selectedLibraryEntry ? `Connect ${selectedLibraryEntry.name}` : "Connect API"}
-          subtitle={selectedLibraryEntry ? undefined : "Choose an API to connect."}
-          startContent={selectedLibraryEntry ? <Button type="button" variant="ghost" size="sm"
-            label="Back to APIs" isIconOnly icon={<ArrowLeft aria-hidden="true" />}
-            isDisabled={librarySelection.loading} onClick={() => { setSelectedLibraryId(null); setError(null); }} /> : undefined}
-          onOpenChange={(open) => { if (!librarySelection.loading) { setLibraryOpen(open); if (!open) setSelectedLibraryId(null); } }} />}
+        header={<DialogHeader title="Connect API" subtitle="Choose an API to connect."
+          onOpenChange={(open) => { if (!librarySelection.loading) setLibraryOpen(open); }} />}
         content={<LayoutContent><VStack gap={3}>
-          {selectedLibraryEntry ? <>
-            <p {...stylex.props(styles.muted)}>{selectedLibraryEntry.description}</p>
-            <Button type="button" variant="primary" label={`Connect ${selectedLibraryEntry.name}`}
-              isLoading={librarySelection.loading} isDisabled={librarySelection.loading}
+          <Grid columns={{ minWidth: 220, max: 2, repeat: "fit" }} gap={2}>
+            {(rootResult.data?.adapterManagement.library ?? []).map((entry) => <ServiceChoice key={entry.id}
+              name={entry.name} description={entry.description}
+              hostname={entry.id === "gmail" ? "mail.google.com" : "calendar.google.com"}
+              disabled={librarySelection.loading}
               onClick={() => {
                 setError(null);
-                void connectLibrary({ variables: { input: { libraryId: selectedLibraryEntry.id, expectedDigest: selectedLibraryEntry.semanticDigest } } })
+                void connectLibrary({ variables: { input: { libraryId: entry.id, expectedDigest: entry.semanticDigest } } })
                   .then(async (result) => {
                     await refresh();
                     const definition = result.data?.connectAdapterLibrary;
                     if (definition) {
                       setLibraryOpen(false);
-                      setSelectedLibraryId(null);
                       if (!definition.reviewed) requestAction(definition);
                       else requestConnection(definition);
                     }
                   }).catch(actionError(setError));
-              }} />
-          </> : <>
-            <Grid columns={{ minWidth: 220, max: 2, repeat: "fit" }} gap={2}>
-              {(rootResult.data?.adapterManagement.library ?? []).map((entry) => <ServiceChoice key={entry.id}
-                name={entry.name} description={entry.description}
-                hostname={entry.id === "gmail" ? "mail.google.com" : "calendar.google.com"}
-                onClick={() => setSelectedLibraryId(entry.id)} />)}
-            </Grid>
-            <Button type="button" variant="ghost" label="Add another API in Chat" {...stylex.props(styles.fit)}
-              onClick={() => { setLibraryOpen(false); void navigate({ to: "/" }); }} />
-          </>}
+              }} />)}
+          </Grid>
+          {librarySelection.loading ? <p role="status" {...stylex.props(styles.muted)}>Opening setup…</p> : null}
+          <Button type="button" variant="ghost" label="Add another API in Chat" {...stylex.props(styles.fit)}
+            isDisabled={librarySelection.loading}
+            onClick={() => { setLibraryOpen(false); void navigate({ to: "/" }); }} />
           {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
         </VStack></LayoutContent>} />
     </Dialog>
