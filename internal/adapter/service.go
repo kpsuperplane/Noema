@@ -77,11 +77,12 @@ func newService(root *os.Root, database *store.Store, client *http.Client) (*Ser
 	return service, nil
 }
 
-// SetupTools returns the two fixed adapter definition tools.
+// SetupTools returns the fixed adapter setup tools.
 func (s *Service) SetupTools() []provider.GenerationTool {
 	return []provider.GenerationTool{
-		{Name: DefinitionTemplateTool, Description: "List current API definitions or return a concise revision base. Before a revision, provide its exact digest and only the operation IDs that need inspection. Reuse the result during corrections.", InputSchema: json.RawMessage(`{"type":"object","properties":{"semantic_digest":{"type":"string","description":"Optional exact definition digest selected for revision."},"operation_ids":{"type":"array","maxItems":32,"items":{"type":"string"},"description":"Exact operation IDs whose direct proposal form should be returned. Requires semantic_digest."}},"required":[],"additionalProperties":false}`)},
+		{Name: DefinitionTemplateTool, Description: "List current API definitions and reviewed library entries, or return a concise revision base. Check the library before researching new connections. Before a revision, provide its exact digest and only the operation IDs that need inspection. Reuse the result during corrections.", InputSchema: json.RawMessage(`{"type":"object","properties":{"semantic_digest":{"type":"string","description":"Optional exact definition digest selected for revision."},"operation_ids":{"type":"array","maxItems":32,"items":{"type":"string"},"description":"Exact operation IDs whose direct proposal form should be returned. Requires semantic_digest."}},"required":[],"additionalProperties":false}`)},
 		{Name: ProposeDefinitionTool, Description: "Propose one public HTTP API definition after researching official documentation. Call the definition-template tool first. For a new service, provide new_definition and the required upsert_operations. For a revision, provide the exact base_semantic_digest, revision, and operation changes. An upsert adds or replaces one complete operation by operation_id. remove_operation_ids removes exact operations. Noema compiles one complete immutable pending revision. For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. For each OAuth operation, include every documented scope alternative that supports its complete argument contract. Prefer the least privileged alternative. Never include credentials, tokens, cookies, or private user data. Prefer the smallest required operation set. Do not use MCP endpoints as adapter origins.", InputSchema: json.RawMessage(`{"type":"object","properties":{"source_reference":{"type":"string","maxLength":4096,"description":"Official HTTPS API or authorization documentation URL used as primary provenance."},"new_definition":{"type":"object","additionalProperties":{},"description":"Direct JSON service header for a new definition. Include definition_id, adapter_id, optional display_name, definition_revision, origin, and authentication. Omit for a revision."},"base_semantic_digest":{"type":"string","description":"Exact digest loaded for a revision. Omit for a new definition."},"revision":{"type":"object","additionalProperties":{},"description":"Direct JSON revision header. Include definition_revision. Optionally replace display_name, origin, or authentication."},"upsert_operations":{"type":"array","maxItems":128,"description":"Direct JSON operations added or replaced by stable operation_id.","items":{"type":"object","additionalProperties":{},"description":"One operation proposal from the definition-template contract."}},"remove_operation_ids":{"type":"array","maxItems":128,"items":{"type":"string"},"description":"Stable operation IDs removed from the exact base revision."}},"required":["source_reference"],"additionalProperties":false}`)},
+		{Name: ConnectLibraryTool, Description: "Select an exact reviewed API library entry returned by definition_template. Continue through human account setup and connection permissions. Reuse installed definitions; do not generate a duplicate.", InputSchema: json.RawMessage(`{"type":"object","properties":{"library_id":{"type":"string"},"expected_digest":{"type":"string"}},"required":["library_id","expected_digest"],"additionalProperties":false}`)},
 	}
 }
 
@@ -92,6 +93,7 @@ func (s *Service) SetupCatalog() []SetupBinding {
 	return []SetupBinding{
 		{Tool: tools[0], InvokerKey: AdapterInvokerKey, OperationToken: DefinitionTemplateToken, ExecutionDecision: "ExecuteImmediately"},
 		{Tool: tools[1], InvokerKey: AdapterInvokerKey, OperationToken: ProposeDefinitionToken, ExecutionDecision: "ExecuteImmediately"},
+		{Tool: tools[2], InvokerKey: AdapterInvokerKey, OperationToken: ConnectLibraryToken, ExecutionDecision: "ExecuteImmediately"},
 	}
 }
 
@@ -106,6 +108,8 @@ func (s *Service) ExecuteSetup(name string, raw json.RawMessage) (json.RawMessag
 		value, err = s.definitionTemplate(raw)
 	case ProposeDefinitionTool:
 		value, err = s.propose(raw)
+	case ConnectLibraryTool:
+		value, err = s.connectLibraryTool(raw)
 	default:
 		err = errors.New("adapter setup tool is unavailable")
 	}
@@ -220,6 +224,11 @@ func (s *Service) definitionTemplate(raw json.RawMessage) (any, error) {
 		}
 		help := definitionHelp()
 		help["definitions"] = values
+		library, err := Library()
+		if err != nil {
+			return nil, err
+		}
+		help["library"] = library
 		oauth, err := s.files.oauthSnapshot()
 		if err != nil {
 			return nil, err

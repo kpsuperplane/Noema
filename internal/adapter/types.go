@@ -14,6 +14,8 @@ import (
 
 const (
 	DefinitionTemplateTool  = "adapter.definition_template"
+	ConnectLibraryTool      = "adapter.connect_library"
+	ConnectLibraryToken     = "adapter-setup-v1:connect-library"
 	ProposeDefinitionTool   = "adapter.propose_definition"
 	AdapterInvokerKey       = "adapter_json_v1"
 	DefinitionTemplateToken = "adapter-setup-v1:definition-template"

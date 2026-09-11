@@ -17,7 +17,6 @@ import {
   ArrowLeft,
   ChevronRight,
   KeyRound,
-  Plug,
   Plus,
   Trash2
 } from "lucide-react";
@@ -54,8 +53,8 @@ import { SettingsEditDialog } from "./SettingsEditDialog";
 import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { AuthAttempt } from "../onboarding/AuthAttempt";
 import type { ProviderAuthAttemptView } from "../onboarding/types";
-import { FaviconImage } from "@/components/FaviconImage";
-import { ListCardButton, ListCardLink } from "@/components/ListCardLink";
+import { ServiceChoice } from "./ServiceChoice";
+import { ListCardLink } from "@/components/ListCardLink";
 import { SettingsManagementLayout } from "./SettingsManagementLayout";
 import { ChatDetailCloseButton } from "@/components/chatDetail/ChatDetailCloseButton";
 import {
@@ -543,28 +542,9 @@ function AddProviderAccountDialog({
             {!selectedCatalogEntry ? (
               <Grid columns={{ minWidth: 220, max: 2, repeat: "fit" }} gap={2}>
                 {catalog.map((entry) => (
-                  <ListCardButton
-                    key={entry.providerKind}
-                    xstyle={styles.providerChoice}
-                    onClick={() => chooseProvider(entry.providerKind)}
-                  >
-                    <HStack as="span" gap={2} vAlign="start">
-                      <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.providerIcon)}>
-                        <FaviconImage
-                          hostname={providerHostname(entry.providerKind)}
-                          size="large"
-                          fallback={<Plug aria-hidden="true" size={18} />}
-                        />
-                      </HStack>
-                      <VStack as="span" gap={0.5} {...stylex.props(styles.providerChoiceCopy)}>
-                        <strong {...stylex.props(styles.providerChoiceName)}>{entry.displayName}</strong>
-                        <span {...stylex.props(styles.providerChoiceDescription)}>
-                          {providerCapabilityDescription(entry)}
-                        </span>
-                      </VStack>
-                      <ChevronRight aria-hidden="true" {...stylex.props(styles.providerChoiceChevron)} />
-                    </HStack>
-                  </ListCardButton>
+                  <ServiceChoice key={entry.providerKind} name={entry.displayName}
+                    description={providerCapabilityDescription(entry)} hostname={providerHostname(entry.providerKind)}
+                    onClick={() => chooseProvider(entry.providerKind)} />
                 ))}
               </Grid>
             ) : authAttempt ? (
@@ -766,22 +746,6 @@ const styles = stylex.create({
     color: "var(--destructive)",
     fontSize: 13,
     lineHeight: 1.5
-  },
-  providerChoice: { width: "100%", height: "100%", padding: "var(--spacing-3)" },
-  providerIcon: {
-    width: "var(--spacing-8)",
-    height: "var(--spacing-8)",
-    flexShrink: 0
-  },
-  providerChoiceCopy: { flex: 1, minWidth: 0 },
-  providerChoiceName: { color: "var(--foreground)", fontSize: 14, lineHeight: 1.3 },
-  providerChoiceDescription: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.4 },
-  providerChoiceChevron: {
-    width: "var(--spacing-4)",
-    height: "var(--spacing-4)",
-    flexShrink: 0,
-    marginTop: "var(--spacing-0-5)",
-    color: "var(--muted-foreground)"
   },
   warningText: {
     margin: "var(--spacing-0)",

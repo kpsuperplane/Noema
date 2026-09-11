@@ -182,9 +182,21 @@ type ComplexityRoot struct {
 		Revision      func(childComplexity int) int
 	}
 
+	AdapterLibraryEntry struct {
+		DefinitionID    func(childComplexity int) int
+		Description     func(childComplexity int) int
+		ID              func(childComplexity int) int
+		Name            func(childComplexity int) int
+		OperationIds    func(childComplexity int) int
+		Revision        func(childComplexity int) int
+		SemanticDigest  func(childComplexity int) int
+		SourceReference func(childComplexity int) int
+	}
+
 	AdapterManagement struct {
 		Definitions  func(childComplexity int) int
 		Integrations func(childComplexity int) int
+		Library      func(childComplexity int) int
 		OauthState   func(childComplexity int) int
 	}
 
@@ -828,6 +840,7 @@ type ComplexityRoot struct {
 		ClearProviderSecret                      func(childComplexity int, input model.ClearProviderSecretInput) int
 		ConfigureApnsProvider                    func(childComplexity int, input model.ConfigureApnsProviderInput) int
 		ConfirmOnboardingModelSelections         func(childComplexity int, input model.ConfirmOnboardingModelSelectionsInput) int
+		ConnectAdapterLibrary                    func(childComplexity int, input model.ConnectAdapterLibraryInput) int
 		ContinueMcpServerSetup                   func(childComplexity int, input model.ContinueMcpServerSetupInput) int
 		CreateConversationExternalArtifact       func(childComplexity int, input model.CreateConversationExternalArtifactInput) int
 		CreateMcpServer                          func(childComplexity int, input model.CreateMcpServerInput) int
@@ -1677,6 +1690,7 @@ type MutationRootResolver interface {
 	SendA2UIAction(ctx context.Context, input model.ProviderInteractionActionInput) (*model.TurnAccepted, error)
 	CreateConversationExternalArtifact(ctx context.Context, input model.CreateConversationExternalArtifactInput) (*model.Artifact, error)
 	CreateTaskLocalArtifact(ctx context.Context, input model.CreateTaskLocalArtifactInput) (*model.Artifact, error)
+	ConnectAdapterLibrary(ctx context.Context, input model.ConnectAdapterLibraryInput) (*model.AdapterDefinition, error)
 	ApproveAdapterDefinition(ctx context.Context, input model.ApproveAdapterDefinitionInput) (*model.AdapterDefinition, error)
 	CancelAdapterDefinition(ctx context.Context, input model.CancelAdapterDefinitionInput) (bool, error)
 	SetupAdapterConnection(ctx context.Context, input model.SetupAdapterConnectionInput) (*model.AdapterDefinition, error)
@@ -2414,6 +2428,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.AdapterExternalAccount.Revision(childComplexity), true
 
+	case "AdapterLibraryEntry.definitionId":
+		if e.ComplexityRoot.AdapterLibraryEntry.DefinitionID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.DefinitionID(childComplexity), true
+	case "AdapterLibraryEntry.description":
+		if e.ComplexityRoot.AdapterLibraryEntry.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.Description(childComplexity), true
+	case "AdapterLibraryEntry.id":
+		if e.ComplexityRoot.AdapterLibraryEntry.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.ID(childComplexity), true
+	case "AdapterLibraryEntry.name":
+		if e.ComplexityRoot.AdapterLibraryEntry.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.Name(childComplexity), true
+	case "AdapterLibraryEntry.operationIds":
+		if e.ComplexityRoot.AdapterLibraryEntry.OperationIds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.OperationIds(childComplexity), true
+	case "AdapterLibraryEntry.revision":
+		if e.ComplexityRoot.AdapterLibraryEntry.Revision == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.Revision(childComplexity), true
+	case "AdapterLibraryEntry.semanticDigest":
+		if e.ComplexityRoot.AdapterLibraryEntry.SemanticDigest == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.SemanticDigest(childComplexity), true
+	case "AdapterLibraryEntry.sourceReference":
+		if e.ComplexityRoot.AdapterLibraryEntry.SourceReference == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterLibraryEntry.SourceReference(childComplexity), true
+
 	case "AdapterManagement.definitions":
 		if e.ComplexityRoot.AdapterManagement.Definitions == nil {
 			break
@@ -2426,6 +2489,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.AdapterManagement.Integrations(childComplexity), true
+	case "AdapterManagement.library":
+		if e.ComplexityRoot.AdapterManagement.Library == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AdapterManagement.Library(childComplexity), true
 	case "AdapterManagement.oauthState":
 		if e.ComplexityRoot.AdapterManagement.OauthState == nil {
 			break
@@ -5130,6 +5199,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.MutationRoot.ConfirmOnboardingModelSelections(childComplexity, args["input"].(model.ConfirmOnboardingModelSelectionsInput)), true
+	case "MutationRoot.connectAdapterLibrary":
+		if e.ComplexityRoot.MutationRoot.ConnectAdapterLibrary == nil {
+			break
+		}
+
+		args, err := ec.field_MutationRoot_connectAdapterLibrary_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.MutationRoot.ConnectAdapterLibrary(childComplexity, args["input"].(model.ConnectAdapterLibraryInput)), true
 	case "MutationRoot.continueMcpServerSetup":
 		if e.ComplexityRoot.MutationRoot.ContinueMcpServerSetup == nil {
 			break
@@ -9132,6 +9212,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputClearProviderSecretInput,
 		ec.unmarshalInputConfigureApnsProviderInput,
 		ec.unmarshalInputConfirmOnboardingModelSelectionsInput,
+		ec.unmarshalInputConnectAdapterLibraryInput,
 		ec.unmarshalInputContinueMcpServerSetupInput,
 		ec.unmarshalInputConversationTranscriptPageInput,
 		ec.unmarshalInputCreateConversationExternalArtifactInput,
@@ -9547,9 +9628,29 @@ type AdapterExternalAccount {
 }
 
 """
+One reviewed API available with this Noema release.
+"""
+type AdapterLibraryEntry {
+ id: String!
+ definitionId: String!
+ name: String!
+ description: String!
+ revision: String!
+ semanticDigest: String!
+ sourceReference: String!
+ operationIds: [String!]!
+}
+
+input ConnectAdapterLibraryInput {
+ libraryId: String!
+ expectedDigest: String!
+}
+
+"""
 One coherent non-secret API adapter management snapshot.
 """
 type AdapterManagement {
+ library: [AdapterLibraryEntry!]!
 	definitions: [AdapterDefinition!]!
 	oauthState: AdapterOauthState!
 	integrations: [CapabilityIntegration!]!
@@ -12092,6 +12193,10 @@ type MutationRoot {
 	Attach one bounded private source file to an Inbox Task.
 	"""
 	createTaskLocalArtifact(input: CreateTaskLocalArtifactInput!): Artifact!
+	"""
+	Select a reviewed library definition without granting account access.
+	"""
+	connectAdapterLibrary(input: ConnectAdapterLibraryInput!): AdapterDefinition!
 	"""
 	Approve one exact pending adapter definition as the local human.
 	"""
@@ -15901,8 +16006,32 @@ func (ec *executionContext) childFields_AdapterExternalAccount(ctx context.Conte
 	return nil, fmt.Errorf("no field named %q was found under type AdapterExternalAccount", field.Name)
 }
 
+func (ec *executionContext) childFields_AdapterLibraryEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_AdapterLibraryEntry_id(ctx, field)
+	case "definitionId":
+		return ec.fieldContext_AdapterLibraryEntry_definitionId(ctx, field)
+	case "name":
+		return ec.fieldContext_AdapterLibraryEntry_name(ctx, field)
+	case "description":
+		return ec.fieldContext_AdapterLibraryEntry_description(ctx, field)
+	case "revision":
+		return ec.fieldContext_AdapterLibraryEntry_revision(ctx, field)
+	case "semanticDigest":
+		return ec.fieldContext_AdapterLibraryEntry_semanticDigest(ctx, field)
+	case "sourceReference":
+		return ec.fieldContext_AdapterLibraryEntry_sourceReference(ctx, field)
+	case "operationIds":
+		return ec.fieldContext_AdapterLibraryEntry_operationIds(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type AdapterLibraryEntry", field.Name)
+}
+
 func (ec *executionContext) childFields_AdapterManagement(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
+	case "library":
+		return ec.fieldContext_AdapterManagement_library(ctx, field)
 	case "definitions":
 		return ec.fieldContext_AdapterManagement_definitions(ctx, field)
 	case "oauthState":
@@ -18485,6 +18614,20 @@ func (ec *executionContext) field_MutationRoot_confirmOnboardingModelSelections_
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.ConfirmOnboardingModelSelectionsInput, error) {
 			return ec.unmarshalNConfirmOnboardingModelSelectionsInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐConfirmOnboardingModelSelectionsInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_MutationRoot_connectAdapterLibrary_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.ConnectAdapterLibraryInput, error) {
+			return ec.unmarshalNConnectAdapterLibraryInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐConnectAdapterLibraryInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -22842,6 +22985,222 @@ func (ec *executionContext) _AdapterExternalAccount_grantIds(ctx context.Context
 }
 func (ec *executionContext) fieldContext_AdapterExternalAccount_grantIds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("AdapterExternalAccount", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_id(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_definitionId(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_definitionId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DefinitionID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_definitionId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_name(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_description(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_revision(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_revision(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Revision, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_revision(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_semanticDigest(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_semanticDigest(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SemanticDigest, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_semanticDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_sourceReference(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_sourceReference(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourceReference, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_sourceReference(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterLibraryEntry_operationIds(ctx context.Context, field graphql.CollectedField, obj *model.AdapterLibraryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterLibraryEntry_operationIds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterLibraryEntry_operationIds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AdapterLibraryEntry", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AdapterManagement_library(ctx context.Context, field graphql.CollectedField, obj *model.AdapterManagement) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AdapterManagement_library(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Library, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.AdapterLibraryEntry) graphql.Marshaler {
+			return ec.marshalNAdapterLibraryEntry2ᚕᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAdapterLibraryEntryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AdapterManagement_library(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AdapterManagement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AdapterLibraryEntry(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _AdapterManagement_definitions(ctx context.Context, field graphql.CollectedField, obj *model.AdapterManagement) (ret graphql.Marshaler) {
@@ -36126,6 +36485,50 @@ func (ec *executionContext) fieldContext_MutationRoot_createTaskLocalArtifact(ct
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_MutationRoot_createTaskLocalArtifact_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _MutationRoot_connectAdapterLibrary(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_MutationRoot_connectAdapterLibrary(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.MutationRoot().ConnectAdapterLibrary(ctx, fc.Args["input"].(model.ConnectAdapterLibraryInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.AdapterDefinition) graphql.Marshaler {
+			return ec.marshalNAdapterDefinition2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAdapterDefinition(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_MutationRoot_connectAdapterLibrary(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "MutationRoot",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AdapterDefinition(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_MutationRoot_connectAdapterLibrary_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -51547,6 +51950,43 @@ func (ec *executionContext) unmarshalInputConfirmOnboardingModelSelectionsInput(
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputConnectAdapterLibraryInput(ctx context.Context, obj any) (model.ConnectAdapterLibraryInput, error) {
+	var it model.ConnectAdapterLibraryInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"libraryId", "expectedDigest"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "libraryId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("libraryId"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LibraryID = data
+		case "expectedDigest":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expectedDigest"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExpectedDigest = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputContinueMcpServerSetupInput(ctx context.Context, obj any) (model.ContinueMcpServerSetupInput, error) {
 	var it model.ContinueMcpServerSetupInput
 	if obj == nil {
@@ -56652,6 +57092,79 @@ func (ec *executionContext) _AdapterExternalAccount(ctx context.Context, sel ast
 	return out
 }
 
+var adapterLibraryEntryImplementors = []string{"AdapterLibraryEntry"}
+
+func (ec *executionContext) _AdapterLibraryEntry(ctx context.Context, sel ast.SelectionSet, obj *model.AdapterLibraryEntry) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, adapterLibraryEntryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AdapterLibraryEntry")
+		case "id":
+			out.Values[i] = ec._AdapterLibraryEntry_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "definitionId":
+			out.Values[i] = ec._AdapterLibraryEntry_definitionId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._AdapterLibraryEntry_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._AdapterLibraryEntry_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "revision":
+			out.Values[i] = ec._AdapterLibraryEntry_revision(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "semanticDigest":
+			out.Values[i] = ec._AdapterLibraryEntry_semanticDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceReference":
+			out.Values[i] = ec._AdapterLibraryEntry_sourceReference(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "operationIds":
+			out.Values[i] = ec._AdapterLibraryEntry_operationIds(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var adapterManagementImplementors = []string{"AdapterManagement"}
 
 func (ec *executionContext) _AdapterManagement(ctx context.Context, sel ast.SelectionSet, obj *model.AdapterManagement) graphql.Marshaler {
@@ -56664,6 +57177,11 @@ func (ec *executionContext) _AdapterManagement(ctx context.Context, sel ast.Sele
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("AdapterManagement")
+		case "library":
+			out.Values[i] = ec._AdapterManagement_library(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "definitions":
 			out.Values[i] = ec._AdapterManagement_definitions(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -61651,6 +62169,13 @@ func (ec *executionContext) _MutationRoot(ctx context.Context, sel ast.Selection
 		case "createTaskLocalArtifact":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._MutationRoot_createTaskLocalArtifact(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "connectAdapterLibrary":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._MutationRoot_connectAdapterLibrary(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -67928,6 +68453,32 @@ func (ec *executionContext) marshalNAdapterExternalAccount2ᚖgithubᚗcomᚋkps
 	return ec._AdapterExternalAccount(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNAdapterLibraryEntry2ᚕᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAdapterLibraryEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.AdapterLibraryEntry) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNAdapterLibraryEntry2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAdapterLibraryEntry(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNAdapterLibraryEntry2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAdapterLibraryEntry(ctx context.Context, sel ast.SelectionSet, v *model.AdapterLibraryEntry) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._AdapterLibraryEntry(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNAdapterManagement2ᚖgithubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐAdapterManagement(ctx context.Context, sel ast.SelectionSet, v *model.AdapterManagement) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
@@ -68639,6 +69190,11 @@ func (ec *executionContext) unmarshalNConfigureApnsProviderInput2githubᚗcomᚋ
 
 func (ec *executionContext) unmarshalNConfirmOnboardingModelSelectionsInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐConfirmOnboardingModelSelectionsInput(ctx context.Context, v any) (model.ConfirmOnboardingModelSelectionsInput, error) {
 	res, err := ec.unmarshalInputConfirmOnboardingModelSelectionsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNConnectAdapterLibraryInput2githubᚗcomᚋkpsuperplaneᚋnoemaᚋinternalᚋgraphqlᚋmodelᚐConnectAdapterLibraryInput(ctx context.Context, v any) (model.ConnectAdapterLibraryInput, error) {
+	res, err := ec.unmarshalInputConnectAdapterLibraryInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

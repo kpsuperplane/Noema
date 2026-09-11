@@ -420,6 +420,11 @@ func (r *mutationRootResolver) CreateTaskLocalArtifact(ctx context.Context, inpu
 	return r.createTaskLocalArtifact(ctx, input)
 }
 
+// ConnectAdapterLibrary is the resolver for the connectAdapterLibrary field.
+func (r *mutationRootResolver) ConnectAdapterLibrary(ctx context.Context, input model.ConnectAdapterLibraryInput) (*model.AdapterDefinition, error) {
+	return r.connectAdapterLibrary(ctx, input)
+}
+
 // ApproveAdapterDefinition is the resolver for the approveAdapterDefinition field.
 func (r *mutationRootResolver) ApproveAdapterDefinition(ctx context.Context, input model.ApproveAdapterDefinitionInput) (*model.AdapterDefinition, error) {
 	return r.approveAdapterDefinition(ctx, input)

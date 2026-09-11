@@ -72,6 +72,41 @@ Native adapters use reviewed, provider-neutral manifests. The filesystem owns
 definitions and protected connection authority. SQLite projections are
 disposable.
 
+### Bundled API library
+
+Noema releases include reviewed Gmail and Google Calendar definitions in
+`internal/adapter/library/`. The library uses the existing manifest compiler,
+Google authorization profile, definition files, and connection permissions.
+The public `google` profile reference binds to the release's reviewed profile
+digest before compilation. The resulting digest identifies the complete definition.
+
+Library reads do not install definitions or create connections.
+`adapter.definition_template` lists entries and their supported operations.
+`adapter.connect_library` selects one entry by library ID and expected digest.
+Settings uses the same service through `connectAdapterLibrary`.
+Selection installs reviewed definition bytes and continues through human setup.
+It does not import credentials, grant account access, or approve connection policy.
+
+Selection preserves an installed revision, including local revisions.
+A release update does not replace installed definitions or expand permissions.
+Maintainers review library additions in the repository. Agent-created definitions
+remain local and use the existing proposal and review path.
+
+Both connectors request broad access for their complete operation sets.
+Each operation also declares supported narrower scope alternatives.
+Only tools covered by the granted scopes can execute.
+Partial consent proceeds to connection policy without repeated access requests.
+Settings retains explicit controls for additional access and additional accounts.
+
+Gmail covers mail, threads, drafts, sending, labels, trash, and permanent deletion.
+Calendar covers calendar reads, availability, events, recurrence, and invitations.
+Account administration and calendar sharing are outside this library release.
+Message text, headers, attachments, and event details have explicit size limits.
+Responses report omitted content through `incomplete` or `too_large`.
+Gmail attachment output supports up to 4,096 encoded bytes.
+Calendar event changes support up to eight attendees and require a notification choice.
+Omitted event fields preserve existing values, including attendees.
+
 ### Manifest version 9
 
 The compiler accepts only `schema_version: 9`. It rejects unknown fields and

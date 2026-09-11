@@ -451,19 +451,8 @@ func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.De
 	if !definition.Manifest.Reviewed || definition.Superseded {
 		return
 	}
-	if reconnectAction != nil {
-		view.NextAction = reconnectAction
-		return
-	}
-	if accessAction != nil {
-		view.NextAction = accessAction
-		return
-	}
 	if len(apps) == 0 {
 		view.NextAction = &model.AdapterNextAction{Kind: "import_application", SemanticDigest: definition.SemanticDigest, OperationIds: []string{}, MissingScopes: []string{}}
-		return
-	}
-	if len(view.Connections) != 0 {
 		return
 	}
 	operations := operationIDs(definition)
@@ -518,7 +507,14 @@ func projectOAuthDefinition(view *model.AdapterDefinition, definition adapter.De
 	}
 	if len(actions) != 0 {
 		view.ConnectionActions = append(view.ConnectionActions, actions...)
-		view.NextAction = actions[0]
+		if len(view.Connections) == 0 {
+			view.NextAction = actions[0]
+		}
+	}
+	if reconnectAction != nil {
+		view.NextAction = reconnectAction
+	} else if accessAction != nil {
+		view.NextAction = accessAction
 	}
 }
 func operationIDs(definition adapter.Definition) []string {
@@ -587,7 +583,15 @@ func (r *Resolver) adapterManagement(ctx context.Context) (*model.AdapterManagem
 	if err != nil {
 		return nil, err
 	}
-	return &model.AdapterManagement{Definitions: definitions, OauthState: oauth, Integrations: integrations}, nil
+	entries, err := adapter.Library()
+	if err != nil {
+		return nil, err
+	}
+	library := make([]*model.AdapterLibraryEntry, 0, len(entries))
+	for _, entry := range entries {
+		library = append(library, &model.AdapterLibraryEntry{ID: entry.ID, DefinitionID: entry.DefinitionID, Name: entry.Name, Description: entry.Description, Revision: entry.Revision, SemanticDigest: entry.SemanticDigest, SourceReference: entry.SourceReference, OperationIds: entry.OperationIDs})
+	}
+	return &model.AdapterManagement{Definitions: definitions, OauthState: oauth, Integrations: integrations, Library: library}, nil
 }
 
 func (r *Resolver) adapterOauthState(ctx context.Context) (*model.AdapterOauthState, error) {
@@ -793,6 +797,18 @@ func (r *Resolver) labelAdapterOAuthGrant(ctx context.Context, input model.SaveA
 		return nil, err
 	}
 	return oauthGrantModel(ctx, r, value.GrantID)
+}
+
+func (r *Resolver) connectAdapterLibrary(ctx context.Context, input model.ConnectAdapterLibraryInput) (*model.AdapterDefinition, error) {
+	service, err := r.requireAdapters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	definition, err := service.ConnectLibrary(ctx, input.LibraryID, input.ExpectedDigest)
+	if err != nil {
+		return nil, err
+	}
+	return r.adapterDefinition(ctx, definition.SemanticDigest)
 }
 
 func (r *Resolver) approveAdapterDefinition(ctx context.Context, input model.ApproveAdapterDefinitionInput) (*model.AdapterDefinition, error) {

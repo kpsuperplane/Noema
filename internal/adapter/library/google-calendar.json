@@ -1,0 +1,142 @@
+{
+  "schema_version": 9,
+  "definition_id": "noema-library-google-calendar",
+  "adapter_id": "google_calendar",
+  "display_name": "Google Calendar",
+  "definition_revision": "2026-09-11",
+  "reviewed": true,
+  "origin": "https://www.googleapis.com/",
+  "authentication": {
+    "kind": "oauth2_authorization_code_pkce",
+    "profile_digest": "google"
+  },
+  "operations": [
+    {
+      "operation_id": "list_calendars",
+      "description": "List accessible calendars with IDs, access roles, and time zones. Follow continuation.",
+      "method": "GET",
+      "path": "/calendar/v3/users/me/calendarList",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.calendarlist"],["https://www.googleapis.com/auth/calendar.calendarlist.readonly"],["https://www.googleapis.com/auth/calendar.readonly"]]},
+      "arguments": [],
+      "behavior": {"readOnly":{"value":true,"source":"model"},"idempotent":{"value":true,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":false,"source":"model"}},
+      "retry": "transport_safe_read",
+      "pagination": {"kind":"response_token","response_pointer":"/nextPageToken","request_argument":"pageToken","page_size":{"request_argument":"maxResults","value":2}},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); local out=json.array(); for _,v in ipairs(d.items or {}) do local s=json.encode(v); out[#out+1]={id=v.id,record_json=#s<=1800 and s or \"\",too_large=#s>1800} end; return {records=out} end"},"output_schema":{"type":"object","properties":{"records":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"record_json":{"type":"string","maxBytes":1800},"too_large":{"type":"boolean"}},"required":["id","record_json","too_large"],"additionalProperties":false},"maxItems":2}},"required":["records"],"additionalProperties":false}}
+    },
+    {
+      "operation_id": "get_calendar",
+      "description": "Read calendar details and time zone. Check too_large.",
+      "method": "GET",
+      "path": "/calendar/v3/calendars/{calendarId}",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.calendars"],["https://www.googleapis.com/auth/calendar.calendars.readonly"],["https://www.googleapis.com/auth/calendar.readonly"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true}],
+      "behavior": {"readOnly":{"value":true,"source":"model"},"idempotent":{"value":true,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":false,"source":"model"}},
+      "retry": "transport_safe_read",
+      "pagination": {"kind":"none"},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); local s=json.encode(d); if #s>4500 then return {record_json=\"\",too_large=true} end; return {record_json=s,too_large=false} end"},"output_schema":{"type":"object","properties":{"record_json":{"type":"string","maxBytes":4500},"too_large":{"type":"boolean"}},"required":["record_json","too_large"],"additionalProperties":false}}
+    },
+    {
+      "operation_id": "list_events",
+      "description": "Search events. Follow continuation. Read oversized entries with get_event. Preserve cancelled and recurring event identities.",
+      "method": "GET",
+      "path": "/calendar/v3/calendars/{calendarId}/events",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.events"],["https://www.googleapis.com/auth/calendar.events.owned"],["https://www.googleapis.com/auth/calendar.events.owned.readonly"],["https://www.googleapis.com/auth/calendar.events.public.readonly"],["https://www.googleapis.com/auth/calendar.events.readonly"],["https://www.googleapis.com/auth/calendar.readonly"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true},{"name":"timeMin","description":"Inclusive lower time bound in RFC 3339.","location":"query","type":"string"},{"name":"timeMax","description":"Exclusive upper time bound in RFC 3339.","location":"query","type":"string"},{"name":"timeZone","description":"IANA time zone for returned times.","location":"query","type":"string"},{"name":"q","description":"Text search.","location":"query","type":"string"},{"name":"singleEvents","description":"Expand recurring events into instances.","location":"query","type":"boolean"},{"name":"showDeleted","description":"Include cancelled events.","location":"query","type":"boolean"},{"name":"orderBy","description":"Result order. startTime requires singleEvents=true.","location":"query","type":"string","enum_values":["startTime","updated"]}],
+      "behavior": {"readOnly":{"value":true,"source":"model"},"idempotent":{"value":true,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":false,"source":"model"}},
+      "retry": "transport_safe_read",
+      "pagination": {"kind":"response_token","response_pointer":"/nextPageToken","request_argument":"pageToken","page_size":{"request_argument":"maxResults","value":2}},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); local out=json.array(); for _,v in ipairs(d.items or {}) do local s=json.encode(v); out[#out+1]={id=v.id,record_json=#s<=1800 and s or \"\",too_large=#s>1800} end; return {records=out} end"},"output_schema":{"type":"object","properties":{"records":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"record_json":{"type":"string","maxBytes":1800},"too_large":{"type":"boolean"}},"required":["id","record_json","too_large"],"additionalProperties":false},"maxItems":2}},"required":["records"],"additionalProperties":false}},
+      "fixed_query": {"fields":"nextPageToken,items(id,etag,status,summary,description,location,start,end,recurrence,recurringEventId,originalStartTime,organizer,creator,attendees,attendeesOmitted,transparency,visibility,htmlLink,hangoutLink,conferenceData,eventType)"}
+    },
+    {
+      "operation_id": "get_event",
+      "description": "Read event details, attendees, recurrence, time zones, and meeting links. If too_large is true, details were omitted.",
+      "method": "GET",
+      "path": "/calendar/v3/calendars/{calendarId}/events/{eventId}",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.events"],["https://www.googleapis.com/auth/calendar.events.owned"],["https://www.googleapis.com/auth/calendar.events.owned.readonly"],["https://www.googleapis.com/auth/calendar.events.public.readonly"],["https://www.googleapis.com/auth/calendar.events.readonly"],["https://www.googleapis.com/auth/calendar.readonly"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true},{"name":"eventId","description":"Exact eventId from a prior read.","location":"path","type":"string","required":true}],
+      "behavior": {"readOnly":{"value":true,"source":"model"},"idempotent":{"value":true,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":false,"source":"model"}},
+      "retry": "transport_safe_read",
+      "pagination": {"kind":"none"},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); local s=json.encode(d); if #s>4500 then return {record_json=\"\",too_large=true} end; return {record_json=s,too_large=false} end"},"output_schema":{"type":"object","properties":{"record_json":{"type":"string","maxBytes":4500},"too_large":{"type":"boolean"}},"required":["record_json","too_large"],"additionalProperties":false}},
+      "fixed_query": {"fields":"id,etag,status,summary,description,location,start,end,recurrence,recurringEventId,originalStartTime,organizer,creator,attendees,attendeesOmitted,transparency,visibility,htmlLink,hangoutLink,conferenceData,eventType"}
+    },
+    {
+      "operation_id": "list_event_instances",
+      "description": "Read instances of one recurring event. Follow continuation and use each instance ID for changes.",
+      "method": "GET",
+      "path": "/calendar/v3/calendars/{calendarId}/events/{eventId}/instances",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.events"],["https://www.googleapis.com/auth/calendar.events.owned"],["https://www.googleapis.com/auth/calendar.events.owned.readonly"],["https://www.googleapis.com/auth/calendar.events.public.readonly"],["https://www.googleapis.com/auth/calendar.events.readonly"],["https://www.googleapis.com/auth/calendar.readonly"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true},{"name":"eventId","description":"Exact eventId from a prior read.","location":"path","type":"string","required":true},{"name":"timeMin","description":"Inclusive lower time bound in RFC 3339.","location":"query","type":"string"},{"name":"timeMax","description":"Exclusive upper time bound in RFC 3339.","location":"query","type":"string"},{"name":"timeZone","description":"IANA time zone for returned times.","location":"query","type":"string"},{"name":"showDeleted","description":"Include cancelled events.","location":"query","type":"boolean"}],
+      "behavior": {"readOnly":{"value":true,"source":"model"},"idempotent":{"value":true,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":false,"source":"model"}},
+      "retry": "transport_safe_read",
+      "pagination": {"kind":"response_token","response_pointer":"/nextPageToken","request_argument":"pageToken","page_size":{"request_argument":"maxResults","value":2}},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); local out=json.array(); for _,v in ipairs(d.items or {}) do local s=json.encode(v); out[#out+1]={id=v.id,record_json=#s<=1800 and s or \"\",too_large=#s>1800} end; return {records=out} end"},"output_schema":{"type":"object","properties":{"records":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"record_json":{"type":"string","maxBytes":1800},"too_large":{"type":"boolean"}},"required":["id","record_json","too_large"],"additionalProperties":false},"maxItems":2}},"required":["records"],"additionalProperties":false}},
+      "fixed_query": {"fields":"nextPageToken,items(id,etag,status,summary,description,location,start,end,recurrence,recurringEventId,originalStartTime,organizer,creator,attendees,attendeesOmitted,transparency,visibility,htmlLink,hangoutLink,conferenceData,eventType)"}
+    },
+    {
+      "operation_id": "query_availability",
+      "description": "Read busy intervals for one calendar. Treat returned calendar errors as unavailable information.",
+      "method": "POST",
+      "path": "/calendar/v3/freeBusy",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.freebusy"],["https://www.googleapis.com/auth/calendar.readonly"]]},
+      "arguments": [{"name":"timeMin","description":"Start of availability range in RFC 3339.","location":"json_body","type":"string","required":true},{"name":"timeMax","description":"End of availability range in RFC 3339.","location":"json_body","type":"string","required":true},{"name":"timeZone","description":"IANA time zone.","location":"json_body","type":"string"},{"name":"calendar_id","description":"Calendar ID for availability.","location":"json_body","type":"string","required":true}],
+      "behavior": {"readOnly":{"value":true,"source":"model"},"idempotent":{"value":true,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":false,"source":"model"}},
+      "retry": "never",
+      "pagination": {"kind":"none"},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); local s=json.encode(d); if #s>4500 then return {record_json=\"\",too_large=true} end; return {record_json=s,too_large=false} end"},"output_schema":{"type":"object","properties":{"record_json":{"type":"string","maxBytes":4500},"too_large":{"type":"boolean"}},"required":["record_json","too_large"],"additionalProperties":false}},
+      "json_body_template": {"timeMin":{"$argument":"timeMin"},"timeMax":{"$argument":"timeMax"},"timeZone":{"$argument":"timeZone"},"items":[{"id":{"$argument":"calendar_id"}}]}
+    },
+    {
+      "operation_id": "create_event",
+      "description": "Create an event with start and end. Use either dates or times. Supports up to eight attendees. Select notification delivery.",
+      "method": "POST",
+      "path": "/calendar/v3/calendars/{calendarId}/events",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.events"],["https://www.googleapis.com/auth/calendar.events.owned"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true},{"name":"sendUpdates","description":"Who receives event notifications. Choose explicitly.","location":"query","type":"string","required":true,"enum_values":["all","externalOnly","none"]},{"name":"summary","description":"Event title.","location":"json_body","type":"string"},{"name":"description","description":"Event description.","location":"json_body","type":"string"},{"name":"location","description":"Event location.","location":"json_body","type":"string"},{"name":"start_time","description":"Timed event start in RFC 3339.","location":"json_body","type":"string"},{"name":"end_time","description":"Timed event end in RFC 3339.","location":"json_body","type":"string"},{"name":"start_date","description":"All-day start date, YYYY-MM-DD. Omit start_time.","location":"json_body","type":"string"},{"name":"end_date","description":"Exclusive all-day end date, YYYY-MM-DD. Omit end_time.","location":"json_body","type":"string"},{"name":"start_zone","description":"IANA start time zone. Required for recurring timed events.","location":"json_body","type":"string"},{"name":"end_zone","description":"IANA end time zone. Required for recurring timed events.","location":"json_body","type":"string"},{"name":"recurrence","description":"RFC 5545 recurrence lines. Preserve omitted fields during changes.","location":"json_body","type":"string_array"},{"name":"attendee_1","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_2","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_3","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_4","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_5","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_6","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_7","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_8","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"}],
+      "behavior": {"readOnly":{"value":false,"source":"model"},"idempotent":{"value":false,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":true,"source":"model"}},
+      "retry": "never",
+      "pagination": {"kind":"none"},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); return {id=d.id or \"\",thread_id=d.threadId or (d.message and d.message.threadId) or \"\"} end"},"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"thread_id":{"type":"string","maxBytes":256}},"required":["id","thread_id"],"additionalProperties":false}},
+      "json_body_template": {"summary":{"$argument":"summary"},"description":{"$argument":"description"},"location":{"$argument":"location"},"recurrence":{"$argument":"recurrence"},"start":{"dateTime":{"$argument":"start_time"},"date":{"$argument":"start_date"},"timeZone":{"$argument":"start_zone"}},"end":{"dateTime":{"$argument":"end_time"},"date":{"$argument":"end_date"},"timeZone":{"$argument":"end_zone"}},"attendees":[{"email":{"$argument":"attendee_1"}},{"email":{"$argument":"attendee_2"}},{"email":{"$argument":"attendee_3"}},{"email":{"$argument":"attendee_4"}},{"email":{"$argument":"attendee_5"}},{"email":{"$argument":"attendee_6"}},{"email":{"$argument":"attendee_7"}},{"email":{"$argument":"attendee_8"}}]}
+    },
+    {
+      "operation_id": "update_event",
+      "description": "Change selected event fields. Read the event first. Omitted fields stay unchanged. Attendee inputs replace the list, up to eight.",
+      "method": "PATCH",
+      "path": "/calendar/v3/calendars/{calendarId}/events/{eventId}",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.events"],["https://www.googleapis.com/auth/calendar.events.owned"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true},{"name":"eventId","description":"Exact eventId from a prior read.","location":"path","type":"string","required":true},{"name":"sendUpdates","description":"Who receives event notifications. Choose explicitly.","location":"query","type":"string","required":true,"enum_values":["all","externalOnly","none"]},{"name":"summary","description":"Event title.","location":"json_body","type":"string"},{"name":"description","description":"Event description.","location":"json_body","type":"string"},{"name":"location","description":"Event location.","location":"json_body","type":"string"},{"name":"start_time","description":"Timed event start in RFC 3339.","location":"json_body","type":"string"},{"name":"end_time","description":"Timed event end in RFC 3339.","location":"json_body","type":"string"},{"name":"start_date","description":"All-day start date, YYYY-MM-DD. Omit start_time.","location":"json_body","type":"string"},{"name":"end_date","description":"Exclusive all-day end date, YYYY-MM-DD. Omit end_time.","location":"json_body","type":"string"},{"name":"start_zone","description":"IANA start time zone. Required for recurring timed events.","location":"json_body","type":"string"},{"name":"end_zone","description":"IANA end time zone. Required for recurring timed events.","location":"json_body","type":"string"},{"name":"recurrence","description":"RFC 5545 recurrence lines. Preserve omitted fields during changes.","location":"json_body","type":"string_array"},{"name":"attendee_1","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_2","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_3","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_4","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_5","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_6","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_7","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"},{"name":"attendee_8","description":"Attendee email. When changing attendees, supply the complete replacement list.","location":"json_body","type":"string"}],
+      "behavior": {"readOnly":{"value":false,"source":"model"},"idempotent":{"value":false,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":true,"source":"model"}},
+      "retry": "never",
+      "pagination": {"kind":"none"},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); return {id=d.id or \"\",thread_id=d.threadId or (d.message and d.message.threadId) or \"\"} end"},"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"thread_id":{"type":"string","maxBytes":256}},"required":["id","thread_id"],"additionalProperties":false}},
+      "json_body_template": {"summary":{"$argument":"summary"},"description":{"$argument":"description"},"location":{"$argument":"location"},"recurrence":{"$argument":"recurrence"},"start":{"dateTime":{"$argument":"start_time"},"date":{"$argument":"start_date"},"timeZone":{"$argument":"start_zone"}},"end":{"dateTime":{"$argument":"end_time"},"date":{"$argument":"end_date"},"timeZone":{"$argument":"end_zone"}},"attendees":[{"email":{"$argument":"attendee_1"}},{"email":{"$argument":"attendee_2"}},{"email":{"$argument":"attendee_3"}},{"email":{"$argument":"attendee_4"}},{"email":{"$argument":"attendee_5"}},{"email":{"$argument":"attendee_6"}},{"email":{"$argument":"attendee_7"}},{"email":{"$argument":"attendee_8"}}]}
+    },
+    {
+      "operation_id": "delete_event",
+      "description": "Delete an event or one recurring instance. Choose notification delivery explicitly.",
+      "method": "DELETE",
+      "path": "/calendar/v3/calendars/{calendarId}/events/{eventId}",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.events"],["https://www.googleapis.com/auth/calendar.events.owned"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true},{"name":"eventId","description":"Exact eventId from a prior read.","location":"path","type":"string","required":true},{"name":"sendUpdates","description":"Who receives event notifications. Choose explicitly.","location":"query","type":"string","required":true,"enum_values":["all","externalOnly","none"]}],
+      "behavior": {"readOnly":{"value":false,"source":"model"},"idempotent":{"value":false,"source":"model"},"destructive":{"value":true,"source":"model"},"openWorld":{"value":true,"source":"model"}},
+      "retry": "never",
+      "pagination": {"kind":"none"},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) return nil end"},"output_schema":{"type":"null"}}
+    },
+    {
+      "operation_id": "respond_to_invitation",
+      "description": "Change only the connected attendee response. Use the self attendee email from get_event; preserve other attendees.",
+      "method": "PATCH",
+      "path": "/calendar/v3/calendars/{calendarId}/events/{eventId}",
+      "authorization": {"kind":"oauth_scopes","accepted_scope_sets":[["https://www.googleapis.com/auth/calendar"],["https://www.googleapis.com/auth/calendar.app.created"],["https://www.googleapis.com/auth/calendar.events"],["https://www.googleapis.com/auth/calendar.events.owned"]]},
+      "arguments": [{"name":"calendarId","description":"Exact calendarId from a prior read.","location":"path","type":"string","required":true},{"name":"eventId","description":"Exact eventId from a prior read.","location":"path","type":"string","required":true},{"name":"sendUpdates","description":"Who receives event notifications. Choose explicitly.","location":"query","type":"string","required":true,"enum_values":["all","externalOnly","none"]},{"name":"attendee_email","description":"Self attendee email from get_event.","location":"json_body","type":"string","required":true},{"name":"response_status","description":"Invitation response.","location":"json_body","type":"string","required":true,"enum_values":["accepted","tentative","declined"]}],
+      "behavior": {"readOnly":{"value":false,"source":"model"},"idempotent":{"value":false,"source":"model"},"destructive":{"value":false,"source":"model"},"openWorld":{"value":true,"source":"model"}},
+      "retry": "never",
+      "pagination": {"kind":"none"},
+      "response": {"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) local d=json.decode(response.body); return {id=d.id or \"\",thread_id=d.threadId or (d.message and d.message.threadId) or \"\"} end"},"output_schema":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"thread_id":{"type":"string","maxBytes":256}},"required":["id","thread_id"],"additionalProperties":false}},
+      "json_body_template": {"attendeesOmitted":true,"attendees":[{"email":{"$argument":"attendee_email"},"responseStatus":{"$argument":"response_status"}}]}
+    }
+  ]
+}

@@ -1238,7 +1238,7 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		}
 		result := r.web.ExecuteBrowser(ctx, taskBrowserOwner(task.ID, run.Generation), name, raw, "task:"+run.ID+":"+name)
 		return result.Model, result.Success, result.OutcomeUncertain, false
-	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool, adapter.ConnectLibraryTool:
 		if r.adapters == nil || run.Kind != "executor" {
 			return toolFailure("unavailable", "Adapter setup is unavailable"), false, false, false
 		}
@@ -1408,7 +1408,7 @@ func taskToolAllowed(kind, name string) bool {
 		return kind == "executor"
 	case taskFinishExecution, taskContinueExecution:
 		return kind == "executor"
-	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool, adapter.ConnectLibraryTool:
 		return kind == "executor"
 	case taskFinishPlanning:
 		return kind == "planner"

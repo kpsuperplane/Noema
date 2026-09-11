@@ -215,8 +215,21 @@ type AdapterExternalAccount struct {
 	GrantIds      []string `json:"grantIds"`
 }
 
+// One reviewed API available with this Noema release.
+type AdapterLibraryEntry struct {
+	ID              string   `json:"id"`
+	DefinitionID    string   `json:"definitionId"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	Revision        string   `json:"revision"`
+	SemanticDigest  string   `json:"semanticDigest"`
+	SourceReference string   `json:"sourceReference"`
+	OperationIds    []string `json:"operationIds"`
+}
+
 // One coherent non-secret API adapter management snapshot.
 type AdapterManagement struct {
+	Library      []*AdapterLibraryEntry   `json:"library"`
 	Definitions  []*AdapterDefinition     `json:"definitions"`
 	OauthState   *AdapterOauthState       `json:"oauthState"`
 	Integrations []*CapabilityIntegration `json:"integrations"`
@@ -794,6 +807,11 @@ type ConfirmOnboardingModelSelectionsInput struct {
 	ToolProgressAudit   *OnboardingModelSelectionInput `json:"toolProgressAudit"`
 	ActionReviewer      *OnboardingModelSelectionInput `json:"actionReviewer,omitempty"`
 	MemoryConsolidation *OnboardingModelSelectionInput `json:"memoryConsolidation"`
+}
+
+type ConnectAdapterLibraryInput struct {
+	LibraryID      string `json:"libraryId"`
+	ExpectedDigest string `json:"expectedDigest"`
 }
 
 // Continue setup after adding authentication material.

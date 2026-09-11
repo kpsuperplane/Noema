@@ -302,6 +302,9 @@ func renderTemplate(value any, arguments map[string]any) (any, error) {
 				result = append(result, rendered)
 			}
 		}
+		if len(value) > 0 && len(result) == 0 {
+			return nil, nil
+		}
 		return result, nil
 	default:
 		return value, nil

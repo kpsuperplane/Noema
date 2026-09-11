@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kpsuperplane/noema/internal/adapter"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -91,10 +92,16 @@ func (r *Resolver) pendingHumanInterventions(
 		return nil, err
 	}
 	result = append(result, setups...)
-	if conversationID != nil && taskID == nil && r.Adapters != nil {
+	if (conversationID != nil || taskID != nil) && r.Adapters != nil {
 		definitions, definitionErr := r.adapterDefinitions(ctx)
 		if definitionErr != nil {
 			return nil, definitionErr
+		}
+		if taskID != nil {
+			definitions, definitionErr = r.taskLibraryDefinitions(ctx, *taskID, definitions)
+			if definitionErr != nil {
+				return nil, definitionErr
+			}
 		}
 		oauth, oauthErr := r.adapterOauthState(ctx)
 		if oauthErr != nil {
@@ -113,6 +120,40 @@ func (r *Resolver) pendingHumanInterventions(
 	}
 	if len(result) > limit {
 		result = result[:limit]
+	}
+	return result, nil
+}
+
+// Task setup uses the latest Executor's saved library selections.
+func (r *Resolver) taskLibraryDefinitions(ctx context.Context, taskID string, definitions []*model.AdapterDefinition) ([]*model.AdapterDefinition, error) {
+	runs, err := r.Store.TaskRuns(ctx, taskID, 50)
+	if err != nil {
+		return nil, err
+	}
+	selected := map[string]bool{}
+	for _, run := range runs {
+		if run.Kind != "executor" {
+			continue
+		}
+		items, err := r.Store.TaskRunReplayItems(ctx, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			if item.Kind != "tool_result" || item.Payload["name"] != adapter.ConnectLibraryTool || item.Payload["success"] != true {
+				continue
+			}
+			result, _ := item.Payload["result"].(map[string]any)
+			id, _ := result["definition_id"].(string)
+			selected[id] = true
+		}
+		break
+	}
+	result := make([]*model.AdapterDefinition, 0)
+	for _, definition := range definitions {
+		if selected[definition.DefinitionID] {
+			result = append(result, definition)
+		}
 	}
 	return result, nil
 }
@@ -166,7 +207,7 @@ func projectAdapterInterventions(
 		}
 
 		needsDefinition := !definition.Reviewed ||
-			(definition.ConnectionCount == 0 && definition.CredentialSetup != nil)
+			(definition.ConnectionCount == 0 && (definition.CredentialSetup != nil || definition.OauthProfileDigest != nil))
 		for _, connection := range definition.Connections {
 			if adapterConnectionNeedsChatIntervention(connection) {
 				needsDefinition = true
@@ -174,6 +215,14 @@ func projectAdapterInterventions(
 			}
 		}
 		if !needsDefinition {
+			continue
+		}
+		needsPolicy := false
+		for _, connection := range definition.Connections {
+			needsPolicy = needsPolicy || (connection.Status == "active" && !connection.PolicyConfigured)
+		}
+		if needsPolicy {
+			reviews = append(reviews, definition)
 			continue
 		}
 		action := definition.NextAction

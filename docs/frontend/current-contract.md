@@ -148,7 +148,13 @@ one supported access method; credential and no-auth connections keep the same
 provider hierarchy. MCP Settings keeps its service-first list. Both use the same
 connection detail. The detail keeps connection policy and tool controls visible.
 Tool counts appear in the Tools section, not in list rows or the detail header.
-When no API exists, it shows one route to Chat instead of empty data sections.
+The `Connect API` action opens a service picker like `Add provider`.
+Both pickers use the shared `ServiceChoice` component for service choices.
+The API picker includes Gmail, Google Calendar, and a route to Chat for other APIs.
+Selecting a service opens its Connect step. Back returns to the service choices.
+After selection, missing Google setup opens the protected application import dialog.
+Successful import resumes the selected connection's account setup.
+When no API exists, the page shows a short empty state.
 Client import occurs only when a structured API connection action requires it.
 
 Chat presents one pending human intervention at a time with queue navigation.

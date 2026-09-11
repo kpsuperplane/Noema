@@ -161,7 +161,7 @@ func isTaskTranscriptBuiltin(name string) bool {
 		fileParseName, fileDownloadName, taskListName, taskCaptureName, taskInspectName,
 		taskFinishPlanning, taskFinishExecution, taskContinueExecution, taskFinishReview,
 		taskReportBlocked, taskListArtifactsName, artifactCreateLocalName, taskReadArtifactName,
-		taskParseArtifactName, adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool,
+		taskParseArtifactName, adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool, adapter.ConnectLibraryTool,
 		webtool.SearchName, webtool.FetchName, webtool.BrowseOpenName, webtool.BrowseSnapshotName,
 		webtool.BrowseInteractName, webtool.BrowseWaitName, webtool.BrowseHistoryName,
 		webtool.BrowseSwitchName, webtool.BrowseCloseName:
@@ -676,7 +676,7 @@ func (c *Chat) executeChatToolRounds(
 			return
 		}
 		sideEffect := call.Name == updateOwnNameToolName || call.Name == fileDownloadName ||
-			call.Name == noemamcp.ConnectServiceToolName || call.Name == adapter.ProposeDefinitionTool ||
+			call.Name == noemamcp.ConnectServiceToolName || call.Name == adapter.ProposeDefinitionTool || call.Name == adapter.ConnectLibraryTool ||
 			call.Name == projectCreateName || call.Name == projectUpdateName ||
 			call.Name == projectArchiveName || call.Name == projectReopenName || taskToolHasSideEffect(call.Name)
 		if c.adapters != nil {
@@ -857,7 +857,7 @@ func (c *Chat) persistChatToolRound(
 				}
 			}
 		}
-	} else if call.Name != webtool.SearchName && call.Name != webtool.FetchName && !webtool.IsBrowserTool(call.Name) && call.Name != noemamcp.ConnectServiceToolName && call.Name != adapter.DefinitionTemplateTool && call.Name != adapter.ProposeDefinitionTool && !supportsLocalChatTool(call.Name) {
+	} else if call.Name != webtool.SearchName && call.Name != webtool.FetchName && !webtool.IsBrowserTool(call.Name) && call.Name != noemamcp.ConnectServiceToolName && call.Name != adapter.DefinitionTemplateTool && call.Name != adapter.ProposeDefinitionTool && call.Name != adapter.ConnectLibraryTool && !supportsLocalChatTool(call.Name) {
 		if c.adapters != nil {
 			if binding, bindErr := c.adapters.Binding(call.Name); bindErr == nil {
 				if c.adapters.Validate(binding, call.Payload) != nil {
@@ -1059,7 +1059,7 @@ func (c *Chat) persistChatToolRound(
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem,
 	})
-	if success && call.Name == adapter.ProposeDefinitionTool {
+	if success && (call.Name == adapter.ProposeDefinitionTool || call.Name == adapter.ConnectLibraryTool) {
 		c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
 	}
 	c.publishMemoryChanged()

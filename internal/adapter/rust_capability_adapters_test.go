@@ -2113,7 +2113,7 @@ func TestRustAdapters_active_grant_scope_gap_identifies_the_exact_definition_ope
 	service, _, definition, grant, _ := rustRuntimeOAuthFixture(t, []string{"scope.extra"})
 	_ = rustAddRuntimeOAuthConnection(t, service, definition, grant, "second")
 	setupCatalog := service.SetupCatalog()
-	if len(setupCatalog) != 2 || setupCatalog[0].Tool.Name != DefinitionTemplateTool || setupCatalog[1].Tool.Name != ProposeDefinitionTool || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
+	if len(setupCatalog) != 3 || setupCatalog[0].Tool.Name != DefinitionTemplateTool || setupCatalog[1].Tool.Name != ProposeDefinitionTool || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
 		t.Fatalf("setup catalog = %#v", setupCatalog)
 	}
 	bindings, err := service.Bindings()
@@ -2542,11 +2542,11 @@ func rustExpectSetupFailure(t *testing.T, service *Service, raw json.RawMessage,
 func TestRustAdapters_proposal_binding_is_internal_and_persists_redacted_payloads(t *testing.T) {
 	service, _, _, _ := rustAdapterService(t)
 	tools := service.SetupTools()
-	if len(tools) != 2 || tools[0].Name != DefinitionTemplateTool || tools[1].Name != ProposeDefinitionTool {
+	if len(tools) != 3 || tools[0].Name != DefinitionTemplateTool || tools[1].Name != ProposeDefinitionTool {
 		t.Fatalf("setup tools = %#v", tools)
 	}
 	setupCatalog := service.SetupCatalog()
-	if len(setupCatalog) != 2 || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
+	if len(setupCatalog) != 3 || setupCatalog[0].InvokerKey != AdapterInvokerKey || setupCatalog[1].InvokerKey != AdapterInvokerKey || setupCatalog[0].OperationToken != DefinitionTemplateToken || setupCatalog[1].OperationToken != ProposeDefinitionToken || setupCatalog[0].ExecutionDecision != "ExecuteImmediately" || setupCatalog[1].ExecutionDecision != "ExecuteImmediately" {
 		t.Fatalf("setup authority = %#v", setupCatalog)
 	}
 	if !strings.Contains(tools[1].Description, "complete argument contract") {

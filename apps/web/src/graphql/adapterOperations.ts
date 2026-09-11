@@ -139,6 +139,7 @@ export const AdapterOauthStateFields = gql`
 export const AdapterManagementRootDocument = gql`
   query AdapterManagementRoot {
     adapterManagement {
+      library { id definitionId name description revision semanticDigest sourceReference operationIds }
       definitions { ...AdapterDefinitionFields }
       oauthState { ...AdapterOauthStateFields }
       integrations { ...CapabilityIntegrationFields }
@@ -147,6 +148,13 @@ export const AdapterManagementRootDocument = gql`
   ${AdapterDefinitionFields}
   ${AdapterOauthStateFields}
   ${CapabilityIntegrationFields}
+`;
+
+export const ConnectAdapterLibraryDocument = gql`
+  mutation ConnectAdapterLibrary($input: ConnectAdapterLibraryInput!) {
+    connectAdapterLibrary(input: $input) { ...AdapterDefinitionFields }
+  }
+  ${AdapterDefinitionFields}
 `;
 
 export const ApproveAdapterDefinitionDocument = gql`

@@ -102,7 +102,7 @@ func (c *Chat) supportsChatTool(ctx context.Context, name string) bool {
 		return true
 	}
 	if c.adapters != nil {
-		if name == adapter.DefinitionTemplateTool || name == adapter.ProposeDefinitionTool {
+		if name == adapter.DefinitionTemplateTool || name == adapter.ProposeDefinitionTool || name == adapter.ConnectLibraryTool {
 			return true
 		}
 		if _, err := c.adapters.Binding(name); err == nil {
@@ -284,7 +284,7 @@ func (c *Chat) executeChatTool(
 		}
 		payload, _ := json.Marshal(map[string]any{"status": "published", "surface_count": len(batch.Surfaces)})
 		return payload, true
-	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool:
+	case adapter.DefinitionTemplateTool, adapter.ProposeDefinitionTool, adapter.ConnectLibraryTool:
 		if c.adapters != nil {
 			return c.adapters.ExecuteSetup(name, arguments)
 		}

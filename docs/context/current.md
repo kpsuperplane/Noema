@@ -4,6 +4,8 @@ This brief contains active direction, current constraints, and open loops. Durab
 
 ## Active direction
 
+The Gmail and Calendar library uses reviewed release definitions and the existing account setup. API and provider pickers share one choice component. Installed definitions remain pinned. See [library evidence](../validation/gmail-calendar-library-2026-09-11.md).
+
 Fresh web setup confirms a missing public address before passkey creation. The initial Chat welcome now uses the normal provider session. Chat now saves completed assistant paragraphs as separate server messages. Clients render those saved boundaries. See [server boundary evidence](../validation/server-chat-bubbles-2026-09-10.md). See [domain setup evidence](../validation/domain-setup-2026-09-10.md) and [welcome request evidence](../validation/fresh-chat-welcome-2026-09-10.md).
 
 Task pages use indexed connector names and focused attention. The connector service now retains compiled definitions. The live task-detail median fell from 558 ms to 6.1 ms. See [task-load evidence](../validation/task-load-2026-09-09.md).

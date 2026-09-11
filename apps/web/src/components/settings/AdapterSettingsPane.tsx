@@ -2,12 +2,15 @@ import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/cl
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu, DropdownMenuItem } from "@astryxdesign/core/DropdownMenu";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { Switch } from "@astryxdesign/core/Switch";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Check, FileKey2, MoreHorizontal, Pencil, Plus, Trash2, Unplug } from "lucide-react";
+import { ArrowLeft, Check, FileKey2, MoreHorizontal, Pencil, Plus, Trash2, Unplug } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -15,6 +18,7 @@ import {
   AdapterOauthAttemptDocument,
   AdapterOauthAttemptEventsDocument,
   ApproveAdapterDefinitionDocument,
+  ConnectAdapterLibraryDocument,
   AttachAdapterOauthConnectionDocument,
   DeleteAdapterConnectionDocument,
   DeleteAdapterOauthApplicationDocument,
@@ -42,6 +46,7 @@ import {
   AdapterCredentialSetupDialog,
   type AdapterCredentialSubmission
 } from "@/components/capabilities/AdapterCredentialSetupDialog";
+import { ServiceChoice } from "./ServiceChoice";
 import { SettingsEditDialog } from "./SettingsEditDialog";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
@@ -72,6 +77,10 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const definitionsResult = rootResult;
   const oauthResult = rootResult;
   const integrationsResult = rootResult;
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(null);
+  const [connectLibrary, librarySelection] = useMutation(ConnectAdapterLibraryDocument);
+  const [resumeDefinitionDigest, setResumeDefinitionDigest] = useState<string | null>(null);
   const [approve, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [setupConnection, credentialSetupState] = useMutation(SetupAdapterConnectionDocument);
   const [importApplication, applicationImportState] = useMutation(ImportAdapterOauthApplicationDocument);
@@ -168,6 +177,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         return grant ? { ...connection, name: grant.accountLabel ?? "Unlabeled account" } : connection;
       })
     }));
+  const selectedLibraryEntry = rootResult.data?.adapterManagement.library.find((entry) => entry.id === selectedLibraryId);
   const pendingDefinitions = definitions.filter((item) => !item.reviewed);
   const availableDefinitions = definitions.filter((item) => item.reviewed && item.connectionCount === 0
     && !oauth?.applications.some((application) => application.profileDigest === item.oauthProfileDigest));
@@ -245,6 +255,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       return;
     }
     if (action.kind === "import_application" && definition.oauthProfileDigest) {
+      setResumeDefinitionDigest(definition.semanticDigest);
       setApplicationProfileDigest(definition.oauthProfileDigest);
       return;
     }
@@ -301,6 +312,11 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   }
 
   function requestConnection(definition: AdapterDefinition) {
+    definition = { ...definition, connectionActions: definition.connectionActions.filter((action) => action.kind !== "review_connection_policy") };
+    if (definition.connectionActions.length === 0) {
+      requestAction(definition);
+      return;
+    }
     if (definition.connectionActions.length === 1) {
       requestAction(definition, definition.connectionActions[0]);
       return;
@@ -343,7 +359,10 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       clientDocumentBase64: encodeBase64(bytes)
     } } });
     setApplicationProfileDigest(null);
-    await refresh();
+    const result = await rootResult.refetch();
+    const definition = result.data?.adapterManagement.definitions.find((item) => item.semanticDigest === resumeDefinitionDigest);
+    setResumeDefinitionDigest(null);
+    if (definition) requestConnection(definition);
   }
 
   async function importDirectCredential(submission: AdapterCredentialSubmission) {
@@ -387,11 +406,12 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       connectionId={connectionId}
       defaultConnectionId={apiIntegrations[0]?.connections[0]?.connectionId}
       title="APIs"
-      primaryAction={{ label: "Connect API", onClick: () => void navigate({ to: "/" }) }}
+      primaryAction={{ label: "Connect API", onClick: () => { setError(null); setSelectedLibraryId(null); setLibraryOpen(true); } }}
       serviceName={selectedDefinition?.displayName}
       connectionName={selectedGrant ? selectedGrant.accountLabel ?? "Unlabeled account" : undefined}
       sourceActions={sourceActions}
       list={<VStack gap={3} {...stylex.props(styles.stack)}>
+        {definitions.length === 0 ? <p {...stylex.props(styles.muted)}>No APIs connected. Connect Gmail, Google Calendar, or another API.</p> : null}
         {pendingDefinitions.length > 0 ? (
           <SettingsSection aria-labelledby="api-review-title"><VStack gap={2}>
             <h2 id="api-review-title" {...stylex.props(styles.sectionTitle)}>Review before connecting</h2>
@@ -405,14 +425,6 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
             </SettingsList>
           </VStack></SettingsSection>
         ) : null}
-        {definitions.length === 0 ? <SettingsSection aria-labelledby="api-empty-title"><VStack gap={2}>
-          <h2 id="api-empty-title" {...stylex.props(styles.sectionTitle)}>No APIs set up</h2>
-          <p {...stylex.props(styles.muted)}>
-            Ask Noema in Chat to add Gmail, Google Calendar, or another API. You will review access before it connects.
-          </p>
-          <Button type="button" size="sm" label="Open Chat" {...stylex.props(styles.fit)}
-            onClick={() => void navigate({ to: "/" })} />
-        </VStack></SettingsSection> : null}
         {apiIntegrations.length > 0 || providers.length > 0 ? <CapabilityIntegrationList
           integrations={apiIntegrations}
           kind="API"
@@ -585,6 +597,47 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         : "Replace this OAuth client document."}
       submitLabel="Replace OAuth client" onOpenChange={(open) => { if (!open) setReplacementApplicationId(null); }}
       onSubmit={replaceOauthApplication} />
+    <Dialog isOpen={libraryOpen} purpose="form" width={620} aria-label="Connect API"
+      onOpenChange={(open) => { if (!librarySelection.loading) { setLibraryOpen(open); if (!open) setSelectedLibraryId(null); } }}>
+      <Layout height="auto"
+        header={<DialogHeader title={selectedLibraryEntry ? `Connect ${selectedLibraryEntry.name}` : "Connect API"}
+          subtitle={selectedLibraryEntry ? undefined : "Choose an API to connect."}
+          startContent={selectedLibraryEntry ? <Button type="button" variant="ghost" size="sm"
+            label="Back to APIs" isIconOnly icon={<ArrowLeft aria-hidden="true" />}
+            isDisabled={librarySelection.loading} onClick={() => { setSelectedLibraryId(null); setError(null); }} /> : undefined}
+          onOpenChange={(open) => { if (!librarySelection.loading) { setLibraryOpen(open); if (!open) setSelectedLibraryId(null); } }} />}
+        content={<LayoutContent><VStack gap={3}>
+          {selectedLibraryEntry ? <>
+            <p {...stylex.props(styles.muted)}>{selectedLibraryEntry.description}</p>
+            <Button type="button" variant="primary" label={`Connect ${selectedLibraryEntry.name}`}
+              isLoading={librarySelection.loading} isDisabled={librarySelection.loading}
+              onClick={() => {
+                setError(null);
+                void connectLibrary({ variables: { input: { libraryId: selectedLibraryEntry.id, expectedDigest: selectedLibraryEntry.semanticDigest } } })
+                  .then(async (result) => {
+                    await refresh();
+                    const definition = result.data?.connectAdapterLibrary;
+                    if (definition) {
+                      setLibraryOpen(false);
+                      setSelectedLibraryId(null);
+                      if (!definition.reviewed) requestAction(definition);
+                      else requestConnection(definition);
+                    }
+                  }).catch(actionError(setError));
+              }} />
+          </> : <>
+            <Grid columns={{ minWidth: 220, max: 2, repeat: "fit" }} gap={2}>
+              {(rootResult.data?.adapterManagement.library ?? []).map((entry) => <ServiceChoice key={entry.id}
+                name={entry.name} description={entry.description}
+                hostname={entry.id === "gmail" ? "mail.google.com" : "calendar.google.com"}
+                onClick={() => setSelectedLibraryId(entry.id)} />)}
+            </Grid>
+            <Button type="button" variant="ghost" label="Add another API in Chat" {...stylex.props(styles.fit)}
+              onClick={() => { setLibraryOpen(false); void navigate({ to: "/" }); }} />
+          </>}
+          {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
+        </VStack></LayoutContent>} />
+    </Dialog>
     <SettingsEditDialog title="Rename account" open={renameGrants !== null} saving={labelState.loading}
       saveLabel="Save label" error={error} onOpenChange={(open) => { if (!open) setRenameGrants(null); }}
       onSave={() => renameGrants?.[0] ? saveGrantLabel({ variables: { input: {

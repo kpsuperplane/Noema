@@ -13,12 +13,16 @@ import (
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
-// References were extracted from Rust commit 4d29f6ba, not Go output.
+// References preserve Rust commit 4d29f6ba with the reviewed library discovery change.
 func rustPromptReference(t *testing.T, name string) string {
 	t.Helper()
 	value, err := os.ReadFile(filepath.Join("testdata", "rust_prompts", name+".txt"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if name == "primary" {
+		value = []byte(strings.Replace(string(value), "Capability extension:\n", "Capability extension:\n- Before researching a connection, call `adapter.definition_template` when available. Reuse an existing connection or select a matching reviewed library entry with `adapter.connect_library`. Keep account consent and connection permissions with the human. Research a new definition only when the installed tools and library cannot support the request.\n", 1))
+		value = []byte(strings.Replace(string(value), "When the human asks to connect a service and `mcp.connect_service` is listed in tools.visibility, use web search", "When the human asks to connect a service, no suitable library entry exists, and `mcp.connect_service` is listed in tools.visibility, use web search", 1))
 	}
 	return string(value)
 }

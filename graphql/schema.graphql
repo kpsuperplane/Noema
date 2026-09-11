@@ -248,9 +248,24 @@ type AdapterExternalAccount {
 }
 
 """
+One reviewed API available with this Noema release.
+"""
+type AdapterLibraryEntry {
+	id: String!
+	definitionId: String!
+	name: String!
+	description: String!
+	revision: String!
+	semanticDigest: String!
+	sourceReference: String!
+	operationIds: [String!]!
+}
+
+"""
 One coherent non-secret API adapter management snapshot.
 """
 type AdapterManagement {
+	library: [AdapterLibraryEntry!]!
 	definitions: [AdapterDefinition!]!
 	oauthState: AdapterOauthState!
 	integrations: [CapabilityIntegration!]!
@@ -1196,6 +1211,11 @@ input ConfirmOnboardingModelSelectionsInput {
 	toolProgressAudit: OnboardingModelSelectionInput!
 	actionReviewer: OnboardingModelSelectionInput
 	memoryConsolidation: OnboardingModelSelectionInput!
+}
+
+input ConnectAdapterLibraryInput {
+	libraryId: String!
+	expectedDigest: String!
 }
 
 """
@@ -2793,6 +2813,10 @@ type MutationRoot {
 	Attach one bounded private source file to an Inbox Task.
 	"""
 	createTaskLocalArtifact(input: CreateTaskLocalArtifactInput!): Artifact!
+	"""
+	Select a reviewed library definition without granting account access.
+	"""
+	connectAdapterLibrary(input: ConnectAdapterLibraryInput!): AdapterDefinition!
 	"""
 	Approve one exact pending adapter definition as the local human.
 	"""
