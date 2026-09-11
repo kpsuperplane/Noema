@@ -295,7 +295,8 @@ const styles = stylex.create({
     "@media (max-width: 620px)": { flexBasis: "100%" }
   },
   effortControl: {
-    width: "6rem",
+    width: { default: "6rem", "@media (max-width: 620px)": "100%" },
+    gridColumn: { default: "auto", "@media (max-width: 620px)": "1 / 3" },
     minWidth: "5.5rem",
     flex: "0 1 6rem"
   },
