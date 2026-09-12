@@ -1,7 +1,8 @@
 # Current Noema Context
-
 This brief contains active direction, current constraints, and open loops. Durable contracts belong in subsystem documents. Git owns completed history.
 ## Active direction
+
+Chat delegation now saves provider reasoning once before completing the reply. The regression preserves Tasks, reply text, and saved reasoning. Call-count-based delegation remains an open policy issue. See [save failure and cause](../validation/chat-delegation-save-2026-09-12.md).
 
 The Gmail and Calendar library uses reviewed release definitions and the existing account setup. API and provider pickers share one choice component. API selection opens setup directly. Unfinished setup has a Setup action with an icon. Installed definitions remain pinned. See [library evidence](../validation/gmail-calendar-library-2026-09-11.md).
 

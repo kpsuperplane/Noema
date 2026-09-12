@@ -911,8 +911,8 @@ func TestRustRuntime_runtime_executes_every_homogeneous_delegation_and_uses_prov
 	chat.openRouter = generatorFunc(func(_ context.Context, _ provider.GenerateRequest, emit func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		calls++
 		emit(provider.StreamEvent{Kind: provider.TextDelta, Delta: "I started all three background tasks. They are underway."})
-		// Go combines Rust's two text items. Separate reply items remain an open port gap.
-		return provider.GenerationResult{Text: "I started all three background tasks. They are underway.", ToolCalls: []provider.GenerationToolCall{
+		// Delegation saves provider reasoning before it completes the reply.
+		return provider.GenerationResult{Reasoning: []provider.GenerationReasoning{{ProviderDetails: []json.RawMessage{json.RawMessage(`{"type":"reasoning","encrypted_content":"test-reasoning"}`)}}}, Text: "I started all three background tasks. They are underway.", ToolCalls: []provider.GenerationToolCall{
 			delegate(0, "call_task_canada", "Research Canada"), delegate(1, "call_task_usa", "Research USA"),
 			{Index: 2, ProviderCallID: "call_task_invalid", ProviderName: taskDelegateName, Name: taskDelegateName, Payload: json.RawMessage(`{"title":"Invalid task"}`)},
 		}}, nil
@@ -951,11 +951,30 @@ func TestRustRuntime_runtime_executes_every_homogeneous_delegation_and_uses_prov
 		t.Errorf("creation calls: %#v", created)
 	}
 	for _, item := range page.Items {
+		if item.Kind == store.ConversationErrorNotice {
+			t.Fatalf("delegation failed after task creation: %#v", item)
+		}
 		if item.Kind == "task_reference" || item.Metadata["source"] == "task_delegation_receipt" {
 			t.Errorf("unexpected receipt: %#v", item)
 		}
 	}
+	items, err := database.ConversationProviderItems(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasoningCount := 0
+	for _, item := range items {
+		if item.Kind == store.ConversationReasoning {
+			reasoningCount++
+			if string(mustJSON(item.Payload)) != `{"provider_details":[{"encrypted_content":"test-reasoning","type":"reasoning"}]}` {
+				t.Fatal("provider reasoning was changed")
+			}
+		}
+	}
 
+	if reasoningCount != 1 {
+		t.Fatalf("saved reasoning records = %d", reasoningCount)
+	}
 }
 
 func TestRustRuntime_runtime_actor_allocates_distinct_conversation_ids(t *testing.T) {

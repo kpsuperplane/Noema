@@ -618,6 +618,8 @@ func (c *Chat) executeChatToolRounds(
 				return
 			}
 			if !mixed {
+				// The delegation batch already saved this response's reasoning.
+				result.Reasoning = nil
 				c.finishGeneratedTurn(request.input, turn, assignment, result, providerRound, usage)
 				return
 			}
