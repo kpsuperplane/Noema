@@ -279,7 +279,7 @@ export function ToolMarker({
               data-slot="tool-marker-group-row"
               disabled={!expandable}
               onClick={expandable ? onToggle : undefined}
-              title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
+              title={collapsedCall.toolKind === "thinking" ? collapsedCall.name : collapsedCall.errorMessage}
             >
               {rowContent}
             </button>
@@ -326,7 +326,7 @@ export function ToolMarker({
             data-slot="tool-marker-row"
             disabled={!call.expandable}
             onClick={call.expandable ? onToggle : undefined}
-            title={call.status === "error" ? call.errorMessage : undefined}
+            title={call.toolKind === "thinking" ? call.name : call.errorMessage}
           >
             <ToolMarkerRowContent animateText={animateText} call={call} open={call.expandable && open} presentation={presentation} />
           </button>

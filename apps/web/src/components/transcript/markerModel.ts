@@ -351,7 +351,7 @@ function withoutRenderedScreenshotData(value: unknown): unknown {
 }
 
 export function toolMarkerExpandable(marker: ToolMarkerGroup): boolean {
-  if (marker.message) return true;
+  if (marker.message) return false;
   const kind = toolMarkerKind(marker);
   if (kind === "web.search" || kind === "web.fetch") {
     return false;
