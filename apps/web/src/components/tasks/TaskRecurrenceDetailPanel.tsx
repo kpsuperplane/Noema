@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import { TaskScheduleSummary } from "./TaskScheduleSummary";
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
@@ -246,8 +247,12 @@ function LoadedRecurrenceDetail({ recurrence, header, onReload, onTitleChange }:
         </HStack> : null}
       </HStack>
       </Grid>
+      <AnimatePresence>
       {editingSchedule ? <RecurrenceScheduleDialog recurrence={recurrence} onClose={() => setEditingSchedule(false)} onUpdated={onReload} /> : null}
+      </AnimatePresence>
+      <AnimatePresence>
       {confirmingEnd ? <EndRecurrenceDialog recurrence={recurrence} submitting={endState.loading} error={endState.error?.message ?? null} onClose={() => setConfirmingEnd(false)} onConfirm={() => void change("end").catch(() => undefined)} /> : null}
+      </AnimatePresence>
     </VStack>
   );
 }

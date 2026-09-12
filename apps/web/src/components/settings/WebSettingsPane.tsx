@@ -1,7 +1,7 @@
 import { HStack } from "@astryxdesign/core/HStack";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { NativeDialog as Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { VStack } from "@astryxdesign/core/VStack";

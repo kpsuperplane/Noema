@@ -39,6 +39,40 @@
   corner-shape: var(--corner-shape-chat);
 }
 
+/* Native dialogs keep their top-layer position while the exit fades out. */
+dialog.astryx-dialog {
+  animation: none !important;
+  display: none !important;
+  opacity: var(--dialog-progress, 1) !important;
+  transform: translateY(calc((1 - var(--dialog-progress, 1)) * var(--spacing-2)))
+    scale(calc(0.97 + 0.03 * var(--dialog-progress, 1)));
+  transition-property: display, overlay;
+  transition-duration: var(--motion-spring-surface-duration);
+  transition-behavior: allow-discrete;
+}
+
+dialog.astryx-dialog[open] {
+  display: flex !important;
+}
+
+dialog.astryx-dialog::backdrop {
+  opacity: 0;
+  transition-property: opacity, display, overlay;
+  transition-duration: var(--motion-spring-surface-duration);
+  transition-timing-function: var(--motion-spring-critical-easing);
+  transition-behavior: allow-discrete;
+}
+
+dialog.astryx-dialog[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  dialog.astryx-dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
 .astryx-dropdown-menu-item:not([aria-disabled="true"]):focus {
   background-color: var(--color-overlay-hover) !important;
 }

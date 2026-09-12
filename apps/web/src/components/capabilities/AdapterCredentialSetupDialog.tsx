@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import { Button } from "@astryxdesign/core/Button";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -32,7 +33,7 @@ export type AdapterCredentialSubmission = {
   document: File | null;
 };
 
-export function AdapterCredentialSetupDialog({
+function AdapterCredentialSetupDialogContent({
   title,
   serviceName,
   setup,
@@ -199,3 +200,11 @@ const styles = stylex.create({
   source: { maxHeight: 220, margin: 0, padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", color: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
   error: { margin: 0, color: "var(--destructive)", fontSize: 13 }
 });
+
+export function AdapterCredentialSetupDialog(props: Parameters<typeof AdapterCredentialSetupDialogContent>[0]) {
+  return (
+    <AnimatePresence>
+      {props.open && props.setup && <AdapterCredentialSetupDialogContent {...props} />}
+    </AnimatePresence>
+  );
+}

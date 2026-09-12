@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import * as React from "react";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
@@ -382,6 +383,7 @@ export function TaskActions({
         <>{controls}{actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null}</>
       )}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
+      <AnimatePresence>
       <TaskActionDialog
         key={activeAction ?? "closed"}
         action={activeAction === "EDIT" ? null : activeAction}
@@ -399,7 +401,10 @@ export function TaskActions({
           setActiveCommand(null);
         }}
       />
+      </AnimatePresence>
+      <AnimatePresence>
       <TaskScheduleDialog key={`${task.taskId}:${task.revision}:${scheduleAction}`} action={scheduleAction} task={task} onClose={() => setScheduleAction(null)} />
+      </AnimatePresence>
     </>
   );
 }

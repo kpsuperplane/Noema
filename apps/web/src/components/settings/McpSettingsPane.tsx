@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import * as React from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@apollo/client/react";
@@ -329,6 +330,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
           />
         ) : null}
       />
+      <AnimatePresence>
       <McpAddConnectionDialog
         key={addTarget?.definitionId ?? "mcp-add-connection"}
         integration={addTarget}
@@ -338,6 +340,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
           if (!open) setAddTargetId(null);
         }}
       />
+      </AnimatePresence>
       <McpSetupDialog
         open={setupOpen}
         setupResult={setupResult}
@@ -350,6 +353,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
         onCreateServer={onCreateServer}
         onStartOAuth={onStartOAuth}
       />
+      <AnimatePresence>
       <McpServerReauthenticationDialog
         key={reauthServer?.mcpServerId ?? "mcp-reauthentication"}
         server={reauthServer}
@@ -364,6 +368,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
         onSubmit={onContinueServerSetup}
         onStartBrowserOAuth={onStartReauthenticationOAuth}
       />
+      </AnimatePresence>
       <DeleteConnectionDialog
         connection={deleteTarget ? {
           name: deleteTarget.displayName,

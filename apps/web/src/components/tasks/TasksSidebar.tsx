@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import * as React from "react";
 import type { ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
@@ -187,9 +188,9 @@ function ProjectCreateForm({ manager, onCancel }: { manager: ProjectManagerContr
 }
 
 function ProjectEditDialog({ manager }: { manager: ProjectManagerController }) {
-  if (!manager.editor || manager.editor.kind !== "edit") return null;
   return (
-    <Dialog isOpen onOpenChange={(open) => !open && manager.closeEditor()} purpose="form" width={480} aria-label="Edit project">
+    <AnimatePresence>
+    {manager.editor?.kind === "edit" && <Dialog isOpen onOpenChange={(open) => !open && manager.closeEditor()} purpose="form" width={480} aria-label="Edit project">
       <Layout height="auto" header={<DialogHeader title="Edit project" subtitle="A project folder becomes the default working directory for its tasks." onOpenChange={(open) => !open && manager.closeEditor()} />} content={<LayoutContent>
         <VStack as="form" gap={3} onSubmit={(event) => { event.preventDefault(); void manager.save(); }}>
           <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Name</span><input data-autofocus required value={manager.name} {...stylex.props(styles.input)} onChange={(event) => manager.setName(event.currentTarget.value)} /></VStack>
@@ -198,7 +199,8 @@ function ProjectEditDialog({ manager }: { manager: ProjectManagerController }) {
           <HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={manager.busy} onClick={manager.closeEditor} /><Button type="submit" size="sm" variant="primary" label="Save" isLoading={manager.busy} isDisabled={manager.busy || !manager.name.trim()} /></HStack>
         </VStack>
       </LayoutContent>} />
-    </Dialog>
+    </Dialog>}
+    </AnimatePresence>
   );
 }
 
