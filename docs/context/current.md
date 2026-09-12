@@ -3,7 +3,7 @@
 This brief contains active direction, current constraints, and open loops. Durable contracts belong in subsystem documents. Git owns completed history.
 ## Active direction
 
-The Gmail and Calendar library uses reviewed release definitions and the existing account setup. API and provider pickers share one choice component. API selection opens setup directly. Unfinished setup has a Resume setup action. Installed definitions remain pinned. See [library evidence](../validation/gmail-calendar-library-2026-09-11.md).
+The Gmail and Calendar library uses reviewed release definitions and the existing account setup. API and provider pickers share one choice component. API selection opens setup directly. Unfinished setup has a Setup action with an icon. Installed definitions remain pinned. See [library evidence](../validation/gmail-calendar-library-2026-09-11.md).
 
 Fresh web setup confirms a missing public address before passkey creation. The initial Chat welcome now uses the normal provider session. Chat now saves completed assistant paragraphs as separate server messages. Clients render those saved boundaries. See [server boundary evidence](../validation/server-chat-bubbles-2026-09-10.md). See [domain setup evidence](../validation/domain-setup-2026-09-10.md) and [welcome request evidence](../validation/fresh-chat-welcome-2026-09-10.md).
 

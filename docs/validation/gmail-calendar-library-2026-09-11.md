@@ -142,3 +142,18 @@ It also checked resuming after application import and selecting an existing acco
 Focus remained inside the account dialog. Neither width had horizontal overflow.
 No inspection mutation reached the development server.
 Screenshots and logs use `/var/tmp/noema-resume-*` and `/var/tmp/noema-library-resume-*`.
+
+## Inline loading and shorter action
+
+Follow-up base: `d611f4a9`.
+The selected API replaces its arrow with an accessible spinner while setup opens.
+The spinner uses the existing arrow space. The separate loading paragraph was removed.
+The unfinished API action now reads Setup and includes a settings icon.
+
+This frontend change adds 18 code lines and removes 12. No server or test code changed.
+`bun run build`, `bun run check:generated`, and `bunx eslint src --max-warnings=0` passed.
+`bun run lint` still reports the unchanged Task model settings error documented above.
+Browser inspection passed at 1,440 × 900 and 390 × 900 with synthetic setup replies.
+The dialog bounds were identical before and during loading at both widths.
+Only the selected API showed the setup spinner. Error recovery and Setup still worked.
+No inspection mutation reached the server. Screenshots use `/var/tmp/noema-inline-*`.

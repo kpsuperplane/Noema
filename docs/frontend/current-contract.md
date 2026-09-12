@@ -151,8 +151,9 @@ Tool counts appear in the Tools section, not in list rows or the detail header.
 The `Connect API` action opens a service picker like `Add provider`.
 Both pickers use the shared `ServiceChoice` component for service choices.
 The API picker includes Gmail, Google Calendar, and a route to Chat for other APIs.
+While setup opens, a spinner replaces the selected item’s arrow without changing its size.
 Selecting a service opens account setup directly. There is no separate Connect step.
-Unconnected reviewed APIs remain in Finish setup with a Resume setup action.
+Unconnected reviewed APIs remain in Finish setup with a Setup action and settings icon.
 This action remains available before and after application import.
 After selection, missing Google setup opens the protected application import dialog.
 Successful import resumes the selected connection's account setup.

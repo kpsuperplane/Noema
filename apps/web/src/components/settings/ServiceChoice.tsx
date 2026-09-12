@@ -1,18 +1,20 @@
 import { HStack } from "@astryxdesign/core/HStack";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { VStack } from "@astryxdesign/core/VStack";
 import { ChevronRight, Plug } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { FaviconImage } from "@/components/FaviconImage";
 import { ListCardButton } from "@/components/ListCardLink";
 
-export function ServiceChoice({ name, description, hostname, disabled = false, onClick }: {
+export function ServiceChoice({ name, description, hostname, disabled = false, loading = false, onClick }: {
   name: string;
   description: string;
   hostname: string;
   disabled?: boolean;
+  loading?: boolean;
   onClick: () => void;
 }) {
-  return <ListCardButton xstyle={styles.choice} disabled={disabled} onClick={onClick}>
+  return <ListCardButton xstyle={styles.choice} disabled={disabled || loading} aria-busy={loading} onClick={onClick}>
     <HStack as="span" gap={2} vAlign="start">
       <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.icon)}>
         <FaviconImage hostname={hostname} size="large" fallback={<Plug aria-hidden="true" {...stylex.props(styles.chevron)} />} />
@@ -21,7 +23,9 @@ export function ServiceChoice({ name, description, hostname, disabled = false, o
         <strong {...stylex.props(styles.name)}>{name}</strong>
         <span {...stylex.props(styles.description)}>{description}</span>
       </VStack>
-      <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
+      <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.chevron)}>
+        {loading ? <Spinner size="md" aria-label={`Setting up ${name}`} /> : <ChevronRight aria-hidden="true" size="100%" />}
+      </HStack>
     </HStack>
   </ListCardButton>;
 }
