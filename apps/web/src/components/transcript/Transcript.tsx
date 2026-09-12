@@ -164,7 +164,11 @@ export function Transcript({
     agentStatus
   );
   const handleViewportScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    followBottomRef.current = isScrolledToBottom(event.currentTarget);
+    // Layout and automatic scrolling can emit scroll events away from the bottom.
+    // Only user input releases following; reaching the bottom enables it again.
+    if (isScrolledToBottom(event.currentTarget)) {
+      followBottomRef.current = true;
+    }
   }, []);
 
   const markArrivalsSettled = React.useCallback((messageIds: readonly string[]) => {

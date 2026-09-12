@@ -131,7 +131,6 @@ export function TranscriptBottomFollower({
     }
 
     activeScrollAnimationRef.current?.cancel();
-    viewport.scrollTop = Math.min(previousMetrics.scrollTop, scrollBottomTop(readScrollMetrics(viewport)));
 
     const cancel = animateScrollToBottom(viewport, {
       onComplete: () => {
@@ -209,15 +208,21 @@ export function TranscriptBottomFollower({
 
     function cancelAutomaticScroll() {
       cancelInitialBottomLock();
+      followBottomRef.current = false;
       const activeAnimation = activeScrollAnimationRef.current;
       if (!activeAnimation || !viewport) {
         return;
       }
       activeAnimation.cancel();
       activeScrollAnimationRef.current = null;
-      followBottomRef.current = false;
       previousMetricsRef.current = readScrollMetrics(viewport);
       onArrivalSettled(activeAnimation.messageIds);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
+        cancelAutomaticScroll();
+      }
     }
 
     function syncToBottom() {
@@ -264,6 +269,7 @@ export function TranscriptBottomFollower({
     if (content) {
       observer.observe(content);
     }
+    viewport.addEventListener("keydown", handleKeyDown);
     viewport.addEventListener("pointerdown", cancelAutomaticScroll, { passive: true });
     viewport.addEventListener("wheel", cancelAutomaticScroll, { passive: true });
     viewport.addEventListener("touchmove", cancelAutomaticScroll, { passive: true });
@@ -272,6 +278,7 @@ export function TranscriptBottomFollower({
 
     return () => {
       observer.disconnect();
+      viewport.removeEventListener("keydown", handleKeyDown);
       viewport.removeEventListener("pointerdown", cancelAutomaticScroll);
       viewport.removeEventListener("wheel", cancelAutomaticScroll);
       viewport.removeEventListener("touchmove", cancelAutomaticScroll);
@@ -310,8 +317,4 @@ function readScrollMetrics(viewport: HTMLDivElement): ScrollMetrics {
     scrollHeight: viewport.scrollHeight,
     scrollTop: viewport.scrollTop
   };
-}
-
-function scrollBottomTop(metrics: ScrollMetrics) {
-  return Math.max(0, metrics.scrollHeight - metrics.clientHeight);
 }
