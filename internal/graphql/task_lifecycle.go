@@ -532,8 +532,8 @@ func taskRunItemModel(v store.TaskRunItem) *model.TaskRunItem {
 						section[key] = value
 					}
 					kind, _ := section["kind"].(string)
-					phase, _ := section["phase"].(string)
-					section["presentation"] = assistantPresentation(kind, phase)
+					summary, _ := section["reasoning_summary"].(bool)
+					section["presentation"] = assistantPresentation(kind, summary)
 					sections[i] = section
 				}
 			}

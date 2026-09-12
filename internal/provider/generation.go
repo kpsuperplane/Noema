@@ -143,13 +143,14 @@ type GenerationResult struct {
 // GenerationOutput is one readable provider message or reasoning section.
 // Index identifies the provider output item; SectionIndex identifies its section.
 type GenerationOutput struct {
-	Kind         string `json:"kind"`
-	ID           string `json:"id,omitempty"`
-	Index        int    `json:"index"`
-	SectionIndex int    `json:"section_index"`
-	Phase        string `json:"phase,omitempty"`
-	Text         string `json:"text"`
-	Status       string `json:"status"`
+	ReasoningSummary bool   `json:"reasoning_summary"`
+	Kind             string `json:"kind"`
+	ID               string `json:"id,omitempty"`
+	Index            int    `json:"index"`
+	SectionIndex     int    `json:"section_index"`
+	Phase            string `json:"phase,omitempty"`
+	Text             string `json:"text"`
+	Status           string `json:"status"`
 }
 
 // GenerationToolCall is one validated native tool call.

@@ -1,7 +1,6 @@
 # Current Noema Context
 
 This brief contains active direction, current constraints, and open loops. Durable contracts belong in subsystem documents. Git owns completed history.
-
 ## Active direction
 
 The Gmail and Calendar library uses reviewed release definitions and the existing account setup. API and provider pickers share one choice component. API selection opens setup directly. Unfinished setup has a Resume setup action. Installed definitions remain pinned. See [library evidence](../validation/gmail-calendar-library-2026-09-11.md).
@@ -49,9 +48,7 @@ Web Push and APNs own protected keys, client registrations, presence, durable re
 Built-in Tasks run all roles and Task tools, while preserving artifact sources, capture time zones, and Executor-only hosted web access.
 MCP, bounded Lua, ACP Task runs, Agent naming, HTTP adapters, direct credentials, adapter OAuth, and Task runtime events now use Go.
 Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private GraphQL socket now use Go.
-
 ## Current constraints
-
 ### Security and storage
 
 - [Security](../harness/security.md) owns the three information classes.
@@ -233,7 +230,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   session-bound registrations. Installed mode can erase its private local data.
 - The iOS client stores normalized reads in one protected per-client cache. It
   clears that cache during disconnect and does not queue offline writes.
-- The backend selects bubble or marker for Chat and Task text. Web progress markers use a small brain icon.
+- The backend selects bubble or marker for Chat and Task text. Reasoning summaries use brain-icon markers. Progress updates and full traces use bubbles.
 - Frontend route and interaction truth is in
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).

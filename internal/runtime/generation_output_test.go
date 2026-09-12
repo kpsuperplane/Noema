@@ -19,8 +19,8 @@ func TestGenerationOutputSnapshotsPreserveSectionsAndInterruptedText(t *testing.
 		t.Fatal("delta bypassed write cadence")
 	}
 	stream.event(provider.StreamEvent{Kind: provider.MessageCompleted, Index: 1, Text: "I'll check.", Phase: "commentary"})
-	stream.event(provider.StreamEvent{Kind: provider.ReasoningDelta, Index: 2, SectionIndex: 0, Delta: "First"})
-	stream.event(provider.StreamEvent{Kind: provider.ReasoningCompleted, Index: 2, SectionIndex: 0, Text: "First"})
+	stream.event(provider.StreamEvent{Kind: provider.ReasoningDelta, Index: 2, SectionIndex: 0, ReasoningSummary: true, Delta: "First"})
+	stream.event(provider.StreamEvent{Kind: provider.ReasoningCompleted, Index: 2, SectionIndex: 0, ReasoningSummary: true, Text: "First"})
 	stream.event(provider.StreamEvent{Kind: provider.ReasoningDelta, Index: 2, SectionIndex: 1, Delta: "Partial"})
 	result := provider.GenerationResult{}
 	if err := stream.finish(&result, errors.New("interrupted")); err != nil {
@@ -31,6 +31,9 @@ func TestGenerationOutputSnapshotsPreserveSectionsAndInterruptedText(t *testing.
 	}
 	if result.Output[0].Status != "completed" || result.Output[1].Status != "completed" {
 		t.Fatal("completed sections lost")
+	}
+	if !result.Output[1].ReasoningSummary || result.Output[2].ReasoningSummary {
+		t.Fatal("reasoning type changed")
 	}
 	if snapshots[0][0].Text != "I'll " {
 		t.Fatal("previous snapshot was mutated")

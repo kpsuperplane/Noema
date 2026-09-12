@@ -7,6 +7,7 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/kpsuperplane/noema/internal/toolmarker"
@@ -510,8 +511,8 @@ func (r *Resolver) primaryConversationModel(
 }
 
 // Transcript presentation is derived from provider facts for both replay and live reads.
-func assistantPresentation(kind, phase string) string {
-	if kind == "message" && phase == "commentary" {
+func assistantPresentation(kind string, summary bool) string {
+	if kind == "reasoning" && summary {
 		return "marker"
 	}
 	return "bubble"
@@ -529,10 +530,12 @@ func transcriptMetadata(item store.ConversationItem) map[string]any {
 	if kind == "" {
 		kind = "message"
 	}
-	phase, ok := metadata["provider_phase"].(string)
-	if !ok {
-		phase, _ = metadata["phase"].(string)
+	summary, explicit := metadata["reasoning_summary"].(bool)
+	if !explicit && metadata["provider"] == "codex" {
+		// Saved Codex sections below 4096 are summary sections; content starts at 4096.
+		section, ok := metadata["section_index"].(float64)
+		summary = ok && section >= 0 && section < provider.ReasoningContentSectionOffset
 	}
-	metadata["presentation"] = assistantPresentation(kind, phase)
+	metadata["presentation"] = assistantPresentation(kind, summary)
 	return metadata
 }

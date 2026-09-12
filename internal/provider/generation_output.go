@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// ReasoningContentSectionOffset separates Codex summary and full-text section identities.
+const ReasoningContentSectionOffset = maxItems
+
 func readableCodexOutput(index int, item map[string]json.RawMessage) []GenerationOutput {
 	kind, _ := rawString(item["type"])
 	id, _ := rawString(item["id"])
@@ -28,10 +31,10 @@ func readableCodexOutput(index int, item map[string]json.RawMessage) []Generatio
 		}
 		for section, part := range parts {
 			if field == "content" {
-				section += maxItems
+				section += ReasoningContentSectionOffset
 			}
 			if (part.Type == "summary_text" || part.Type == "reasoning_text") && strings.TrimSpace(part.Text) != "" {
-				result = append(result, GenerationOutput{Kind: kind, ID: id, Index: index, SectionIndex: section, Text: part.Text, Status: "completed"})
+				result = append(result, GenerationOutput{Kind: kind, ReasoningSummary: part.Type == "summary_text", ID: id, Index: index, SectionIndex: section, Text: part.Text, Status: "completed"})
 			}
 		}
 	}
@@ -50,11 +53,11 @@ func emitCodexCompletedOutput(index int, raw json.RawMessage, streamed string, e
 		} else if streamed != "" {
 			part.Text = streamed
 		}
-		emit(StreamEvent{Kind: kind, Index: part.Index, SectionIndex: part.SectionIndex, ID: part.ID, Phase: part.Phase, Text: part.Text})
+		emit(StreamEvent{Kind: kind, Index: part.Index, SectionIndex: part.SectionIndex, ID: part.ID, Phase: part.Phase, ReasoningSummary: part.ReasoningSummary, Text: part.Text})
 	}
 }
 
-func (a *chatAccumulator) updateReadable(key, kind, id, value string, emit func(StreamEvent)) {
+func (a *chatAccumulator) updateReadable(key, kind, id, value string, summary bool, emit func(StreamEvent)) {
 	if value == "" {
 		return
 	}
@@ -72,6 +75,7 @@ func (a *chatAccumulator) updateReadable(key, kind, id, value string, emit func(
 		}
 	}
 	part := &a.output[index]
+	part.ReasoningSummary = summary
 	delta := strings.TrimPrefix(value, part.Text)
 	if value == part.Text {
 		return
@@ -84,7 +88,7 @@ func (a *chatAccumulator) updateReadable(key, kind, id, value string, emit func(
 	if kind == "reasoning" {
 		eventKind = ReasoningDelta
 	}
-	emit(StreamEvent{Kind: eventKind, Index: part.Index, ID: part.ID, Delta: delta})
+	emit(StreamEvent{Kind: eventKind, Index: part.Index, ID: part.ID, ReasoningSummary: part.ReasoningSummary, Delta: delta})
 }
 
 func (a *chatAccumulator) finish(emit func(StreamEvent)) ChatStreamResult {
@@ -93,7 +97,7 @@ func (a *chatAccumulator) finish(emit func(StreamEvent)) ChatStreamResult {
 		if part.Kind == "reasoning" {
 			kind = ReasoningCompleted
 		}
-		emit(StreamEvent{Kind: kind, Index: part.Index, ID: part.ID, Text: part.Text})
+		emit(StreamEvent{Kind: kind, Index: part.Index, ID: part.ID, ReasoningSummary: part.ReasoningSummary, Text: part.Text})
 	}
 	return a.result()
 }

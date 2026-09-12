@@ -325,10 +325,10 @@ The server saves separate paragraphs in completed Chat replies as separate messa
 Web and native clients render those saved boundaries without splitting text.
 Adjacent web messages from the same speaker and turn share one visual group.
 The backend supplies `presentation: bubble | marker` in Chat metadata and each Task output section.
-Only message output with the commentary phase uses markers. Reasoning and untyped responses use bubbles.
+Reasoning summaries use markers. Progress updates, full reasoning traces, and responses use bubbles.
 Saved pages and live snapshots use the same choice. Clients do not classify provider phases.
-Web progress updates use compact markers with a small brain icon and complete readable text.
-Progress markers separate adjacent bubble groups. Final answers retain message bubbles.
+Web reasoning summaries use compact markers with a small brain icon and complete readable text.
+Reasoning markers separate adjacent bubble groups. Final answers retain message bubbles.
 Blank lines and standalone three-dash separators create boundaries outside fenced code.
 Code fences retain their internal blank lines.
 Citations use each paragraph's source range.
@@ -337,4 +337,7 @@ Later paragraphs are display records and do not duplicate model history.
 
 A message streams in one record until its completion supplies stable boundaries.
 Existing saved messages remain unchanged.
-Human messages and readable reasoning remain unchanged.
+Human messages and full reasoning traces retain bubbles.
+Provider summary flags control presentation. Text length does not select a type.
+Saved Codex sections without that flag use their recorded summary/content section ranges.
+This read rule remains necessary while those saved sections exist.

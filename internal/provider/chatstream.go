@@ -113,14 +113,15 @@ const (
 
 // StreamEvent is one normalized live provider event.
 type StreamEvent struct {
-	Kind         StreamEventKind
-	Index        int
-	ID           string
-	Name         string
-	Delta        string
-	Phase        string
-	SectionIndex int
-	Text         string
+	ReasoningSummary bool
+	Kind             StreamEventKind
+	Index            int
+	ID               string
+	Name             string
+	Delta            string
+	Phase            string
+	SectionIndex     int
+	Text             string
 }
 
 // ToolCall is one assembled native tool call.
@@ -498,7 +499,7 @@ func (a *chatAccumulator) consumeDelta(delta chatDelta, onEvent func(StreamEvent
 	}
 	a.plainReasoning.WriteString(plain)
 	if plain != "" && !hasReadableReasoning(delta.ReasoningDetails) {
-		a.updateReadable("plain", "reasoning", "", a.plainReasoning.String(), onEvent)
+		a.updateReadable("plain", "reasoning", "", a.plainReasoning.String(), false, onEvent)
 	}
 	for _, detail := range delta.ReasoningDetails {
 		if err := a.appendReasoning(detail); err != nil {
@@ -520,7 +521,7 @@ func (a *chatAccumulator) consumeDelta(delta chatDelta, onEvent func(StreamEvent
 					key = "plain"
 				}
 			}
-			a.updateReadable(key, "reasoning", jsonString(item["id"]), value, onEvent)
+			a.updateReadable(key, "reasoning", jsonString(item["id"]), value, item["type"] == "reasoning.summary", onEvent)
 			if value == a.plainReasoning.String() && a.plainReasoning.Len() > 0 {
 				a.outputKeys["plain"] = a.outputKeys[key]
 			}
@@ -534,7 +535,7 @@ func (a *chatAccumulator) consumeDelta(delta chatDelta, onEvent func(StreamEvent
 			return err
 		}
 		a.text.WriteString(delta.Content)
-		a.updateReadable("message", "message", "", a.text.String(), onEvent)
+		a.updateReadable("message", "message", "", a.text.String(), false, onEvent)
 	}
 	for position, fragment := range delta.ToolCalls {
 		index := position

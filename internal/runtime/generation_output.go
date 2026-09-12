@@ -46,6 +46,7 @@ func (s *generationOutputStream) event(event provider.StreamEvent) {
 	}
 	index := s.section(kind, event.Index, event.SectionIndex)
 	item := &s.output[index]
+	item.ReasoningSummary = event.ReasoningSummary
 	if event.ID != "" {
 		item.ID = event.ID
 	}

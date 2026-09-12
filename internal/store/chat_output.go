@@ -12,7 +12,7 @@ import (
 )
 
 // SaveConversationOutput updates one readable provider section in place.
-func (s *Store) SaveConversationOutput(ctx context.Context, turn ConversationTurn, round, index, section, paragraph int, kind, phase, providerID, text, providerText, status string, citations []ProviderCitation, now time.Time) (ConversationItem, error) {
+func (s *Store) SaveConversationOutput(ctx context.Context, turn ConversationTurn, round, index, section, paragraph int, kind, phase, providerID, text, providerText, status string, reasoningSummary bool, citations []ProviderCitation, now time.Time) (ConversationItem, error) {
 	if !utf8.ValidString(text) || len(text) > maxConversationText || !utf8.ValidString(providerText) || len(providerText) > maxConversationText {
 		return ConversationItem{}, errors.New("provider output is invalid or too large")
 	}
@@ -32,7 +32,7 @@ func (s *Store) SaveConversationOutput(ctx context.Context, turn ConversationTur
 	if paragraph > 0 {
 		id = stableConversationOutputID(turn.ID, fmt.Sprintf("section:%s:%d:paragraph:%d", kind, section, paragraph), round, index)
 	}
-	metadata := map[string]any{"provider": providerKind, "turn_index": turn.TurnIndex, "response_index": index, "provider_round": round, "output_index": index, "section_index": section, "paragraph_index": paragraph, "provider_item_id": providerID, "provider_phase": phase, "provider_output_kind": kind, "stream_id": id, "phase": "commentary", "output_status": status}
+	metadata := map[string]any{"provider": providerKind, "turn_index": turn.TurnIndex, "response_index": index, "provider_round": round, "output_index": index, "section_index": section, "paragraph_index": paragraph, "provider_item_id": providerID, "provider_phase": phase, "provider_output_kind": kind, "stream_id": id, "phase": "commentary", "output_status": status, "reasoning_summary": reasoningSummary}
 	addProviderCitationMetadata(metadata, citations, 0)
 	if phase == "final_answer" {
 		metadata["phase"] = phase

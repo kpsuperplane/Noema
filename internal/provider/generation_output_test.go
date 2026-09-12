@@ -15,7 +15,7 @@ func TestCodexReadableOutputPreservesSectionsAndReplayPhase(t *testing.T) {
 		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"Checking."}]}}`,
 		`{"type":"response.reasoning_summary_text.delta","output_index":1,"item_id":"r1","summary_index":0,"delta":"First"}`,
 		`{"type":"response.reasoning_summary_text.done","output_index":1,"item_id":"r1","summary_index":0,"text":"First"}`,
-		`{"type":"response.output_item.done","output_index":1,"item":{"type":"reasoning","id":"r1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"First"},{"type":"summary_text","text":"Second\nsection"}]}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"reasoning","id":"r1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"First"},{"type":"summary_text","text":"Second\nsection"}],"content":[{"type":"reasoning_text","text":"Full trace"}]}}`,
 		`{"type":"response.output_item.done","output_index":2,"item":{"type":"message","id":"m2","phase":"final_answer","content":[{"type":"output_text","text":"Done."}]}}`,
 		`{"type":"response.completed","response":{"id":"response","status":"completed"}}`,
 	}
@@ -29,8 +29,14 @@ func TestCodexReadableOutputPreservesSectionsAndReplayPhase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Reasoning) != 1 || result.Reasoning[0].Index != 1 || len(result.Output) != 4 || result.Text != "Checking.Done." || result.Output[0].Phase != "commentary" || result.Output[3].Phase != "final_answer" || result.Output[2].Text != "Second\nsection" || result.Output[2].SectionIndex != 1 {
+	if len(result.Reasoning) != 1 || result.Reasoning[0].Index != 1 || len(result.Output) != 5 || result.Text != "Checking.Done." || result.Output[0].Phase != "commentary" || result.Output[4].Phase != "final_answer" || result.Output[2].Text != "Second\nsection" || result.Output[2].SectionIndex != 1 {
 		t.Fatalf("output: %#v", result.Output)
+	}
+	if result.Output[3].ReasoningSummary || result.Output[3].SectionIndex != ReasoningContentSectionOffset {
+		t.Fatal("full trace was marked as a summary")
+	}
+	if !result.Output[1].ReasoningSummary || !events[3].ReasoningSummary {
+		t.Fatal("summary type was lost")
 	}
 	if events[0].Kind != MessageStarted || events[1].Phase != "commentary" || events[1].ID != "m1" {
 		t.Fatalf("events: %#v", events)
@@ -74,6 +80,9 @@ func TestChatReadableOutputStreamsPlainAndStructuredReasoningOnce(t *testing.T) 
 		encoded, _ := json.Marshal(result.Output)
 		if strings.Contains(string(encoded), "opaque") {
 			t.Fatal("encrypted content exposed")
+		}
+		if result.Output[0].ReasoningSummary || !result.Output[1].ReasoningSummary || events[0].ReasoningSummary {
+			t.Fatal("summary and trace types were mixed")
 		}
 		if events[0].Kind != ReasoningDelta || events[len(events)-1].Kind != MessageCompleted {
 			t.Fatalf("events: %#v", events)

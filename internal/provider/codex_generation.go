@@ -1134,7 +1134,7 @@ func consumeCodexGenerationEvent(
 		_ = json.Unmarshal(event["summary_index"], &section)
 		if strings.Contains(eventType, "reasoning_text") {
 			_ = json.Unmarshal(event["content_index"], &section)
-			section += maxItems
+			section += ReasoningContentSectionOffset
 		}
 		delta, _ := rawString(event["delta"])
 		value, _ := rawString(event["text"])
@@ -1142,7 +1142,7 @@ func consumeCodexGenerationEvent(
 		if strings.HasSuffix(eventType, ".done") {
 			kind = ReasoningCompleted
 		}
-		onEvent(StreamEvent{Kind: kind, Index: codexOutputIndex(event), ID: id, SectionIndex: section, Delta: delta, Text: value})
+		onEvent(StreamEvent{Kind: kind, Index: codexOutputIndex(event), ID: id, SectionIndex: section, ReasoningSummary: strings.HasPrefix(eventType, "response.reasoning_summary_text."), Delta: delta, Text: value})
 	case "response.output_item.added":
 		var item map[string]json.RawMessage
 		if json.Unmarshal(event["item"], &item) == nil {

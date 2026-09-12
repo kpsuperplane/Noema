@@ -83,7 +83,7 @@ func (c *Chat) outputStream(turn store.ConversationTurn, round int, clientID *st
 				if paragraph == 0 {
 					providerText = section.Text
 				}
-				item, err := c.database.SaveConversationOutput(context.WithoutCancel(c.ctx), turn, round, section.Index, section.SectionIndex, paragraph, section.Kind, section.Phase, section.ID, normalized.Text, providerText, section.Status, generationCitations(normalized.Citations), time.Now())
+				item, err := c.database.SaveConversationOutput(context.WithoutCancel(c.ctx), turn, round, section.Index, section.SectionIndex, paragraph, section.Kind, section.Phase, section.ID, normalized.Text, providerText, section.Status, section.ReasoningSummary, generationCitations(normalized.Citations), time.Now())
 				if err != nil {
 					return err
 				}

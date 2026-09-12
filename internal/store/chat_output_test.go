@@ -18,22 +18,25 @@ func TestConversationOutputSnapshotsReconcileAndFenceTerminalTurns(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := database.SaveConversationOutput(ctx, turn, 0, 0, 0, 0, "message", "commentary", "m1", "Checking", "Checking", "running", nil, now)
+	first, err := database.SaveConversationOutput(ctx, turn, 0, 0, 0, 0, "message", "commentary", "m1", "Checking", "Checking", "running", false, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := database.SaveConversationOutput(ctx, turn, 0, 0, 0, 0, "message", "commentary", "m1", "Checking files.", "Checking files.", "completed", nil, now)
+	next, err := database.SaveConversationOutput(ctx, turn, 0, 0, 0, 0, "message", "commentary", "m1", "Checking files.", "Checking files.", "completed", false, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.ID != next.ID || first.Sequence != next.Sequence {
 		t.Fatal("snapshot identity changed")
 	}
-	_, err = database.SaveConversationOutput(ctx, turn, 0, 1, 0, 0, "reasoning", "", "r1", "Readable summary", "Readable summary", "completed", nil, now)
+	reasoning, err := database.SaveConversationOutput(ctx, turn, 0, 1, 0, 0, "reasoning", "", "r1", "Readable summary", "Readable summary", "completed", true, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	final, err := database.SaveConversationOutput(ctx, turn, 0, 2, 0, 0, "message", "final_answer", "m2", "Done.", "Done.", "completed", nil, now)
+	if reasoning.Metadata["reasoning_summary"] != true {
+		t.Fatal("summary type was not saved")
+	}
+	final, err := database.SaveConversationOutput(ctx, turn, 0, 2, 0, 0, "message", "final_answer", "m2", "Done.", "Done.", "completed", false, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +54,7 @@ func TestConversationOutputSnapshotsReconcileAndFenceTerminalTurns(t *testing.T)
 	if len(page.Items) != 4 || page.Items[1].ContentText != "Checking files." || page.Items[2].ContentText != "Readable summary" {
 		t.Fatalf("reloaded output: %#v", page.Items)
 	}
-	if _, err := database.SaveConversationOutput(ctx, turn, 0, 0, 0, 0, "message", "commentary", "m1", "stale", "stale", "running", nil, now); err == nil {
+	if _, err := database.SaveConversationOutput(ctx, turn, 0, 0, 0, 0, "message", "commentary", "m1", "stale", "stale", "running", false, nil, now); err == nil {
 		t.Fatal("terminal turn accepted stale output")
 	}
 }
