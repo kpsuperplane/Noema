@@ -121,7 +121,7 @@ export function taskRunItemsToTranscriptEntries(
           entries.push({
             id: `${item.id}:output:${section.kind}:${section.index}:${section.section_index ?? 0}`,
             source: arrivalItemIds.has(item.id) ? undefined : "replay",
-            turnId: item.id,
+            turnId: taskRunItemTurnId(item),
             type: "assistant",
             presentation: section.presentation === "marker" ? "marker" : "bubble",
             text: isReasoning ? readableReasoningText(section.text) : section.text,
@@ -134,7 +134,7 @@ export function taskRunItemsToTranscriptEntries(
         entries.push({
           id: `${item.id}:reasoning:${sectionIndex}`,
           source: arrivalItemIds.has(item.id) ? undefined : "replay",
-          turnId: `${item.id}:reasoning`,
+          turnId: taskRunItemTurnId(item),
           type: "assistant",
           presentation: recordValue(item.payload)?.presentation === "marker" ? "marker" : "bubble",
           text: reasoning
@@ -198,6 +198,10 @@ function isRedundantLifecycleNotice(items: readonly TaskRunItem[], index: number
   return next?.kind === "result" && next.runId === item.runId;
 }
 
+function taskRunItemTurnId(item: TaskRunItem): string {
+  return `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
+}
+
 function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean): TranscriptEntry | null {
   // Tool-only responses can retain replay metadata without visible assistant text.
   if (item.sourceKind === "assistant_output" && !item.summary?.trim()) {
@@ -206,7 +210,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
   if (item.sourceKind === "model_input" || item.sourceKind === "context_checkpoint") {
     return null;
   }
-  const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
+  const turnId = taskRunItemTurnId(item);
   const base = {
     id: item.id,
     ...(animateArrival ? {} : { source: "replay" as const }),

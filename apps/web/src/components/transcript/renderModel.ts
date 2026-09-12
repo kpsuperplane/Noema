@@ -4,6 +4,7 @@ type ActivityTranscriptEntry = Extract<TranscriptEntry, { type: "activity" }>;
 
 export type ToolMarkerGroup = {
   id: string;
+  message?: Extract<TranscriptEntry, { type: "assistant" }>;
   call?: ActivityTranscriptEntry;
   result?: ActivityTranscriptEntry;
 };
@@ -147,7 +148,7 @@ function attachTaskNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
       metadataString(entry.metadata, "notification_kind") === "task_created"
     ) {
       const previous = attached.at(-1);
-      if (previous?.type === "assistant" && previous.turnId === entry.turnId) {
+      if (previous?.type === "assistant" && previous.presentation !== "marker" && previous.turnId === entry.turnId) {
         attached[attached.length - 1] = {
           ...previous,
           taskReferences: [...(previous.taskReferences ?? []), entry.item]
@@ -412,8 +413,7 @@ function isChatBubbleRenderEntry(entry: RenderTranscriptEntry): boolean {
 function isGroupableChatBubbleRenderEntry(
   entry: RenderTranscriptEntry | undefined
 ): entry is Extract<RenderTranscriptEntry, { kind: "entry" }> {
-  return !!entry && isChatBubbleRenderEntry(entry)
-    && !(entry.kind === "entry" && entry.entry.type === "assistant" && entry.entry.presentation === "marker");
+  return !!entry && isChatBubbleRenderEntry(entry);
 }
 
 function isAdjacentChatBubble(
@@ -452,6 +452,12 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const nextEntry = entries[index + 1];
+
+    if (entry.type === "assistant" && entry.presentation === "marker") {
+      const id = transcriptEntryRenderId(entry);
+      rendered.push({ kind: "tool_marker", id, source: entry.source, marker: { id, message: entry } });
+      continue;
+    }
 
     if (entry.type === "activity" && entry.item.activity_kind === "tool_call") {
       const correlationId = toolActivityCorrelationId(entry);
@@ -554,8 +560,8 @@ function collapseConsecutiveToolMarkers(entries: RenderTranscriptEntry[]): Rende
 }
 
 function sameToolMarkerOwner(left: ToolMarkerGroup, right: ToolMarkerGroup): boolean {
-  const leftEntry = left.call ?? left.result;
-  const rightEntry = right.call ?? right.result;
+  const leftEntry = left.message ?? left.call ?? left.result;
+  const rightEntry = right.message ?? right.call ?? right.result;
   if (!leftEntry?.turnId || !rightEntry?.turnId || leftEntry.turnId !== rightEntry.turnId) {
     return false;
   }
@@ -564,7 +570,7 @@ function sameToolMarkerOwner(left: ToolMarkerGroup, right: ToolMarkerGroup): boo
 }
 
 function toolMarkerAgentKey(marker: ToolMarkerGroup): string | undefined {
-  const metadata = (marker.call ?? marker.result)?.item.metadata;
+  const metadata = marker.message?.metadata ?? (marker.call ?? marker.result)?.item.metadata;
   if (!isRecord(metadata)) {
     return undefined;
   }

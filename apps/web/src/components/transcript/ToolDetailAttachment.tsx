@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { VStack } from "@astryxdesign/core/VStack";
 import { toolHumanDetailRows, toolMarkerScreenshot } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
+import { ProviderCitationMarkdown, providerCitationsFromMetadata } from "./ProviderCitationSources";
 import { ToolDetailRow } from "./ToolDetailRow";
 
 const styles = stylex.create({
@@ -38,6 +39,9 @@ const styles = stylex.create({
 });
 
 export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolMarkerGroup }) {
+  if (marker.message) {
+    return <ProviderCitationMarkdown text={marker.message.text} citations={providerCitationsFromMetadata(marker.message.metadata)} density="compact" headingLevelStart={3} sourcesOnOwnLine />;
+  }
   const humanRows = toolHumanDetailRows(marker);
   const screenshot = toolMarkerScreenshot(marker);
   if (humanRows.length === 0 && !screenshot) {

@@ -6,7 +6,7 @@ export type ToolScreenshotData = {
   height: number;
   url: string | null;
 };
-export type ToolMarkerKind = "web.search" | "web.fetch" | "web.browse";
+export type ToolMarkerKind = "web.search" | "web.fetch" | "web.browse" | "thinking";
 export type ToolMarkerCallStatus = "pending" | "running" | "complete" | "error" | "cancelled" | "interrupted" | "skipped";
 
 const MAX_SCREENSHOT_DATA_CHARS = 1_200_000;
@@ -17,6 +17,11 @@ export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
 }
 
 export function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus {
+  if (marker.message) {
+    const metadata = marker.message.metadata;
+    const status = isRecord(metadata) ? metadata.output_status : undefined;
+    return status === "running" ? "running" : status === "failed" ? "error" : "complete";
+  }
   if (marker.result) {
     return activityMarkerStatus(marker.result.item.status, marker.result.item.metadata, true);
   }
@@ -53,6 +58,7 @@ export function toolMarkerLabel(marker: ToolMarkerGroup): string {
 }
 
 export function toolMarkerName(marker: ToolMarkerGroup): string {
+  if (marker.message) return marker.message.text;
   const markerSummary = markerDisplayString(marker, "summary");
   if (markerSummary) {
     return markerSummary;
@@ -75,6 +81,7 @@ export function toolMarkerSummary(marker: ToolMarkerGroup): string {
 }
 
 export function toolMarkerKind(marker: ToolMarkerGroup): ToolMarkerKind | undefined {
+  if (marker.message) return "thinking";
   const displayKind = markerDisplayString(marker, "kind");
   if (displayKind === "web.search" || displayKind === "web.fetch" || displayKind === "web.browse") {
     return displayKind;
@@ -125,6 +132,7 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 }
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  if (marker.message) return [];
   const completeRows = completeToolDetailRows(marker);
   if (completeRows) {
     return dedupeToolDetailRows(completeRows);
@@ -343,6 +351,7 @@ function withoutRenderedScreenshotData(value: unknown): unknown {
 }
 
 export function toolMarkerExpandable(marker: ToolMarkerGroup): boolean {
+  if (marker.message) return true;
   const kind = toolMarkerKind(marker);
   if (kind === "web.search" || kind === "web.fetch") {
     return false;

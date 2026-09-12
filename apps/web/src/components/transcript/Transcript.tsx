@@ -505,7 +505,6 @@ function renderTranscriptEntry(
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
-        presentation={entry.presentation}
         text={entry.text}
         showAvatar={showAvatar}
         citations={citations}
@@ -674,6 +673,10 @@ function messageDebugTarget(
 }
 
 function toolDebugTarget(marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }>["marker"]): RuntimeDebugTarget | null {
+  if (marker.message) {
+    const message = marker.message;
+    return messageDebugTarget(message.debugScope, parseProviderUsageDebug(message.metadata), message.responseIndex, message.debugRoundIndex);
+  }
   const item = marker.call ?? marker.result;
   if (!item?.debugScope) return null;
   const correlationId = toolCorrelationId(item);
@@ -687,7 +690,7 @@ function toolDebugTarget(marker: Extract<RenderTranscriptEntry, { kind: "tool_ma
 function toolGroupDebugTarget(
   markers: Extract<RenderTranscriptEntry, { kind: "tool_marker_group" }>["markers"]
 ): RuntimeDebugTarget | null {
-  const scope = (markers[0]?.call ?? markers[0]?.result)?.debugScope;
+  const scope = (markers[0]?.message ?? markers[0]?.call ?? markers[0]?.result)?.debugScope;
   return scope ? { scope, legacyUsage: null } : null;
 }
 

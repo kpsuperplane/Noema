@@ -328,7 +328,10 @@ Adjacent web messages from the same speaker and turn share one visual group.
 The backend supplies `presentation: bubble | marker` in Chat metadata and each Task output section.
 Reasoning summaries use markers. Progress updates, full reasoning traces, and responses use bubbles.
 Saved pages and live snapshots use the same choice. Clients do not classify provider phases.
-Web reasoning summaries use compact markers with a small brain icon and complete readable text.
+Web reasoning summaries and tool calls use one marker renderer with shared typography and spacing.
+Consecutive markers from the same turn and agent collapse into one expandable group.
+The collapsed group shows its latest item and a count. Bubbles separate groups.
+Reasoning markers keep the brain icon. Their disclosure shows complete text and sources.
 Reasoning markers separate adjacent bubble groups. Final answers retain message bubbles.
 Blank lines and standalone three-dash separators create boundaries outside fenced code.
 Code fences retain their internal blank lines.

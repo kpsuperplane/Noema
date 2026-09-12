@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
-import { ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
+import { BrainIcon, ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { FaviconImage } from "@/components/FaviconImage";
 import { RollingText } from "@/components/RollingText";
@@ -246,9 +246,9 @@ export function ToolMarker({
         {open && !singleCall ? (
           <>
             <span {...stylex.props(styles.groupIcon)} aria-hidden="true">
-              <WrenchIcon size={15} strokeWidth={1.8} />
+              {data.markers.every((marker) => marker.message) ? <BrainIcon size={15} strokeWidth={1.8} /> : <WrenchIcon size={15} strokeWidth={1.8} />}
             </span>
-            <span {...stylex.props(styles.groupLabel)}>{calls.length} tool calls</span>
+            <span {...stylex.props(styles.groupLabel)}>{calls.length} {data.markers.some((marker) => marker.message) ? "activities" : "tool calls"}</span>
           </>
         ) : (
           <ToolMarkerRowContent
@@ -380,8 +380,8 @@ function ToolTypeIcon({ faviconHost, kind }: { faviconHost?: string; kind?: Tool
   if (!kind) {
     return null;
   }
-  const label = kind === "web.search" ? "Web search" : faviconHost ? `Website ${faviconHost}` : "Web page";
-  const Icon = kind === "web.search" ? SearchIcon : Globe2Icon;
+  const label = kind === "thinking" ? "Thinking" : kind === "web.search" ? "Web search" : faviconHost ? `Website ${faviconHost}` : "Web page";
+  const Icon = kind === "thinking" ? BrainIcon : kind === "web.search" ? SearchIcon : Globe2Icon;
   return (
     <span {...stylex.props(styles.toolIcon)} role="img" aria-label={label}>
       {kind === "web.browse" && faviconHost ? (

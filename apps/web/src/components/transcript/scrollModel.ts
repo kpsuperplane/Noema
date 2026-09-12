@@ -53,6 +53,7 @@ function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
 function toolMarkerScrollFingerprint(id: string, marker: ToolMarkerGroup): string {
   return [
     id,
+    marker.message ? transcriptEntryScrollFingerprint(marker.message) : "",
     marker.call?.item.status ?? "",
     marker.call?.item.summary ?? "",
     marker.result?.item.status ?? "",
