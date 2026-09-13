@@ -322,7 +322,7 @@ visually verified unless browser inspection is explicitly authorized.
 
 ## Assistant message bubbles
 
-The server saves separate paragraphs in completed Chat replies as separate messages.
+The server saves separate paragraphs in Chat replies as separate messages during streaming.
 Web and native clients render those saved boundaries without splitting text.
 Adjacent web messages from the same speaker and turn share one visual group.
 The backend supplies `presentation: bubble | marker` in Chat metadata and each Task output section.
@@ -340,7 +340,9 @@ Citations use each paragraph's source range.
 The first paragraph retains the complete provider message for model history.
 Later paragraphs are display records and do not duplicate model history.
 
-A message streams in one record until its completion supplies stable boundaries.
+Streaming and completed replies use the same message boundaries and record IDs.
+An unfinished separator line stays hidden until more text resolves it.
+Ordinary text streams without waiting for a complete line.
 Existing saved messages remain unchanged.
 Human messages and full reasoning traces retain bubbles.
 Provider summary flags control presentation. Text length does not select a type.

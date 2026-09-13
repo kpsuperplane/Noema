@@ -641,6 +641,15 @@ func (s *providerMarkdownDeltaSplitter) process(line string) []providerMarkdownD
 // SplitMarkdownSegments preserves the Rust splitter's bubble boundaries,
 // fenced blocks, and UTF-16 source ranges.
 func SplitMarkdownSegments(text string) []MarkdownSegment {
+	return splitMarkdownSegments(text, false)
+}
+
+// SplitStreamingMarkdownSegments holds an unfinished separator outside code fences.
+func SplitStreamingMarkdownSegments(text string) []MarkdownSegment {
+	return splitMarkdownSegments(text, true)
+}
+
+func splitMarkdownSegments(text string, streaming bool) []MarkdownSegment {
 	type chunk struct {
 		index      int
 		text       string
@@ -705,7 +714,12 @@ func SplitMarkdownSegments(text string) []MarkdownSegment {
 		pending = ""
 	}
 	if pending != "" {
-		process(pending)
+		// A partial dash line may still become a separator or ordinary text.
+		content := strings.TrimRight(pending, "\r")
+		separatorPending := fenceMarker == 0 && strings.HasPrefix("---", content)
+		if !streaming || !separatorPending {
+			process(pending)
+		}
 	}
 	segments := make([]MarkdownSegment, 0, segment+1)
 	for _, c := range chunks {

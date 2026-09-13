@@ -116,3 +116,72 @@ func TestChatOutputSavesParagraphsAndPreservesNativeReplay(t *testing.T) {
 		})
 	}
 }
+
+func TestChatOutputSplitsDuringStreaming(t *testing.T) {
+	chat, database, conversation := chatFixture(t)
+	ctx := context.Background()
+	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "hello", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := chat.outputStream(turn, 0, nil)
+	text := ""
+	ids := map[int]string{}
+	check := func(want []string, status string) {
+		t.Helper()
+		page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) != len(want)+1 {
+			t.Fatalf("text %q: got %d items, want %d", text, len(page.Items), len(want)+1)
+		}
+		for i, expected := range want {
+			item := page.Items[i+1]
+			if item.ContentText != expected || item.Status != status {
+				t.Fatalf("text %q: bubble %d = %q (%s), want %q (%s)", text, i, item.ContentText, item.Status, expected, status)
+			}
+			if previous, ok := ids[i]; ok && item.ID != previous {
+				t.Fatalf("bubble %d changed identity", i)
+			}
+			ids[i] = item.ID
+		}
+	}
+	steps := []struct {
+		delta string
+		want  []string
+	}{
+		{"😀 first", []string{"😀 first"}},
+		{"\n-", []string{"😀 first"}},
+		{"-", []string{"😀 first"}},
+		{"-", []string{"😀 first"}},
+		{"\r\nSecond", []string{"😀 first", "Second"}},
+		{"\n\n```md\n-", []string{"😀 first", "Second", "```md\n-"}},
+		{"--\n\ncode\n```", []string{"😀 first", "Second", "```md\n---\n\ncode\n```"}},
+		{"\n---\nLast", []string{"😀 first", "Second", "```md\n---\n\ncode\n```", "Last"}},
+		{"\n--", []string{"😀 first", "Second", "```md\n---\n\ncode\n```", "Last"}},
+		{"x", []string{"😀 first", "Second", "```md\n---\n\ncode\n```", "Last\n--x"}},
+	}
+	for _, step := range steps {
+		text += step.delta
+		stream.event(provider.StreamEvent{Kind: provider.TextDelta, Index: 0, Delta: step.delta})
+		stream.flush(true)
+		if stream.err != nil {
+			t.Fatal(stream.err)
+		}
+		check(step.want, "running")
+	}
+	result := provider.GenerationResult{Text: text}
+	if err := stream.finish(&result, nil); err != nil {
+		t.Fatal(err)
+	}
+	check(steps[len(steps)-1].want, "completed")
+	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := providerMessagesFromItems(page.Items, turn.ID, conversation.Provider)
+	if err != nil || len(replay) != 2 || replay[1].Content != text {
+		t.Fatalf("native replay changed: %#v, %v", replay, err)
+	}
+}

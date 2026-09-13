@@ -34,8 +34,12 @@ func (c *Chat) outputStream(turn store.ConversationTurn, round int, clientID *st
 		offset := 0
 		for i, section := range output {
 			segments := []provider.MarkdownSegment{{Text: section.Text, SourceUTF16: [2]int{0, utf16CodeUnitCount(section.Text)}}}
-			if section.Kind == "message" && section.Status == "completed" {
-				segments = provider.SplitMarkdownSegments(section.Text)
+			if section.Kind == "message" {
+				if section.Status == "running" {
+					segments = provider.SplitStreamingMarkdownSegments(section.Text)
+				} else {
+					segments = provider.SplitMarkdownSegments(section.Text)
+				}
 			}
 			if stream.finalAnswer && i == lastMessage && section.Phase == "" && len(segments) > 1 {
 				section.Phase = "final_answer"
