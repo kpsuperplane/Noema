@@ -52,7 +52,7 @@ export function CapabilityToolTable({
           <HStack as="li" key={tool.toolId} gap={1} vAlign="center"
             {...stylex.props(
               styles.row,
-              tool.status !== "ready" && tool.status !== "disabled" && styles.unavailableRow
+              !isToolAvailable(tool.status) && tool.status !== "disabled" && styles.unavailableRow
             )}>
             <VStack gap={0.5} {...stylex.props(
               styles.toolCopy,
@@ -64,7 +64,7 @@ export function CapabilityToolTable({
               </HStack>
               <span {...stylex.props(
                 styles.toolSummary,
-                tool.status !== "ready" && tool.status !== "disabled" && styles.unavailableSummary
+                !isToolAvailable(tool.status) && tool.status !== "disabled" && styles.unavailableSummary
               )}>
                 {toolSummary(tool)}
               </span>
@@ -104,8 +104,12 @@ export function CapabilityToolTable({
   );
 }
 
+function isToolAvailable(status: string) {
+  return status === "ready" || status === "available";
+}
+
 function ToolStatus({ status }: { status: string }) {
-  if (status === "ready") return null;
+  if (isToolAvailable(status)) return null;
   const label = settingsStatusLabel(status);
   return (
     <span
@@ -135,7 +139,7 @@ function ToolStatus({ status }: { status: string }) {
 }
 
 function toolSummary(tool: ManagedTool) {
-  if (tool.status !== "ready") return settingsStatusLabel(tool.status);
+  if (!isToolAvailable(tool.status)) return settingsStatusLabel(tool.status);
   if (tool.readOnly.value) return "Read only";
   if (tool.destructive.value) return "Can delete";
   if (tool.openWorld.value) return "Outside Noema";
