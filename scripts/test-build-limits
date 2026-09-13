@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+# A failed build must remain a failure through the scope launcher.
+status=0
+scripts/with-build-limits sh -c 'exit 23' || status=$?
+[[ "$status" == 23 ]]
+
+# Preserve the working directory and arguments while applying compiler limits.
+scripts/with-build-limits sh -c '
+  test "$PWD" = "$1"
+  test "$2" = "argument with spaces"
+  test "$GOMAXPROCS" = 2
+  test "$GOMEMLIMIT" = 512MiB
+  case "$GOFLAGS" in *"-p=1") ;; *) exit 1 ;; esac
+' check "$PWD" 'argument with spaces'
+scripts/with-build-limits node -e '
+  const mib = require("v8").getHeapStatistics().heap_size_limit / 1024 / 1024;
+  if (mib < 1536 || mib > 1600) process.exit(1);
+'
+
+# Nested web commands must retain the same aggregate Linux memory budget.
+if [[ "$(uname -s)" == Linux ]] && (( EUID == 0 )); then
+  scripts/with-build-limits scripts/with-build-limits sh -c '
+    grep -q /noema-build.slice/ /proc/self/cgroup
+    test "$(cat /sys/fs/cgroup/noema.slice/noema-build.slice/memory.max)" = 4294967296
+  '
+fi
+echo 'Build limit checks passed.'

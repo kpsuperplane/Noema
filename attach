@@ -18,7 +18,7 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 
 if ! tmux has-session -t "=${session_name}" 2>/dev/null; then
-  (cd -- "${repo_dir}"; CGO_ENABLED=0 go build -o "${supervisor}" ./cmd/noema-dev)
+  (cd -- "${repo_dir}"; CGO_ENABLED=0 scripts/with-build-limits go build -o "${supervisor}" ./cmd/noema-dev)
   if ! tmux new-session -d -s "${session_name}" -c "${repo_dir}" \
     -e "NOEMA_HOME=${noema_home}" "exec ${guardian} ${supervisor}"; then
     tmux has-session -t "=${session_name}"

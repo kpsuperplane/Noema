@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Limit compiler concurrency and collect unused memory sooner.
+export GOFLAGS="${GOFLAGS:-} -p=1"
+export GOMAXPROCS=2
+export GOMEMLIMIT=512MiB
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=1536"
+
+# The privileged Linux development host shares one budget across all builds.
+# Keep the server and its supervisor outside this slice.
+if [[ "$(uname -s)" == Linux ]] && (( EUID == 0 )); then
+  if ! grep -q '/noema-build.slice/' /proc/self/cgroup; then
+    systemctl start noema-build.slice
+    systemctl set-property --runtime noema-build.slice \
+      MemoryHigh=3584M MemoryMax=4G MemorySwapMax=512M
+    exec systemd-run --quiet --scope --slice=noema-build.slice -- "$@"
+  fi
+fi
+exec "$@"

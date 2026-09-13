@@ -131,6 +131,7 @@ The expected response is `{"state":"authenticated"}`. A socket file alone does n
 
 ## Validation
 - During implementation, run focused checks for the affected packages and behavior.
+- Use `scripts/with-build-limits` for Go builds, tests, and vet. Web build commands apply the same limits automatically.
 - After focused checks pass, run broad validation once for each completed server or native code unit, using affected languages.
 - The integrating agent owns broad validation of the combined changes. Other agents run focused checks for their changes.
 - Before repeating a check, state the changed inputs or unresolved failure. Relevant inputs include code, dependencies, configuration, test inputs, and environment.
@@ -146,8 +147,8 @@ The expected response is `{"state":"authenticated"}`. A socket file alone does n
 - Never circumvent, disable, bypass, unset, or otherwise interfere with the `sccache` build cache.
 - Never modify `CARGO_BUILD_RUSTC_WRAPPER` or attempt to work around the configured Rust compiler wrapper. Doing so invalidates shared cache state, causes 15min+ builds, and can break other agents building in parallel.
 - Broad Go server validation:
-  - `CGO_ENABLED=0 go test ./cmd/... ./internal/...`
-  - `CGO_ENABLED=0 go vet ./cmd/... ./internal/...`
+  - `CGO_ENABLED=0 scripts/with-build-limits go test ./cmd/... ./internal/...`
+  - `CGO_ENABLED=0 scripts/with-build-limits go vet ./cmd/... ./internal/...`
 - Broad retained Rust validation:
   - `cargo fmt --all --check`
   - `cargo check-workspace`

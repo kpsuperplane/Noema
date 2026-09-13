@@ -88,3 +88,29 @@ The release packaging script explicitly selects `target/web-assets` before packa
 
 After frontend changes, inspect the served page through the private socket.
 A preview that substitutes local assets does not verify the running app.
+
+## Build memory limits
+
+Use `scripts/with-build-limits <command> [arguments]` for manual builds and checks.
+For example, run `CGO_ENABLED=0 scripts/with-build-limits go test ./cmd/... ./internal/...`.
+The launcher, server build scripts, and web build commands use this wrapper.
+Do not wrap the application server or the complete development supervisor.
+
+Go compiles one package at a time and runs Go code on at most two CPUs.
+Each Go build process has a 512 MiB soft memory limit.
+Each Node process has a 1.5 GiB old-generation JavaScript heap limit.
+These runtime settings encourage earlier memory collection. They do not cap total process memory.
+See [Go build concurrency](https://go.dev/cmd/go/) and [Node memory controls](https://nodejs.org/api/cli.html#--max-old-space-sizesize-in-mib).
+
+On the Linux root development host, wrapped builds share `noema-build.slice`.
+Linux slows memory allocation above 3.5 GiB and enforces a 4 GiB memory ceiling.
+The slice also limits swap use to 512 MiB.
+The wrapper applies these settings before starting a build.
+Nested commands retain the same slice.
+The server and inspection connections stay outside this slice.
+If a build exhausts its allowance, it can fail without exhausting host memory.
+See [systemd memory controls](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html).
+
+Other users and operating systems receive the compiler and heap settings only.
+Commands that bypass the wrapper do not share its Linux memory ceiling.
+Use `systemctl show noema-build.slice -p MemoryCurrent -p MemoryPeak` to inspect build memory.

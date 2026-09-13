@@ -11,7 +11,7 @@ export NOEMA_WEB__LOCAL_GRAPHQL_SOCKET=true
 if (( EUID != 0 )); then
   if [[ "${1:-}" == "build" ]]; then
     mkdir -p target/go
-    CGO_ENABLED=0 go build -buildvcs=false -o target/go/noema-dev-server ./cmd/noema
+    CGO_ENABLED=0 scripts/with-build-limits go build -buildvcs=false -o target/go/noema-dev-server ./cmd/noema
     exit 0
   fi
   exec target/go/noema-dev-server
@@ -27,7 +27,7 @@ if [[ "$(stat -c '%U:%G:%a' -- "${noema_home}")" != "${run_user}:${run_user}:700
 fi
 
 if [[ "${1:-}" == "build" ]]; then
-  CGO_ENABLED=0 go build -buildvcs=false -o "${runtime_dir}/noema" ./cmd/noema
+  CGO_ENABLED=0 scripts/with-build-limits go build -buildvcs=false -o "${runtime_dir}/noema" ./cmd/noema
   chmod 0555 "${runtime_dir}/noema"
   exit 0
 fi
