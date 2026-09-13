@@ -26,6 +26,7 @@ type modelContextRequest struct {
 	generator                      provider.Generator
 	accountID, providerKind, model string
 	base, completed, active        []provider.GenerationMessage
+	restoredContext                []provider.GenerationMessage
 	tools                          []provider.GenerationTool
 	hostedWeb                      bool
 	outputReserve                  uint32
@@ -72,7 +73,7 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 	}
 	for attempts := 0; attempts < 4; attempts++ {
 		compacted := append([]provider.GenerationMessage{{Role: "assistant", Content: "Noema compacted prior completed context:\n" + summary}}, recent...)
-		messages = joinContextMessages(request.base, compacted, request.active)
+		messages = joinContextMessages(request.base, compacted, request.active, request.restoredContext)
 		if CountModelContext(ctx, request.generator, messages, request.tools, request.hostedWeb) <= available {
 			if request.persist != nil {
 				if err := request.persist(summary, recent); err != nil {
@@ -277,7 +278,7 @@ func splitActiveHistory(history, incremental []provider.GenerationMessage) (
 	if len(history) == 0 {
 		return nil, nil
 	}
-	start := len(history) - len(incremental)
+	start := max(0, len(history)-len(incremental))
 	if len(incremental) == 0 {
 		start = len(history) - 1
 	}
@@ -332,7 +333,7 @@ func completedTurnThrough(items []store.ConversationItem, turnID string) int64 {
 	}
 	var through int64
 	for _, item := range items {
-		if item.TurnID == turnID && providerRound(item) < latestRound {
+		if item.Kind != store.ConversationModelContextUpdate && item.TurnID == turnID && providerRound(item) < latestRound {
 			through = max(through, item.Sequence)
 		}
 	}

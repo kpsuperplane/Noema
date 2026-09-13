@@ -47,3 +47,17 @@ Same-provider replay uses provider text and phase metadata. A provider change us
 Old assistant items without phase metadata are final text.
 
 Prompt caching uses the existing conversation identifier. Caching improves request cost but never replaces local replay state.
+
+## Saved context changes
+
+Chat preserves earlier context messages and appends changes to named sections.
+The sections are agent identity, runtime environment, projects, and tool visibility.
+Each request compares current values with the latest saved values after the active checkpoint.
+Unchanged sections add no messages. Changed sections add complete replacements.
+Missing sections add removal messages. These messages clear the earlier value.
+
+Initial requests, tool continuations, and finalization save these updates before generation.
+Provider continuation receives only new updates beside the new tool results.
+Complete replay receives the same saved updates in conversation order.
+Compaction restores full current sections after retained history and saves them for later replay.
+A context reset starts with full sections. Memory root text remains in the base instructions.

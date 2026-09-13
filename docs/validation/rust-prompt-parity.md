@@ -31,10 +31,11 @@ Additional checks cover Unicode escaping, dynamic values, and provider field pla
 Exact instruction text does not prove identical model answers.
 The model, source data, tools, and request history also affect answers.
 
-Go sends complete context sections instead of Rust's persisted replacement/removal history.
+Chat now restores Rust's saved section comparisons and appended replacement/removal history.
+See [context update evidence](chat-context-updates-2026-09-13.md).
 Task source time comes from the saved source message and its time zone.
 Go does not retain Rust's separate original manual-task authorization snapshot.
-These context storage differences remain outside this text-copy change.
+The Task authorization snapshot difference remains outside this text-copy change.
 Unavailable-tool catalog rows also depend on the current Go capability surface.
 
 ## Validation

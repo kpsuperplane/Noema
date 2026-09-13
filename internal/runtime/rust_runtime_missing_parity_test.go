@@ -506,6 +506,29 @@ func TestRustRuntime_update_own_name_continuation_keeps_the_foreground_tool_cata
 	if !second[updateOwnNameToolName] {
 		t.Errorf("name tool disappeared from continuation: %#v", second)
 	}
+	// A name change adds a replacement after the tool result. Earlier context stays intact.
+	initial := requests[0].Messages
+	replay := requests[1].Messages
+	if len(replay) <= len(initial) {
+		t.Fatal("continuation lost earlier context")
+	}
+	for index := 1; index < len(initial); index++ {
+		if initial[index].Content != replay[index].Content || initial[index].Role != replay[index].Role {
+			t.Fatal("name change rewrote earlier context")
+		}
+	}
+	var replacement bool
+	for _, message := range replay[len(initial):] {
+		if strings.Contains(message.Content, `"section_id":"tools.visibility"`) {
+			t.Fatal("unchanged tool context was repeated")
+		}
+		if strings.Contains(message.Content, `"section_id":"agent.identity"`) && strings.Contains(message.Content, `"operation":"replacement"`) && strings.Contains(message.Content, "Mira") {
+			replacement = true
+		}
+	}
+	if !replacement {
+		t.Fatal("name change was not appended")
+	}
 }
 
 func TestRustRuntime_update_own_name_tool_history_is_visible_before_later_turns(t *testing.T) {

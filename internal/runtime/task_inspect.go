@@ -1125,11 +1125,6 @@ func (c *Chat) generateChatToolContinuation(
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
-	completed, active, through, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
-	if err != nil {
-		return provider.GenerationResult{}, false, err
-	}
-	messages := joinContextMessages(completed, active)
 	contextGenerator, err := c.generatorFor(assignment.ProviderKind)
 	if err != nil {
 		return provider.GenerationResult{}, false, err
@@ -1149,8 +1144,6 @@ func (c *Chat) generateChatToolContinuation(
 	transport := provider.ToolTransportNative
 	requestProjectContext := projectContext
 	if stopReason != "" {
-		messages = compactToolFinalizationMessages(messages, modelToolPayloadLimit)
-		completed, active = nil, messages
 		tools = nil
 		transport = provider.ToolTransportNone
 		requestProjectContext = ""
@@ -1163,6 +1156,21 @@ func (c *Chat) generateChatToolContinuation(
 		instructions = toolFinalizationInstruction(stopReason)
 	}
 	developer[0].Content = instructions
+	sections := developer
+	developer, contextUpdates, snapshot, err := c.syncModelContext(turn, &contextState, sections, false)
+	if err != nil {
+		return provider.GenerationResult{}, false, err
+	}
+	incrementalMessages = append(incrementalMessages, contextUpdates...)
+	completed, active, through, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
+	if err != nil {
+		return provider.GenerationResult{}, false, err
+	}
+	messages := joinContextMessages(completed, active)
+	if stopReason != "" {
+		messages = append(compactToolFinalizationMessages(messages, modelToolPayloadLimit), snapshot...)
+		completed, active = nil, messages
+	}
 	responseContinuation := responseIDContinuationProvider(assignment.ProviderKind)
 	continuingSession := continuationReady(generator, previousResponseID)
 	_, isSession := generator.(provider.GenerationSession)
@@ -1180,8 +1188,12 @@ func (c *Chat) generateChatToolContinuation(
 		var persist func(string, []provider.GenerationMessage) error
 		if len(currentCompleted) == 0 {
 			persist = func(summary string, recent []provider.GenerationMessage) error {
-				return c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
-					assignment.ModelProfile, summary, recent, through, time.Now())
+				if err := c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
+					assignment.ModelProfile, summary, recent, through, time.Now()); err != nil {
+					return err
+				}
+				_, _, _, err := c.syncModelContext(turn, &contextState, sections, true)
+				return err
 			}
 		} else {
 			currentActive = active
@@ -1191,7 +1203,7 @@ func (c *Chat) generateChatToolContinuation(
 		messages, compacted, err = prepareModelContext(c.ctx, modelContextRequest{database: c.database,
 			generator: contextGenerator, accountID: assignment.ProviderAccountID,
 			providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
-			base: developer, completed: completed, active: active, tools: tools,
+			base: developer, completed: completed, active: active, restoredContext: snapshot, tools: tools,
 			hostedWeb: hostedWeb, outputReserve: *outputTokens, persist: persist})
 		if err != nil {
 			return provider.GenerationResult{}, false, err
@@ -1213,11 +1225,6 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	if continuing {
 		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}, {Role: "developer", Content: progressMessageInstructions}}, incrementalMessages...)
-		messages = append(messages, environment...)
-		messages = append(messages, toolVisibilityMessage(tools, transport, hostedWeb))
-		if requestProjectContext != "" {
-			messages = append(messages, provider.GenerationMessage{Role: "developer", Content: requestProjectContext})
-		}
 	}
 	generate := func() (provider.GenerationResult, error) {
 		output := c.outputStream(turn, providerRound, request.input.ClientMessageID)
@@ -1291,18 +1298,20 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	messages = compactToolFinalizationMessages(replayMessages[len(developer):], payloadLimit)
 	instructions = toolFinalizationInstruction(stopReason)
-	finalDeveloper := developerMessages(environment, memoryContext, "", false)
-	finalDeveloper[0].Content = instructions
-	finalDeveloper = append(finalDeveloper, toolVisibilityMessage(nil, provider.ToolTransportNone, false))
-	messages = append(finalDeveloper, messages...)
+	finalSections := append(developerMessages(environment, memoryContext, "", false), toolVisibilityMessage(nil, provider.ToolTransportNone, false))
+	finalSections[0].Content = instructions
+	finalDeveloper, finalUpdates, finalSnapshot, syncErr := c.syncModelContext(turn, &contextState, finalSections, false)
+	if syncErr != nil {
+		return result, true, syncErr
+	}
+	messages = joinContextMessages(finalDeveloper, messages, finalSnapshot)
 	tools = nil
 	transport = provider.ToolTransportNone
 	hostedWeb = false
 	if continuingSession {
 		sessionReplay = messages
 		messages = append([]provider.GenerationMessage{{Role: "system", Instructions: true, Content: instructions}, {Role: "developer", Content: progressMessageInstructions}}, incrementalMessages...)
-		messages = append(messages, environment...)
-		messages = append(messages, toolVisibilityMessage(nil, provider.ToolTransportNone, false))
+		messages = append(messages, finalUpdates...)
 	}
 	result, err = generate()
 	return result, true, err

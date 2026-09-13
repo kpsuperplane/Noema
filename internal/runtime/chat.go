@@ -545,11 +545,6 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
-	completed, active, through, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
-	if err != nil {
-		c.failTurn(request.input, turn, err)
-		return
-	}
 	memoryContext := c.memoryRootContext()
 	hostedWeb := hostedWebSearchEnabled(assignment.ProviderKind, provider.ToolTransportNative) && (c.web == nil || !c.web.Explicit(c.ctx))
 	projectContext, err := c.projectContext(c.ctx)
@@ -567,6 +562,17 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
+	developer := append(developerMessages(environment, memoryContext, projectContext, hostedWeb), toolVisibilityMessage(tools, provider.ToolTransportNative, hostedWeb))
+	base, _, snapshot, err := c.syncModelContext(turn, &contextState, developer, false)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	completed, active, through, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
 	outputTokens := maxOutputTokensFor(assignment.ProviderKind)
 	runtimeStarted := time.Now()
 	runtimeSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
@@ -574,11 +580,15 @@ func (c *Chat) execute(request queuedTurn) {
 		store.RuntimeDebugMetadata{Phase: "initial"}, runtimeStarted)
 	providerMessages, compacted, err := prepareModelContext(c.ctx, modelContextRequest{database: c.database, generator: contextGenerator,
 		accountID: assignment.ProviderAccountID, providerKind: assignment.ProviderKind, model: assignment.ModelProfile,
-		base: append(developerMessages(environment, memoryContext, projectContext, hostedWeb), toolVisibilityMessage(tools, provider.ToolTransportNative, hostedWeb)), completed: completed, active: active,
+		base: base, completed: completed, active: active, restoredContext: snapshot,
 		tools: tools, hostedWeb: hostedWeb, outputReserve: *outputTokens,
 		persist: func(summary string, recent []provider.GenerationMessage) error {
-			return c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
-				assignment.ModelProfile, summary, recent, through, time.Now())
+			if err := c.database.AppendConversationContextUpdate(c.ctx, turn, assignment.ProviderKind,
+				assignment.ModelProfile, summary, recent, through, time.Now()); err != nil {
+				return err
+			}
+			_, _, _, err := c.syncModelContext(turn, &contextState, developer, true)
+			return err
 		}})
 	runtimeStatus := "completed"
 	if err != nil {

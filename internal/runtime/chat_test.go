@@ -129,8 +129,13 @@ func TestChatSerializesDetachedTurnsAndPublishesOrderedEvents(t *testing.T) {
 	}
 	messages := firstRequest["messages"].([]any)
 	encodedMessages, _ := json.Marshal(messages)
+	foundInput := false
+	for _, message := range messages {
+		value := message.(map[string]any)
+		foundInput = foundInput || value["role"] == "user" && value["content"] == "first"
+	}
 	if !strings.Contains(string(encodedMessages), "America/Los_Angeles") ||
-		messages[len(messages)-1].(map[string]any)["content"] != "first" ||
+		!foundInput ||
 		firstRequest["max_completion_tokens"] != float64(8192) {
 		t.Fatalf("provider messages = %#v", messages)
 	}
@@ -684,7 +689,8 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		incrementalResult = incrementalResult ||
 			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
 	}
-	if !replayedCall || !incrementalResult || !messagesContain(requests[1].Messages, "Active project catalog:") ||
+	if !replayedCall || !incrementalResult || !messagesContain(requests[1].ReplayMessages, "Active project catalog:") ||
+		messagesContain(requests[1].Messages, "Active project catalog:") ||
 		requests[1].Messages[0].Role != "system" || requests[1].Messages[0].Content != rustPromptReference(t, "primary") {
 		t.Fatalf("Codex incremental continuation = call %t, result %t, messages %#v",
 			replayedCall, incrementalResult, requests[1].Messages)
@@ -721,6 +727,10 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	continuationTurn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Continue", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	openAIRequest := provider.GenerateRequest{}
 	incremental := provider.GenerationMessage{Role: "tool", ToolResult: &provider.ReplayToolResult{
 		ProviderCallID: "call_openai", ProviderName: taskInspectName, Name: taskInspectName,
@@ -730,7 +740,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	assignment.ProviderAccountID = "provider_account:openai:default"
 	_, _, err = chat.generateChatToolContinuation(
 		queuedTurn{conversation: conversation, location: time.UTC},
-		store.ConversationTurn{ID: page.Items[0].TurnID, ConversationID: conversation.ID},
+		continuationTurn,
 		assignment,
 		generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 			openAIRequest = request
@@ -741,7 +751,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	if err != nil || openAIRequest.PreviousResponseID != "resp_openai" || !openAIRequest.StoreResponse ||
 		openAIRequest.Messages[0].Role != "system" || openAIRequest.Messages[2].ToolResult == nil ||
 		openAIRequest.Messages[2].ToolResult.ProviderCallID != "call_openai" ||
-		!messagesContain(openAIRequest.Messages, "Active project catalog:") {
+		messagesContain(openAIRequest.Messages, "Active project catalog:") {
 		t.Fatalf("OpenAI incremental continuation = %#v, %v", openAIRequest, err)
 	}
 	for _, providerKind := range []string{"codex", "openai"} {
@@ -749,7 +759,7 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		called := false
 		_, _, err = chat.generateChatToolContinuation(
 			queuedTurn{conversation: conversation, location: time.UTC},
-			store.ConversationTurn{ID: page.Items[0].TurnID, ConversationID: conversation.ID},
+			continuationTurn,
 			assignment,
 			generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
 				called = true
@@ -1065,7 +1075,7 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := home.CreatePendingTaskDocument(chat.home, taskID, strings.Repeat("x", 64<<10)); err != nil {
+	if _, err := home.CreatePendingTaskDocument(chat.home, taskID, strings.Repeat("x", 16<<10)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := chat.database.CreateTask(ctx, taskID, "Large Task", "correlation:test:"+taskID, time.Now()); err != nil {
@@ -1079,24 +1089,33 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-events
-	requestCount := 0
+	toolRequests := 0
 	var finalRequest map[string]any
 	replaceDefaultTransport(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		requestCount++
-		switch requestCount {
-		case 1:
-			return openRouterToolResponse(taskID, "context_call", "Checking."), nil
-		case 2:
-			return &http.Response{
-				StatusCode: http.StatusBadRequest, Header: make(http.Header),
-				Body: io.NopCloser(strings.NewReader("context exceeded")),
-			}, nil
-		default:
-			if err := json.NewDecoder(request.Body).Decode(&finalRequest); err != nil {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		if body["tools"] == nil {
+			if body["max_completion_tokens"] == float64(1024) {
+				finalRequest = body
+				return openRouterStreamResponse("I could not retain more Task context."), nil
+			}
+			// Context changes can require a summary before the tool continuation.
+			return openRouterStreamResponse("The user requested the large Task."), nil
+		}
+		toolRequests++
+		if toolRequests == 1 {
+			// Force a context change before the rejected continuation.
+			if _, err := chat.database.UpdatePrimaryAgentDisplayName(ctx, "Mira", time.Now()); err != nil {
 				return nil, err
 			}
-			return openRouterStreamResponse("I could not retain more Task context."), nil
+			return openRouterToolResponse(taskID, "context_call", "Checking."), nil
 		}
+		return &http.Response{
+			StatusCode: http.StatusBadRequest, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader("context exceeded")),
+		}, nil
 	}))
 	if _, err := chat.SendTurn(ctx, SendTurnInput{
 		ConversationID: conversation.ID, Input: "Inspect the large Task",
@@ -1104,8 +1123,8 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if requestCount != 3 || finalRequest == nil || finalRequest["max_completion_tokens"] != float64(1024) {
-		t.Fatalf("finalization requests = %d, final = %#v", requestCount, finalRequest)
+	if toolRequests != 2 || finalRequest == nil || finalRequest["max_completion_tokens"] != float64(1024) {
+		t.Fatalf("tool requests = %d, final = %#v", toolRequests, finalRequest)
 	}
 	if _, exists := finalRequest["tools"]; exists {
 		t.Fatalf("rejected replay finalization advertised tools: %#v", finalRequest)

@@ -143,6 +143,8 @@ SELECT item_id, conversation_id, COALESCE(turn_id, ''), COALESCE(parent_item_id,
 FROM conversation_items
 WHERE conversation_id = ? AND sequence_index > ? AND deleted_at_ms IS NULL AND (
     (kind IN ('user_text', 'multiple_choice_selection', 'assistant_text', 'reasoning') AND status = 'completed')
+    OR (kind = 'model_context_update' AND status = 'completed'
+        AND json_type(payload_json, '$.model_context_update') = 'object')
     OR (kind = 'task_reference' AND status = 'completed')
     OR (kind IN ('tool_call', 'tool_result')
         AND status IN ('completed', 'failed', 'cancelled', 'interrupted'))
