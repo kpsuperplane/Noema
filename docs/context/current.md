@@ -1,6 +1,6 @@
 # Current Noema Context
 ## Active direction
-Notion page loading now passes in dev with the saved 128k Codex limit. Native definitions carry full tool descriptions once. Compaction restores only missing or changed sections. The authorized live request listed pages, fetched one, and returned a summary. See [context compaction evidence](../validation/notion-context-compaction-2026-09-18.md).
+Chat now gives separate display IDs to tool retries. Tool labels use tool names instead of repeated assistant commentary. Existing history uses the corrected display without rewriting stored records. See [retry display evidence](../validation/tool-retry-display-2026-09-18.md). Notion page loading also passes at 128k; see [context compaction evidence](../validation/notion-context-compaction-2026-09-18.md).
 MCP setup accepts tool descriptions up to 64 KiB. Notion sign-in succeeded with 45 tools. Chat sends the missing setup-card event. Connection, desktop, phone, and server checks pass. See [connection evidence](../validation/notion-mcp-description-2026-09-18.md) and [card refresh evidence](../validation/mcp-setup-card-refresh-2026-09-18.md).
 
 Chat delegation now saves provider reasoning once before completing the reply. The regression preserves Tasks, reply text, and saved reasoning. Call-count-based delegation remains an open policy issue. See [save failure and cause](../validation/chat-delegation-save-2026-09-12.md).

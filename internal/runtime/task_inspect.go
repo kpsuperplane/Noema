@@ -1247,7 +1247,7 @@ func (c *Chat) generateChatToolContinuation(
 		}, func(event provider.StreamEvent) {
 			output.event(event)
 			if event.Kind == provider.ToolCallStarted {
-				c.publishProviderToolCallStarted(request, turn, event)
+				c.publishProviderToolCallStarted(request, turn, providerRound, event)
 			}
 		})
 		if saveErr := output.finish(&value, generateErr); saveErr != nil && generateErr == nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
@@ -350,14 +351,33 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 			return nil, errors.New("invalid replay payload")
 		}
 		if kind == "tool_call" || kind == "tool_result" {
+			metadata = maps.Clone(metadata)
 			action, _ := metadata["action"].(map[string]any)
+			if round, ok := item.Metadata["provider_round"]; ok && item.TurnID != "" {
+				// Provider output positions restart on each response, including retries.
+				suffix := fmt.Sprintf("%s:%d:%d", item.TurnID, intJSONModel(round), intJSONModel(item.Metadata["output_index"]))
+				id = kind + ":" + suffix
+				action = maps.Clone(action)
+				if action == nil {
+					action = map[string]any{}
+				}
+				if kind == "tool_call" {
+					action["id"] = "tool_call:" + suffix
+				} else {
+					action["call_id"] = "tool_call:" + suffix
+				}
+				metadata["action"] = action
+			}
 			if name, _ := action["name"].(string); name != "" {
 				display, _ := metadata["display"].(map[string]any)
+				display = maps.Clone(display)
 				if display == nil {
 					display = map[string]any{}
-					metadata["display"] = display
 				}
+				// Earlier records copied assistant commentary into the tool label.
+				delete(display, "description")
 				display["name"] = toolmarker.ReadableName(name)
+				metadata["display"] = display
 			}
 			if marker, ok := toolmarker.ForAction(kind, item.Status, action); ok {
 				display, _ := metadata["display"].(map[string]any)

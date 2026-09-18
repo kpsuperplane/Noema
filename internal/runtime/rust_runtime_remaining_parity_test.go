@@ -1391,7 +1391,7 @@ func TestRustRuntime_runtime_turn_streams_tool_call_started_before_durable_respo
 	}
 	metadata, _ := replayedTool.Payload["metadata"].(map[string]any)
 	display, _ := metadata["display"].(map[string]any)
-	if display["description"] != "Searching memory." {
+	if _, exists := display["description"]; exists {
 		t.Fatalf("durable tool display = %#v", display)
 	}
 	if _, exists := display["marker"]; exists {

@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,62 @@ import (
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
 )
+
+func TestToolActivityRetriesKeepSeparateDisplayIDs(t *testing.T) {
+	seen := map[string]bool{}
+	for round := 0; round < 2; round++ {
+		callID := fmt.Sprintf("tool_call:turn:test:%d:0", round)
+		for _, kind := range []string{"tool_call", "tool_result"} {
+			action := map[string]any{"name": "mcp.docs.update", "id": "old-call", "call_id": "old-call"}
+			display := map[string]any{"description": "I will retry the update."}
+			status := "running"
+			if kind == "tool_result" {
+				status = "completed"
+				if round == 0 {
+					status = "failed"
+				}
+			}
+			item := store.ConversationItem{
+				TurnID: "turn:test", Kind: store.ConversationItemKind(kind), Status: status,
+				Metadata: map[string]any{"provider_round": float64(round), "output_index": float64(0)},
+				Payload: map[string]any{"id": kind + ":old", "activity_kind": kind, "title": "Update",
+					"metadata": map[string]any{"action": action, "display": display}},
+			}
+			value, err := transcriptItemModel(item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			activity := value.(model.Activity)
+			shown := activity.Metadata["display"].(map[string]any)
+			if shown["description"] != nil || shown["name"] == "" || display["description"] != "I will retry the update." {
+				t.Fatal("tool label repeats commentary or changed source history")
+			}
+			want := fmt.Sprintf("%s:turn:test:%d:0", kind, round)
+			if activity.ID != want || seen[activity.ID] {
+				t.Fatalf("attempt IDs collided: %q, want %q", activity.ID, want)
+			}
+			seen[activity.ID] = true
+			key := "id"
+			if kind == "tool_result" {
+				key = "call_id"
+			}
+			if activity.Metadata["action"].(map[string]any)[key] != callID || action[key] != "old-call" {
+				t.Fatal("call pairing or original history changed")
+			}
+			if kind == "tool_result" && string(activity.Status) != strings.ToUpper(status) {
+				t.Fatal("retry result status changed")
+			}
+			if kind == "tool_call" {
+				item.Kind = store.ConversationActivity
+				item.Payload["id"] = "transient-call"
+				streamed, err := transcriptItemModel(item)
+				if err != nil || streamed.(model.Activity).ID != activity.ID {
+					t.Fatal("streamed call does not match saved call")
+				}
+			}
+		}
+	}
+}
 
 func TestPrimaryConversationServesEmptyReadyChat(t *testing.T) {
 	resolver := openChatTestResolver(t)

@@ -624,7 +624,7 @@ func (c *Chat) execute(request queuedTurn) {
 	}, func(event provider.StreamEvent) {
 		output.event(event)
 		if event.Kind == provider.ToolCallStarted {
-			c.publishProviderToolCallStarted(request, turn, event)
+			c.publishProviderToolCallStarted(request, turn, 0, event)
 		}
 	})
 	if saveErr := output.finish(&result, err); saveErr != nil && err == nil {
@@ -657,8 +657,8 @@ func hostedWebSearchEnabled(providerKind string, transport provider.ToolTranspor
 // publishProviderToolCallStarted publishes the transient activity that lets a
 // subscriber see a native tool call while the provider response is still
 // streaming. The durable call is persisted after Generate returns.
-func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.ConversationTurn, event provider.StreamEvent) {
-	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ConversationID, turn.TurnIndex, event.Index)
+func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.ConversationTurn, providerRound int, event provider.StreamEvent) {
+	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ID, providerRound, event.Index)
 	displayName, access := toolmarker.ReadableName(event.Name), "Uses a connected tool"
 	switch event.Name {
 	case noemamemory.SearchToolName:
@@ -697,6 +697,7 @@ func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.Con
 		},
 		Metadata: map[string]any{
 			"turn_index": turn.TurnIndex, "runtime_item_id": activityID, "transient": true,
+			"provider_round": float64(providerRound), "output_index": float64(event.Index),
 		},
 	}
 	c.publish(Event{
