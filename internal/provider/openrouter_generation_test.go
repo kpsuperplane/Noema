@@ -130,6 +130,9 @@ func TestOpenRouterRequestLowersToolsAndReplayHistory(t *testing.T) {
 	}
 	firstFunction := tools[0].(map[string]any)["function"].(map[string]any)
 	secondFunction := tools[1].(map[string]any)["function"].(map[string]any)
+	if firstFunction["description"] != request.Tools[0].Description || secondFunction["description"] != request.Tools[1].Description {
+		t.Fatal("native tool descriptions were lost")
+	}
 	firstName := firstFunction["name"].(string)
 	if firstName == secondFunction["name"] || names.canonicalToName["mcp.docs.read"] != firstName {
 		t.Fatalf("provider tool names = %#v", names.canonicalToName)

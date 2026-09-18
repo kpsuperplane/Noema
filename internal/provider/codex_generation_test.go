@@ -139,6 +139,7 @@ func TestCodexGeneratorPreservesResponsesWireAndOutput(t *testing.T) {
 	tools := body["tools"].([]any)
 	tool := tools[0].(map[string]any)
 	if len(tools) != 2 || tool["type"] != "function" || tool["name"] != "inspect" ||
+		tool["description"] != request.Tools[0].Description || tool["parameters"] == nil ||
 		tool["strict"] != true || tools[1].(map[string]any)["type"] != "web_search" {
 		t.Fatalf("Codex tool wire = %#v", tool)
 	}

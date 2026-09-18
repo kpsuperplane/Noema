@@ -59,5 +59,10 @@ Missing sections add removal messages. These messages clear the earlier value.
 Initial requests, tool continuations, and finalization save these updates before generation.
 Provider continuation receives only new updates beside the new tool results.
 Complete replay receives the same saved updates in conversation order.
-Compaction restores full current sections after retained history and saves them for later replay.
+Compaction compares current sections with retained history and restores only missing or changed sections.
+Admission and saved replay use the same comparison. Sections retained in a checkpoint remain available for later comparisons.
 A context reset starts with full sections. Memory root text remains in the base instructions.
+
+Native tool definitions carry complete descriptions and schemas for every Chat provider.
+The tool visibility section lists callable names and service ownership without repeating tool descriptions.
+Context admission counts ordinary message text without adding JSON string escapes or empty record fields.

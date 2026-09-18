@@ -36,6 +36,45 @@ func contextTestStore(t *testing.T, window uint32) *store.Store {
 	return database
 }
 
+func TestContextCountsTextWithoutJSONEscaping(t *testing.T) {
+	content := strings.Repeat("\"<page>\"\n世界", 100)
+	want := uint32((len([]rune("developer: "+content+"\n")) + 2) / 3)
+	if got := CountModelContext(t.Context(), nil, []provider.GenerationMessage{{Role: "developer", Content: content}}, nil, false); got != want {
+		t.Fatalf("text tokens = %d, want %d", got, want)
+	}
+}
+
+func TestLargeNativeToolCatalogFitsAfterCompactionAt128K(t *testing.T) {
+	database := contextTestStore(t, 128_000)
+	tools := localChatTools()
+	for i := 0; i < 45; i++ {
+		schema, _ := json.Marshal(map[string]any{"type": "object", "description": strings.Repeat("schema detail ", 260)})
+		tools = append(tools, provider.GenerationTool{Name: fmt.Sprintf("docs.read_%d", i), Description: strings.Repeat("tool detail ", 125), InputSchema: schema})
+	}
+	visibility := toolVisibilityMessage(tools, provider.ToolTransportNative, false)
+	active := []provider.GenerationMessage{{Role: "user", Content: "fetch a random page"}, visibility}
+	base := developerMessages(nil, "", "", false)
+	messages, compacted, err := prepareModelContext(t.Context(), modelContextRequest{
+		database: database, accountID: "provider_account:openrouter:context-test", providerKind: "openrouter", model: "test",
+		base: base, active: active, restoredContext: []provider.GenerationMessage{visibility}, tools: tools, outputReserve: 8192,
+		completed: []provider.GenerationMessage{{Role: "assistant", Content: strings.Repeat("completed history ", 20000)}},
+		generator: generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+			return provider.GenerationResult{Text: "Earlier discussion."}, nil
+		}),
+	})
+	if err != nil || !compacted {
+		t.Fatalf("large catalog compaction: %t, %v", compacted, err)
+	}
+	if tokens := CountModelContext(t.Context(), nil, messages, tools, false); tokens > 128_000-8192-contextSafetyTokens {
+		t.Fatalf("compacted input exceeds budget: %d", tokens)
+	}
+	for _, tool := range tools {
+		if strings.Contains(visibility.Content, tool.Description) || tool.Description == "" || len(tool.InputSchema) == 0 {
+			t.Fatal("tool definitions were duplicated or lost")
+		}
+	}
+}
+
 func TestPrepareModelContextCompactsOnceAndDisablesTools(t *testing.T) {
 	database := contextTestStore(t, 4_000)
 	var summaryRequests, checkpoints int
@@ -52,7 +91,7 @@ func TestPrepareModelContextCompactsOnceAndDisablesTools(t *testing.T) {
 	})
 	completed := make([]provider.GenerationMessage, 6)
 	for index := range completed {
-		completed[index] = provider.GenerationMessage{Role: "assistant", Content: strings.Repeat(string(rune('a'+index)), 1_000)}
+		completed[index] = provider.GenerationMessage{Role: "assistant", Content: strings.Repeat(string(rune('a'+index)), 1_100)}
 	}
 	messages, compacted, err := prepareModelContext(t.Context(), modelContextRequest{
 		database: database, generator: generator,

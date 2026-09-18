@@ -351,6 +351,10 @@ func TestLocalGenerationPreservesToolsReplayAndTokenization(t *testing.T) {
 			if len(messages) != 2 || messages[0].(map[string]any)["content"] != "system\n\ndeveloper" {
 				t.Errorf("local messages = %#v", messages)
 			}
+			function := body["tools"].([]any)[0].(map[string]any)["function"].(map[string]any)
+			if function["description"] != "Finish the Task." || function["parameters"] == nil {
+				t.Error("native tool description or schema was lost")
+			}
 			writer.Header().Set("Content-Type", "text/event-stream")
 			_, _ = io.WriteString(writer, `data: {"choices":[{"delta":{"reasoning_content":"The work is complete."}}]}`+"\n\n")
 			_, _ = io.WriteString(writer, "data: {\"id\":\"response\",\"model\":\"local-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"function\":{\"name\":\"task_finish_execution\",\"arguments\":\"{}\"}}]}}]}\n\n")

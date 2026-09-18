@@ -1157,7 +1157,7 @@ func (c *Chat) generateChatToolContinuation(
 	}
 	developer[0].Content = instructions
 	sections := developer
-	developer, contextUpdates, snapshot, err := c.syncModelContext(turn, &contextState, sections, false)
+	developer, contextUpdates, snapshot, err := c.syncModelContext(turn, &contextState, sections, nil)
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
@@ -1192,7 +1192,7 @@ func (c *Chat) generateChatToolContinuation(
 					assignment.ModelProfile, summary, recent, through, time.Now()); err != nil {
 					return err
 				}
-				_, _, _, err := c.syncModelContext(turn, &contextState, sections, true)
+				_, _, _, err := c.syncModelContext(turn, &contextState, sections, joinContextMessages(recent, active))
 				return err
 			}
 		} else {
@@ -1300,7 +1300,7 @@ func (c *Chat) generateChatToolContinuation(
 	instructions = toolFinalizationInstruction(stopReason)
 	finalSections := append(developerMessages(environment, memoryContext, "", false), toolVisibilityMessage(nil, provider.ToolTransportNone, false))
 	finalSections[0].Content = instructions
-	finalDeveloper, finalUpdates, finalSnapshot, syncErr := c.syncModelContext(turn, &contextState, finalSections, false)
+	finalDeveloper, finalUpdates, finalSnapshot, syncErr := c.syncModelContext(turn, &contextState, finalSections, nil)
 	if syncErr != nil {
 		return result, true, syncErr
 	}

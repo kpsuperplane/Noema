@@ -44,6 +44,7 @@ func TestOpenAIGeneratorPreservesResponsesWireAndProtectedSetup(t *testing.T) {
 		},
 		ReasoningEffort: "high", MaxOutputTokens: &maxTokens, ConversationID: "conversation:one",
 		ToolTransport: ToolTransportNative, ToolChoice: ToolChoiceAuto,
+		Tools:           []GenerationTool{{Name: "docs.read", Description: "Read a document.", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}},
 		HostedWebSearch: true, FastMode: true,
 	}, func(event StreamEvent) {
 		if event.Kind == TextDelta {
@@ -80,7 +81,8 @@ func TestOpenAIGeneratorPreservesResponsesWireAndProtectedSetup(t *testing.T) {
 		t.Fatalf("OpenAI explicit prompt cache = %#v, input %#v", cache, input)
 	}
 	tools := body["tools"].([]any)
-	if len(tools) != 1 || tools[0].(map[string]any)["external_web_access"] != true {
+	if len(tools) != 2 || tools[0].(map[string]any)["description"] != "Read a document." ||
+		tools[0].(map[string]any)["parameters"] == nil || tools[1].(map[string]any)["external_web_access"] != true {
 		t.Fatalf("OpenAI hosted tool = %#v", tools)
 	}
 }

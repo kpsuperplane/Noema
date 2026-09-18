@@ -563,7 +563,7 @@ func (c *Chat) execute(request queuedTurn) {
 		return
 	}
 	developer := append(developerMessages(environment, memoryContext, projectContext, hostedWeb), toolVisibilityMessage(tools, provider.ToolTransportNative, hostedWeb))
-	base, _, snapshot, err := c.syncModelContext(turn, &contextState, developer, false)
+	base, _, snapshot, err := c.syncModelContext(turn, &contextState, developer, nil)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
 		return
@@ -587,7 +587,7 @@ func (c *Chat) execute(request queuedTurn) {
 				assignment.ModelProfile, summary, recent, through, time.Now()); err != nil {
 				return err
 			}
-			_, _, _, err := c.syncModelContext(turn, &contextState, developer, true)
+			_, _, _, err := c.syncModelContext(turn, &contextState, developer, joinContextMessages(recent, active))
 			return err
 		}})
 	runtimeStatus := "completed"

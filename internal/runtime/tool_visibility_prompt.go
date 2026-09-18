@@ -38,7 +38,8 @@ func toolVisibilityMessage(tools []provider.GenerationTool, transport provider.T
 				rows = append(rows, tool.ServiceCatalogRow)
 				service = "\tservice=" + tool.ServiceConnectionID
 			}
-			rows = append(rows, "- "+kind+"\t"+tool.Name+service+"\t"+tool.Description)
+			// Native definitions already supply complete descriptions and schemas.
+			rows = append(rows, "- "+kind+"\t"+tool.Name+service)
 		}
 		if hosted {
 			names = append(names, "web_search")

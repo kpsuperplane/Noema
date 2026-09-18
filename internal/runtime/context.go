@@ -63,6 +63,16 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 			errContextWindowExceeded, estimated, available)
 	}
 	prefix, recent := compactionPrefix(request.completed, available, estimated > available)
+	var restored []provider.GenerationMessage
+	if request.restoredContext != nil {
+		_, updates, _, err := diffModelContext(joinContextMessages(recent, request.active), request.restoredContext)
+		if err != nil {
+			return nil, false, err
+		}
+		for _, update := range updates {
+			restored = append(restored, contextUpdateMessage(update))
+		}
+	}
 	target := min(uint32(512), max(uint32(64), available/8))
 	summary, err := summarizeModelContext(ctx, request, prefix, target, available)
 	if err != nil {
@@ -73,7 +83,7 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 	}
 	for attempts := 0; attempts < 4; attempts++ {
 		compacted := append([]provider.GenerationMessage{{Role: "assistant", Content: "Noema compacted prior completed context:\n" + summary}}, recent...)
-		messages = joinContextMessages(request.base, compacted, request.active, request.restoredContext)
+		messages = joinContextMessages(request.base, compacted, request.active, restored)
 		if CountModelContext(ctx, request.generator, messages, request.tools, request.hostedWeb) <= available {
 			if request.persist != nil {
 				if err := request.persist(summary, recent); err != nil {
@@ -169,18 +179,30 @@ func completeContextStart(messages []provider.GenerationMessage, start int) int 
 func CountModelContext(ctx context.Context, generator provider.Generator, messages []provider.GenerationMessage,
 	tools []provider.GenerationTool, hostedWeb bool,
 ) uint32 {
-	rendered, _ := json.Marshal(struct {
-		Messages []provider.GenerationMessage `json:"messages"`
-		Tools    []provider.GenerationTool    `json:"tools,omitempty"`
-	}{messages, tools})
+	var rendered strings.Builder
+	for _, message := range messages {
+		switch continuationKind(message) {
+		case "message", "assistant_text":
+			// Text is model input, not a JSON string with an extra escape layer.
+			rendered.WriteString(message.Role + ": " + message.Content)
+		default:
+			encoded, _ := json.Marshal(message)
+			rendered.Write(encoded)
+		}
+		rendered.WriteByte('\n')
+	}
+	if len(tools) != 0 {
+		encoded, _ := json.Marshal(tools)
+		rendered.Write(encoded)
+	}
 	var tokens uint32
 	if counter, ok := generator.(interface {
 		CountTokens(context.Context, *string, string) (uint32, error)
 	}); ok {
-		tokens, _ = counter.CountTokens(ctx, nil, string(rendered))
+		tokens, _ = counter.CountTokens(ctx, nil, rendered.String())
 	}
-	if tokens == 0 && len(rendered) != 0 {
-		tokens = uint32((utf8.RuneCount(rendered) + 2) / 3)
+	if tokens == 0 && rendered.Len() != 0 {
+		tokens = uint32((utf8.RuneCountInString(rendered.String()) + 2) / 3)
 	}
 	if hostedWeb {
 		tokens += 256

@@ -1,6 +1,6 @@
 # Current Noema Context
 ## Active direction
-Notion page requests currently fail before tool execution because the saved Codex input budget is too small. The catalog reader now preserves supplied model limits. Existing accounts require Codex sign-in to replace the old catalog. Live page loading remains unverified. See [context budget evidence](../validation/notion-context-budget-2026-09-18.md).
+Notion page loading now passes in dev with the saved 128k Codex limit. Native definitions carry full tool descriptions once. Compaction restores only missing or changed sections. The authorized live request listed pages, fetched one, and returned a summary. See [context compaction evidence](../validation/notion-context-compaction-2026-09-18.md).
 MCP setup accepts tool descriptions up to 64 KiB. Notion sign-in succeeded with 45 tools. Chat sends the missing setup-card event. Connection, desktop, phone, and server checks pass. See [connection evidence](../validation/notion-mcp-description-2026-09-18.md) and [card refresh evidence](../validation/mcp-setup-card-refresh-2026-09-18.md).
 
 Chat delegation now saves provider reasoning once before completing the reply. The regression preserves Tasks, reply text, and saved reasoning. Call-count-based delegation remains an open policy issue. See [save failure and cause](../validation/chat-delegation-save-2026-09-12.md).

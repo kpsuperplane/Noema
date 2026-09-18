@@ -51,6 +51,9 @@ logs remain in `/var/tmp/noema-context-probe/`.
 
 ## Remaining live step
 
+This step was superseded by the [context compaction fix](notion-context-compaction-2026-09-18.md).
+The live request passed with the saved 128k limit and no new sign-in.
+
 Go fetches the Codex model catalog during sign-in. It has no separate catalog
 refresh path. Existing account metadata still contains the old limit.
 Codex sign-in is required to replace that saved catalog. A successful live

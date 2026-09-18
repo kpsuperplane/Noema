@@ -34,7 +34,7 @@ func TestModelContextSavedChangesAndRemovals(t *testing.T) {
 		return state
 	}
 	state := read()
-	base, delta, _, err := chat.syncModelContext(turn, &state, sections, false)
+	base, delta, _, err := chat.syncModelContext(turn, &state, sections, nil)
 	if err != nil || len(delta) != 4 || len(base) != 1 {
 		t.Fatalf("initial sync: %d, %d, %v", len(delta), len(base), err)
 	}
@@ -43,14 +43,14 @@ func TestModelContextSavedChangesAndRemovals(t *testing.T) {
 		t.Fatal(err)
 	}
 	state = read()
-	_, delta, _, err = chat.syncModelContext(turn, &state, sections, false)
+	_, delta, _, err = chat.syncModelContext(turn, &state, sections, nil)
 	if err != nil || len(delta) != 0 {
 		t.Fatalf("unchanged sync: %d, %v", len(delta), err)
 	}
 	sections[2] = modelContextSectionMessage("runtime.environment", "time two")
 	sections = append(sections[:3], sections[4:]...)
 	state = read()
-	_, delta, _, err = chat.syncModelContext(turn, &state, sections, false)
+	_, delta, _, err = chat.syncModelContext(turn, &state, sections, nil)
 	if err != nil || len(delta) != 2 {
 		t.Fatalf("changed sync: %d, %v", len(delta), err)
 	}
@@ -69,7 +69,7 @@ func TestModelContextSavedChangesAndRemovals(t *testing.T) {
 	}
 	sections[2] = modelContextSectionMessage("runtime.environment", "time three")
 	state = read()
-	if _, _, _, err := chat.syncModelContext(turn, &state, sections, false); err == nil {
+	if _, _, _, err := chat.syncModelContext(turn, &state, sections, nil); err == nil {
 		t.Fatal("completed turn accepted a context change")
 	}
 }
@@ -132,7 +132,7 @@ func TestModelContextCompactionAndResetRestoreSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err = chat.syncModelContext(turn, &state, sections, false); err != nil {
+	if _, _, _, err = chat.syncModelContext(turn, &state, sections, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = database.CompleteConversationTurn(t.Context(), turn, strings.Repeat("old history ", 1500), "", nil, time.Now()); err != nil {
@@ -146,7 +146,9 @@ func TestModelContextCompactionAndResetRestoreSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, _, snapshot, err := chat.syncModelContext(turn, &state, sections, false)
+	// A changed section in the active turn must not be restored a second time.
+	sections[1] = modelContextSectionMessage("tools.visibility", strings.Repeat("read tools ", 500))
+	base, _, snapshot, err := chat.syncModelContext(turn, &state, sections, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,12 +166,21 @@ func TestModelContextCompactionAndResetRestoreSections(t *testing.T) {
 			if err := database.AppendConversationContextUpdate(t.Context(), turn, "openrouter", "test", summary, recent, through, time.Now()); err != nil {
 				return err
 			}
-			_, _, _, err := chat.syncModelContext(turn, &state, sections, true)
+			_, _, _, err := chat.syncModelContext(turn, &state, sections, joinContextMessages(recent, active))
 			return err
 		},
 	})
 	if err != nil || !compacted {
 		t.Fatalf("compaction: %t, %v", compacted, err)
+	}
+	sectionCopies := 0
+	for _, message := range messages {
+		if strings.Contains(message.Content, `"section_id":"tools.visibility"`) {
+			sectionCopies++
+		}
+	}
+	if sectionCopies != 1 {
+		t.Fatalf("compacted tool section copies: %d", sectionCopies)
 	}
 	state, err = database.ConversationProviderContext(t.Context(), conversation.ID, "openrouter", "test")
 	if err != nil {
@@ -179,7 +190,7 @@ func TestModelContextCompactionAndResetRestoreSections(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(messages, joinContextMessages(base, completed, active)) {
 		t.Fatalf("compacted request and saved replay differ: %v", err)
 	}
-	_, delta, _, err := chat.syncModelContext(turn, &state, sections, false)
+	_, delta, _, err := chat.syncModelContext(turn, &state, sections, nil)
 	if err != nil || len(delta) != 0 {
 		t.Fatalf("restored context was not saved: %v", err)
 	}
@@ -197,7 +208,7 @@ func TestModelContextCompactionAndResetRestoreSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, delta, _, err = chat.syncModelContext(turn, &state, sections, false)
+	_, delta, _, err = chat.syncModelContext(turn, &state, sections, nil)
 	if err != nil || len(delta) != 2 {
 		t.Fatalf("reset: %d, %v", len(delta), err)
 	}
