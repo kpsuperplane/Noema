@@ -408,6 +408,27 @@ func TestCodexCatalogUsesSafeClientVersionFallback(t *testing.T) {
 	}
 }
 
+func TestCodexCatalogPreservesModelContextWindow(t *testing.T) {
+	for _, test := range []struct {
+		field string
+		want  uint32
+	}{
+		{`,"context_window":272000,"max_context_window":872000`, 272000},
+		{`,"context_window":64000`, 64000},
+		{"", 128000},
+		{`,"context_window":0`, 128000},
+		{`,"context_window":-1`, 128000},
+		{`,"context_window":"272000"`, 128000},
+	} {
+		t.Run(test.field, func(t *testing.T) {
+			profile, visible := codexProfile(json.RawMessage(`{"slug":"test","visibility":"list"` + test.field + `}`))
+			if !visible || profile.ContextWindowTokens == nil || *profile.ContextWindowTokens != test.want {
+				t.Fatalf("context window = %v, want %d", profile.ContextWindowTokens, test.want)
+			}
+		})
+	}
+}
+
 func TestCodexCatalogPublicationRestoresPriorTokens(t *testing.T) {
 	_, accounts, _ := codexTestService(t, "https://codex.invalid", time.Millisecond, time.Second)
 	now := time.Now().UTC()

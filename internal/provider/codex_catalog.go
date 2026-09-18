@@ -173,6 +173,10 @@ func codexProfile(raw json.RawMessage) (ModelProfile, bool) {
 		label = id
 	}
 	contextWindow := uint32(128_000)
+	var catalogWindow uint32
+	if json.Unmarshal(fields["context_window"], &catalogWindow) == nil && catalogWindow > 0 {
+		contextWindow = catalogWindow
+	}
 	profile := ModelProfile{ID: id, Label: label, ContextWindowTokens: &contextWindow}
 	for _, key := range []string{"supported_reasoning_levels", "reasoning_levels", "reasoning_efforts"} {
 		values, ok := rawStrings(fields[key])

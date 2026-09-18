@@ -1,7 +1,7 @@
 # Current Noema Context
-This brief contains active direction, current constraints, and open loops. Durable contracts belong in subsystem documents. Git owns completed history.
 ## Active direction
-MCP setup now accepts tool descriptions up to 64 KiB. Migration 39 preserves existing tools and permissions. Notion authorization succeeded before the old metadata limit rejected setup. Focused and broad server checks pass. A fresh Notion sign-in succeeded with 45 tools. See [connection evidence](../validation/notion-mcp-description-2026-09-18.md). Chat now sends the missing event for MCP setup cards. The regression and controlled desktop and phone checks pass. Broad checks pass after one runtime retry; the evidence records two intermittent test failures. See [card refresh evidence](../validation/mcp-setup-card-refresh-2026-09-18.md).
+Notion page requests currently fail before tool execution because the saved Codex input budget is too small. The catalog reader now preserves supplied model limits. Existing accounts require Codex sign-in to replace the old catalog. Live page loading remains unverified. See [context budget evidence](../validation/notion-context-budget-2026-09-18.md).
+MCP setup accepts tool descriptions up to 64 KiB. Notion sign-in succeeded with 45 tools. Chat sends the missing setup-card event. Connection, desktop, phone, and server checks pass. See [connection evidence](../validation/notion-mcp-description-2026-09-18.md) and [card refresh evidence](../validation/mcp-setup-card-refresh-2026-09-18.md).
 
 Chat delegation now saves provider reasoning once before completing the reply. The regression preserves Tasks, reply text, and saved reasoning. Call-count-based delegation remains an open policy issue. See [save failure and cause](../validation/chat-delegation-save-2026-09-12.md).
 
