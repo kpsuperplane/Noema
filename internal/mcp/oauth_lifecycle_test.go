@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +19,8 @@ import (
 
 func TestOAuthAttemptSurvivesStartingRequestCancellation(t *testing.T) {
 	remote := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "oauth-fixture", Version: "1"}, nil)
-	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "read", InputSchema: map[string]any{"type": "object"}},
+	description := strings.Repeat("Documented tool behavior. ", 700)
+	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "read", Description: description, InputSchema: map[string]any{"type": "object"}},
 		func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, map[string]any, error) {
 			return nil, map[string]any{"ok": true}, nil
 		})
@@ -116,6 +118,10 @@ func TestOAuthAttemptSurvivesStartingRequestCancellation(t *testing.T) {
 	completed, err := service.Attempt(t.Context(), attempt.ID, "human:local")
 	if err != nil || completed.Status != "completed" || completed.Result == nil || completed.Result.Server == nil {
 		t.Fatalf("completed OAuth attempt = %#v, %v", completed, err)
+	}
+	tools, err := database.MCPTools(t.Context(), completed.Result.Server.ID)
+	if err != nil || len(tools) != 1 || tools[0].Description != description {
+		t.Fatalf("long tool description was not preserved: count=%d error=%v", len(tools), err)
 	}
 	scopes, err := service.GrantedScopes(t.Context(), completed.Result.Server.ID)
 	if err != nil || len(scopes) != 1 || scopes[0] != "read" {

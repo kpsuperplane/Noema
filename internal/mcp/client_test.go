@@ -269,3 +269,15 @@ func TestSetupHonorsAuthenticationPreferenceAndExactCallback(t *testing.T) {
 		t.Fatalf("mismatched callback error = %v", err)
 	}
 }
+
+func TestToolDescriptionLimit(t *testing.T) {
+	source := &mcpsdk.Tool{Name: "read", Description: strings.Repeat("x", 64<<10), InputSchema: map[string]any{"type": "object"}}
+	tool, err := normalizeTool(source)
+	if err != nil || tool.Description != source.Description {
+		t.Fatalf("description at limit was not preserved: %v", err)
+	}
+	source.Description += "x"
+	if _, err := normalizeTool(source); err == nil {
+		t.Fatal("oversized tool description accepted")
+	}
+}

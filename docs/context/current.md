@@ -1,6 +1,7 @@
 # Current Noema Context
 This brief contains active direction, current constraints, and open loops. Durable contracts belong in subsystem documents. Git owns completed history.
 ## Active direction
+MCP setup now accepts tool descriptions up to 64 KiB. Migration 39 preserves existing tools and permissions. Notion authorization succeeded before the old metadata limit rejected setup. Focused and broad server checks pass. A fresh Notion sign-in succeeded with 45 tools. See [connection evidence](../validation/notion-mcp-description-2026-09-18.md).
 
 Chat delegation now saves provider reasoning once before completing the reply. The regression preserves Tasks, reply text, and saved reasoning. Call-count-based delegation remains an open policy issue. See [save failure and cause](../validation/chat-delegation-save-2026-09-12.md).
 
@@ -290,10 +291,9 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
 - Both Go size measures must remain below 80%. A protection needs a current failure, concrete threat, retained capability, or client contract.
-- Go owns schema version 38, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
+- Go owns schema version 39, Playwright browsing, Kernel sessions, diagnostics, and local-model execution.
 - Desktop launches a Go sidecar. The former Rust backend and evaluation dependency closure are removed.
 - Obscura uses upstream releases without Cargo. Public Linux installation, executable reuse, direct worker lifecycle, and stalled-worker recovery pass. The exact live Chat `example.com` lifecycle now passes after reviewed continuations preserve the provider response and continuation tool rounds accept their running state. AUDIT-11 records an old snapshot executing a changed button. AUDIT-12 records protected control values in snapshots. AUDIT-13 records a repeated declined effect becoming claimable. Use synthetic form values during further checks. Product selection remains pending. Native Windows WAL stress remains a cutover gate.
 
 ## Validation
-
 Follow [AGENTS.md](../../AGENTS.md#validation) for check scope, commands, and reuse of valid results.

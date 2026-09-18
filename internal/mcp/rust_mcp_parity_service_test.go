@@ -742,7 +742,7 @@ func TestRustMCP_DiscoveryValidationAndFingerprintContracts(t *testing.T) {
 	if _, err := storedTools("mcp_server:"+strings.Repeat("a", 32), []DiscoveredTool{{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, {Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}}); err == nil {
 		t.Fatal("duplicate discovery tool accepted")
 	}
-	if _, err := normalizeTool(&mcpsdk.Tool{Name: "read", Description: strings.Repeat("x", 8193), InputSchema: map[string]any{"type": "object"}}); err == nil {
+	if _, err := normalizeTool(&mcpsdk.Tool{Name: "read", Description: strings.Repeat("x", (64<<10)+1), InputSchema: map[string]any{"type": "object"}}); err == nil {
 		t.Fatal("oversized description accepted")
 	}
 }

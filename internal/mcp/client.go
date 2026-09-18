@@ -24,11 +24,12 @@ import (
 )
 
 const (
-	maxDiscoveredTools = 128
-	maxSchemaBytes     = 256 << 10
-	maxAnnotations     = 16 << 10
-	maxToolResult      = 1 << 20
-	maxWireBody        = 32 << 20
+	maxDiscoveredTools      = 128
+	maxToolDescriptionBytes = 64 << 10
+	maxSchemaBytes          = 256 << 10
+	maxAnnotations          = 16 << 10
+	maxToolResult           = 1 << 20
+	maxWireBody             = 32 << 20
 )
 
 const discoveredToolFingerprintPrefix = "mcp-tool-metadata:v2:"
@@ -254,7 +255,7 @@ func discoverTools(ctx context.Context, session *mcpsdk.ClientSession) ([]Discov
 }
 
 func normalizeTool(source *mcpsdk.Tool) (DiscoveredTool, error) {
-	if source == nil || source.Name == "" || len(source.Name) > 256 || len(source.Description) > 8192 {
+	if source == nil || source.Name == "" || len(source.Name) > 256 || len(source.Description) > maxToolDescriptionBytes {
 		return DiscoveredTool{}, errors.New("MCP tool metadata is invalid")
 	}
 	input, err := boundedJSONObject(source.InputSchema, maxSchemaBytes)
