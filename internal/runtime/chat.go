@@ -658,7 +658,7 @@ func hostedWebSearchEnabled(providerKind string, transport provider.ToolTranspor
 // subscriber see a native tool call while the provider response is still
 // streaming. The durable call is persisted after Generate returns.
 func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.ConversationTurn, providerRound int, event provider.StreamEvent) {
-	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ID, providerRound, event.Index)
+	activityID := store.ConversationOutputID(turn.ID, "tool_call", providerRound, event.Index)
 	displayName, access := toolmarker.ReadableName(event.Name), "Uses a connected tool"
 	switch event.Name {
 	case noemamemory.SearchToolName:
@@ -679,7 +679,7 @@ func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.Con
 		display["marker"] = marker
 	}
 	item := store.ConversationItem{
-		ID:             "transient:" + activityID,
+		ID:             activityID,
 		ConversationID: turn.ConversationID,
 		TurnID:         turn.ID,
 		Kind:           store.ConversationActivity,
@@ -691,7 +691,7 @@ func (c *Chat) publishProviderToolCallStarted(request queuedTurn, turn store.Con
 			"metadata": map[string]any{
 				"turn_index": turn.TurnIndex, "output_index": event.Index,
 				"source": "provider_stream", "provider": "provider_stream",
-				"action":  map[string]any{"id": event.ID, "name": event.Name},
+				"action":  map[string]any{"id": activityID, "provider_call_id": event.ID, "name": event.Name},
 				"display": display,
 			},
 		},

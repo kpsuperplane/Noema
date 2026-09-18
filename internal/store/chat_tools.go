@@ -402,7 +402,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 	}
 	if len(round.Reasoning) != 0 {
 		item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
-			ID:             stableConversationOutputID(turn.ID, "reasoning", round.Call.ProviderRound, 0),
+			ID:             ConversationOutputID(turn.ID, "reasoning", round.Call.ProviderRound, 0),
 			ConversationID: turn.ConversationID, TurnID: turn.ID, ParentItemID: parentID,
 			Sequence: sequence, Kind: ConversationReasoning, Status: "completed",
 			AuthorActorID: "agent:primary",
@@ -428,7 +428,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 		commentaryMetadata["response_index"] = 0
 		addProviderCitationMetadata(commentaryMetadata, round.Citations, round.UnresolvedCitationMarkers)
 		item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
-			ID:             stableConversationOutputID(turn.ID, "assistant_text", round.Call.ProviderRound, 0),
+			ID:             ConversationOutputID(turn.ID, "assistant_text", round.Call.ProviderRound, 0),
 			ConversationID: turn.ConversationID, TurnID: turn.ID, ParentItemID: parentID,
 			Sequence: sequence, Kind: ConversationAssistantText, Status: "completed",
 			AuthorActorID: "agent:primary", ContentText: round.Commentary,
@@ -441,22 +441,21 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 		items = append(items, item)
 		sequence++
 	}
-	callID := stableConversationOutputID(
+	callID := ConversationOutputID(
 		turn.ID, "tool_call", round.Call.ProviderRound, round.Call.OutputIndex,
 	)
-	activityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ID, round.Call.ProviderRound, round.Call.OutputIndex)
 	item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 		ID: callID, ConversationID: turn.ConversationID, TurnID: turn.ID,
 		ParentItemID: parentID, Sequence: sequence, Kind: ConversationToolCall,
 		Status: "running", AuthorActorID: "agent:primary",
 		Payload: map[string]any{
-			"id": activityID, "activity_kind": "tool_call", "status": "started",
+			"id": callID, "activity_kind": "tool_call", "status": "started",
 			"title": "Tool call: " + round.Call.Name, "summary": round.Call.Name,
 			"metadata": map[string]any{
 				"turn_index": turn.TurnIndex, "output_index": round.Call.OutputIndex,
 				"provider": round.Provider, "display": map[string]any{},
 				"action": map[string]any{
-					"id": activityID, "provider_item_id": round.Call.ProviderItemID,
+					"id": callID, "provider_item_id": round.Call.ProviderItemID,
 					"provider_call_id": round.Call.ProviderCallID,
 					"provider_name":    round.Call.ProviderName, "name": round.Call.Name,
 					"payload": arguments,
@@ -476,7 +475,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 			len(choice.Options) == 0 {
 			return nil, errors.New("conversation multiple-choice prompt is invalid")
 		}
-		promptID := stableConversationOutputID(
+		promptID := ConversationOutputID(
 			turn.ID, "multiple_choice_prompt", round.Call.ProviderRound, round.Call.OutputIndex,
 		)
 		prompt, err := insertConversationOutputTx(ctx, tx, ConversationItem{
@@ -505,7 +504,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 			projection["interaction_revision"] = 1
 			projection["lifecycle"] = "pending"
 		}
-		cardID := stableConversationOutputID(turn.ID, "a2ui_card", round.Call.ProviderRound, round.Call.OutputIndex)
+		cardID := ConversationOutputID(turn.ID, "a2ui_card", round.Call.ProviderRound, round.Call.OutputIndex)
 		card, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 			ID: cardID, ConversationID: turn.ConversationID, TurnID: turn.ID,
 			ParentItemID: callID, Sequence: sequence + 1, Kind: ConversationA2UICard,
@@ -578,7 +577,7 @@ func (s *Store) FinishConversationToolCall(
 		strings.TrimSpace(result.Name) == "" {
 		return ConversationItem{}, errors.New("conversation tool result is invalid")
 	}
-	expectedCallID := stableConversationOutputID(
+	expectedCallID := ConversationOutputID(
 		turn.ID, "tool_call", result.ProviderRound, result.OutputIndex,
 	)
 	if result.CallItemID != expectedCallID {
@@ -614,17 +613,15 @@ WHERE item_id = ? AND conversation_id = ?`, result.CallItemID, turn.Conversation
 		}
 	}
 	now = now.UTC()
-	resultID := stableConversationOutputID(turn.ID, "tool_result", result.ProviderRound, result.OutputIndex)
-	activityID := fmt.Sprintf("tool_result:%s:%d:%d", turn.ID, result.ProviderRound, result.OutputIndex)
-	callActivityID := fmt.Sprintf("tool_call:%s:%d:%d", turn.ID, result.ProviderRound, result.OutputIndex)
+	resultID := ConversationOutputID(turn.ID, "tool_result", result.ProviderRound, result.OutputIndex)
 	payload := map[string]any{
-		"id": activityID, "activity_kind": "tool_result", "status": status,
+		"id": resultID, "activity_kind": "tool_result", "status": status,
 		"title": "Tool result: " + result.Name, "summary": result.Name,
 		"metadata": map[string]any{
 			"turn_index": turn.TurnIndex, "output_index": result.OutputIndex,
 			"provider": result.Provider, "display": map[string]any{},
 			"action": map[string]any{
-				"call_id": callActivityID, "provider_call_id": result.ProviderCallID,
+				"call_id": result.CallItemID, "provider_call_id": result.ProviderCallID,
 				"provider_name": result.ProviderName, "name": result.Name,
 				"success": result.Success, "payload": payloadValue,
 			},

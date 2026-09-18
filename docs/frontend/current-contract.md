@@ -100,7 +100,11 @@ Human intervention cards remain part of their existing Chat flow.
 ## Interaction contracts
 
 Chat reconstructs its transcript from durable pages and merges live events by
-stable item identity. After reconnect, the client refetches active reads and
+stable item identity. Tool activities use their conversation record IDs.
+Results reference the call record through `parent_item_id`. Runtime and storage
+use the same record-ID function before live delivery and saving. The API reads
+these identities directly, including for existing history. Provider call IDs
+remain separate protocol values. After reconnect, the client refetches active reads and
 reconciles durable transcript state before treating later live completion as
 authoritative.
 

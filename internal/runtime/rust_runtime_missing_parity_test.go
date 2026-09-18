@@ -856,7 +856,7 @@ func TestRustRuntime_runtime_rejects_mixed_delegation_batch_without_executing_an
 		t.Errorf("mixed batch changed agent: %#v, %v", agent, err)
 	}
 	for _, event := range all {
-		if event.Item != nil && strings.HasPrefix(event.Item.ID, "transient:tool_call:") {
+		if event.Item != nil && event.Item.Metadata["transient"] == true {
 			t.Error("mixed batch published a tool start")
 		}
 	}

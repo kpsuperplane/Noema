@@ -370,7 +370,7 @@ WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`
 			}
 		}
 		item := ConversationItem{
-			ID:             stableConversationOutputID(turn.ID, "agent_onboarding", 0, index),
+			ID:             ConversationOutputID(turn.ID, "agent_onboarding", 0, index),
 			ConversationID: turn.ConversationID, TurnID: turn.ID, Sequence: sequence,
 			Kind: ConversationAssistantText, Status: "completed", AuthorActorID: "agent:primary",
 			ContentText: text, Payload: map[string]any{}, Metadata: metadata, CreatedAt: now,
@@ -772,7 +772,7 @@ WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`
 	}
 	if len(reasoning) != 0 {
 		_, err := insertConversationOutputTx(ctx, tx, ConversationItem{
-			ID:             stableConversationOutputID(turn.ID, "reasoning", providerRound, 0),
+			ID:             ConversationOutputID(turn.ID, "reasoning", providerRound, 0),
 			ConversationID: turn.ConversationID, TurnID: turn.ID, ParentItemID: parentID,
 			Sequence: sequence, Kind: ConversationReasoning, Status: "completed",
 			AuthorActorID: "agent:primary", Payload: map[string]any{"provider_details": reasoning},
@@ -788,7 +788,7 @@ WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`
 		}
 		sequence++
 	}
-	itemID := stableConversationOutputID(turn.ID, string(kind), providerRound, 0)
+	itemID := ConversationOutputID(turn.ID, string(kind), providerRound, 0)
 	encodedMetadata, _ := json.Marshal(metadata)
 	payload := "{}"
 	itemStatus := "completed"
@@ -1039,7 +1039,8 @@ func ConversationAssistantStreamID(turnID string, providerRound int) string {
 	return "assistant_stream:" + turnID + ":" + phase + ":response:0"
 }
 
-func stableConversationOutputID(turnID string, kind string, providerRound int, outputIndex int) string {
+// ConversationOutputID assigns the same record identity before streaming and saving output.
+func ConversationOutputID(turnID string, kind string, providerRound int, outputIndex int) string {
 	digest := sha256.Sum256([]byte(fmt.Sprintf(
 		"%s:%s:%d:%d", turnID, kind, providerRound, outputIndex,
 	)))

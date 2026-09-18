@@ -1339,13 +1339,13 @@ func TestRustRuntime_runtime_turn_streams_tool_call_started_before_durable_respo
 			activityKind, _ := event.Item.Payload["activity_kind"].(string)
 			status, _ := event.Item.Payload["status"].(string)
 			title, _ := event.Item.Payload["title"].(string)
-			if strings.HasPrefix(event.Item.ID, "transient:tool_call:") &&
+			if event.Item.Metadata["transient"] == true &&
 				activityKind == "tool_call" && status == "started" &&
 				title == "Tool call: search_memory" {
 				streamedToolStarted = index
 				copy := *event.Item
 				transientActivity = &copy
-				if id == "" || id != strings.TrimPrefix(event.Item.ID, "transient:") {
+				if id == "" || id != event.Item.ID {
 					t.Fatalf("transient tool activity identity = %#v", event.Item)
 				}
 			}
@@ -1380,7 +1380,7 @@ func TestRustRuntime_runtime_turn_streams_tool_call_started_before_durable_respo
 	if durableAssistantIndex < 0 || durableToolIndex < 0 || durableAssistantIndex >= durableToolIndex {
 		t.Fatalf("durable replay order = assistant %d, tool %d, items=%#v", durableAssistantIndex, durableToolIndex, page.Items)
 	}
-	if replayedID, _ := replayedTool.Payload["id"].(string); replayedID != transientActivity.Payload["id"] {
+	if replayedID, _ := replayedTool.Payload["id"].(string); replayedID != transientActivity.ID || replayedTool.ID != transientActivity.ID {
 		t.Fatalf("durable call did not replace transient activity: durable=%q transient=%#v", replayedID, transientActivity.Payload)
 	}
 	durableMetadata, _ := durableTool.Payload["metadata"].(map[string]any)

@@ -247,7 +247,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	all := distinctConversationItems(eventsForClient(collectCompletedTurns(t, events, 1), clientID))
 	var visibleKinds []store.ConversationItemKind
 	for _, event := range all {
-		if event.Item != nil && !strings.HasPrefix(event.Item.ID, "transient:") {
+		if event.Item != nil && event.Item.Metadata["transient"] != true {
 			visibleKinds = append(visibleKinds, event.Item.Kind)
 		}
 	}
@@ -322,9 +322,13 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var final store.ConversationItem
 	toolResults := 0
 	var rounds []int
 	for _, item := range page.Items {
+		if item.Kind == store.ConversationAssistantText && item.ContentText == "The Task is ready." {
+			final = item
+		}
 		if item.Kind == store.ConversationToolCall {
 			rounds = append(rounds, providerRound(item))
 		}
@@ -341,8 +345,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	if toolResults != 2 || len(rounds) != 2 || rounds[0] != 0 || rounds[1] != 1 {
 		t.Fatalf("stored tool rounds = %v with %d results", rounds, toolResults)
 	}
-	final := page.Items[len(page.Items)-1]
-	providerUsage := final.Metadata["provider_usage"].(map[string]any)
+	providerUsage, _ := final.Metadata["provider_usage"].(map[string]any)
 	if final.Metadata["stream_id"] != final.ID ||
 		providerUsage["total_tokens"] != float64(22) {
 		t.Fatalf("final round metadata = %#v", final.Metadata)
@@ -429,6 +432,7 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 	var failed bool
 	var firstAnswer store.ConversationItem
 	correlations := make(map[string]bool)
+	providerCalls := make(map[string]string)
 	for _, item := range page.Items {
 		switch item.Kind {
 		case store.ConversationToolCall:
@@ -438,13 +442,14 @@ func TestChatPersistsHostedWebFactsWithoutOrdinaryHostedReplay(t *testing.T) {
 				t.Fatalf("stored hosted web marker was not deferred to replay = %#v", display)
 			}
 			action := item.Payload["metadata"].(map[string]any)["action"].(map[string]any)
-			correlations[action["id"].(string)] = false
+			providerCalls[action["id"].(string)] = action["provider_call_id"].(string)
+			correlations[action["provider_call_id"].(string)] = false
 		case store.ConversationToolResult:
 			results++
 			failed = failed || item.Status == "failed"
 			action := item.Payload["metadata"].(map[string]any)["action"].(map[string]any)
-			if _, exists := correlations[action["call_id"].(string)]; exists {
-				correlations[action["call_id"].(string)] = true
+			if providerID, exists := providerCalls[action["call_id"].(string)]; exists {
+				correlations[providerID] = action["provider_call_id"] == providerID
 			}
 		case store.ConversationAssistantText:
 			if item.ContentText == "Current answer." {
@@ -1386,14 +1391,15 @@ func replaceDefaultTransport(t *testing.T, transport http.RoundTripper) {
 
 // Snapshots update one visible item; assertions about bubble counts use identities.
 func distinctConversationItems(events []Event) []Event {
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	result := make([]Event, 0, len(events))
 	for _, event := range events {
 		if event.Item != nil {
-			if seen[event.Item.ID] {
+			if index, exists := seen[event.Item.ID]; exists {
+				result[index] = event
 				continue
 			}
-			seen[event.Item.ID] = true
+			seen[event.Item.ID] = len(result)
 		}
 		result = append(result, event)
 	}

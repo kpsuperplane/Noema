@@ -24,12 +24,23 @@ func TestRustRuntime_assistant_delta_stream_id_includes_prior_output_offset(t *t
 func TestRustRuntime_hosted_web_search_stream_events_update_one_tool_lifecycle(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/runtime/transcript_persistence/tests.rs::hosted_web_search_stream_events_update_one_tool_lifecycle.
 	items := runtimeHostedSearchItems(t, store.ConversationHostedSearch{OutputIndex: 3, ID: "search:1", Name: "web.search", Status: "completed", Arguments: json.RawMessage(`{"query":"Noema tools"}`), Result: json.RawMessage(`{"results":[]}`)})
+	callID := items[0].ID
 	toolCalls, toolResults := 0, 0
 	for _, item := range items {
+		action := item.Payload["metadata"].(map[string]any)["action"].(map[string]any)
+		if item.Payload["id"] != item.ID || action["provider_call_id"] != "search:1" {
+			t.Fatal("hosted search changed record or provider identity")
+		}
 		if item.Kind == store.ConversationToolCall {
+			if action["id"] != callID {
+				t.Fatal("hosted call has a separate display identity")
+			}
 			toolCalls++
 		}
 		if item.Kind == store.ConversationToolResult {
+			if item.ParentItemID != callID || action["call_id"] != callID {
+				t.Fatal("hosted result lost its call identity")
+			}
 			toolResults++
 		}
 	}

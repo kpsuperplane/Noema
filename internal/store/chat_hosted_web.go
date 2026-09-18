@@ -104,14 +104,9 @@ WHERE turn_id = ? AND kind IN ('user_text', 'multiple_choice_selection') ORDER B
 	}
 	items := make([]ConversationItem, 0, 2*len(normalized))
 	for _, search := range normalized {
-		correlationID := search.ID
-		if correlationID == "" {
-			correlationID = fmt.Sprintf("hosted_web_search:%s:%d:%d", turn.ID, providerRound, search.OutputIndex)
-		}
-		callID := stableConversationOutputID(turn.ID, "hosted_web_call", providerRound, search.OutputIndex)
-		callActivityID := "tool_call:" + correlationID
+		callID := ConversationOutputID(turn.ID, "hosted_web_call", providerRound, search.OutputIndex)
 		callAction := map[string]any{
-			"id": correlationID, "provider_item_id": optionalHostedValue(search.ID),
+			"id": callID, "provider_item_id": optionalHostedValue(search.ID),
 			"provider_call_id": optionalHostedValue(search.ID), "provider_name": provider,
 			"name": search.Name, "payload": search.Arguments,
 			"hosted_web_search": true, "status": search.Status,
@@ -122,7 +117,7 @@ WHERE turn_id = ? AND kind IN ('user_text', 'multiple_choice_selection') ORDER B
 			ParentItemID: parentID, Sequence: sequence, Kind: ConversationToolCall,
 			Status: "completed", AuthorActorID: "agent:primary",
 			Payload: hostedActivityPayload(
-				callActivityID, "tool_call", "completed", search.Name, callAction,
+				callID, "tool_call", "completed", search.Name, callAction,
 				hostedCallDisplay(search.Name, search.Arguments), turn, provider, search.OutputIndex,
 			),
 			Metadata: hostedSearchMetadata(turn, provider, providerRound, search.OutputIndex), CreatedAt: now,
@@ -138,17 +133,18 @@ WHERE turn_id = ? AND kind IN ('user_text', 'multiple_choice_selection') ORDER B
 			resultStatus = "completed"
 		}
 		resultAction := map[string]any{
-			"call_id": correlationID, "provider_call_id": optionalHostedValue(search.ID),
+			"call_id": callID, "provider_call_id": optionalHostedValue(search.ID),
 			"provider_name": provider, "name": search.Name, "success": success,
 			"payload": search.Result, "hosted_web_search": true,
 		}
+		resultID := ConversationOutputID(turn.ID, "hosted_web_result", providerRound, search.OutputIndex)
 		result, err := insertConversationOutputTx(ctx, tx, ConversationItem{
-			ID:             stableConversationOutputID(turn.ID, "hosted_web_result", providerRound, search.OutputIndex),
+			ID:             resultID,
 			ConversationID: turn.ConversationID, TurnID: turn.ID, ParentItemID: callID,
 			Sequence: sequence, Kind: ConversationToolResult, Status: resultStatus,
 			AuthorActorID: "agent:primary",
 			Payload: hostedActivityPayload(
-				"tool_result:"+correlationID, "tool_result", resultStatus, search.Name, resultAction,
+				resultID, "tool_result", resultStatus, search.Name, resultAction,
 				hostedResultDisplay(search.Name, search.Arguments, search.Result, success),
 				turn, provider, search.OutputIndex,
 			),

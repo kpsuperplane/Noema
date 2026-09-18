@@ -28,9 +28,9 @@ func (s *Store) SaveConversationOutput(ctx context.Context, turn ConversationTur
 	if current != "input_received" && current != "running" {
 		return ConversationItem{}, errors.New("conversation turn is no longer running")
 	}
-	id := stableConversationOutputID(turn.ID, fmt.Sprintf("section:%s:%d", kind, section), round, index)
+	id := ConversationOutputID(turn.ID, fmt.Sprintf("section:%s:%d", kind, section), round, index)
 	if paragraph > 0 {
-		id = stableConversationOutputID(turn.ID, fmt.Sprintf("section:%s:%d:paragraph:%d", kind, section, paragraph), round, index)
+		id = ConversationOutputID(turn.ID, fmt.Sprintf("section:%s:%d:paragraph:%d", kind, section, paragraph), round, index)
 	}
 	metadata := map[string]any{"provider": providerKind, "turn_index": turn.TurnIndex, "response_index": index, "provider_round": round, "output_index": index, "section_index": section, "paragraph_index": paragraph, "provider_item_id": providerID, "provider_phase": phase, "provider_output_kind": kind, "stream_id": id, "phase": "commentary", "output_status": status, "reasoning_summary": reasoningSummary}
 	addProviderCitationMetadata(metadata, citations, 0)

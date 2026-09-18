@@ -335,7 +335,9 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	}
 	action := result.Payload["metadata"].(map[string]any)["action"].(map[string]any)
 	callAction := items[2].Payload["metadata"].(map[string]any)["action"].(map[string]any)
-	if action["call_id"] != callAction["id"] || callAction["provider_item_id"] != "provider-item-1" {
+	if action["call_id"] != items[2].ID || callAction["id"] != items[2].ID ||
+		items[2].Payload["id"] != items[2].ID || result.Payload["id"] != result.ID ||
+		callAction["provider_item_id"] != "provider-item-1" {
 		t.Fatalf("result correlation = %#v, call = %#v", action["call_id"], callAction["id"])
 	}
 	repeated, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(3*time.Second))

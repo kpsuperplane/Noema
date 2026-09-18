@@ -3,7 +3,6 @@ package graphql
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +21,7 @@ import (
 func TestToolActivityRetriesKeepSeparateDisplayIDs(t *testing.T) {
 	seen := map[string]bool{}
 	for round := 0; round < 2; round++ {
-		callID := fmt.Sprintf("tool_call:turn:test:%d:0", round)
+		callID := store.ConversationOutputID("turn:test", "tool_call", round, 0)
 		for _, kind := range []string{"tool_call", "tool_result"} {
 			action := map[string]any{"name": "mcp.docs.update", "id": "old-call", "call_id": "old-call"}
 			display := map[string]any{"description": "I will retry the update."}
@@ -34,6 +33,7 @@ func TestToolActivityRetriesKeepSeparateDisplayIDs(t *testing.T) {
 				}
 			}
 			item := store.ConversationItem{
+				ID: store.ConversationOutputID("turn:test", kind, round, 0), ParentItemID: callID,
 				TurnID: "turn:test", Kind: store.ConversationItemKind(kind), Status: status,
 				Metadata: map[string]any{"provider_round": float64(round), "output_index": float64(0)},
 				Payload: map[string]any{"id": kind + ":old", "activity_kind": kind, "title": "Update",
@@ -48,7 +48,7 @@ func TestToolActivityRetriesKeepSeparateDisplayIDs(t *testing.T) {
 			if shown["description"] != nil || shown["name"] == "" || display["description"] != "I will retry the update." {
 				t.Fatal("tool label repeats commentary or changed source history")
 			}
-			want := fmt.Sprintf("%s:turn:test:%d:0", kind, round)
+			want := item.ID
 			if activity.ID != want || seen[activity.ID] {
 				t.Fatalf("attempt IDs collided: %q, want %q", activity.ID, want)
 			}
@@ -60,7 +60,11 @@ func TestToolActivityRetriesKeepSeparateDisplayIDs(t *testing.T) {
 			if activity.Metadata["action"].(map[string]any)[key] != callID || action[key] != "old-call" {
 				t.Fatal("call pairing or original history changed")
 			}
-			if kind == "tool_result" && string(activity.Status) != strings.ToUpper(status) {
+			wantStatus := strings.ToUpper(status)
+			if kind == "tool_call" {
+				wantStatus = "STARTED"
+			}
+			if string(activity.Status) != wantStatus {
 				t.Fatal("retry result status changed")
 			}
 			if kind == "tool_call" {
@@ -295,37 +299,7 @@ func TestConversationTranscriptValidatesOwnershipAndLimit(t *testing.T) {
 	}
 }
 
-func TestConversationToolActivitiesPreserveStoredIdentityAndStatus(t *testing.T) {
-	payload := map[string]any{
-		"id": "tool_call:one", "activity_kind": "tool_call",
-		"title": "Tool call: task.inspect", "summary": "task.inspect",
-		"metadata": map[string]any{"provider": "openrouter"},
-	}
-	started, err := transcriptItemModel(store.ConversationItem{
-		Kind: store.ConversationToolCall, Status: "running", Payload: payload,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	activity, ok := started.(model.Activity)
-	if !ok || activity.ID != "tool_call:one" || activity.ActivityKind != "tool_call" ||
-		activity.Status != model.TurnActivityStatusStarted || activity.Summary == nil ||
-		*activity.Summary != "task.inspect" {
-		t.Fatalf("started activity = %#v", started)
-	}
-	payload["id"] = "tool_result:one"
-	payload["activity_kind"] = "tool_result"
-	payload["title"] = "Tool result: task.inspect"
-	completed, err := transcriptItemModel(store.ConversationItem{
-		Kind: store.ConversationToolResult, Status: "completed", Payload: payload,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	activity, ok = completed.(model.Activity)
-	if !ok || activity.ID != "tool_result:one" || activity.Status != model.TurnActivityStatusCompleted {
-		t.Fatalf("completed activity = %#v", completed)
-	}
+func TestConversationActivitiesPreserveCancellationAndAuthentication(t *testing.T) {
 	if status, err := activityStatusModel("cancelled"); err != nil || status != model.TurnActivityStatusFailed {
 		t.Fatalf("cancelled activity status = %q, %v", status, err)
 	}

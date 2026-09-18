@@ -95,7 +95,7 @@ FROM conversation_turns WHERE turn_id = ? AND conversation_id = ?`, surface.Turn
 	}
 	providerRound := intJSON(surface.Payload["provider_round"])
 	outputIndex := providerOutputIndexValue(surface)
-	actionID := stableConversationOutputID(turn.ID, "a2ui_action", providerRound, outputIndex)
+	actionID := ConversationOutputID(turn.ID, "a2ui_action", providerRound, outputIndex)
 	action, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 		ID: actionID, ConversationID: conversationID, TurnID: turn.ID,
 		ParentItemID: surface.ID, Sequence: sequence, Kind: ConversationA2UICard,
@@ -109,20 +109,20 @@ FROM conversation_turns WHERE turn_id = ? AND conversation_id = ?`, surface.Turn
 	if err != nil {
 		return ConversationA2UIContinuation{}, err
 	}
-	resultID := stableConversationOutputID(turn.ID, "tool_result", providerRound, outputIndex)
+	resultID := ConversationOutputID(turn.ID, "tool_result", providerRound, outputIndex)
 	result, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 		ID: resultID, ConversationID: conversationID, TurnID: turn.ID,
 		ParentItemID: call.ID, Sequence: sequence + 1, Kind: ConversationToolResult,
 		Status: "completed", AuthorActorID: "agent:primary",
 		Payload: map[string]any{
-			"id":            fmt.Sprintf("tool_result:%s:%d:%d", turn.ID, providerRound, outputIndex),
+			"id":            resultID,
 			"activity_kind": "tool_result", "status": "completed",
 			"title": "Tool result: " + textJSON(actionValue["name"]), "summary": textJSON(actionValue["name"]),
 			"metadata": map[string]any{
 				"turn_index": turn.TurnIndex, "output_index": outputIndex,
 				"provider": textJSON(surface.Metadata["provider"]), "display": map[string]any{},
 				"action": map[string]any{
-					"call_id":          fmt.Sprintf("tool_call:%s:%d:%d", turn.ID, providerRound, outputIndex),
+					"call_id":          call.ID,
 					"provider_call_id": actionValue["provider_call_id"], "provider_name": actionValue["provider_name"],
 					"name": actionValue["name"], "success": true, "payload": resultPayload,
 				},
