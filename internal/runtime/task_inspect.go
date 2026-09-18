@@ -1061,7 +1061,7 @@ func (c *Chat) persistChatToolRound(
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem,
 	})
-	if success && (call.Name == adapter.ProposeDefinitionTool || call.Name == adapter.ConnectLibraryTool) {
+	if success && (call.Name == noemamcp.ConnectServiceToolName || call.Name == adapter.ProposeDefinitionTool || call.Name == adapter.ConnectLibraryTool) {
 		c.publish(Event{Kind: EventHumanInterventionsChanged, ConversationID: turn.ConversationID})
 	}
 	c.publishMemoryChanged()

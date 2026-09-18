@@ -602,3 +602,67 @@ func containsEventKind(events []Event, kind EventKind) bool {
 	}
 	return false
 }
+
+func TestMCPSetupPublishesInterventionAfterSavedResult(t *testing.T) {
+	original, database, conversation := chatFixture(t)
+	if err := original.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var origin string
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/mcp.json" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "Notes", "endpoint": origin + "/mcp"})
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer remote.Close()
+	origin = remote.URL
+	paths, err := home.FromRoot(original.home.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := noemamcp.NewService(paths, database, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	calls := 0
+	generator := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		calls++
+		if calls == 1 {
+			arguments, _ := json.Marshal(map[string]string{"service_url": origin})
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "setup-notes", ProviderName: noemamcp.ConnectServiceToolName, Name: noemamcp.ConnectServiceToolName, Payload: arguments}}}, nil
+		}
+		return provider.GenerationResult{Text: "Connect your Notes account."}, nil
+	})
+	chat, err := NewChat(database, generator, original.codex, original.openAI, original.home, original.memory, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chat.Close()
+	events, err := chat.Subscribe(t.Context(), conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	if _, err := chat.SendTurn(t.Context(), SendTurnInput{ConversationID: conversation.ID, Input: "Connect Notes."}); err != nil {
+		t.Fatal(err)
+	}
+	completed := collectCompletedTurns(t, events, 1)
+	setups, err := database.PendingMCPSetupItems(t.Context(), conversation.ID, 10)
+	if err != nil || len(setups) != 1 {
+		t.Fatalf("pending setup count=%d: %v", len(setups), err)
+	}
+	saved := false
+	for _, event := range completed {
+		if event.Kind == EventConversationItem && event.Item != nil && event.Item.ID == setups[0].ID {
+			saved = true
+		}
+		if event.Kind == EventHumanInterventionsChanged && event.ConversationID == conversation.ID && saved {
+			return
+		}
+	}
+	t.Fatal("saved MCP setup did not trigger the intervention refresh event")
+}
