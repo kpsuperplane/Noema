@@ -26,6 +26,7 @@ type ConversationToolCallInput struct {
 	ProviderName   string
 	Name           string
 	Arguments      json.RawMessage
+	DisplayLabel   string
 }
 
 // ConversationToolRound is one provider response that requests an immediate tool.
@@ -444,6 +445,15 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 	callID := ConversationOutputID(
 		turn.ID, "tool_call", round.Call.ProviderRound, round.Call.OutputIndex,
 	)
+	action := map[string]any{
+		"id": callID, "provider_item_id": round.Call.ProviderItemID,
+		"provider_call_id": round.Call.ProviderCallID,
+		"provider_name":    round.Call.ProviderName, "name": round.Call.Name,
+		"payload": arguments,
+	}
+	if round.Call.DisplayLabel != "" {
+		action["display_label"] = round.Call.DisplayLabel
+	}
 	item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 		ID: callID, ConversationID: turn.ConversationID, TurnID: turn.ID,
 		ParentItemID: parentID, Sequence: sequence, Kind: ConversationToolCall,
@@ -454,12 +464,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeIt
 			"metadata": map[string]any{
 				"turn_index": turn.TurnIndex, "output_index": round.Call.OutputIndex,
 				"provider": round.Provider, "display": map[string]any{},
-				"action": map[string]any{
-					"id": callID, "provider_item_id": round.Call.ProviderItemID,
-					"provider_call_id": round.Call.ProviderCallID,
-					"provider_name":    round.Call.ProviderName, "name": round.Call.Name,
-					"payload": arguments,
-				},
+				"action": action,
 			},
 		},
 		Metadata: metadata("provider_action", round.Call.OutputIndex), CreatedAt: now,

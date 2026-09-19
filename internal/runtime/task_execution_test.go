@@ -85,8 +85,24 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 				if !taskRequestHasTool(request.Tools, binding.Name) {
 					t.Fatal("Task MCP tool was not advertised")
 				}
-				return taskToolResult("send", binding.Name, map[string]any{"text": "approved"}), nil
+				return taskToolResult("send", binding.Name, map[string]any{"display_label": "Mail · Send approved message", "arguments": map[string]any{"text": "approved"}}), nil
 			case 2:
+				found := false
+				for _, message := range request.Messages {
+					for _, call := range message.ToolCalls {
+						if call.Name != binding.Name {
+							continue
+						}
+						label, arguments, err := splitMCPDisplayCall(call.Arguments)
+						if err != nil || label != "Mail · Send approved message" || string(arguments) != `{"text":"approved"}` {
+							t.Fatalf("resumed Task call changed: %s, %v", call.Arguments, err)
+						}
+						found = true
+					}
+				}
+				if !found {
+					t.Fatal("resumed Task call missing")
+				}
 				return taskToolResult("progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Task\n\nMessage sent.\n"}), nil
 			case 3:
 				return taskToolResult("result", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "Message sent.\n"}), nil
@@ -117,6 +133,26 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 		current, _ := database.Task(t.Context(), task.ID)
 		t.Fatalf("pending Task action = %#v; remote calls = %d; Task = %#v; runs = %#v", action, remoteCalls, current, runs)
 	}
+	if len(action.Arguments) != 1 || action.Arguments["text"] != "approved" {
+		t.Fatalf("label entered review arguments: %#v", action.Arguments)
+	}
+	items, err := database.TaskRunReplayItems(t.Context(), action.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundLabel := false
+	for _, item := range items {
+		if item.Kind == "tool_call" && item.Payload["name"] == binding.Name {
+			if item.Payload["display_label"] != "Mail · Send approved message" {
+				t.Fatalf("Task label missing: %#v", item.Payload)
+			}
+			foundLabel = true
+		}
+	}
+	if !foundLabel {
+		t.Fatal("Task call label missing")
+	}
+
 	if _, err = runtime.ResolveActionRequest(t.Context(), action.ID, action.Revision, "human:local", "approve"); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +287,7 @@ func TestTaskExecutionCreatesReviewedPrivatePacketAndUploadsOnce(t *testing.T) {
 					"artifact_version_id": versionID, "packet_markdown": packet})
 				return provider.GenerationResult{ID: "response:packet-upload", Model: "model-a", FinishReason: "tool_calls",
 					ToolCalls: []provider.GenerationToolCall{{ProviderItemID: "item:packet-upload", ProviderCallID: "call:packet-upload",
-						ProviderName: binding.Name, Name: binding.Name, Payload: payload}}}, nil
+						ProviderName: binding.Name, Name: binding.Name, Payload: mcpReplayArguments(payload, "Packet sink · Upload approved packet")}}}, nil
 			case 3:
 				return taskToolResult("packet-progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": packet + "\nStatus: uploaded once.\n"}), nil
 			case 4:

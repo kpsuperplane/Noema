@@ -1,4 +1,4 @@
-// Package toolmarker builds the user-facing marker projection for built-in tools.
+// Package toolmarker builds user-facing tool markers.
 // It mirrors the Rust runtime marker contract so every transcript surface uses
 // the same identity, summary, subject, and lifecycle text.
 package toolmarker
@@ -13,7 +13,7 @@ import (
 )
 
 // ForAction builds a marker from the saved action envelope used by transcript
-// items. It returns false for connected tools and hidden actions.
+// items. It returns false for unlabeled connected tools and hidden actions.
 func ForAction(actionKind, status string, action map[string]any) (map[string]any, bool) {
 	name, _ := action["name"].(string)
 	name = strings.TrimSpace(name)
@@ -21,6 +21,10 @@ func ForAction(actionKind, status string, action map[string]any) (map[string]any
 		return nil, false
 	}
 	isResult := strings.EqualFold(actionKind, "tool_result")
+	if label, _ := action["display_label"].(string); strings.TrimSpace(label) != "" && strings.HasPrefix(name, "mcp.") && name != "mcp.connect_service" {
+		// The paired result supplies status and outcome text.
+		return map[string]any{"identity": ReadableName(name), "summary": label}, true
+	}
 	payload := action["payload"]
 	arguments, hasArguments := action["arguments"]
 	if !hasArguments && !isResult {

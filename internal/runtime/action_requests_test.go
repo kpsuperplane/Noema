@@ -14,6 +14,7 @@ import (
 	noemamcp "github.com/kpsuperplane/noema/internal/mcp"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/toolmarker"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -38,9 +39,12 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 	mcpsdk.AddTool(remote, &mcpsdk.Tool{Name: "lookup", Description: "Find an event",
 		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
 			DestructiveHint: runtimeBool(false), OpenWorldHint: runtimeBool(true)}},
-		func(_ context.Context, _ *mcpsdk.CallToolRequest, input struct {
+		func(_ context.Context, request *mcpsdk.CallToolRequest, input struct {
 			Query string `json:"query"`
 		}) (*mcpsdk.CallToolResult, map[string]any, error) {
+			if strings.Contains(string(request.Params.Arguments), "display_label") {
+				t.Fatal("display label reached MCP server")
+			}
 			remoteCalls++
 			return nil, map[string]any{"event": input.Query}, nil
 		})
@@ -84,7 +88,7 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 				t.Fatalf("MCP tool was not advertised: %#v", request.Tools)
 			}
 			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "mcp-1",
-				ProviderName: modelName, Name: modelName, Payload: json.RawMessage(`{"query":"standup"}`)}}}, nil
+				ProviderName: modelName, Name: modelName, Payload: json.RawMessage(`{"display_label":"Calendar · Find standup","arguments":{"query":"standup"}}`)}}}, nil
 		}
 		return provider.GenerationResult{Text: "The standup is listed."}, nil
 	})
@@ -104,6 +108,33 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 	collectCompletedTurns(t, events, 1)
 	if remoteCalls != 1 || requests != 2 || !server.Enabled {
 		t.Fatalf("calls = %d, requests = %d, server = %#v", remoteCalls, requests, server)
+	}
+	page, err := database.ConversationItemPage(t.Context(), conversation.ID, "", 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundLabel := false
+	for _, item := range page.Items {
+		if item.Kind != store.ConversationToolCall {
+			continue
+		}
+		call, err := storedToolCall(item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		label, arguments, err := splitMCPDisplayCall(call.Arguments)
+		if err != nil || label != "Calendar · Find standup" || string(arguments) != `{"query":"standup"}` {
+			t.Fatalf("stored replay: %s, %v", call.Arguments, err)
+		}
+		action, _ := nestedAction(item.Payload)
+		marker, ok := toolmarker.ForAction("tool_call", item.Status, action)
+		if !ok || marker["summary"] != label || marker["status"] != nil || marker["detailTitle"] != nil {
+			t.Fatalf("saved display: %#v", marker)
+		}
+		foundLabel = true
+	}
+	if !foundLabel {
+		t.Fatal("saved label missing")
 	}
 }
 
@@ -165,7 +196,7 @@ func TestPrimaryChatDisclosesOnlySelectedPrivateFieldsAfterReview(t *testing.T) 
 		requests++
 		if requests == 1 {
 			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "disclose-1",
-				ProviderName: modelName, Name: modelName, Payload: json.RawMessage(`{"recipient":"audit-recipient@example.test","selected_fields":["reference","client","total"],"packet":"INVOICE-42; Café 日本語 Workshop; EUR 416.50"}`)}}}, nil
+				ProviderName: modelName, Name: modelName, Payload: mcpReplayArguments(json.RawMessage(`{"recipient":"audit-recipient@example.test","selected_fields":["reference","client","total"],"packet":"INVOICE-42; Café 日本語 Workshop; EUR 416.50"}`), "Disclosure · Send approved invoice fields")}}}, nil
 		}
 		return provider.GenerationResult{Text: "The approved disclosure was sent."}, nil
 	})
@@ -263,7 +294,7 @@ func TestMCPAuthenticationInterruptionIsDurableAndSkippable(t *testing.T) {
 	generator := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		requests++
 		if requests == 1 {
-			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "auth-1", ProviderName: modelName, Name: modelName, Payload: json.RawMessage(`{}`)}}}, nil
+			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "auth-1", ProviderName: modelName, Name: modelName, Payload: mcpReplayArguments(json.RawMessage(`{}`), "Service · Read records")}}}, nil
 		}
 		return provider.GenerationResult{Text: "Authentication was skipped."}, nil
 	})
@@ -335,7 +366,7 @@ func TestReviewedMCPAuthenticationSurvivesRestartAndCompletesAction(t *testing.T
 		requests++
 		if requests == 1 {
 			return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{ProviderCallID: "reviewed-auth",
-				ProviderName: modelName, Name: modelName, Payload: json.RawMessage(`{}`)}}}, nil
+				ProviderName: modelName, Name: modelName, Payload: mcpReplayArguments(json.RawMessage(`{}`), "Service · Read records")}}}, nil
 		}
 		return provider.GenerationResult{Text: "The calendar change was skipped."}, nil
 	})

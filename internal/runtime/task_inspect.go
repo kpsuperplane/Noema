@@ -523,7 +523,7 @@ func storedToolCall(item store.ConversationItem) (provider.ReplayToolCall, error
 		ProviderItemID: textValue(action["provider_item_id"]),
 		ProviderCallID: textValue(action["provider_call_id"]),
 		ProviderName:   textValue(action["provider_name"]), Name: textValue(action["name"]),
-		Arguments: arguments,
+		Arguments: mcpReplayArguments(arguments, textValue(action["display_label"])),
 	}
 	if strings.TrimSpace(call.ProviderCallID) == "" || strings.TrimSpace(call.Name) == "" {
 		return provider.ReplayToolCall{}, errors.New("stored tool call is invalid")
@@ -691,7 +691,11 @@ func (c *Chat) executeChatToolRounds(
 				sideEffect = !binding.Behavior.ReadOnly
 			}
 		}
-		stopReason := progress.observe(call, toolPayload, success, sideEffect)
+		progressCall := call
+		if mcpHasDisplayLabel(call.Name) {
+			_, progressCall.Payload, _ = splitMCPDisplayCall(call.Payload)
+		}
+		stopReason := progress.observe(progressCall, toolPayload, success, sideEffect)
 		if providerRound >= providerRoundLimit {
 			stopReason = "maximum provider tool continuations reached"
 		}
@@ -828,6 +832,14 @@ func (c *Chat) persistChatToolRound(
 	providerRound int,
 	hostedState bool,
 ) (json.RawMessage, bool, bool, error) {
+	var displayLabel string
+	if mcpHasDisplayLabel(call.Name) {
+		var err error
+		displayLabel, call.Payload, err = splitMCPDisplayCall(call.Payload)
+		if err != nil {
+			return nil, false, false, err
+		}
+	}
 	var mcpBinding *noemamcp.Binding
 	var adapterBinding *adapter.Binding
 	var multipleChoice *store.ConversationMultipleChoiceInput
@@ -890,7 +902,7 @@ func (c *Chat) persistChatToolRound(
 		Call: store.ConversationToolCallInput{
 			ProviderRound: providerRound, OutputIndex: call.Index, ProviderItemID: call.ProviderItemID,
 			ProviderCallID: call.ProviderCallID,
-			ProviderName:   call.ProviderName, Name: call.Name, Arguments: call.Payload,
+			ProviderName:   call.ProviderName, Name: call.Name, Arguments: call.Payload, DisplayLabel: displayLabel,
 		},
 		MultipleChoice: multipleChoice,
 		A2UI: storedA2UIInput(a2ui, a2uiHasActions, assignment, generation.ID, hostedState,

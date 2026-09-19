@@ -555,6 +555,15 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			return
 		}
 		call := result.ToolCalls[0]
+		var displayLabel string
+		if _, exists := bindings[call.Name]; exists && mcpHasDisplayLabel(call.Name) {
+			var err error
+			displayLabel, call.Payload, err = splitMCPDisplayCall(call.Payload)
+			if err != nil {
+				r.failRun(ctx, run, "invalid_mcp_display_call", false)
+				return
+			}
+		}
 		appendContinuationResult := func(payload json.RawMessage, success bool) {
 			continuation.AppendResults([]ContinuationToolResult{{
 				ProviderCallID: call.ProviderCallID, Name: call.Name, ProviderName: call.ProviderName,
@@ -565,7 +574,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 			messages = continuation.ProviderMessages(true)
 		}
 		if toolCount >= int(run.ExecutionPolicy.MaxToolCalls) {
-			_ = r.appendSkippedTaskTool(ctx, run, int64(round), call, "task tool-call safety ceiling reached")
+			_ = r.appendSkippedTaskTool(ctx, run, int64(round), call, displayLabel, "task tool-call safety ceiling reached")
 			r.finalizeTaskRun(task, run, generator, messages, wroteTask, "task tool-call safety ceiling reached")
 			return
 		}
@@ -579,6 +588,9 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		persistedArguments := persistedTaskArguments(bindings, adapterBindings, call.Name, call.Payload)
 		callInput := store.TaskRunItemInput{Kind: "tool_call", Status: "running", Round: int64(round), CorrelationID: call.ProviderCallID,
 			Payload: map[string]any{"name": call.Name, "arguments": persistedArguments, "side_effect": sideEffect, "provider_item_id": call.ProviderItemID, "provider_call_id": call.ProviderCallID, "provider_name": call.ProviderName}}
+		if displayLabel != "" {
+			callInput.Payload["display_label"] = displayLabel
+		}
 		if err := r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{callInput}, store.TaskRunUsage{ToolCalls: 1}, time.Now()); err != nil {
 			return
 		}
@@ -878,10 +890,10 @@ func (r *TaskExecution) appendTaskProgress(ctx context.Context, run store.TaskRu
 }
 
 func (r *TaskExecution) appendSkippedTaskTool(ctx context.Context, run store.TaskRun, round int64,
-	call provider.GenerationToolCall, reason string) error {
+	call provider.GenerationToolCall, displayLabel, reason string) error {
 	return r.database.AppendTaskRunItems(ctx, run.ID, run.Generation, []store.TaskRunItemInput{{
 		Kind: "tool_call", Status: "skipped", Round: round, CorrelationID: call.ProviderCallID, Content: call.Name,
-		Payload: map[string]any{"name": call.Name, "reason": reason},
+		Payload: map[string]any{"name": call.Name, "reason": reason, "display_label": displayLabel},
 	}}, store.TaskRunUsage{}, time.Now())
 }
 
@@ -1176,7 +1188,12 @@ func (r *TaskExecution) taskExecutionTools(ctx context.Context, kind string) ([]
 					binding.ReviewRoute = store.ActionLLMReview
 				}
 				bindings[binding.Name] = binding
-				tools = append(tools, provider.GenerationTool{ServiceCatalogRow: binding.ServiceCatalogRow, ServiceConnectionID: binding.ServerID, Name: binding.Name, Description: binding.Description, InputSchema: binding.InputSchema})
+				tool, err := mcpDisplayTool(provider.GenerationTool{ServiceCatalogRow: binding.ServiceCatalogRow, ServiceConnectionID: binding.ServerID, Name: binding.Name, Description: binding.Description, InputSchema: binding.InputSchema})
+				if err != nil {
+					delete(bindings, binding.Name)
+					continue
+				}
+				tools = append(tools, tool)
 			}
 		}
 	}
@@ -1521,7 +1538,7 @@ func (r *TaskExecution) replayTaskItems(ctx context.Context, task store.Task, ru
 			if len(messages) == 0 || messages[len(messages)-1].Role != "assistant" {
 				messages = append(messages, provider.GenerationMessage{Role: "assistant"})
 			}
-			messages[len(messages)-1].ToolCalls = append(messages[len(messages)-1].ToolCalls, provider.ReplayToolCall{ProviderItemID: providerItemID, ProviderCallID: providerCallID, Name: name, ProviderName: providerName, Arguments: arguments})
+			messages[len(messages)-1].ToolCalls = append(messages[len(messages)-1].ToolCalls, provider.ReplayToolCall{ProviderItemID: providerItemID, ProviderCallID: providerCallID, Name: name, ProviderName: providerName, Arguments: mcpReplayArguments(arguments, taskPayloadText(item.Payload, "display_label"))})
 			result, exists := results[item.ID]
 			if !exists {
 				payload := toolFailure("uncertain_outcome", "Noema stopped before it recorded this tool result. The outcome is uncertain, so Noema did not repeat the call.")

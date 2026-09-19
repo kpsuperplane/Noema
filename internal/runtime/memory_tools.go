@@ -85,8 +85,12 @@ func (c *Chat) chatTools(ctx context.Context) ([]provider.GenerationTool, error)
 		return nil, err
 	}
 	for _, binding := range bindings {
-		result = append(result, provider.GenerationTool{ServiceCatalogRow: binding.Binding.ServiceCatalogRow, ServiceConnectionID: binding.Binding.ServerID, Name: binding.ModelName, Description: binding.Binding.Description,
+		tool, err := mcpDisplayTool(provider.GenerationTool{ServiceCatalogRow: binding.Binding.ServiceCatalogRow, ServiceConnectionID: binding.Binding.ServerID, Name: binding.ModelName, Description: binding.Binding.Description,
 			InputSchema: append(json.RawMessage(nil), binding.Binding.InputSchema...)})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, tool)
 	}
 	return result, nil
 }

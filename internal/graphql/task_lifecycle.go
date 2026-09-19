@@ -554,6 +554,11 @@ func taskRunItemModel(v store.TaskRunItem) *model.TaskRunItem {
 				}
 			}
 			display["name"] = toolmarker.ReadableName(name)
+			if label, _ := payload["display_label"].(string); label != "" {
+				if marker, ok := toolmarker.ForAction(v.Kind, v.Status, map[string]any{"name": name, "display_label": label}); ok {
+					display["marker"] = marker
+				}
+			}
 			payload["display"] = display
 			v.Payload = payload
 		}
