@@ -232,7 +232,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   session-bound registrations. Installed mode can erase its private local data.
 - The iOS client stores normalized reads in one protected per-client cache. It
   clears that cache during disconnect and does not queue offline writes.
-- Chat splits message bubbles during streaming with stable record IDs. Incomplete separators stay hidden until resolved. The backend selects bubble or marker for Chat and Task text. Main Chat omits reasoning summaries at the API boundary. Task transcripts retain reasoning markers and consecutive groups. See [visibility checks](../validation/chat-reasoning-summary-visibility-2026-09-19.md). Progress updates and full traces use bubbles.
+- Chat splits message bubbles during streaming with stable record IDs. Incomplete separators stay hidden until resolved. The backend selects bubble or marker for Chat and Task text. Main Chat uses one item projection for saved history and live events. Both skip hidden items before GraphQL delivery. Task transcripts retain reasoning markers and consecutive groups. See [visibility checks](../validation/chat-reasoning-summary-visibility-2026-09-19.md). Progress updates and full traces use bubbles.
 - Frontend route and interaction truth is in
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).

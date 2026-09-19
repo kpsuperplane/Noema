@@ -142,6 +142,9 @@ func (r *Resolver) conversationEvents(
 				if mapErr != nil {
 					return
 				}
+				if mapped == nil {
+					continue
+				}
 				select {
 				case events <- mapped:
 				case <-ctx.Done():
@@ -174,20 +177,14 @@ func (r *Resolver) conversationEventModel(ctx context.Context, event runtime.Eve
 		if event.Item == nil {
 			return nil, errors.New("Chat item event is missing its item")
 		}
-		item, err := r.transcriptItemModel(ctx, *event.Item)
-		if err != nil {
+		item, err := r.conversationItemModel(ctx, *event.Item)
+		if err != nil || item == nil {
 			return nil, err
 		}
-		var cursor *string
-		if event.Item.Cursor != "" {
-			value := event.Item.Cursor
-			cursor = &value
-		}
-		turnID := chatOptionalString(event.Item.TurnID)
 		return model.ConversationItemEvent{
 			ConversationID: event.ConversationID, ClientMessageID: event.ClientMessageID,
-			ItemID: event.Item.ID, Cursor: cursor, TurnID: turnID,
-			Metadata: transcriptMetadata(*event.Item), Item: item,
+			ItemID: item.ItemID, Cursor: chatOptionalString(item.Cursor), TurnID: item.TurnID,
+			Metadata: item.Metadata, Item: item.Item,
 		}, nil
 	case runtime.EventTurnCompleted:
 		return model.TurnCompletedEvent{
@@ -229,17 +226,14 @@ func (r *Resolver) conversationTranscriptPageModel(
 ) (*model.ConversationTranscriptPage, error) {
 	items := make([]*model.ConversationItem, 0, len(page.Items))
 	for _, stored := range page.Items {
-		item, err := r.transcriptItemModel(ctx, stored)
+		item, err := r.conversationItemModel(ctx, stored)
 		if err != nil {
 			return nil, err
 		}
 		if item == nil {
 			continue
 		}
-		items = append(items, &model.ConversationItem{
-			ItemID: stored.ID, Cursor: stored.Cursor, TurnID: chatOptionalString(stored.TurnID),
-			Metadata: transcriptMetadata(stored), Item: item,
-		})
+		items = append(items, item)
 	}
 	return &model.ConversationTranscriptPage{
 		Items: items,
@@ -249,19 +243,24 @@ func (r *Resolver) conversationTranscriptPageModel(
 	}, nil
 }
 
-func (r *Resolver) transcriptItemModel(ctx context.Context, item store.ConversationItem) (model.TranscriptItem, error) {
+// conversationItemModel applies the same visibility and metadata to history and live events.
+func (r *Resolver) conversationItemModel(ctx context.Context, item store.ConversationItem) (*model.ConversationItem, error) {
 	value, err := transcriptItemModel(item)
-	reference, ok := value.(model.TaskReference)
-	if err != nil || !ok {
-		return value, err
+	if err != nil || value == nil {
+		return nil, err
 	}
-	task, taskErr := r.Store.Task(ctx, reference.TaskID)
-	document, documentErr := home.ReadTaskDocument(r.home, reference.TaskID)
-	if taskErr == nil && documentErr == nil {
-		reference.Task = r.taskSummaryModel(ctx, task, personalWorkspaceID, document.Content)
-		value = reference
+	if reference, ok := value.(model.TaskReference); ok {
+		task, taskErr := r.Store.Task(ctx, reference.TaskID)
+		document, documentErr := home.ReadTaskDocument(r.home, reference.TaskID)
+		if taskErr == nil && documentErr == nil {
+			reference.Task = r.taskSummaryModel(ctx, task, personalWorkspaceID, document.Content)
+			value = reference
+		}
 	}
-	return value, nil
+	return &model.ConversationItem{
+		ItemID: item.ID, Cursor: item.Cursor, TurnID: chatOptionalString(item.TurnID),
+		Metadata: transcriptMetadata(item), Item: value,
+	}, nil
 }
 
 func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, error) {

@@ -34,12 +34,12 @@ func TestAssistantPresentationAcrossChatAndTasks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			live := event.(model.ConversationItemEvent)
 			if tc.want == "marker" {
-				if len(page.Items) != 0 || live.Item != nil {
-					t.Fatalf("Chat exposed reasoning summary: %#v / %#v", page.Items, live.Item)
+				if len(page.Items) != 0 || event != nil {
+					t.Fatalf("Chat exposed reasoning summary: %#v / %#v", page.Items, event)
 				}
 			} else {
+				live := event.(model.ConversationItemEvent)
 				if len(page.Items) != 1 || page.Items[0].Metadata["presentation"] != tc.want || !reflect.DeepEqual(page.Items[0].Metadata, live.Metadata) {
 					t.Fatalf("replay/live presentation: %#v / %#v", page.Items, live.Metadata)
 				}

@@ -187,7 +187,8 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"text/event-stream"}},
 			Body: io.NopCloser(strings.NewReader(
-				"data: {\"id\":\"graphql-chat\",\"model\":\"openai/gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello \"}}]}\n\n" +
+				`data: {"id":"graphql-chat","model":"openai/gpt-5.6-luna","choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.summary","summary":"Hidden planning summary","index":0}]}}]}` + "\n\n" +
+					"data: {\"id\":\"graphql-chat\",\"model\":\"openai/gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello \"}}]}\n\n" +
 					"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"back\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\ndata: [DONE]\n\n",
 			)),
 			Request: request,
@@ -225,6 +226,9 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 			case model.AgentStatusEvent:
 				gotTypes = append(gotTypes, "status:"+value.Status.String())
 			case model.ConversationItemEvent:
+				if value.Item == nil {
+					t.Fatal("live stream emitted an empty item that violates the GraphQL contract")
+				}
 				switch value.Item.(type) {
 				case model.UserText:
 					gotTypes = append(gotTypes, "item:user")
@@ -256,6 +260,19 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 	})
 	if err != nil || len(page.Items) != 2 {
 		t.Fatalf("stored transcript = %#v, %v", page, err)
+	}
+	saved, err := resolver.Store.ConversationItemPage(ctx, conversation.ID, "", 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundSummary := false
+	for _, item := range saved.Items {
+		if item.ContentText == "Hidden planning summary" {
+			foundSummary = true
+		}
+	}
+	if !foundSummary {
+		t.Fatal("test provider did not produce the hidden summary")
 	}
 	firstID, secondID := page.Items[0].ItemID, page.Items[1].ItemID
 	if err := resolver.Chat.Close(); err != nil {
@@ -358,12 +375,12 @@ func TestConversationNotificationReferencesPreserveClientContract(t *testing.T) 
 	if err := home.CommitTaskDocument(resolver.home, taskID); err != nil {
 		t.Fatal(err)
 	}
-	taskValue, err := resolver.transcriptItemModel(context.Background(), store.ConversationItem{Kind: store.ConversationTaskReference,
+	taskValue, err := resolver.conversationItemModel(context.Background(), store.ConversationItem{Kind: store.ConversationTaskReference,
 		Payload: map[string]any{"task_id": taskID}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, ok := taskValue.(model.TaskReference)
+	task, ok := taskValue.Item.(model.TaskReference)
 	if !ok || task.TaskID != taskID || task.Task == nil || task.Task.Title != "Notify Chat" {
 		t.Fatalf("Task reference = %#v", taskValue)
 	}
