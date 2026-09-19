@@ -180,8 +180,12 @@ func (s *luaSandbox) load(profile SandboxProfile) error {
 	if !ok {
 		return errors.New("Lua math library is unavailable")
 	}
-	s.runtime.SetEnv(mathTable, "random", lua.NilValue)
-	s.runtime.SetEnv(mathTable, "randomseed", lua.NilValue)
+	if profile == ProfileAgent {
+		s.loadAgentTimeAndRandom(mathTable)
+	} else {
+		s.runtime.SetEnv(mathTable, "random", lua.NilValue)
+		s.runtime.SetEnv(mathTable, "randomseed", lua.NilValue)
+	}
 	next := s.runtime.SetEnvGoFunc(environment, "next", func(thread *lua.Thread, call *lua.GoCont) (lua.Cont, error) {
 		if err := call.Check1Arg(); err != nil {
 			return nil, err

@@ -41,6 +41,7 @@ require (
 require (
 	github.com/JohannesKaufmann/dom v0.3.1 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
+	github.com/arnodel/strftime v0.1.6 // indirect
 	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect

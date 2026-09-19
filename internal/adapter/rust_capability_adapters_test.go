@@ -909,7 +909,7 @@ func TestRustAdapters_transform_decodes_json_and_preserves_explicit_empty_shapes
 func TestRustAdapters_sandbox_has_no_ambient_authority_or_cross_call_state(t *testing.T) {
 	source := "return function() return {os=os ~= nil, require=require ~= nil, random=math.random ~= nil} end"
 	for i := 0; i < 2; i++ {
-		value, err := script.RunFunction(source, map[string]any{})
+		value, err := script.RunFunctionWithProfile(source, map[string]any{}, script.ProfileResponse)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -919,7 +919,7 @@ func TestRustAdapters_sandbox_has_no_ambient_authority_or_cross_call_state(t *te
 	}
 	source = "return function() counter=(counter or 0)+1 return counter end"
 	for i := 0; i < 2; i++ {
-		value, err := script.RunFunction(source, map[string]any{})
+		value, err := script.RunFunctionWithProfile(source, map[string]any{}, script.ProfileResponse)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -998,11 +998,11 @@ func TestRustAdapters_malformed_json_cycles_and_runaway_code_fail_closed(t *test
 
 // Rust source: crates/noema-capabilities/adapters/src/luau.rs::agent_code_reads_json_and_has_no_ambient_authority.
 func TestRustAdapters_agent_code_reads_json_and_has_no_ambient_authority(t *testing.T) {
-	value, err := script.Run("return {total=input.quantity * input.price, os=os ~= nil, random=math.random ~= nil}", map[string]any{"quantity": json.Number("4"), "price": json.Number("125")})
+	value, err := script.Run("return {total=input.quantity * input.price, execute=os.execute ~= nil, getenv=os.getenv ~= nil, io=io ~= nil}", map[string]any{"quantity": json.Number("4"), "price": json.Number("125")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rustJSONEquivalent(value, map[string]any{"total": json.Number("500"), "os": false, "random": false}) {
+	if !rustJSONEquivalent(value, map[string]any{"total": json.Number("500"), "execute": false, "getenv": false, "io": false}) {
 		t.Fatalf("agent output = %#v", value)
 	}
 }

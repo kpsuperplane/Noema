@@ -175,6 +175,13 @@ transform so it produces a deliberate compact receipt.
 The 1 MiB response-body limit is a transport boundary. It is not a model-result
 allowance. Remote error details have a separate 4 KiB limit.
 
+Agent Lua permits `math.random`, `math.randomseed`, `os.time`, `os.date`,
+`os.difftime`, and `os.clock`. Each execution owns a fresh random generator.
+Seeding changes only that execution. Date conversion preserves supplied tables.
+Date formats are bounded, and date outputs count against the memory limit.
+The agent profile has no filesystem, network, process, environment, or module access.
+Adapter response, credential, and request-auth profiles keep clocks and randomness disabled.
+
 Response Lua receives only bounded status, body, and content type. It has no
 network, filesystem, process, environment, clock, randomness, credentials,
 modules, or cross-call state. Failure never falls back to raw output.

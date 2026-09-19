@@ -135,7 +135,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   The artifact store assigns the owner, immutable version, byte size, and internal integrity digest.
 - `file.parse` returns bounded text from saved email messages and supported raster images.
 - Agents can run bounded Lua 5.4 over read-only JSON input.
-  The sandbox has no file, network, process, module, clock, or random access.
+  Agent Lua permits local randomness and clock/date reads. File, network, process, environment, and module access remain blocked.
 - Generated artifacts keep their owner, creation scope, and immutable version IDs.
   Task results cite an artifact ID and a precise locator when the artifact supports a claim.
 - Artifact detail previews PDF, spreadsheet, email, raster image, and isolated HTML artifacts.

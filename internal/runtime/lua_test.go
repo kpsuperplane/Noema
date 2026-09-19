@@ -179,10 +179,12 @@ func TestLuaOutputLimitUsesUnescapedJSON(t *testing.T) {
 
 func TestLuaExposesNoAmbientAuthority(t *testing.T) {
 	source := `return {
-os = os ~= nil, io = io ~= nil, package = package ~= nil, require = require ~= nil,
+execute = os.execute ~= nil, exit = os.exit ~= nil, getenv = os.getenv ~= nil,
+remove = os.remove ~= nil, rename = os.rename ~= nil, tmpname = os.tmpname ~= nil,
+setlocale = os.setlocale ~= nil, io = io ~= nil, package = package ~= nil, require = require ~= nil,
 debug = debug ~= nil, coroutine = coroutine ~= nil, load = load ~= nil,
 collectgarbage = collectgarbage ~= nil, print = print ~= nil, rawset = rawset ~= nil,
-setmetatable = setmetatable ~= nil, random = math.random ~= nil,
+setmetatable = setmetatable ~= nil,
 json_mutable = pcall(function() json.null = nil end),
 standard = string.upper("lua") .. table.concat({"5", "4"}, ".") .. ":" .. utf8.len("✓")
 }`
@@ -198,8 +200,10 @@ standard = string.upper("lua") .. table.concat({"5", "4"}, ".") .. ":" .. utf8.l
 
 func TestLuaTerminatesTimeAndMemoryExhaustion(t *testing.T) {
 	for name, source := range map[string]string{
-		"time":   `while true do end`,
-		"memory": `local values = {} while true do values[#values + 1] = string.rep("x", 4096) end`,
+		"time":        `while true do end`,
+		"memory":      `local values = {} while true do values[#values + 1] = string.rep("x", 4096) end`,
+		"date format": `return os.date(string.rep("x", 32769))`,
+		"date memory": `local values = {} local format = string.rep("%c", 16000) while true do values[#values + 1] = os.date(format) end`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			started := time.Now()
@@ -208,5 +212,30 @@ func TestLuaTerminatesTimeAndMemoryExhaustion(t *testing.T) {
 				t.Fatalf("unbounded Lua result after %s: %#v", time.Since(started), payload)
 			}
 		})
+	}
+}
+
+func TestLuaCanSelectRandomPageAndReadTime(t *testing.T) {
+	before := time.Now().Unix()
+	payload, success := runLuaToolForTest(t, `math.randomseed(os.time())
+ local page = input.pages[math.random(#input.pages)]
+ local timestamp = os.time(input.date)
+ return {page=page, now=os.time(), epoch=os.date("!%Y-%m-%d", 0), difference=os.difftime(10, 3), clock=os.clock(), date=input.date, timestamp=timestamp}`,
+		`{"pages":["First","Second"],"date":{"year":2026,"month":1,"day":1}}`)
+	if !success {
+		t.Fatalf("random selection failed: %#v", payload)
+	}
+	value := payload["value"].(map[string]any)
+	if value["page"] != "First" && value["page"] != "Second" {
+		t.Fatalf("invalid selection: %#v", value)
+	}
+	if now := int64(value["now"].(float64)); now < before || now > time.Now().Unix() {
+		t.Fatalf("invalid clock: %#v", value)
+	}
+	if value["epoch"] != "1970-01-01" || value["difference"] != float64(7) || value["clock"].(float64) < 0 || value["timestamp"].(float64) <= 0 {
+		t.Fatalf("invalid date helpers: %#v", value)
+	}
+	if string(mustJSON(value["date"])) != `{"day":1,"month":1,"year":2026}` {
+		t.Fatalf("date input changed: %#v", value)
 	}
 }

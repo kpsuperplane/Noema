@@ -16,7 +16,7 @@ var luaRunSchema = json.RawMessage(`{"type":"object","properties":{"source":{"ty
 
 func luaRunTool() provider.GenerationTool {
 	return provider.GenerationTool{Name: luaRunName,
-		Description: "Run bounded sandboxed Lua 5.4 over a read-only JSON object and return one JSON value. Use input as the global input object. Use json.object() or json.array() for empty tables.",
+		Description: "Run bounded sandboxed Lua 5.4 over a read-only JSON object and return one JSON value. Use input as the global input object. Use json.object() or json.array() for empty tables. math.random and math.randomseed are available with a fresh generator per call. os.time, os.date, os.difftime, and os.clock are available; os.time leaves date tables unchanged. Files, network, processes, environment variables, and module loading are unavailable.",
 		InputSchema: append(json.RawMessage(nil), luaRunSchema...)}
 }
 
