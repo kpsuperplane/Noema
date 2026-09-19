@@ -88,18 +88,20 @@ function isMcpMarker(marker: ToolMarkerGroup): boolean {
   return name?.startsWith("mcp.") === true && name !== "mcp.connect_service";
 }
 
-export function toolMarkerServerIcon(marker: ToolMarkerGroup): string | undefined {
+export function toolMarkerServerHost(marker: ToolMarkerGroup): string | undefined {
   if (!isMcpMarker(marker)) return undefined;
   const payload = toolActionPayload(marker.result?.item.metadata);
   const meta = isRecord(payload) ? payload._meta : undefined;
   const server = isRecord(meta) ? meta["io.modelcontextprotocol/serverInfo"] : undefined;
   const icons = isRecord(server) && Array.isArray(server.icons) ? server.icons : [];
-  for (const icon of icons) {
-    if (!isRecord(icon) || typeof icon.src !== "string") continue;
+  const sources = [isRecord(server) ? server.websiteUrl : undefined,
+    ...icons.map((icon) => isRecord(icon) ? icon.src : undefined)];
+  for (const source of sources) {
+    if (typeof source !== "string") continue;
     try {
-      const url = new URL(icon.src);
-      if (url.protocol === "https:" && !url.username && !url.password) return url.href;
-    } catch { /* Ignore invalid server icon URLs. */ }
+      const url = new URL(source);
+      if ((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password) return url.hostname;
+    } catch { /* Ignore invalid server URLs. */ }
   }
   return undefined;
 }

@@ -335,7 +335,8 @@ Task transcripts retain reasoning-summary markers. Progress updates, full reason
 Saved pages and live snapshots use the same choice. Clients do not classify provider phases.
 Task reasoning summaries and tool calls use one marker renderer with shared typography and spacing.
 MCP markers show a returned resource title or an explicit input reference.
-Service icons use HTTPS image URLs from the saved MCP server metadata.
+Service icons use the shared favicon service with the saved MCP website domain.
+If the website URL is absent, markers use the server icon domain.
 If the icon is unavailable, the marker uses a plug icon.
 Consecutive markers from the same turn and agent collapse into one expandable group.
 The collapsed group shows its latest item and a count. Bubbles separate groups.

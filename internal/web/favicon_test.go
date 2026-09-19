@@ -9,6 +9,7 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,5 +107,30 @@ func TestFaviconNormalizationSupportsCurrentFormatsAndBounds(t *testing.T) {
 	base := httptest.NewRequest(http.MethodGet, "https://example.com/page", nil).URL
 	if icon := declaredFavicon([]byte(`<link rel="apple-touch-icon" href="apple.png"><link rel="icon" sizes="any" href="site.svg"><link rel="icon" sizes="32x32" href="site.png">`), base); icon.String() != "https://example.com/site.png" {
 		t.Fatalf("declared favicon = %v", icon)
+	}
+}
+
+func TestFaviconDiscoveryReadsLargePagePrefixButRejectsLargeImages(t *testing.T) {
+	source := `<head><link rel="icon" sizes="32x32" href="/notion.png"></head><body>` + strings.Repeat("x", faviconSourceLimit)
+	for _, length := range []int64{-1, int64(len(source))} {
+		for _, page := range []bool{true, false} {
+			response := &http.Response{ContentLength: length, Body: io.NopCloser(strings.NewReader(source))}
+			body, err := readFaviconBody(response, page)
+			response.Body.Close()
+			if !page {
+				if err != faviconMissing {
+					t.Fatalf("large image with length %d: %v", length, err)
+				}
+				continue
+			}
+			if err != nil || len(body) != faviconSourceLimit {
+				t.Fatalf("page prefix with length %d: %d bytes, %v", length, len(body), err)
+			}
+			base := httptest.NewRequest(http.MethodGet, "https://example.com", nil).URL
+			icon := declaredFavicon(body, base)
+			if icon == nil || icon.String() != "https://example.com/notion.png" {
+				t.Fatalf("page icon = %v", icon)
+			}
+		}
 	}
 }

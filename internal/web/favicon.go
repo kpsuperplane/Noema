@@ -471,22 +471,33 @@ func fetchFaviconURL(ctx context.Context, current *url.URL, accept string) (favi
 			}
 			return faviconResponse{}, faviconTransient
 		}
-		if response.ContentLength > faviconSourceLimit {
-			response.Body.Close()
-			return faviconResponse{}, faviconMissing
-		}
-		body, readErr := io.ReadAll(io.LimitReader(response.Body, faviconSourceLimit+1))
+		body, readErr := readFaviconBody(response, accept == "text/html,application/xhtml+xml")
 		response.Body.Close()
 		if readErr != nil {
-			return faviconResponse{}, faviconTransient
-		}
-		if len(body) > faviconSourceLimit {
-			return faviconResponse{}, faviconMissing
+			return faviconResponse{}, readErr
 		}
 		mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 		return faviconResponse{body: body, finalURL: checked.URL, mediaType: strings.ToLower(mediaType)}, nil
 	}
 	return faviconResponse{}, faviconTransient
+}
+
+// Page discovery needs only a bounded prefix. Image decoding needs the full file.
+func readFaviconBody(response *http.Response, page bool) ([]byte, error) {
+	if !page && response.ContentLength > faviconSourceLimit {
+		return nil, faviconMissing
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, faviconSourceLimit+1))
+	if err != nil {
+		return nil, faviconTransient
+	}
+	if len(body) > faviconSourceLimit {
+		if !page {
+			return nil, faviconMissing
+		}
+		body = body[:faviconSourceLimit]
+	}
+	return body, nil
 }
 
 func declaredFavicon(body []byte, base *url.URL) *url.URL {
