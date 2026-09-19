@@ -249,7 +249,7 @@ Explicit web search, fetch, settings, SPA assets, GraphiQL, and the private Grap
   and live delivery. It does not store marker text.
 - Web, iOS, and Live Activities consume the same action, outcome, and status data.
   Raw built-in payloads remain under technical disclosure.
-  Chat and Tasks save model-written MCP labels separately from tool arguments; see [the contract and checks](../validation/mcp-call-labels-2026-09-19.md).
+  Grouped MCP calls share known icons by server namespace. Chat and Tasks save model-written MCP labels separately from tool arguments; see [the contract and checks](../validation/mcp-call-labels-2026-09-19.md).
 - Optimize total system simplicity. Follow
   [engineering simplicity](../development/simplicity.md) before nontrivial
   architecture, workflow, harness, or testing-policy work.

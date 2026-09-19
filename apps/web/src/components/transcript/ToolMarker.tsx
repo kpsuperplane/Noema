@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { FaviconImage } from "@/components/FaviconImage";
 import { RollingText } from "@/components/RollingText";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
-import { toolMarkerExpandable, toolMarkerFaviconHost, toolMarkerKind, toolMarkerSummary, toolMarkerStatus, toolMarkerServerHost } from "./markerModel";
+import { toolMarkerExpandable, toolMarkerFaviconHost, toolMarkerKind, toolMarkerSummary, toolMarkerStatus, toolMarkerServerHost, toolMarkerServerKey } from "./markerModel";
 import type { ToolMarkerCallStatus, ToolMarkerKind } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
@@ -16,6 +16,7 @@ type ToolMarkerData =
   | {
       kind: "tool";
       marker: ToolMarkerGroup;
+      serverHost?: string;
     }
   | {
       kind: "tool_group";
@@ -291,10 +292,10 @@ export function ToolMarker({
           <SpringDisclosure open={!singleCall && open} id={groupContentId}>
             <div {...stylex.props(styles.groupContent, styles.groupContentInner)}>
               <div {...stylex.props(styles.groupList)}>
-                {data.markers.map((marker) => (
+                {data.markers.map((marker, index) => (
                   <ToolMarker
                     key={marker.id}
-                    data={{ kind: "tool", marker }}
+                    data={{ kind: "tool", marker, serverHost: calls[index]?.serverHost }}
                     expandedMarkers={expandedMarkers}
                     onToggleMarker={onToggleMarker}
                     onToggle={() => onToggleMarker?.(marker.id)}
@@ -442,10 +443,18 @@ function ToolStatusIcon({ status }: { status: ToolMarkerCallStatus }) {
 }
 
 function toolMarkerCalls(data: ToolMarkerData): ToolMarkerCall[] {
-  return data.kind === "tool_group" ? data.markers.map(activityToolMarkerCall) : [activityToolMarkerCall(data.marker)];
+  if (data.kind === "tool") return [activityToolMarkerCall(data.marker, data.serverHost)];
+  const markers = data.markers;
+  const serverHosts = new Map<string, string>();
+  for (const marker of markers) {
+    const key = toolMarkerServerKey(marker);
+    const host = toolMarkerServerHost(marker);
+    if (key && host) serverHosts.set(key, host);
+  }
+  return markers.map((marker) => activityToolMarkerCall(marker, serverHosts.get(toolMarkerServerKey(marker) ?? "")));
 }
 
-function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
+function activityToolMarkerCall(marker: ToolMarkerGroup, serverHost?: string): ToolMarkerCall {
   const expandable = toolMarkerExpandable(marker);
   const errorMessage = marker.result?.item.status === "FAILED" ? (marker.result.item.summary ?? marker.result.item.title) : undefined;
   const call: ToolMarkerCall = {
@@ -453,7 +462,7 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
     name: toolMarkerSummary(marker),
     toolKind: toolMarkerKind(marker),
     faviconHost: toolMarkerFaviconHost(marker),
-    serverHost: toolMarkerServerHost(marker),
+    serverHost: toolMarkerServerHost(marker) ?? serverHost,
     status: toolMarkerStatus(marker),
     expandable
   };

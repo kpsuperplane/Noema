@@ -86,6 +86,15 @@ function isMcpMarker(marker: ToolMarkerGroup): boolean {
   return name?.startsWith("mcp.") === true && name !== "mcp.connect_service";
 }
 
+// Tool names use mcp.<server namespace>.<operation> in Chat and Tasks.
+export function toolMarkerServerKey(marker: ToolMarkerGroup): string | undefined {
+  if (!isMcpMarker(marker)) return undefined;
+  const name = actionToolNameFromMetadata(marker.call?.item.metadata)
+    ?? actionToolNameFromMetadata(marker.result?.item.metadata);
+  const end = name?.indexOf(".", 4) ?? -1;
+  return end > 4 ? name?.slice(0, end) : undefined;
+}
+
 export function toolMarkerServerHost(marker: ToolMarkerGroup): string | undefined {
   if (!isMcpMarker(marker)) return undefined;
   const payload = toolActionPayload(marker.result?.item.metadata);
