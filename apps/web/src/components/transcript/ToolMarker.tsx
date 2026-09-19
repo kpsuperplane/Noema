@@ -1,12 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
-import { BrainIcon, ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { BrainIcon, ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, PlugIcon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { FaviconImage } from "@/components/FaviconImage";
 import { RollingText } from "@/components/RollingText";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
-import { toolMarkerExpandable, toolMarkerFaviconHost, toolMarkerKind, toolMarkerSummary, toolMarkerStatus } from "./markerModel";
+import { toolMarkerExpandable, toolMarkerFaviconHost, toolMarkerKind, toolMarkerSummary, toolMarkerStatus, toolMarkerServerIcon } from "./markerModel";
 import type { ToolMarkerCallStatus, ToolMarkerKind } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
@@ -29,6 +29,7 @@ type ToolMarkerCall = {
   name: string;
   toolKind?: ToolMarkerKind;
   faviconHost?: string;
+  serverIcon?: string;
   status: ToolMarkerCallStatus;
   expandable: boolean;
   errorMessage?: string;
@@ -59,6 +60,8 @@ const styles = stylex.create({
     gap: "var(--spacing-0)"
   },
   recordRow: {
+    minWidth: 0,
+    maxWidth: "100%",
     "--tool-record-opacity": {
       default: 1,
       "@media (hover: hover)": 0
@@ -118,6 +121,11 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     color: "var(--noema-text-muted)"
+  },
+  serverIcon: {
+    width: "var(--spacing-4)",
+    height: "var(--spacing-4)",
+    objectFit: "contain"
   },
   pending: {
     color: "var(--noema-text-muted)"
@@ -279,7 +287,7 @@ export function ToolMarker({
               data-slot="tool-marker-group-row"
               disabled={!expandable}
               onClick={expandable ? onToggle : undefined}
-              title={collapsedCall.toolKind === "thinking" ? collapsedCall.name : collapsedCall.errorMessage}
+              title={collapsedCall.errorMessage ?? collapsedCall.name}
             >
               {rowContent}
             </button>
@@ -326,7 +334,7 @@ export function ToolMarker({
             data-slot="tool-marker-row"
             disabled={!call.expandable}
             onClick={call.expandable ? onToggle : undefined}
-            title={call.toolKind === "thinking" ? call.name : call.errorMessage}
+            title={call.errorMessage ?? call.name}
           >
             <ToolMarkerRowContent animateText={animateText} call={call} open={call.expandable && open} presentation={presentation} />
           </button>
@@ -358,7 +366,7 @@ function ToolMarkerRowContent({
   return (
     <>
       <ToolStatusIcon status={call.status} />
-      <ToolTypeIcon faviconHost={call.faviconHost} kind={call.toolKind} />
+      <ToolTypeIcon faviconHost={call.faviconHost} kind={call.toolKind} serverIcon={call.serverIcon} />
       {animateText ? (
         <RollingText value={call.name} {...stylex.props(styles.name)} data-slot="tool-marker-name" />
       ) : (
@@ -376,7 +384,17 @@ function ToolMarkerRowContent({
   );
 }
 
-function ToolTypeIcon({ faviconHost, kind }: { faviconHost?: string; kind?: ToolMarkerKind }) {
+function ToolTypeIcon({ faviconHost, kind, serverIcon }: { faviconHost?: string; kind?: ToolMarkerKind; serverIcon?: string }) {
+  const [failedIcon, setFailedIcon] = useState<string>();
+  if (kind === "mcp") {
+    return (
+      <span {...stylex.props(styles.toolIcon)} aria-hidden="true">
+        {serverIcon && serverIcon !== failedIcon ? (
+          <img src={serverIcon} alt="" referrerPolicy="no-referrer" {...stylex.props(styles.serverIcon)} onError={() => setFailedIcon(serverIcon)} />
+        ) : <PlugIcon size={14} strokeWidth={1.8} />}
+      </span>
+    );
+  }
   if (!kind) {
     return null;
   }
@@ -441,6 +459,7 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
     name: toolMarkerSummary(marker),
     toolKind: toolMarkerKind(marker),
     faviconHost: toolMarkerFaviconHost(marker),
+    serverIcon: toolMarkerServerIcon(marker),
     status: toolMarkerStatus(marker),
     expandable
   };

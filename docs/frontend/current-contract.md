@@ -333,6 +333,9 @@ The backend supplies `presentation: bubble | marker` in Chat metadata and each T
 Reasoning summaries use markers. Progress updates, full reasoning traces, and responses use bubbles.
 Saved pages and live snapshots use the same choice. Clients do not classify provider phases.
 Web reasoning summaries and tool calls use one marker renderer with shared typography and spacing.
+MCP markers show a returned resource title or an explicit input reference.
+Service icons use HTTPS image URLs from the saved MCP server metadata.
+If the icon is unavailable, the marker uses a plug icon.
 Consecutive markers from the same turn and agent collapse into one expandable group.
 The collapsed group shows its latest item and a count. Bubbles separate groups.
 Reasoning markers keep the brain icon and have no individual disclosure.

@@ -6,7 +6,7 @@ export type ToolScreenshotData = {
   height: number;
   url: string | null;
 };
-export type ToolMarkerKind = "web.search" | "web.fetch" | "web.browse" | "thinking";
+export type ToolMarkerKind = "web.search" | "web.fetch" | "web.browse" | "thinking" | "mcp";
 export type ToolMarkerCallStatus = "pending" | "running" | "complete" | "error" | "cancelled" | "interrupted" | "skipped";
 
 const MAX_SCREENSHOT_DATA_CHARS = 1_200_000;
@@ -77,11 +77,59 @@ export function toolMarkerName(marker: ToolMarkerGroup): string {
 }
 
 export function toolMarkerSummary(marker: ToolMarkerGroup): string {
-  return toolMarkerName(marker);
+  const name = toolMarkerName(marker);
+  const subject = mcpMarkerSubject(marker);
+  return subject ? `${name}: ${subject}` : name;
+}
+
+function isMcpMarker(marker: ToolMarkerGroup): boolean {
+  const name = actionToolNameFromMetadata(marker.call?.item.metadata)
+    ?? actionToolNameFromMetadata(marker.result?.item.metadata);
+  return name?.startsWith("mcp.") === true && name !== "mcp.connect_service";
+}
+
+export function toolMarkerServerIcon(marker: ToolMarkerGroup): string | undefined {
+  if (!isMcpMarker(marker)) return undefined;
+  const payload = toolActionPayload(marker.result?.item.metadata);
+  const meta = isRecord(payload) ? payload._meta : undefined;
+  const server = isRecord(meta) ? meta["io.modelcontextprotocol/serverInfo"] : undefined;
+  const icons = isRecord(server) && Array.isArray(server.icons) ? server.icons : [];
+  for (const icon of icons) {
+    if (!isRecord(icon) || typeof icon.src !== "string") continue;
+    try {
+      const url = new URL(icon.src);
+      if (url.protocol === "https:" && !url.username && !url.password) return url.href;
+    } catch { /* Ignore invalid server icon URLs. */ }
+  }
+  return undefined;
+}
+
+function mcpMarkerSubject(marker: ToolMarkerGroup): string | undefined {
+  if (!isMcpMarker(marker)) return undefined;
+  const payload = toolActionPayload(marker.result?.item.metadata);
+  let result = isRecord(payload) ? payload.structuredContent : undefined;
+  if (!isRecord(result) && isRecord(payload) && Array.isArray(payload.content) && payload.content.length === 1) {
+    const content = payload.content[0];
+    if (isRecord(content) && content.type === "text" && typeof content.text === "string") {
+      try { result = JSON.parse(content.text); } catch { /* Unstructured output has no page title. */ }
+    }
+  }
+  const input = toolActionPayload(marker.call?.item.metadata);
+  // Use explicit resource fields, never the page body or arbitrary result text.
+  const title = toolMarkerStatus(marker) === "complete" && isRecord(result) ? stringValue(result.title) : null;
+  if (title) return title;
+  if (isRecord(input)) {
+    for (const key of ["title", "name", "url", "page_id", "id", "query"]) {
+      const value = stringValue(input[key]);
+      if (value) return value;
+    }
+  }
+  return undefined;
 }
 
 export function toolMarkerKind(marker: ToolMarkerGroup): ToolMarkerKind | undefined {
   if (marker.message) return "thinking";
+  if (isMcpMarker(marker)) return "mcp";
   const displayKind = markerDisplayString(marker, "kind");
   if (displayKind === "web.search" || displayKind === "web.fetch" || displayKind === "web.browse") {
     return displayKind;
