@@ -330,9 +330,10 @@ The server saves separate paragraphs in Chat replies as separate messages during
 Web and native clients render those saved boundaries without splitting text.
 Adjacent web messages from the same speaker and turn share one visual group.
 The backend supplies `presentation: bubble | marker` in Chat metadata and each Task output section.
-Reasoning summaries use markers. Progress updates, full reasoning traces, and responses use bubbles.
+Main Chat omits reasoning summaries from saved-page and live API content. Stored summaries remain intact.
+Task transcripts retain reasoning-summary markers. Progress updates, full reasoning traces, and responses use bubbles.
 Saved pages and live snapshots use the same choice. Clients do not classify provider phases.
-Web reasoning summaries and tool calls use one marker renderer with shared typography and spacing.
+Task reasoning summaries and tool calls use one marker renderer with shared typography and spacing.
 MCP markers show a returned resource title or an explicit input reference.
 Service icons use HTTPS image URLs from the saved MCP server metadata.
 If the icon is unavailable, the marker uses a plug icon.

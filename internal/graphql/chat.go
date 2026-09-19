@@ -269,6 +269,9 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 	case store.ConversationUserText:
 		return model.UserText{Text: item.ContentText}, nil
 	case store.ConversationAssistantText:
+		if transcriptMetadata(item)["presentation"] == "marker" {
+			return nil, nil
+		}
 		return model.AssistantText{Text: item.ContentText}, nil
 	case store.ConversationMultipleChoicePrompt:
 		options, err := multipleChoiceOptionsModel(item.Payload["options"])

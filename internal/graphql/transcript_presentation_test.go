@@ -35,11 +35,20 @@ func TestAssistantPresentationAcrossChatAndTasks(t *testing.T) {
 				t.Fatal(err)
 			}
 			live := event.(model.ConversationItemEvent)
-			if page.Items[0].Metadata["presentation"] != tc.want || !reflect.DeepEqual(page.Items[0].Metadata, live.Metadata) {
-				t.Fatalf("replay/live presentation: %#v / %#v", page.Items[0].Metadata, live.Metadata)
+			if tc.want == "marker" {
+				if len(page.Items) != 0 || live.Item != nil {
+					t.Fatalf("Chat exposed reasoning summary: %#v / %#v", page.Items, live.Item)
+				}
+			} else {
+				if len(page.Items) != 1 || page.Items[0].Metadata["presentation"] != tc.want || !reflect.DeepEqual(page.Items[0].Metadata, live.Metadata) {
+					t.Fatalf("replay/live presentation: %#v / %#v", page.Items, live.Metadata)
+				}
+				if live.Item.(model.AssistantText).Text != source.ContentText || live.Metadata["model"] != metadata["model"] {
+					t.Fatal("Chat content or metadata changed")
+				}
 			}
-			if live.Item.(model.AssistantText).Text != source.ContentText || live.Metadata["model"] != metadata["model"] || metadata["presentation"] != nil {
-				t.Fatal("Chat content or saved metadata changed")
+			if metadata["presentation"] != nil {
+				t.Fatal("saved metadata changed")
 			}
 			section := map[string]any{"kind": tc.kind, "reasoning_summary": tc.summary, "phase": tc.phase, "text": source.ContentText, "status": "running", "index": float64(3)}
 			payload := map[string]any{"output": []any{section}, "response_index": 7}
@@ -84,6 +93,10 @@ func TestSavedCodexSummaryPresentation(t *testing.T) {
 		item := store.ConversationItem{Kind: store.ConversationAssistantText, ContentText: tc.text, Metadata: map[string]any{"provider": "codex", "provider_output_kind": tc.kind, "phase": "commentary", "section_index": tc.section}}
 		if got := transcriptMetadata(item); got["presentation"] != tc.want {
 			t.Fatalf("%s: %#v", tc.text, got)
+		}
+		visible, err := transcriptItemModel(item)
+		if err != nil || (visible == nil) != (tc.want == "marker") {
+			t.Fatalf("saved summary visibility: %#v, %v", visible, err)
 		}
 	}
 }
