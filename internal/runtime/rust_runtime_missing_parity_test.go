@@ -949,6 +949,19 @@ func TestRustRuntime_runtime_executes_every_homogeneous_delegation_and_uses_prov
 		t.Fatal(err)
 	}
 	all := collectCompletedTurns(t, events, 1)
+	references := map[string]string{}
+	deadline := time.After(3 * time.Second)
+	for len(references) < 2 {
+		select {
+		case event := <-events:
+			if event.Item != nil && event.Item.Kind == store.ConversationTaskReference {
+				taskID, _ := event.Item.Payload["task_id"].(string)
+				references[taskID] = event.Item.TurnID
+			}
+		case <-deadline:
+			t.Fatalf("delegated Task chips were not delivered: %#v", references)
+		}
+	}
 	page, err := database.ConversationItemPage(context.Background(), conversation.ID, "", 60)
 	if err != nil {
 		t.Fatal(err)
@@ -969,6 +982,9 @@ func TestRustRuntime_runtime_executes_every_homogeneous_delegation_and_uses_prov
 	created := map[string]bool{}
 	for _, task := range list.Tasks {
 		created[task.SourceToolCallID] = true
+		if references[task.ID] != task.Source.TurnID || task.Source.TurnID == "" {
+			t.Errorf("Task chip has the wrong source turn: %#v", task)
+		}
 	}
 	if !created["call_task_canada"] || !created["call_task_usa"] || created["call_task_invalid"] {
 		t.Errorf("creation calls: %#v", created)
@@ -977,7 +993,7 @@ func TestRustRuntime_runtime_executes_every_homogeneous_delegation_and_uses_prov
 		if item.Kind == store.ConversationErrorNotice {
 			t.Fatalf("delegation failed after task creation: %#v", item)
 		}
-		if item.Kind == "task_reference" || item.Metadata["source"] == "task_delegation_receipt" {
+		if item.Metadata["source"] == "task_delegation_receipt" {
 			t.Errorf("unexpected receipt: %#v", item)
 		}
 	}
