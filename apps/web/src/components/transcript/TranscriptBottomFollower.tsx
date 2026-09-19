@@ -114,6 +114,16 @@ export function TranscriptBottomFollower({
   }, [followBottomRef, restoreInitialScroll, scheduleInitialBottomLockRelease, scrollKey, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
+    if (sentMessageScrollRequest <= completedSentMessageScrollRequestRef.current) {
+      return;
+    }
+
+    completedSentMessageScrollRequestRef.current = sentMessageScrollRequest;
+    // Resume following before arrival handling so sending uses the same scroll animation.
+    followBottomRef.current = true;
+  }, [followBottomRef, sentMessageScrollRequest]);
+
+  React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
     const previousMetrics = previousMetricsRef.current;
     if (!viewport || !arrivalScrollKey || !previousMetrics || arrivalScrollKey === completedArrivalKeyRef.current) {
@@ -171,25 +181,7 @@ export function TranscriptBottomFollower({
     }
 
     scrollToEnd({ behavior: "auto" });
-  }, [followBottomRef, scrollKey, scrollToEnd, viewportRef]);
-
-  React.useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport || sentMessageScrollRequest <= completedSentMessageScrollRequestRef.current) {
-      return;
-    }
-
-    completedSentMessageScrollRequestRef.current = sentMessageScrollRequest;
-    if (followBottomRef.current) {
-      return;
-    }
-
-    activeScrollAnimationRef.current?.cancel();
-    activeScrollAnimationRef.current = null;
-    followBottomRef.current = true;
-    scrollToEnd({ behavior: "auto" });
-    previousMetricsRef.current = readScrollMetrics(viewport);
-  }, [followBottomRef, scrollToEnd, sentMessageScrollRequest, viewportRef]);
+  }, [followBottomRef, scrollKey, scrollToEnd, sentMessageScrollRequest, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
