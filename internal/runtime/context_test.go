@@ -216,3 +216,29 @@ func TestOptionalCompactionFailurePreservesFittingHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestFixedCatalogDoesNotCauseRepeatedSoftCompaction(t *testing.T) {
+	database := contextTestStore(t, 4000)
+	tools := []provider.GenerationTool{{Name: "docs.read", Description: strings.Repeat("x", 8400)}}
+	summaries := 0
+	request := modelContextRequest{database: database, accountID: "provider_account:openrouter:context-test",
+		providerKind: "openrouter", model: "test", tools: tools, outputReserve: 512,
+		generator: generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+			summaries++
+			return provider.GenerationResult{Text: "Earlier discussion."}, nil
+		})}
+	request.completed = []provider.GenerationMessage{{Role: "assistant", Content: "Earlier discussion."}}
+	for _, input := range []string{"Yem", "Yum"} {
+		request.active = []provider.GenerationMessage{{Role: "user", Content: input}}
+		messages, compacted, err := prepareModelContext(t.Context(), request)
+		if err != nil || compacted || summaries != 0 || len(messages) != len(request.completed)+1 {
+			t.Fatalf("short turn: compacted=%v summaries=%d error=%v", compacted, summaries, err)
+		}
+		request.completed = messages
+	}
+	request.completed = append(request.completed, provider.GenerationMessage{Role: "assistant", Content: strings.Repeat("old ", 1500)})
+	messages, compacted, err := prepareModelContext(t.Context(), request)
+	if err != nil || !compacted || summaries == 0 || CountModelContext(t.Context(), nil, messages, tools, false) > 4000-512-contextSafetyTokens {
+		t.Fatalf("hard limit: compacted=%v summaries=%d error=%v", compacted, summaries, err)
+	}
+}

@@ -1460,6 +1460,7 @@ func (c *Chat) finishGeneratedTurn(
 		}
 		return
 	}
+	c.retainChatSession(turn, assignment, result.ID)
 	c.publish(Event{
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: input.ClientMessageID, TurnID: turn.ID, Item: &item,

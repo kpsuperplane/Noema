@@ -631,9 +631,12 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		return provider.GenerationResult{}, errors.New("unexpected OpenRouter request")
 	})
 	var requests []provider.GenerateRequest
-	codex := &sessionTestGenerator{closed: make(chan struct{}, 1)}
+	codex := &sessionTestGenerator{closed: make(chan struct{}, 4)}
 	codex.generate = func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		requests = append(requests, request)
+		if len(requests) == 4 {
+			return provider.GenerationResult{}, errors.New("connection failed")
+		}
 		if len(requests) == 1 {
 			return provider.GenerationResult{
 				ID: "resp_1", Model: "gpt-5.6-terra", Text: "I will inspect it.", Usage: provider.Usage{TotalTokens: 3},
@@ -657,7 +660,12 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = chat.Close() })
+	t.Cleanup(func() {
+		_ = chat.Close()
+		if codex.closes != codex.opens {
+			t.Errorf("Chat shutdown left a provider session open")
+		}
+	})
 	events, err := chat.Subscribe(ctx, conversation.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -667,11 +675,10 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	<-codex.closed
 	if openRouterCalls != 0 || len(requests) != 2 {
 		t.Fatalf("provider calls = OpenRouter %d, Codex %d", openRouterCalls, len(requests))
 	}
-	if codex.opens != 1 || codex.closes != 1 || codex.direct != 0 {
+	if codex.opens != 1 || codex.closes != 0 || codex.direct != 0 {
 		t.Fatalf("Codex sessions = opened %d, closed %d, direct %d", codex.opens, codex.closes, codex.direct)
 	}
 	for index, request := range requests {
@@ -727,6 +734,26 @@ func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
 	}
 	if finalText != "Codex complete." {
 		t.Fatalf("durable final text = %q", finalText)
+	}
+	if _, err := chat.SendTurn(ctx, SendTurnInput{ConversationID: conversation.ID, Input: "Yum"}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if len(requests) != 3 || codex.opens != 1 || requests[2].PreviousResponseID != "resp_2" ||
+		!messagesContain(requests[2].Messages, "Yum") || messagesContain(requests[2].Messages, "Inspect it") ||
+		!messagesContain(requests[2].ReplayMessages, "Inspect it") ||
+		requests[2].Messages[0].Content != rustPromptReference(t, "primary") {
+		t.Fatalf("next turn did not reuse the session with incremental input: opens=%d requests=%d", codex.opens, len(requests))
+	}
+	for _, input := range []string{"fail once", "recover"} {
+		if _, err := chat.SendTurn(ctx, SendTurnInput{ConversationID: conversation.ID, Input: input}); err != nil {
+			t.Fatal(err)
+		}
+		collectCompletedTurns(t, events, 1)
+	}
+	if len(requests) != 5 || requests[4].PreviousResponseID != "" ||
+		!messagesContain(requests[4].Messages, "Inspect it") || codex.opens != 2 || codex.closes != 1 {
+		t.Fatal("failed session was not replaced with complete saved history")
 	}
 	assignment, err := chat.primaryAssignment(ctx)
 	if err != nil {

@@ -142,6 +142,7 @@ type Chat struct {
 	codex      provider.Generator
 	openAI     provider.Generator
 	local      provider.Generator
+	session    *chatProviderSession
 	home       *os.Root
 	memory     *noemamemory.Store
 	mcp        *noemamcp.Service
@@ -416,6 +417,7 @@ func (c *Chat) run() {
 	if c.done != nil {
 		defer close(c.done)
 	}
+	defer c.closeChatSession()
 	defer func() {
 		for {
 			select {
@@ -538,8 +540,6 @@ func (c *Chat) execute(request queuedTurn) {
 		return
 	}
 	contextGenerator := generator
-	generator, closeSession, _ := openGenerationSession(generator)
-	defer closeSession()
 	contextState, err := c.database.ConversationProviderContext(c.ctx, turn.ConversationID, assignment.ProviderKind, assignment.ModelProfile)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
@@ -606,6 +606,17 @@ func (c *Chat) execute(request queuedTurn) {
 	if compacted {
 		c.schedulePrimaryMemoryUpdate(turn.ConversationID)
 	}
+	generator, messages, previousID, err := c.chatSessionRequest(generator, assignment, turn,
+		base, completed, active, providerMessages, compacted)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	defer func() {
+		if c.session != nil && c.session.responseID == "" {
+			c.closeChatSession()
+		}
+	}()
 	output := c.outputStream(turn, 0, request.input.ClientMessageID)
 	providerStarted := time.Now()
 	providerSpan, _ := c.database.BeginRuntimeDebugSpan(c.ctx,
@@ -613,8 +624,9 @@ func (c *Chat) execute(request queuedTurn) {
 		store.RuntimeDebugMetadata{Provider: assignment.ProviderKind, Model: assignment.ModelProfile, Phase: "initial"}, providerStarted)
 	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
-		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
-		ConversationID: turn.ConversationID, MaxOutputTokens: outputTokens,
+		Messages: messages, ReplayMessages: providerMessages, PreviousResponseID: previousID,
+		ReasoningEffort: string(assignment.ReasoningEffort),
+		ConversationID:  turn.ConversationID, MaxOutputTokens: outputTokens,
 		Tools:           tools,
 		ToolTransport:   provider.ToolTransportNative,
 		ToolChoice:      provider.ToolChoiceAuto,

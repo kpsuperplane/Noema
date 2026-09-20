@@ -74,6 +74,15 @@ func prepareModelContext(ctx context.Context, request modelContextRequest) ([]pr
 		}
 	}
 	target := min(uint32(512), max(uint32(64), available/8))
+	// A summary cannot remove tools or restored context sections. Only compact
+	// fitting input when the result can fall below the soft threshold.
+	if estimated <= available {
+		remaining := joinContextMessages(request.base, recent, request.active, restored)
+		floor := CountModelContext(ctx, request.generator, remaining, request.tools, request.hostedWeb) + target + 32
+		if shouldCompactBackground(floor, available) {
+			return messages, false, nil
+		}
+	}
 	summary, err := summarizeModelContext(ctx, request, prefix, target, available)
 	if err != nil {
 		if estimated <= available && ctx.Err() == nil {
