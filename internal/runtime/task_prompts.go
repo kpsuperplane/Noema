@@ -169,7 +169,11 @@ func taskToolPromptRows(tools []provider.GenerationTool, mcp map[string]noemamcp
 		if tool.ServiceConnectionID != "" {
 			service = "\tservice=" + tool.ServiceConnectionID
 		}
-		rows = append(rows, "- "+kind+"\t"+tool.Name+service+"\t"+tool.Description)
+		if tool.Deferred {
+			rows = append(rows, "- deferred_tool\t"+tool.Name+service)
+		} else {
+			rows = append(rows, "- "+kind+"\t"+tool.Name+service+"\t"+tool.Description)
+		}
 	}
 	return strings.Join(rows, "\n")
 }

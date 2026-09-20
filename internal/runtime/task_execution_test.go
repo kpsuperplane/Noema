@@ -82,11 +82,16 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 		case "executor":
 			switch roleCalls[role] {
 			case 1:
+				if taskRequestHasTool(request.Tools, binding.Name) || !taskRequestHasTool(request.Tools, loadToolsName) {
+					t.Fatal("Task must load the connector definition before use")
+				}
+				return taskToolResult("load-mail", loadToolsName, map[string]any{"names": []string{binding.Name}}), nil
+			case 2:
 				if !taskRequestHasTool(request.Tools, binding.Name) {
 					t.Fatal("Task MCP tool was not advertised")
 				}
 				return taskToolResult("send", binding.Name, map[string]any{"display_label": "Mail · Send approved message", "arguments": map[string]any{"text": "approved"}}), nil
-			case 2:
+			case 3:
 				found := false
 				for _, message := range request.Messages {
 					for _, call := range message.ToolCalls {
@@ -104,7 +109,7 @@ func TestTaskExecutionUsesGovernedMCPActionAndResumesExactRun(t *testing.T) {
 					t.Fatal("resumed Task call missing")
 				}
 				return taskToolResult("progress", taskFilesWrite, map[string]any{"path": "TASK.md", "content": "# Task\n\nMessage sent.\n"}), nil
-			case 3:
+			case 4:
 				return taskToolResult("result", taskFilesWrite, map[string]any{"path": "RESULT.md", "content": "Message sent.\n"}), nil
 			default:
 				return taskToolResult("finish", taskFinishExecution, map[string]any{}), nil

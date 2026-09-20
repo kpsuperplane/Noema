@@ -562,6 +562,12 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
+	history, current, _, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
+	tools = onDemandTools(tools, joinContextMessages(history, current), assignment.ProviderKind, assignment.ModelProfile)
 	developer := append(developerMessages(environment, memoryContext, projectContext, hostedWeb), toolVisibilityMessage(tools, provider.ToolTransportNative, hostedWeb))
 	base, _, snapshot, err := c.syncModelContext(turn, &contextState, developer, nil)
 	if err != nil {

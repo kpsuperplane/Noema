@@ -191,6 +191,7 @@ const (
 
 // GenerationTool is one source model-visible function.
 type GenerationTool struct {
+	Deferred            bool            `json:"defer_loading,omitempty"`
 	ServiceCatalogRow   string          `json:"-"`
 	ServiceConnectionID string          `json:"-"`
 	Name                string          `json:"name"`

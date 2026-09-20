@@ -1153,6 +1153,11 @@ func (c *Chat) generateChatToolContinuation(
 	if err != nil {
 		return provider.GenerationResult{}, false, err
 	}
+	history, current, _, err := chatContextParts(contextState, turn.ID, assignment.ProviderKind)
+	if err != nil {
+		return provider.GenerationResult{}, false, err
+	}
+	tools = onDemandTools(tools, joinContextMessages(history, current, incrementalMessages), assignment.ProviderKind, assignment.ModelProfile)
 	transport := provider.ToolTransportNative
 	requestProjectContext := projectContext
 	if stopReason != "" {

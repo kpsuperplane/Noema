@@ -201,8 +201,19 @@ func CountModelContext(ctx context.Context, generator provider.Generator, messag
 		rendered.WriteByte('\n')
 	}
 	if len(tools) != 0 {
-		encoded, _ := json.Marshal(tools)
+		definitions := append([]provider.GenerationTool(nil), tools...)
+		hasDeferred := false
+		for index := range definitions {
+			if definitions[index].Deferred {
+				definitions[index].InputSchema = nil
+				hasDeferred = true
+			}
+		}
+		encoded, _ := json.Marshal(definitions)
 		rendered.Write(encoded)
+		if hasDeferred {
+			rendered.WriteString(`{"type":"tool_search"}`)
+		}
 	}
 	var tokens uint32
 	if counter, ok := generator.(interface {

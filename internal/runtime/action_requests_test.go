@@ -78,6 +78,12 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 	generator := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
 		requests++
 		if requests == 1 {
+			if taskRequestHasTool(request.Tools, modelName) || !taskRequestHasTool(request.Tools, loadToolsName) {
+				t.Fatal("unused connector definition must be available through tools.load")
+			}
+			return taskToolResult("load-calendar", loadToolsName, map[string]any{"names": []string{modelName}}), nil
+		}
+		if requests == 2 {
 			found := false
 			for _, tool := range request.Tools {
 				if tool.Name == modelName {
@@ -106,7 +112,7 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if remoteCalls != 1 || requests != 2 || !server.Enabled {
+	if remoteCalls != 1 || requests != 3 || !server.Enabled {
 		t.Fatalf("calls = %d, requests = %d, server = %#v", remoteCalls, requests, server)
 	}
 	page, err := database.ConversationItemPage(t.Context(), conversation.ID, "", 40)
@@ -121,6 +127,9 @@ func TestPrimaryChatCallsExactMCPBindingAndReplaysResult(t *testing.T) {
 		call, err := storedToolCall(item)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if call.Name == loadToolsName {
+			continue
 		}
 		label, arguments, err := splitMCPDisplayCall(call.Arguments)
 		if err != nil || label != "Calendar · Find standup" || string(arguments) != `{"query":"standup"}` {

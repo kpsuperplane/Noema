@@ -57,7 +57,7 @@ func localChatTools() []provider.GenerationTool {
 }
 
 func supportsLocalChatTool(name string) bool {
-	return isPrimaryTaskTool(name) || isProjectTool(name) || name == updateOwnNameToolName || name == luaRunName || name == artifactCreateLocalName || name == presentMultipleChoiceName || name == presentA2UIName || name == fileDownloadName || name == fileParseName ||
+	return name == loadToolsName || isPrimaryTaskTool(name) || isProjectTool(name) || name == updateOwnNameToolName || name == luaRunName || name == artifactCreateLocalName || name == presentMultipleChoiceName || name == presentA2UIName || name == fileDownloadName || name == fileParseName ||
 		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
@@ -235,6 +235,12 @@ func (c *Chat) executeChatTool(
 		return c.executeProjectTool(ctx, name, requestID, correlationID, arguments)
 	}
 	switch name {
+	case loadToolsName:
+		catalog, err := c.chatTools(ctx)
+		if err != nil {
+			return toolFailure("unavailable", "The tool directory is unavailable."), false
+		}
+		return loadToolDefinitions(catalog, arguments)
 	case webtool.SearchName, webtool.FetchName:
 		if c.web != nil {
 			return c.web.Execute(ctx, name, arguments, "conversation:"+conversation.ID+":"+requestID)

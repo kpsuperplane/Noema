@@ -402,6 +402,7 @@ func (r *TaskExecution) execute(parent context.Context, task store.Task, run sto
 		}
 		started := time.Now()
 		tools, bindings, adapterBindings := r.taskExecutionTools(ctx, run.Kind)
+		tools = onDemandTools(tools, messages, run.ProviderKind, model)
 		rows := taskToolPromptRows(tools, bindings, adapterBindings)
 		instructions := backgroundTaskInstructions(taskRoleInstructions(run.Kind), rows)
 		if round > 0 {
@@ -1261,6 +1262,10 @@ func (r *TaskExecution) executeTaskTool(ctx context.Context, task store.Task, ru
 		}
 		payload, success := r.adapters.ExecuteSetup(name, raw)
 		return payload, success, false, false
+	case loadToolsName:
+		catalog, _, _ := r.taskExecutionTools(ctx, run.Kind)
+		payload, success := loadToolDefinitions(catalog, raw)
+		return payload, success, false, false
 	case luaRunName:
 		payload, success := executeLuaTool(ctx, raw)
 		return payload, success, false, false
@@ -1408,7 +1413,7 @@ func (r *TaskExecution) readTaskFile(ctx context.Context, task store.Task, path 
 
 func taskToolAllowed(kind, name string) bool {
 	switch name {
-	case luaRunName, taskFilesList, taskFilesRead, fileParseName:
+	case loadToolsName, luaRunName, taskFilesList, taskFilesRead, fileParseName:
 		return kind == "planner" || kind == "executor" || kind == "reviewer"
 	case fileDownloadName:
 		return kind == "executor"

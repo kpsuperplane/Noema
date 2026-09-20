@@ -25,6 +25,34 @@ Provider aliases affect only provider wire encoding and model calls.
 The model cannot select an invoker, credential, origin, HTTP method, or policy
 revision. The router resolves the exact binding before it validates input.
 
+## On-demand definitions
+
+Chat and Tasks keep core Noema tools available. Connected-service definitions
+load when the model selects them. Selection uses exact catalog names and saved
+tool history. It does not match words in human messages.
+
+Codex uses hosted `tool_search` for the verified `gpt-5.6-terra` model.
+OpenAI Responses uses it for the supported GPT-5.4 and later families.
+Other providers and unknown models use `tools.load`.
+The [provider guide](https://developers.openai.com/api/docs/guides/tools-tool-search)
+defines native loading.
+
+Native loading defers parameter schemas. Names and descriptions remain visible.
+The full definitions still travel to the provider for hosted search.
+Fallback loading exposes a service and tool directory. The model selects up to
+four exact names. The next request includes those complete definitions.
+
+Saved successful selections and tool calls retain loaded definitions.
+Each request rebuilds availability from the current role and service catalog.
+Removed tools stay absent. Loading grants no execution permission.
+Existing input checks and action review still control every external call.
+
+Used native functions become immediately available in subsequent requests.
+This supports full local replay without retaining provider discovery records.
+It can change the cached tool prefix when a definition first loads.
+If compaction removes selection history, the model can load definitions again.
+Context estimates omit deferred schemas until their definitions load.
+
 ## Execution routes
 
 Complete behavior and connection policy select one route:

@@ -508,6 +508,7 @@ type codexReasoning struct {
 }
 
 type codexToolPayload struct {
+	Deferred          bool   `json:"defer_loading,omitempty"`
 	Type              string `json:"type"`
 	Name              string `json:"name,omitempty"`
 	Description       string `json:"description,omitempty"`
@@ -559,12 +560,17 @@ func prepareResponsesGeneration(
 		return nil, openRouterToolNameMap{}, fmt.Errorf("%s tool transport is disabled", profile.providerName)
 	}
 	tools := make([]codexToolPayload, 0, len(chatTools))
-	for _, tool := range chatTools {
+	hasDeferred := false
+	for index, tool := range chatTools {
 		function := tool.Function
+		hasDeferred = hasDeferred || request.Tools[index].Deferred
 		tools = append(tools, codexToolPayload{
-			Type: "function", Name: function.Name, Description: function.Description,
+			Type: "function", Name: function.Name, Description: function.Description, Deferred: request.Tools[index].Deferred,
 			Parameters: function.Parameters, Strict: boolPointer(function.Strict),
 		})
+	}
+	if hasDeferred {
+		tools = append(tools, codexToolPayload{Type: "tool_search"})
 	}
 	if request.HostedWebSearch {
 		tools = append(tools, codexToolPayload{Type: "web_search", ExternalWebAccess: boolPointer(true)})
