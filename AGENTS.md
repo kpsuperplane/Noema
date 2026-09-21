@@ -112,6 +112,22 @@ The expected response is `{"state":"authenticated"}`. A socket file alone does n
 - Do not print or manually copy the relay credential. The helper loads it internally.
 - See [development permissions](docs/development/codex-permissions.md) for profile settings, setup, and verified checks.
 
+### Debug user-reported bugs
+
+Treat reported product bugs as noema-dev bugs unless the human names another environment.
+Start from the screenshot, approximate time, and expected behavior when available.
+Inspect available evidence before asking the human to collect logs or identify the subsystem.
+
+1. Use the existing development instance. Check the authenticated socket and running build before reproducing. Do not start a second server.
+2. Identify the affected Chat turn, Task run, or screen. Record its identifiers so later checks follow the same failure.
+3. Read saved events, errors, timing spans, and relevant database state through the read-only development view. Follow the information-handling rules above.
+4. Reproduce through the affected product path using existing session authorization. For Chat, use the [local CLI](docs/cli.md) with the same account, conversation, and wording. For UI bugs, use the authenticated browser helper. Before repeating an action, check whether it could duplicate an external effect.
+5. Compare the expected behavior, saved records, and actual outcome. For model bugs, inspect the exact prepared context, tool definitions, and provider request when available. Distinguish missing evidence from verified facts.
+6. Trace the first disagreement across input, context preparation, provider response, tool execution, persistence, and display. Check authoritative connection health, authentication, permissions, and tool availability before accepting a model's access claim.
+7. Fix the responsible rule or implementation with the smallest general correction. Follow the validation rules below for regression coverage. Avoid fixes that recognize only the reported wording.
+8. Confirm that the development server runs the rebuilt code. Repeat the original reproduction within the authorized scope. Verify resulting state and recorded execution, not only the assistant's reply. For access bugs, use a small read-only operation when authorized.
+9. Restore temporary environment changes. Report the cause, verified behavior, checks, commit, and remaining limits. Disclose test messages and other live changes made during reproduction.
+
 ## Product UI Work
 - Use the repo-local `noema-product-ui` skill for any task that designs, builds, reviews, or materially changes frontend layout, hierarchy, spacing, density, responsive behavior, or information disclosure.
 - Read `docs/frontend/product-design.md` and the closest surface contract before editing. Establish the human's job, the focal action or content, the information priority, and the intended grouping before choosing components or writing CSS.
