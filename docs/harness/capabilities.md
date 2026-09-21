@@ -37,6 +37,9 @@ Other providers and unknown models use `tools.load`.
 The [provider guide](https://developers.openai.com/api/docs/guides/tools-tool-search)
 defines native loading.
 
+Native loading lists `tool_search` as callable in Chat and Task instructions.
+Deferred entries establish current service access, even before their definitions load.
+Deferred loading alone does not indicate disconnection or an authentication failure.
 Native loading defers parameter schemas. Names and descriptions remain visible.
 The full definitions still travel to the provider for hosted search.
 Fallback loading exposes a service and tool directory. The model selects up to

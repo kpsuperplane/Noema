@@ -146,6 +146,7 @@ func backgroundTaskInstructions(instructions, rows string) string {
 func taskToolPromptRows(tools []provider.GenerationTool, mcp map[string]noemamcp.Binding, adapters map[string]adapter.Binding) string {
 	rows := make([]string, 0, len(tools))
 	services := make(map[string]bool)
+	hasDeferred := false
 	for _, tool := range tools {
 		if tool.ServiceCatalogRow != "" {
 			services[tool.ServiceCatalogRow] = true
@@ -170,10 +171,14 @@ func taskToolPromptRows(tools []provider.GenerationTool, mcp map[string]noemamcp
 			service = "\tservice=" + tool.ServiceConnectionID
 		}
 		if tool.Deferred {
+			hasDeferred = true
 			rows = append(rows, "- deferred_tool\t"+tool.Name+service)
 		} else {
 			rows = append(rows, "- "+kind+"\t"+tool.Name+service+"\t"+tool.Description)
 		}
+	}
+	if hasDeferred {
+		rows = append(rows, "- provider_native\ttool_search\t"+toolExposureDeferred)
 	}
 	return strings.Join(rows, "\n")
 }
