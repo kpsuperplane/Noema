@@ -29,6 +29,7 @@ type RuntimeDebugMetadata struct {
 // RuntimeDebugSpan is one measured operation in a profile.
 type RuntimeDebugSpan struct {
 	ID, Category, Name, Status string
+	ResponseText               string
 	StartedAt                  time.Time
 	EndedAt                    *time.Time
 	DurationMilliseconds       *int64
@@ -171,7 +172,63 @@ FROM runtime_debug_spans WHERE `+column+`=? ORDER BY started_at_ms,span_id LIMIT
 		}
 		profile.Spans = append(profile.Spans, span)
 	}
-	return &profile, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := s.loadRuntimeDebugResponseText(ctx, &profile); err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// Read response text from its transcript authority, without copying it into timing records.
+func (s *Store) loadRuntimeDebugResponseText(ctx context.Context, profile *RuntimeDebugProfile) error {
+	query := `SELECT COALESCE(json_extract(metadata_json,'$.provider_round'),0),created_at_ms,content_text
+FROM conversation_items WHERE turn_id=? AND kind='assistant_text' AND deleted_at_ms IS NULL
+ORDER BY sequence_index`
+	if profile.Scope.Kind == "task_run" {
+		query = `SELECT i.round_index,i.created_at_ms,
+CASE WHEN section.key IS NULL THEN i.content_text ELSE json_extract(section.value,'$.text') END
+FROM task_run_items i LEFT JOIN json_each(i.payload_json,'$.output') section
+WHERE i.run_id=? AND i.item_kind='assistant_output'
+AND (section.key IS NULL OR json_extract(section.value,'$.kind') IN ('message','reasoning'))
+ORDER BY i.sequence_index,CAST(section.key AS INTEGER)`
+	}
+	rows, err := s.db.QueryContext(ctx, query, profile.Scope.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var round int
+		var created int64
+		var text sql.NullString
+		if err := rows.Scan(&round, &created, &text); err != nil {
+			return err
+		}
+		if !text.Valid || text.String == "" {
+			continue
+		}
+		for index := range profile.Spans {
+			span := &profile.Spans[index]
+			spanRound := 0
+			if span.Metadata.RoundIndex != nil {
+				spanRound = *span.Metadata.RoundIndex
+			}
+			if span.Category != "provider" || spanRound != round || created < millis(span.StartedAt) ||
+				(span.EndedAt != nil && created > millis(*span.EndedAt)) {
+				continue
+			}
+			if span.ResponseText != "" {
+				span.ResponseText += "\n\n"
+			}
+			span.ResponseText += text.String
+		}
+	}
+	return rows.Err()
 }
 
 func validDebugCategory(value string) bool {

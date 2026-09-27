@@ -1160,6 +1160,7 @@ type ComplexityRoot struct {
 		Phase                   func(childComplexity int) int
 		Provider                func(childComplexity int) int
 		ResponseIndex           func(childComplexity int) int
+		ResponseText            func(childComplexity int) int
 		RoundIndex              func(childComplexity int) int
 		StartOffsetMilliseconds func(childComplexity int) int
 		StartedAt               func(childComplexity int) int
@@ -7271,6 +7272,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.RuntimeDebugSpan.ResponseIndex(childComplexity), true
+	case "RuntimeDebugSpan.responseText":
+		if e.ComplexityRoot.RuntimeDebugSpan.ResponseText == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RuntimeDebugSpan.ResponseText(childComplexity), true
 	case "RuntimeDebugSpan.roundIndex":
 		if e.ComplexityRoot.RuntimeDebugSpan.RoundIndex == nil {
 			break
@@ -9631,26 +9638,21 @@ type AdapterExternalAccount {
 One reviewed API available with this Noema release.
 """
 type AdapterLibraryEntry {
- id: String!
- definitionId: String!
- name: String!
- description: String!
- revision: String!
- semanticDigest: String!
- sourceReference: String!
- operationIds: [String!]!
-}
-
-input ConnectAdapterLibraryInput {
- libraryId: String!
- expectedDigest: String!
+	id: String!
+	definitionId: String!
+	name: String!
+	description: String!
+	revision: String!
+	semanticDigest: String!
+	sourceReference: String!
+	operationIds: [String!]!
 }
 
 """
 One coherent non-secret API adapter management snapshot.
 """
 type AdapterManagement {
- library: [AdapterLibraryEntry!]!
+	library: [AdapterLibraryEntry!]!
 	definitions: [AdapterDefinition!]!
 	oauthState: AdapterOauthState!
 	integrations: [CapabilityIntegration!]!
@@ -10596,6 +10598,11 @@ input ConfirmOnboardingModelSelectionsInput {
 	toolProgressAudit: OnboardingModelSelectionInput!
 	actionReviewer: OnboardingModelSelectionInput
 	memoryConsolidation: OnboardingModelSelectionInput!
+}
+
+input ConnectAdapterLibraryInput {
+	libraryId: String!
+	expectedDigest: String!
 }
 
 """
@@ -13387,6 +13394,7 @@ type RuntimeDebugSpan {
 	id: String!
 	category: RuntimeDebugSpanCategory!
 	name: String!
+	responseText: String
 	status: RuntimeDebugStatus!
 	startedAt: String!
 	endedAt: String
@@ -17456,6 +17464,8 @@ func (ec *executionContext) childFields_RuntimeDebugSpan(ctx context.Context, fi
 		return ec.fieldContext_RuntimeDebugSpan_category(ctx, field)
 	case "name":
 		return ec.fieldContext_RuntimeDebugSpan_name(ctx, field)
+	case "responseText":
+		return ec.fieldContext_RuntimeDebugSpan_responseText(ctx, field)
 	case "status":
 		return ec.fieldContext_RuntimeDebugSpan_status(ctx, field)
 	case "startedAt":
@@ -42201,6 +42211,29 @@ func (ec *executionContext) fieldContext_RuntimeDebugSpan_name(_ context.Context
 	return graphql.NewScalarFieldContext("RuntimeDebugSpan", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _RuntimeDebugSpan_responseText(ctx context.Context, field graphql.CollectedField, obj *model.RuntimeDebugSpan) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RuntimeDebugSpan_responseText(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResponseText, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_RuntimeDebugSpan_responseText(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RuntimeDebugSpan", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _RuntimeDebugSpan_status(ctx context.Context, field graphql.CollectedField, obj *model.RuntimeDebugSpan) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -64768,6 +64801,11 @@ func (ec *executionContext) _RuntimeDebugSpan(ctx context.Context, sel ast.Selec
 		case "name":
 			out.Values[i] = ec._RuntimeDebugSpan_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "responseText":
+			out.Values[i] = ec._RuntimeDebugSpan_responseText(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		case "status":

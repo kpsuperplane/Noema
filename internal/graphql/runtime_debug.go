@@ -60,7 +60,8 @@ func runtimeDebugProfileModel(value *store.RuntimeDebugProfile, now time.Time) *
 		}
 		startOffset := max(span.StartedAt.Sub(value.StartedAt).Milliseconds(), 0)
 		projected := &model.RuntimeDebugSpan{
-			ID: span.ID, Category: debugCategory(span.Category), Name: span.Name, Status: spanStatus,
+			ResponseText: debugString(span.ResponseText),
+			ID:           span.ID, Category: debugCategory(span.Category), Name: span.Name, Status: spanStatus,
 			StartedAt: debugTime(span.StartedAt), StartOffsetMilliseconds: debugInt(startOffset),
 			DurationMilliseconds: debugInt(duration),
 		}

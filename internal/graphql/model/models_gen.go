@@ -1920,6 +1920,7 @@ type RuntimeDebugSpan struct {
 	ID                      string                   `json:"id"`
 	Category                RuntimeDebugSpanCategory `json:"category"`
 	Name                    string                   `json:"name"`
+	ResponseText            *string                  `json:"responseText,omitempty"`
 	Status                  RuntimeDebugStatus       `json:"status"`
 	StartedAt               string                   `json:"startedAt"`
 	EndedAt                 *string                  `json:"endedAt,omitempty"`

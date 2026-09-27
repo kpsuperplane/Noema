@@ -15,6 +15,7 @@ export const RuntimeDebugProfileDocument = gql`
         id
         category
         name
+        responseText
         status
         startedAt
         endedAt

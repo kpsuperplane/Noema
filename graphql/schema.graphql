@@ -4007,6 +4007,7 @@ type RuntimeDebugSpan {
 	id: String!
 	category: RuntimeDebugSpanCategory!
 	name: String!
+	responseText: String
 	status: RuntimeDebugStatus!
 	startedAt: String!
 	endedAt: String

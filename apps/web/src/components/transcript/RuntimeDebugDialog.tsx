@@ -1,6 +1,8 @@
 import * as React from "react";
 import { useQuery } from "@apollo/client/react";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Icon } from "@astryxdesign/core/Icon";
+import { CircleSlash } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
@@ -159,14 +161,18 @@ function RuntimeTimeline({
             >
               <VStack as="span" gap={1}>
                 <HStack as="span" gap={2} hAlign="between" vAlign="start">
-                  <strong {...stylex.props(styles.stepName)}>{span.name}</strong>
+                  <HStack as="span" gap={2} vAlign="start">
+                    <Icon
+                      icon={span.status === "COMPLETED" ? "success" : span.status === "FAILED" ? "error" : span.status === "RUNNING" ? "clock" : CircleSlash}
+                      color={span.status === "FAILED" ? "error" : "secondary"}
+                      size="sm"
+                      label={humanize(span.status)}
+                    />
+                    <strong {...stylex.props(styles.stepName)}>{span.category === "TOOL" ? span.toolName ?? span.name : span.name}</strong>
+                  </HStack>
                   <span {...stylex.props(styles.duration)}>{formatDuration(timelineDurationMilliseconds(span))}</span>
                 </HStack>
-                <HStack as="span" gap={2} wrap="wrap" {...stylex.props(styles.stepMetadata)}>
-                  <span>{humanize(span.category)}</span>
-                  <span>Start {formatDuration(span.startOffsetMilliseconds)}</span>
-                  <span>{humanize(span.status)}</span>
-                </HStack>
+                {span.responseText ? <span {...stylex.props(styles.preview)}>{span.responseText}</span> : null}
               </VStack>
             </Button>
           </li>
@@ -195,7 +201,17 @@ function SpanDetails({ span }: { span: Span }) {
   ] as const) {
     if (value !== null) rows.push([label, typeof value === "number" ? formatInteger(value) : value]);
   }
-  return <Details title="Selected span" rows={rows} />;
+  return (
+    <VStack gap={4}>
+      <Details title="Selected span" rows={rows} />
+      {span.responseText ? (
+        <VStack as="section" gap={2} aria-label="Response text">
+          <h3 {...stylex.props(styles.sectionTitle)}>Response text</h3>
+          <p {...stylex.props(styles.responseText)}>{span.responseText}</p>
+        </VStack>
+      ) : null}
+    </VStack>
+  );
 }
 
 function LegacyUsage({ debug }: { debug: ProviderUsageDebug }) {
@@ -310,7 +326,8 @@ const styles = stylex.create({
   timelineSelected: { backgroundColor: "var(--muted)", boxShadow: "inset 0 0 0 1px var(--border)" },
   stepName: { overflowWrap: "anywhere", minWidth: 0, fontWeight: 600 },
   duration: { flexShrink: 0, fontFamily: "var(--noema-font-mono)", fontVariantNumeric: "tabular-nums" },
-  stepMetadata: { color: "var(--muted-foreground)", fontWeight: 400 },
+  preview: { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", overflowWrap: "anywhere", color: "var(--muted-foreground)", fontWeight: 400 },
+  responseText: { margin: "var(--spacing-0)", whiteSpace: "pre-wrap", overflowWrap: "anywhere", color: "var(--foreground)", fontSize: "var(--text-label-size)" },
   // The desktop inspector reserves about 480px for steps and 350px for details.
   inspector: {
     display: "grid", alignItems: "start",
