@@ -1,293 +1,214 @@
 # Noema
 
-Noema is an open-source, always-on, self-hosted personal agent operating
-system.
+**A self-hosted personal agent that carries work from conversation through execution and review.**
 
-The Go server owns composition, runtime, persistence, providers, capabilities,
-GraphQL, HTTP, and model evaluations. Rust remains for the Tauri shell.
-`apps/web` is the React UI shared by both shells.
+Talk through an idea, delegate a Task, connect your services, and inspect the result.
+Noema keeps conversations, task history, documents, and memory on your server.
+Hosted models and connected services receive data when you use them.
 
-Noema downloads Obscura v0.2.2 directly from upstream releases and checks pinned SHA-256 digests.
-The Go browser adapter uses CDP. Obscura needs no local Rust build.
+[Get started](#get-started) · [Feature tour](#feature-tour) · [Architecture](#architecture) · [Development](docs/development/setup.md) · [MIT license](LICENSE)
 
-The old multi-command Noema CLI surface has been removed. For standalone local
-web development, use the `go run ./cmd/noema-dev` supervisor. It runs the Go server watcher
-next to the Bun web asset watcher. Local product work
-should use that web entrypoint, the owning backend crate, the web frontend
-package, or the desktop app.
+![Noema Chat showing a sample travel conversation and a clear follow-up answer](docs/images/chat.png)
 
-```bash
-NOEMA_HOME=.noema-dev go run ./cmd/noema-dev
-```
+*Screenshots show the running web app with illustrative sample content substituted in the browser.
+They do not show completed travel research or real bookings. No saved user data was changed.*
 
-`go run ./cmd/noema-dev` currently requires Unix because it always enables the private Unix
-GraphQL socket.
+## Try it with your own work
 
-## Requirements
+- **Prepare for the day.** Ask Noema to read your connected calendar and summarize what needs attention.
+- **Research a decision.** Delegate a comparison, inspect its progress, and review the saved result.
+- **Repeat useful work.** Create a recurring Task for a brief, planning session, or regular review.
 
-- Go 1.26.6
-- Rust and Cargo for the Tauri desktop shell
-- Bun for frontend dependency installation and builds
-- Air v1.67.4, downloaded automatically by the Go development supervisor
-- Tesseract OCR and `prlimit` for printed English text in raster images
-- A Unix host for `go run ./cmd/noema-dev`
-- For macOS desktop builds: Xcode and its command-line tools
-- One supported chat provider:
-  - OpenAI Platform for `provider: openai`
-  - OpenRouter for `provider: openrouter`
-  - Codex for `provider: codex`
-  - Local GGUF models for `provider: local_models`
+Available actions depend on your models, connected accounts, and connection policies.
 
-OpenAI uses `NOEMA_OPENAI__API_KEY`. On a fresh home, this key completes the
-OpenAI provider and model setup. OpenRouter and Codex credentials use provider
-onboarding. The desktop package locks the Tauri CLI through Bun.
+## Feature tour
 
-## Product Surfaces
+### Chat, then carry the work forward
 
-The first-party product API is GraphQL. The local web UI uses `/graphql` for
-queries and mutations plus `/graphql/ws` for subscriptions. The desktop app
-uses Tauri transport for its packaged Go sidecar and authenticated remote server.
+Chat supports streamed replies, follow-up questions, tool activity, and human decisions.
+Ask Noema to use connected services, search the web, or delegate longer work to a Task.
+Return to the conversation while the server continues Task execution.
 
-`cmd/noema` owns startup, composition, and dependency-ordered shutdown.
-Packages under `internal/` own runtime, store, memory, providers, capabilities,
-GraphQL, and HTTP. SQLite lives
-at `${NOEMA_HOME:-$HOME/.noema}/noema.sqlite3`, durable human memory lives
-under `${NOEMA_HOME:-$HOME/.noema}/memory/human/`, its rebuildable FTS index
-lives under `system/indexes/`, and provider credential material lives under
-`${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
+### Tasks with plans, execution, and review
 
-## Configuration
+Tasks move through Planner, Executor, and Reviewer runs.
+The Reviewer can accept a result, request corrections, or ask for human input.
+Open the Task to read its request, result, review, and execution transcript.
 
-Browser, web, and MCP defaults may live in the Noema directory's `config.yaml`.
-The default Noema directory is `~/.noema`. Set `NOEMA_HOME` to use another
-directory.
+![A completed Task with an illustrative neighborhood comparison and travel outline](docs/images/task.png)
 
-Example server configuration:
+Group related Tasks into Projects with shared context.
+Use schedules and recurrence templates for work that must run later or repeat.
+Task documents remain editable, and saved history records the work performed.
 
-```yaml
-browser:
-  max_sessions: 2
-  max_old_space_mb: 1024
-web:
-  host: 127.0.0.1
-  port: 3737
-  rp_id: localhost
-```
+[Read about Tasks](docs/tasks.md).
 
-For settings available in both places, environment variables override
-`config.yaml` values.
+### Connect services and control their actions
 
-Supported environment variables include:
+Connect services through HTTP APIs or the Model Context Protocol (MCP).
+Noema supports account authentication, operation discovery, and individual tool controls.
+Connection settings determine how relevant information is shared and how risky calls are reviewed.
 
-- `NOEMA_HOME`
-- `NOEMA_PROVIDER` with the `openai` value for environment setup
-- `NOEMA_OPENAI__API_KEY`
-- `NOEMA_OPENAI__ORGANIZATION_ID`
-- `NOEMA_OPENAI__PROJECT_ID`
-- `NOEMA_MODEL`
-- `NOEMA_REASONING_EFFORT`
-- `NOEMA_BROWSER__MAX_SESSIONS`
-- `NOEMA_BROWSER__MAX_OLD_SPACE_MB`
-- `NOEMA_WEB__HOST`
-- `NOEMA_WEB__PORT`
-- `NOEMA_WEB__RP_ID`
-- `NOEMA_WEB__PUBLIC_ORIGIN`
-- `NOEMA_WEB__DEV_NO_AUTH`
-- `NOEMA_WEB__LOCAL_GRAPHQL_SOCKET`
-- `NOEMA_WEB__GRAPHIQL`
-- `NOEMA_MCP__STDIO_ENABLED`
+![Google Calendar connection settings showing information-sharing choices, action review, and available tools](docs/images/connections.png)
 
-The OpenAI key selects OpenAI when `NOEMA_PROVIDER` is unset. You can also set
-`NOEMA_PROVIDER=openai`. The key enters the protected provider credential
-store. It does not enter `config.yaml` or SQLite.
+Action requests retain the exact call, review, decision, and outcome.
+When policy requires your approval, you can approve or decline that request.
+Some authorized actions can run after model review without a human approval prompt.
 
-If you set `NOEMA_MODEL`, select a current OpenAI profile and also set
-`NOEMA_REASONING_EFFORT`. Otherwise, Noema stores its current recommended model
-assignments. Existing provider credentials and model assignments remain
-unchanged.
+[Read the action and information-handling contract](docs/harness/security.md).
 
-For a server deployment, keep Noema bound to loopback and terminate TLS in a
-reverse proxy on the same host. Configure the exact browser origin and the
-stable WebAuthn relying-party id explicitly:
+### Search, read, and interact with the web
 
-```yaml
-web:
-  host: 127.0.0.1
-  port: 3737
-  rp_id: noema.example.com
-  public_origin: https://noema.example.com
-```
+Use web search and page reading for research.
+Use browser tools when a task requires navigation, page interaction, or a form.
+Configure the browser provider order and the search and fetch services in Settings.
 
-On a fresh database, Noema writes `web.recovery_code` to `config.yaml`.
-Read that code from the server filesystem. Enter it in the setup screen.
-Noema rotates the code after every attempt. A successful attempt permits one
-passkey enrollment. Other application routes remain blocked until enrollment.
+![Web settings showing browser providers and search configuration](docs/images/web.png)
 
-Later browsers authenticate with a passkey. Noema supports multiple passkeys.
-It does not permit removal of the final passkey. Browser sessions use private
-`HttpOnly` and `SameSite=Strict` cookies. HTTPS origins also use `Secure`
-cookies. Browser sessions and their private cookie key survive server restarts.
+Noema includes Obscura and Kernel browser support.
+File upload through browser tools currently requires Kernel.
+Provider access and credentials depend on the selected service.
 
-Treat `web.rp_id` as durable identity configuration. A change invalidates
-credentials registered under the old identifier.
+### Memory you can inspect
 
-Run public release binaries with a dedicated `noema` account. Release binaries
-reject root on Unix. The example [systemd unit](deploy/systemd/noema.service)
-sets a private home and removes Linux capabilities. The example
-[nginx configuration](deploy/nginx/noema.conf.example) terminates TLS and adds
-connection, request, body, and header limits. Replace its host and certificate
-paths before use. Keep Noema bound to loopback.
+Noema keeps durable human memory as Markdown pages.
+Open Memory to read what it knows, follow its organization, and inspect supporting evidence when available.
+Memory search rebuilds its index from those pages.
 
-Codex authentication is handled as Noema-owned provider account state. The web
-onboarding flow blocks chat until an active provider account is authenticated.
-Fast mode is disabled by default. It requests OpenAI's Fast service tier and
-costs more than standard processing.
+![Memory showing sample travel preferences and working preferences](docs/images/memory.png)
 
-## Development
+[Read about memory](docs/memory.md).
 
-Use `.env.example` as a reference for local environment variables. Host-side
-commands read variables from your shell, so export them directly or load them
-with your usual environment manager:
+### Files and saved results
 
-```bash
-export NOEMA_HOME="$PWD/.noema-dev"
-export NOEMA_OPENAI__API_KEY="..."
-```
+Upload files to Tasks, download public resources, and keep generated artifacts with their owning work.
+Artifact previews support PDF, spreadsheets, email, raster images, and isolated HTML.
+Results can cite an artifact and a precise location within it.
 
-Go server validation:
+Agents can also run bounded Lua calculations over supplied data.
+That Lua environment does not provide file, network, process, or environment access.
 
-```bash
-CGO_ENABLED=0 go test ./cmd/... ./internal/...
-CGO_ENABLED=0 go vet ./cmd/... ./internal/...
-```
+### Choose the models for the work
 
-Retained Rust validation:
+Use OpenAI, Codex, OpenRouter, or supported local GGUF models.
+Choose models for the primary agent, Task review, and Task complexity levels.
+Supported providers expose reasoning and speed settings.
 
-```bash
-cargo fmt --all --check
-cargo check-workspace
-cargo gate-lint
-cargo gate-test
-```
+![Agent settings showing model choices for the primary agent and Task roles](docs/images/models.png)
 
-Use `go test` with package paths for focused server checks. Use
-`scripts/validate-rust <cargo-command> [arguments]` for focused retained Rust checks.
-The supervisor coalesces short save bursts. The frontend keeps GraphQL
-generation and Vite's build graph warm between edits.
+Local models run on the server host. Hardware and model capabilities affect the available experience.
+Hosted provider charges remain separate from Noema.
 
-Frontend assets are built with Bun. The web build is emitted under
-`target/web-assets`. The Go release build validates and embeds those assets:
+### Use the same server across devices
 
-```bash
+The responsive web app works on desktop and phone.
+The Tauri desktop app can use its bundled Go server or connect to a remote server.
+The native SwiftUI app connects iPhone and iPad to your server.
+
+<img src="docs/images/task-phone.png" alt="The same sample Task result in the responsive phone web interface" width="390">
+
+*Phone web interface. This is not a native iOS screenshot.*
+
+Web Push, Apple push notifications, and Tasks Live Activities provide updates outside the app.
+Apple notifications and Live Activities require the relevant signing, entitlements, and server configuration.
+
+[Desktop setup](docs/development/setup.md#connect-the-desktop-app-to-a-server) · [iPhone and iPad setup](apps/ios/README.md)
+
+## Get started
+
+Noema is under active development. Start with a local web build on Linux or macOS.
+You need **Go 1.26.6**, **Bun**, and access to a supported model provider.
+Rust is required only for the desktop shell.
+
+```sh
+git clone https://github.com/kpsuperplane/Noema.git
+cd Noema
 cd apps/web
 bun install --frozen-lockfile
-bun run check:generated
-bun run lint
-bun run build
+cd ../..
+NOEMA_HOME="$PWD/.noema-dev" go run ./cmd/noema-dev
 ```
 
-For standalone web development, run the combined local supervisor from the repo
-root:
+Open the address printed by the server, normally `http://localhost:3737`.
+Complete address setup and initial passkey registration, then configure a model provider.
+The development supervisor runs the Go server and frontend asset watchers.
+It downloads its pinned Air dependency when needed.
 
-```bash
-NOEMA_HOME=.noema-dev go run ./cmd/noema-dev
+For OpenAI environment setup, supply `NOEMA_OPENAI__API_KEY` through your environment manager before startup.
+Do not put credentials in source files.
+For local models, use the model installation and agent settings screens.
+
+The root development environment in this repository uses `./attach` instead.
+See [development access](AGENTS.md#noema-development-access) for its inspection socket and read-only home view.
+
+[Complete setup and configuration](docs/development/setup.md) · [Server deployment and authentication](docs/server-security.md) · [Local CLI](docs/cli.md)
+
+## Architecture
+
+One Go server composes the API, Chat runtime, Task workers, providers, and integration services.
+Chat and Tasks have separate execution loops and share storage and service dependencies.
+The diagram follows the [server startup code](cmd/noema/main.go), rather than the product roadmap.
+
+```mermaid
+flowchart TB
+    Clients[Web · desktop · iOS] --> Auth[Authentication]
+    CLI[Local CLI] --> Socket[Private Unix socket]
+    Auth --> API[GraphQL requests and subscriptions]
+    Socket --> API
+    subgraph Server[Go server]
+        API --> Chat[Chat runtime]
+        API --> Tasks[Task workers: plan · execute · review]
+        API --> Store[Shared store]
+        Schedules[Schedules and recurrence] --> Store
+        Store -. work signals .-> Tasks
+        Chat --> Models[Hosted and local models]
+        Tasks --> Models
+        Chat --> Tools[Tool handling and action review]
+        Tasks --> Tools
+        Tools --> Services[MCP · HTTP adapters · web tools]
+        Tools --> Files[Project documents · files · artifacts]
+        Chat --> Memory[Markdown memory]
+        Chat --> Store
+        Tasks --> Store
+        Tools --> Store
+        Store -. change signals .-> API
+        Chat -. live events .-> API
+        Store -. change signals .-> Notifications[Push notifications]
+        Chat -. live events .-> Notifications
+    end
+    Services --> External[External services and browser backends]
+    Store --> DB[(SQLite)]
+    Files --> Home[(NOEMA_HOME files)]
+    Memory --> Home
+    Tasks --> Home
+    Notifications --> Clients
 ```
 
-To run the authenticated loopback server without the development asset watcher,
-run the Go command:
+The default data directory is `~/.noema`; `NOEMA_HOME` selects another location.
+SQLite stores structured state. Files hold Task and Project documents, memory, artifacts, and protected credentials.
+For a backup, stop Noema and copy the complete data directory.
 
-```bash
-NOEMA_HOME=.noema-dev go run ./cmd/noema
-```
+| Location | Responsibility |
+| --- | --- |
+| `cmd/noema/` | Server startup and shutdown |
+| `internal/runtime/` | Chat, Task execution, and action handling |
+| `internal/store/` | SQLite state and transactions |
+| `internal/provider/`, `internal/localmodel/` | Hosted and local model execution |
+| `internal/adapter/`, `internal/mcp/`, `internal/webtool/` | Service and web integrations |
+| `apps/web/` | React interface |
+| `apps/ios/` | Native SwiftUI client |
+| `crates/noema-desktop/` | Tauri desktop shell |
 
-The [Noema CLI](docs/cli.md) provides status, GraphQL, Tasks, and streaming Chat commands.
-The private local socket is enabled by default on Linux and macOS.
-Use `noema --socket /tmp/noema-codex/graphql.sock status` with the development relay.
+## Status and contributing
 
-`go run ./cmd/noema-dev` explicitly enables the local socket. It also binds
-the development server to `127.0.0.1`. Authentication follows `config.yaml` and
-is enabled by default. Processes with source-home access can use `${NOEMA_HOME}/run/graphql.sock` without a passkey.
-Codex uses the private relay described below; development inspection does not require disabling public authentication.
+The current product serves one local owner. Shared workspaces and multiple human accounts are not available.
+Desktop signing, notarization, updates, and distribution validation remain release work.
+Native iOS builds require macOS and Xcode.
+Controlled acceptance checks do not prove that every external provider or real-world action works.
 
-When root starts `./attach`, Go keeps root ownership of the build process.
-The launcher stages generated files under `/run/noema-dev` and runs only the
-Noema server as `noema-dev`. Its default home is `/var/lib/noema-dev`.
-The Linux root launcher requires `bindfs`. It provides `/tmp/noema-codex/graphql.sock` for browser inspection
-and `/tmp/noema-codex/home` for complete read-only home inspection.
-Running the Go supervisor directly does not provide these inspection paths.
-See [Noema Development Access](AGENTS.md#noema-development-access) for commands and troubleshooting.
+For development, read [AGENTS.md](AGENTS.md) and the [setup guide](docs/development/setup.md).
+Keep changes focused and run the checks for the affected code.
+The [current context](docs/context/current.md) records active constraints and open work.
 
-The supervisor watches the Go server.
-
-For frontend development against the desktop app, run the Tauri-oriented Vite
-build/watch task:
-
-```bash
-cd apps/web
-bun run dev:tauri
-```
-
-For a local desktop build without installer bundles, install frontend and
-desktop CLI dependencies exactly from their lockfiles. Tauri's build hook
-creates the desktop frontend assets:
-
-```bash
-cd apps/web
-bun install --frozen-lockfile
-cd ../../crates/noema-desktop
-bun install --frozen-lockfile
-```
-
-Then, from the repository root:
-
-```bash
-cd crates/noema-desktop && bun run build:no-bundle
-```
-
-The current desktop bundle is developer-only; signing, notarization, updates,
-and clean-machine distribution validation remain future release work.
-
-### Connect the desktop app to a server
-
-The desktop app uses its embedded local Noema instance by default. To connect
-it to a server, create a connection link under **Settings > System > Clients**.
-The link contains only the server origin. Open it with the installed desktop
-app, or paste it under **Settings > System > Desktop**.
-
-Remote connections require the server's exact `https` public origin and an
-operating-system-trusted certificate. Noema rejects HTTP, localhost, IP-address
-origins, redirects, and custom certificate authorities. The desktop app opens
-the system browser for OAuth. Authorization requires PKCE and recent passkey
-approval.
-
-The operating system credential store keeps the origin, client identifier, and
-rotating refresh credential. Access tokens stay in memory.
-
-The desktop app keeps one active remote server. **Use local Noema** revokes the
-remote OAuth family, removes its credential, and restarts the local Go sidecar.
-Noema also restarts after a successful connection to clear server-specific UI
-state.
-If remote startup fails, retry the connection or return to local mode. If the
-server is unavailable, **Forget this server** only removes local credentials.
-Revoke that client later from another authenticated client.
-
-Use the Rust desktop crate for desktop-side validation:
-
-```bash
-scripts/validate-rust check -p noema-desktop
-scripts/validate-rust test -p noema-desktop
-```
-
-## Repository Layout
-
-```text
-cmd/noema/                    Go server entrypoint and process composition
-internal/                     Go server runtime, store, API, and integrations
-apps/web/                     React UI and GraphQL operation generation
-apps/ios/                     Native SwiftUI client and Live Activity extension
-graphql/                      Generated shared GraphQL schema
-crates/noema-desktop/         Tauri shell for local Go and remote servers
-cmd/noema-dev/                Go development supervisor
-cmd/noema-model-evals/        Go model qualification runner
-docs/                         Current contracts, active plans, and dated evidence
-```
+Screenshot sources and capture limits are recorded in [the screenshot notes](docs/images/README.md).
+Noema is available under the [MIT license](LICENSE).
