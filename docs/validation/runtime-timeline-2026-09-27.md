@@ -58,3 +58,39 @@ The desktop screenshot confirms two columns at 1440 × 1000.
 The phone view retains one column at 390 × 844, without horizontal overflow.
 Keyboard selection, dismissal, and a browser-only long label still pass.
 No product records changed.
+
+## Chrome scrolling follow-up
+
+The reported symptom was dropped frames during desktop trackpad scrolling in Chrome.
+The dialog has one scroll area and no custom scroll animation.
+A completed profile does not poll. Its timeline has no scroll event handler.
+
+Read-only inspection used the latest saved three-span turn, `turn:146ba2cad3e07a02722d76262202b63d`.
+A browser-only stress case copied 30 timeline rows and reduced the viewport to 1000 × 400.
+The copies did not change React data or saved records.
+Twenty wheel inputs moved the content by 700 pixels.
+Chrome traces collected paint, raster, layout, and script work.
+Raster work means converting painted content into pixels for display.
+
+| Same-page comparison | Raster tasks | Total raster time |
+| --- | ---: | ---: |
+| Original | 125 | 41.962 ms |
+| Scroll area with `translateZ(0)` | 74 | 8.715 ms |
+| Original restored | 125 | 50.814 ms |
+
+The isolated comparison retained the backdrop blur and corner shape.
+Separate probes of corner shape, entrance transform, and backdrop blur did not establish an improvement.
+The correction adds `translateZ(0)` to this dialog's existing scroll content.
+This gives the content a separate compositor layer and reduces measured raster work.
+It adds three production lines and removes one. No tests were added.
+
+These Linux headless Chrome measurements show a rendering improvement, not the user's device frame rate.
+They do not prove that all reported dropped frames have been removed.
+
+The rebuilt app confirms the scroll-content transform.
+Its repeat trace recorded 74 raster tasks totaling 6.731 ms.
+Desktop and phone checks retained selection, keyboard dismissal, and long-label wrapping.
+Screenshots were captured again after the opening animation settled.
+Generated-artifact checks, focused component ESLint, and the production build passed.
+Full lint remains blocked by the same model-settings type error.
+No product data changed, and no test messages were sent.

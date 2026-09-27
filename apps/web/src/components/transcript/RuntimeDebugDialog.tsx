@@ -72,7 +72,7 @@ export function RuntimeDebugDialog({
       <Layout
         header={<DialogHeader title={title} onOpenChange={onOpenChange} />}
         content={
-          <LayoutContent>
+          <LayoutContent {...stylex.props(styles.scrollContent)}>
             <div {...stylex.props(styles.body)}>
               {query.loading && !profile ? <p {...stylex.props(styles.state)}>Loading runtime profile…</p> : null}
               {query.error ? (
@@ -280,6 +280,8 @@ function humanize(value: string): string {
 }
 
 const styles = stylex.create({
+  // Keep scrolling on a separate compositor layer from the dialog and its backdrop.
+  scrollContent: { transform: "translateZ(0)" },
   body: { display: "grid", gap: "var(--spacing-4)" },
   state: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
   errorState: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)", color: "var(--destructive)", fontSize: 13 },
