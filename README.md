@@ -1,17 +1,58 @@
 # Noema
 
-**A self-hosted personal agent that carries work from conversation through execution and review.**
+**One main chat. Complex work delegated. Security built in.**
 
-Talk through an idea, delegate a Task, connect your services, and inspect the result.
-Noema keeps conversations, task history, documents, and memory on your server.
-Hosted models and connected services receive data when you use them.
+Noema is an opinionated, self-hosted personal assistant.
+Its central bet: one ongoing conversation is a better home for a personal assistant than a collection of separate chats.
+Bring your questions, plans, and follow-ups to the same assistant.
+When work becomes complex, Noema delegates it to Tasks with separate planning, execution, and review.
 
-[Get started](#get-started) · [Feature tour](#feature-tour) · [Architecture](#architecture) · [Development](docs/development/setup.md) · [MIT license](LICENSE)
+Noema comes with a strong security model built around deterministic checks enforced by the server.
+Models help assess intent and risk; code checks tool inputs, enforces action states, and consumes approvals for exact calls.
+
+[Why Noema](#why-noema) · [Get started](#get-started) · [Feature tour](#feature-tour) · [Architecture](#architecture) · [Development](docs/development/setup.md) · [MIT license](LICENSE)
 
 ![Noema Chat showing a sample travel conversation and a clear follow-up answer](docs/images/chat.png)
 
 *Screenshots show the running web app with illustrative sample content substituted in the browser.
 They do not show completed travel research or real bookings. No saved user data was changed.*
+
+## Why Noema
+
+### One main chat for your life
+
+Personal assistance is continuous. A calendar question can become a travel plan, a research task, or a reminder for next week.
+Noema gives you one main conversation for that relationship.
+You should not need to choose a thread or assemble a team of agents before asking for help.
+Durable memory carries useful personal context beyond an individual exchange.
+
+### Delegate complexity, keep the conversation
+
+The main assistant remains your point of contact.
+Complex work moves into Tasks, where agents can plan, use tools, produce results, and review each other's work.
+You can keep talking while those Tasks run, then inspect their results or answer questions when needed.
+Projects and recurring Tasks give longer work a place without making you manage more chat threads.
+
+### Security is part of the system
+
+Noema includes security controls out of the box.
+The model's judgment operates within rules that the server enforces:
+
+- **Checked tool inputs.** Calls must satisfy their tool's input contract before execution.
+- **Exact approvals.** A human approval applies to one saved action request and is consumed when execution starts.
+- **Connection policies.** Each connection controls information sharing and the review route for risky actions.
+- **Protected credentials.** Credential stores supply secrets to services without placing them in model context or ordinary conversation history.
+- **Recorded outcomes.** Action requests retain their inputs, review, decision, execution state, and result.
+
+This makes much of action enforcement deterministic: the same stored state must satisfy the same code checks.
+Intent and risk assessment still use model judgment. Some authorized actions can run after model review without a human approval prompt.
+
+[Security model](docs/harness/security.md) · [Authentication and server access](docs/server-security.md)
+
+### Your server, your records
+
+Noema keeps conversations, task history, documents, and memory on your server.
+Hosted models and connected services receive data when you use them.
 
 ## Try it with your own work
 
@@ -23,11 +64,11 @@ Available actions depend on your models, connected accounts, and connection poli
 
 ## Feature tour
 
-### Chat, then carry the work forward
+### One conversation, with work happening alongside it
 
 Chat supports streamed replies, follow-up questions, tool activity, and human decisions.
-Ask Noema to use connected services, search the web, or delegate longer work to a Task.
-Return to the conversation while the server continues Task execution.
+Ask the main assistant to use connected services, search the web, or delegate longer work to a Task.
+Stay in the same conversation while the server continues Task execution.
 
 ### Tasks with plans, execution, and review
 
@@ -51,9 +92,8 @@ Connection settings determine how relevant information is shared and how risky c
 
 ![Google Calendar connection settings showing information-sharing choices, action review, and available tools](docs/images/connections.png)
 
-Action requests retain the exact call, review, decision, and outcome.
 When policy requires your approval, you can approve or decline that request.
-Some authorized actions can run after model review without a human approval prompt.
+Inspect the saved action to see what was requested and what happened.
 
 [Read the action and information-handling contract](docs/harness/security.md).
 
