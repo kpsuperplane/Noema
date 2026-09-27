@@ -56,7 +56,7 @@ export function RuntimeDebugDialog({
   }, [profile?.status, startPolling, stopPolling]);
 
   const focused = profile ? focusedSpan(profile.spans, target?.focus) : undefined;
-  const selected = profile?.spans.find((span) => span.id === selectedId) ?? focused ?? null;
+  const selected = profile?.spans.find((span) => span.id === selectedId) ?? focused ?? profile?.spans[0] ?? null;
   const hasProfile = Boolean(profile?.spans.length);
   const title = scope?.kind === "TASK_RUN" ? "Agent run runtime" : "Turn runtime";
 
@@ -83,7 +83,14 @@ export function RuntimeDebugDialog({
               ) : null}
               {profile ? <ProfileSummary profile={profile} /> : null}
               {profile && hasProfile ? (
-                <RuntimeTimeline profile={profile} selectedId={selected?.id ?? null} onSelect={setSelectedId} />
+                <HStack gap={4} {...stylex.props(styles.inspector)}>
+                  <RuntimeTimeline profile={profile} selectedId={selected?.id ?? null} onSelect={setSelectedId} />
+                  {selected ? (
+                    <VStack {...stylex.props(styles.inspectorDetails)}>
+                      <SpanDetails span={selected} />
+                    </VStack>
+                  ) : null}
+                </HStack>
               ) : null}
               {profile && !hasProfile ? (
                 <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this turn or run.</p>
@@ -94,7 +101,7 @@ export function RuntimeDebugDialog({
               {target && !scope ? (
                 <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this historical message.</p>
               ) : null}
-              {selected ? <SpanDetails span={selected} /> : target?.legacyUsage ? <LegacyUsage debug={target.legacyUsage} /> : null}
+              {!hasProfile && target?.legacyUsage ? <LegacyUsage debug={target.legacyUsage} /> : null}
             </div>
           </LayoutContent>
         }
@@ -302,7 +309,21 @@ const styles = stylex.create({
   stepName: { overflowWrap: "anywhere", minWidth: 0, fontWeight: 600 },
   duration: { flexShrink: 0, fontFamily: "var(--noema-font-mono)", fontVariantNumeric: "tabular-nums" },
   stepMetadata: { color: "var(--muted-foreground)", fontWeight: 400 },
-  detailsSection: { display: "grid", gap: "var(--spacing-2)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border)", paddingTop: "var(--spacing-3)" },
+  // The desktop inspector reserves about 480px for steps and 350px for details.
+  inspector: {
+    display: "grid", alignItems: "start",
+    gridTemplateColumns: { default: "minmax(0, 1.4fr) minmax(0, 1fr)", "@media (max-width: 760px)": "minmax(0, 1fr)" }
+  },
+  inspectorDetails: {
+    minWidth: 0,
+    borderInlineStartWidth: { default: 1, "@media (max-width: 760px)": 0 },
+    borderInlineStartStyle: "solid", borderInlineStartColor: "var(--border)",
+    paddingInlineStart: { default: "var(--spacing-4)", "@media (max-width: 760px)": "var(--spacing-0)" },
+    borderTopWidth: { default: 0, "@media (max-width: 760px)": 1 },
+    borderTopStyle: "solid", borderTopColor: "var(--border)",
+    paddingTop: { default: "var(--spacing-0)", "@media (max-width: 760px)": "var(--spacing-3)" }
+  },
+  detailsSection: { display: "grid", gap: "var(--spacing-2)" },
   sectionTitle: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: 12, fontWeight: 600 },
   details: { display: "grid", gap: "var(--spacing-1-5)", margin: "var(--spacing-0)" },
   detailRow: { display: "grid", gridTemplateColumns: "120px minmax(0, 1fr)", gap: "var(--spacing-2)", fontSize: 12 },

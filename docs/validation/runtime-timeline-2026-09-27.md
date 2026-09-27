@@ -41,3 +41,20 @@ A temporary browser-only long label wrapped without overflow; its region stayed 
 No product records changed. No messages were sent.
 Screenshots remain outside the repository in `/var/tmp/runtime-*.png`.
 Running, error, empty, and Task profiles received source review only.
+
+## Two-column follow-up
+
+Desktop now places the timeline beside the selected span details.
+The existing 900-pixel dialog gives more width to the timeline.
+At 760 pixels and below, details follow the timeline in one column.
+A profile without a matching focus selects its first span.
+The component patch adds 25 lines and removes four lines. No tests were added.
+
+Checks cover the follow-up component changes and remain valid after this note.
+`bun run check:generated`, `bun run build`, and focused component ESLint passed.
+`bun run lint` still stops at the unchanged model-settings type error described above.
+Browser inspection initially saw old assets. Inspection repeated after the rebuilt assets became available.
+The desktop screenshot confirms two columns at 1440 × 1000.
+The phone view retains one column at 390 × 844, without horizontal overflow.
+Keyboard selection, dismissal, and a browser-only long label still pass.
+No product records changed.
