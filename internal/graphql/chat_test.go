@@ -79,6 +79,29 @@ func TestToolActivityRetriesKeepSeparateDisplayIDs(t *testing.T) {
 	}
 }
 
+func TestToolVisibilityMatchesLiveAndSavedCalls(t *testing.T) {
+	for _, name := range []string{"task.delegate", "web.browse.close", "enable.calendar.move_event", "web.search"} {
+		for _, kind := range []store.ConversationItemKind{store.ConversationActivity, store.ConversationToolCall, store.ConversationToolResult} {
+			activityKind := "tool_call"
+			if kind == store.ConversationToolResult {
+				activityKind = "tool_result"
+			}
+			item := store.ConversationItem{
+				ID: "item:test", Kind: kind, Status: "running",
+				Payload: map[string]any{"id": "item:test", "activity_kind": activityKind, "title": "Tool call",
+					"metadata": map[string]any{"action": map[string]any{"name": name}}},
+			}
+			shown, err := transcriptItemModel(item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (shown != nil) != (name == "web.search") {
+				t.Fatalf("%s %s visibility differs from saved history: %#v", name, kind, shown)
+			}
+		}
+	}
+}
+
 func TestPrimaryConversationServesEmptyReadyChat(t *testing.T) {
 	resolver := openChatTestResolver(t)
 	ctx := context.Background()

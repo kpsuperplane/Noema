@@ -338,7 +338,8 @@ func transcriptItemModel(item store.ConversationItem) (model.TranscriptItem, err
 			Version: version, Revision: intJSONModel(snapshot["revision"]), InteractionRevision: interactionRevision,
 			Lifecycle: lifecycle, Catalog: catalog, Snapshot: snapshot, HasActions: len(actions) != 0}, nil
 	case store.ConversationActivity, store.ConversationToolCall, store.ConversationToolResult, store.ConversationApprovalRequest:
-		if (item.Kind == store.ConversationToolCall || item.Kind == store.ConversationToolResult) && hiddenToolActivity(item.Payload) {
+		if (item.Kind == store.ConversationToolCall || item.Kind == store.ConversationToolResult ||
+			item.Payload["activity_kind"] == "tool_call" || item.Payload["activity_kind"] == "tool_result") && hiddenToolActivity(item.Payload) {
 			return nil, nil
 		}
 		id, _ := item.Payload["id"].(string)
