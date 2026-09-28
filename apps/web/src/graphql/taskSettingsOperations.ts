@@ -10,6 +10,7 @@ export const TaskModelPoolEntryFields = gql`
     poolEntryId
     complexity
     label
+    enabled
     providerKind
     providerAccountId
     modelProfile

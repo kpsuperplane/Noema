@@ -101,6 +101,7 @@ function PoolEntryRow({
       complexity: entry.complexity,
       // Preserve legacy aliases without exposing the generic field in Settings.
       label: entry.label,
+      enabled: entry.enabled,
       providerKind: provider?.providerKind ?? entry.providerKind,
       providerAccountId: next.providerAccountId,
       selectionMode: next.selectionMode,
