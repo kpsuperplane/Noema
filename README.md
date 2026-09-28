@@ -76,7 +76,7 @@ Tasks move through Planner, Executor, and Reviewer runs.
 The Reviewer can accept a result, request corrections, or ask for human input.
 Open the Task to read its request, result, review, and execution transcript.
 
-![A completed itinerary Task with its real research result and a camera Task running alongside it](docs/images/task.png)
+![A completed itinerary Task with its real research result and camera research in Task history](docs/images/task.png)
 
 Group related Tasks into Projects with shared context.
 Use schedules and recurrence templates for work that must run later or repeat.

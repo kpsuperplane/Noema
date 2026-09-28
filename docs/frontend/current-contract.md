@@ -219,6 +219,7 @@ The floating Task context card occupies the Workspace column in the wide layout.
 Task and recurring task action bars share the document’s 760-pixel width limit and centered side margins.
 The Task loading placeholder uses the same width and placement.
 Transcript fills the right column’s height.
+The Task summary bar is 50 pixels high, including its border. Its 48-pixel header uses compact vertical padding.
 The action bar shows task state above the latest live activity at every width.
 Human attention takes priority and shows its summary. Inactive tasks omit old run activity.
 Activity stays on one line; full content remains in Transcript. Agent identity stays with the avatar.

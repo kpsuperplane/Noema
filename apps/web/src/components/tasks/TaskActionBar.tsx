@@ -38,7 +38,7 @@ const styles = stylex.create({
     position: "relative",
     zIndex: 2,
     minWidth: 0,
-    minHeight: "calc(2 * var(--spacing-6) + var(--spacing-2) + 2 * var(--border-width))",
+    minHeight: "calc(2 * var(--spacing-6) + 2 * var(--border-width))",
     justifyContent: "center",
     flex: "0 0 auto",
     marginBlockStart: "var(--spacing-0)",

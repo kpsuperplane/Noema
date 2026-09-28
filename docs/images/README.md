@@ -31,8 +31,8 @@ The normal recovery action directed it to continue with web search and label unv
 No saved action or result was rewritten.
 The itinerary then completed execution and passed review at 04:55 UTC.
 The desktop and phone Task images show its actual result.
-The camera Task was still running when those images were captured.
-The earlier Chat image records both Tasks in progress.
+Both Tasks had completed when the compact-bar images were captured.
+Chat is scrolled to their earlier delegation exchange.
 
 The memory update action failed twice because generated pages cited ineligible sources.
 The prior sample memory image has been removed from the README.
@@ -78,3 +78,18 @@ All six replacement images received visual review.
 The desktop and phone Task captures have no horizontal page overflow.
 README links, image paths, and Git whitespace checks passed.
 No application builds or test suites were required for this documentation-only change.
+
+## Compact Task bar refresh
+
+Chat, desktop Task, and phone Task images were captured again after reducing the shared bar height.
+The bar measures 50 pixels, down from 58 pixels, at all three captured widths.
+Its buttons and icons keep their existing sizes.
+The new-task screen also received desktop and phone visual review.
+These captures used existing data and made no product changes.
+
+The compact-bar change passed frontend type checking and lint.
+The main Vite bundle built successfully; its parent command stopped before the GraphiQL build.
+The remaining `bun run build:graphiql` step passed when run separately.
+`bun run check:generated` passed after committing the required model-settings input correction.
+That correction preserves the existing enabled state when saving a model choice.
+Both Tasks were complete, so this refresh did not capture a live running or approval state.
