@@ -168,6 +168,8 @@ Chat presents one pending human intervention at a time with queue navigation.
 Chat omits approval-request activity notices. The tool marker shows the activity,
 and the pending intervention card provides approval controls.
 Tasks and dedicated queue surfaces can show the complete pending list.
+Browser page approvals name the website and show the full URL and Noema's stated reason.
+The `Open page once` control approves one request. Review details retain the saved action and assessment.
 Browser submission approvals show the declared destination, method, and visible
 submitted values before the decision controls. Hidden, password, and file values remain omitted.
 An agent request to enable a disabled tool uses the existing action request

@@ -84,6 +84,7 @@ export function GovernedActionCard({
   const [pendingDecision, setPendingDecision] = React.useState<GovernedActionDecision | null>(null);
   const [developerDetailsOpen, setDeveloperDetailsOpen] = React.useState(false);
   const browserPreview = parseBrowserActionPreview(action.arguments);
+  const browserOpen = browserOpenPreview(action);
   const toolEnablement = toolEnablementTarget(action.capabilityName);
   const browserSessionEnded = action.browserSessionAvailable === false;
   const decide = async (decision: GovernedActionDecision) => {
@@ -108,7 +109,7 @@ export function GovernedActionCard({
   };
   return (
     <HumanInterventionCard
-      label={toolEnablement ? undefined : reviewLabel(action.reviewRoute, action.behavior?.readOnly)}
+      label={toolEnablement ? undefined : browserOpen ? "Permission needed" : reviewLabel(action.reviewRoute, action.behavior?.readOnly)}
       meta={toolEnablement ? undefined : action.actionTask ? (
         <Link
           to="/tasks/$taskId"
@@ -119,7 +120,7 @@ export function GovernedActionCard({
           {action.actionTask.title}
         </Link>
       ) : "Primary conversation"}
-      title={browserPreview ? browserActionTitle(browserPreview) : actionRequestTitle(action)}
+      title={browserOpen ? `Open ${browserOpen.host}?` : browserPreview ? browserActionTitle(browserPreview) : actionRequestTitle(action)}
       error={error}
       actions={(
         <>
@@ -145,7 +146,7 @@ export function GovernedActionCard({
           <Button
             size="sm"
             variant="primary"
-            label={browserSessionEnded ? "Session ended" : toolEnablement ? "Enable tool" : "Approve once"}
+            label={browserSessionEnded ? "Session ended" : toolEnablement ? "Enable tool" : browserOpen ? "Open page once" : "Approve once"}
             isLoading={pendingDecision === "APPROVE"}
             isDisabled={resolution.loading || browserSessionEnded}
             onClick={() => void decide("APPROVE")}
@@ -184,7 +185,19 @@ export function GovernedActionCard({
           <BrowserInteractionDetails preview={browserPreview} capabilityName={action.capabilityName} />
         ) : (
           <VStack gap={2}>
-            <span {...stylex.props(styles.consequence)}>{action.consequence}</span>
+            {browserOpen ? (
+              <VStack gap={2}>
+                <span {...stylex.props(styles.consequence)}>
+                  Noema will open this page in a browser. The website receives the page address, including any information in it.
+                </span>
+                <span {...stylex.props(styles.pageUrl)}>{browserOpen.url}</span>
+                {browserOpen.reason ? (
+                  <MetadataList columns="single" label={{ position: "top" }}>
+                    <MetadataListItem label="Noema’s reason">{browserOpen.reason}</MetadataListItem>
+                  </MetadataList>
+                ) : null}
+              </VStack>
+            ) : <span {...stylex.props(styles.consequence)}>{action.consequence}</span>}
             {!toolEnablement ? (
               <details {...stylex.props(styles.details)}>
                 <summary>Review details</summary>
@@ -201,6 +214,19 @@ export function GovernedActionCard({
   );
 }
 
+function browserOpenPreview(action: PendingGovernedAction) {
+  if (action.capabilityName !== "web.browse.open" || !isRecord(action.arguments)) return null;
+  const { url, reason } = action.arguments;
+  if (typeof url !== "string") return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    return { url, host: parsed.host, reason: typeof reason === "string" ? reason : undefined };
+  } catch {
+    return null;
+  }
+}
+
 function actionRequestTitle(action: PendingGovernedAction) {
   const toolName = toolEnablementTarget(action.capabilityName);
   if (toolName) {
@@ -208,7 +234,7 @@ function actionRequestTitle(action: PendingGovernedAction) {
     return `Enable “${toolActionLabel(toolName)}” in ${serviceName}?`;
   }
   const target = actionTargetName(action);
-  if (action.behavior?.readOnly) return `Share request data with ${target}?`;
+  if (action.behavior?.readOnly) return `Allow: ${action.safeSummary || toolActionLabel(action.capabilityName)}?`;
   if (action.behavior?.destructive) return `Allow a destructive change in ${target}?`;
   return `Allow this change in ${target}?`;
 }

@@ -84,6 +84,7 @@ Do not commit live response dumps, credentials, or private screenshots.
 
 The six retained sample images received visual review on September 27.
 The refreshed opening image received a separate visual review on September 28.
+It now shows the updated browser permission prompt with the website, URL, and stated reason.
 Relative documentation links and image paths were checked.
-Git whitespace checks passed. No application code changed in this unit.
-Application builds and test suites were not required for these documentation changes.
+The original documentation changes required no application builds or test suites.
+The permission prompt update received separate frontend checks and desktop and phone review.
