@@ -12,10 +12,10 @@ Models help assess intent and risk; code checks tool inputs, enforces action sta
 
 [Why Noema](#why-noema) · [Get started](#get-started) · [Feature tour](#feature-tour) · [Architecture](#architecture) · [Development](docs/development/setup.md) · [MIT license](LICENSE)
 
-![Noema Chat showing a sample travel conversation and a clear follow-up answer](docs/images/chat.png)
+![Noema Chat with real web research and delegated background Tasks](docs/images/chat.png)
 
-*Screenshots show the running web app with illustrative sample content substituted in the browser.
-They do not show completed travel research or real bookings. No saved user data was changed.*
+*The opening screenshot shows a real conversation, tool calls, and delegated Tasks from a fresh instance.
+Other screenshots use illustrative sample content. No bookings were made.*
 
 ## Why Noema
 
