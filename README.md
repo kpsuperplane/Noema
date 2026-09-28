@@ -14,8 +14,8 @@ Models help assess intent and risk; code checks tool inputs, enforces action sta
 
 ![Noema Chat with real web research and delegated background Tasks](docs/images/chat.png)
 
-*The opening screenshot shows a real conversation, tool calls, and delegated Tasks from a fresh instance.
-Other screenshots use illustrative sample content. No bookings were made.*
+*Screenshots show a fresh session with real messages, tool calls, delegated Tasks, and current settings.
+No bookings or purchases were made.*
 
 ## Why Noema
 
@@ -76,7 +76,7 @@ Tasks move through Planner, Executor, and Reviewer runs.
 The Reviewer can accept a result, request corrections, or ask for human input.
 Open the Task to read its request, result, review, and execution transcript.
 
-![A completed Task with an illustrative neighborhood comparison and travel outline](docs/images/task.png)
+![A completed itinerary Task with its real research result and a camera Task running alongside it](docs/images/task.png)
 
 Group related Tasks into Projects with shared context.
 Use schedules and recurrence templates for work that must run later or repeat.
@@ -115,8 +115,6 @@ Noema keeps durable human memory as Markdown pages.
 Open Memory to read what it knows, follow its organization, and inspect supporting evidence when available.
 Memory search rebuilds its index from those pages.
 
-![Memory showing sample travel preferences and working preferences](docs/images/memory.png)
-
 [Read about memory](docs/memory.md).
 
 ### Files and saved results
@@ -145,7 +143,7 @@ The responsive web app works on desktop and phone.
 The Tauri desktop app can use its bundled Go server or connect to a remote server.
 The native SwiftUI app connects iPhone and iPad to your server.
 
-<img src="docs/images/task-phone.png" alt="The same sample Task result in the responsive phone web interface" width="390">
+<img src="docs/images/task-phone.png" alt="The same real Task in the responsive phone web interface" width="390">
 
 *Phone web interface. This is not a native iOS screenshot.*
 

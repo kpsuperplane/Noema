@@ -1,90 +1,80 @@
 # README screenshots
 
-The screenshots use the running Noema web app and its current styles.
-The opening Chat image was refreshed on 2026-09-28. The other images were captured on 2026-09-27.
+The September 28, 2026 refresh uses the running Noema app after commit `a181cdea`.
+All displayed messages, tool calls, Task documents, and settings are real.
+No browser response substitutions or invented results were used.
 
-## Opening Chat image
+## Fresh session
 
-The user requested a fresh instance with accounts and settings preserved.
-The server was stopped, and a complete protected backup was saved before the reset.
-Chat, Tasks, memory, and their related content were cleared.
-Retained database settings and protected account files were checked for exact preservation before restart.
+The user requested another reset with accounts and settings preserved.
+The server was stopped, and a complete backup was saved in a protected directory.
+Chat, Tasks, memory, and related content were cleared.
+Retained database tables and protected account files matched their values before the reset.
 Database integrity and foreign-key checks passed.
+The development launcher restarted the existing instance.
 
-The new conversation uses short messages about a Portland weekend and compact travel cameras.
-Each message adds one question or preference.
-Noema performed real public web research and created real background Tasks.
-Messages, tool results, Task documents, statuses, and links were not substituted.
-The Chat is scrolled to the delegation exchange, with the routes Task transcript open beside it.
-Earlier and later messages remain in the conversation outside the captured viewport.
-Capture used the standard read-only browser inspection helper.
-The CLI sent the conversation messages through the normal product API.
-No external messages or bookings were requested.
-The fresh conversation and its Tasks remain in the development instance.
+Short messages established a Portland weekend, a detailed itinerary, and a compact camera shortlist.
+A follow-up asked about streetcar fares while the Tasks ran.
+The CLI sent each message through the normal product API.
+No bookings, purchases, external messages, or account changes were requested.
+The resulting session remains in the development instance.
 
-The image records the state at capture. It does not claim that every research Task had finished.
-The routes Task had a pending public-web approval. The camera Task was also active.
-A later attempt to add a camera budget failed because the Task update action was unavailable.
-That failed attempt remains in Chat, below the captured exchange; the image does not imply it succeeded.
+- Conversation: `conversation:a8973e4c69cf4f7a9147897861dacff4`.
+- Itinerary: `task:280780b7acec2ed862e24303c7076784`.
+- Camera shortlist: `task:a17ef50c91decda2bba8f8c68acebef6`.
 
-Recorded Tasks:
+Task browser requests received the restored human evidence.
+Their reviews found substantive authorization and low risk, then allowed execution without another prompt.
+The itinerary later encountered a separate browser-provider failure while opening Powell's public website.
+Its recorded action outcome was uncertain, so Noema paused the Task.
+The normal recovery action directed it to continue with web search and label unverified information.
+No saved action or result was rewritten.
+The itinerary then completed execution and passed review at 04:55 UTC.
+The desktop and phone Task images show its actual result.
+The camera Task was still running when those images were captured.
+The earlier Chat image records both Tasks in progress.
 
-- `task:1b07663351150183d9358d4c263d63d7`: Plan Portland car-free routes and costs.
-- `task:f252dfe554d49350b95254e69d8799c5`: Research compact travel cameras.
+The memory update action failed twice because generated pages cited ineligible sources.
+The prior sample memory image has been removed from the README.
+This refresh does not claim that the new preferences reached durable memory.
+The failure remains visible in the instance and needs a separate investigation.
 
-## Other screenshots: sample content
+## Capture
 
-Capture used Playwright through the authenticated, read-only inspection socket.
-The inspection helper continued to reject mutations.
-The September 27 capture did not change messages, Tasks, account settings, or memory pages on the server.
+Playwright used the standard authenticated, read-only browser inspection helper.
+The helper continued to reject mutations.
+Only the local CLI performed the authorized Chat, recovery, and memory-update actions.
+No public authentication setting changed.
+The temporary browser context supplied a UUID function for the HTTP inspection origin.
+No application code changed.
 
-A temporary capture helper substituted sample GraphQL responses in the browser.
-It applied the same substitution to live subscription messages.
-Task documents, memory prose, the assistant name, and the displayed account address use sample values.
-The original sample Chat image has been replaced by the real conversation described above.
-The Task list contains one example. Task files and citations are omitted from that example.
-The Task status comes from an existing completed Task, but the travel result is illustrative.
-Model names, controls, connection policy choices, and browser settings retain the rendered configuration.
-The connection screen shows an unknown health state; it does not prove service availability.
-
-The HTTP inspection origin lacks some secure-context browser APIs.
-The temporary capture context supplied a UUID function for that origin.
-No application code or public authentication setting changed.
-
-## Images
+Chat is scrolled to the delegation exchange, with the itinerary transcript beside it.
+The transcript shows an earlier successful TriMet browser call.
+Later failures and recovery remain in the same transcript outside that frame.
+Messages outside the viewport remain available in the conversation.
+The connection image captures the policy and tool sections only.
+The account address is outside that frame; no displayed text was replaced.
 
 | Image | Route | Viewport |
 | --- | --- | --- |
-| `chat.png` | `/`, with the routes Task transcript open | 1600 × 1000 |
+| `chat.png` | `/`, with the itinerary transcript open | 1600 × 1000 |
 | `task.png` | `/tasks/<selected-task>` | 1440 × 960 |
-| `memory.png` | `/memory` | 1440 × 960 |
-| `connections.png` | `/settings/tools/apis` | 1440 × 960 |
+| `connections.png` | `/settings/tools/apis`, cropped to policy and tools | 1440 × 1200 |
 | `models.png` | `/settings/agents` | 1440 × 960 |
 | `web.png` | `/settings/tools/web` | 1440 × 960 |
 | `task-phone.png` | `/tasks/<selected-task>` | 390 × 844 |
 
 The phone image shows the responsive web app, not the native iOS client.
 Native desktop, native iOS, and artifact previews were not captured.
-The opening image includes a real Task approval prompt.
 
-## Refresh and review
+## Review
 
-Follow the [browser inspection guide](../frontend/browser-inspection.md).
-Use a fresh browser context with service workers blocked.
-For the opening image, use the real conversation and preserve its content.
-For sample images, prepare sample content before saving images for the repository.
-Apply sample substitutions to both query responses and subscriptions.
-Keep the read-only request checks in place.
-Wait for each route to display its content before capture.
+Follow the [browser inspection guide](../frontend/browser-inspection.md) for future captures.
+Preserve actual content and review every image before publication.
+Keep credentials, raw response dumps, and private account details outside committed artifacts.
+Documentation and image changes need link, image, and Git whitespace checks rather than application builds.
 
-Review every image for private content, errors, loading states, and clipped controls.
-Check the phone layout separately.
-Keep the sample-content notice beside the README images.
-Do not commit live response dumps, credentials, or private screenshots.
-
-The six retained sample images received visual review on September 27.
-The refreshed opening image received a separate visual review on September 28.
-It now shows the updated browser permission prompt with the website, URL, and stated reason.
-Relative documentation links and image paths were checked.
-The original documentation changes required no application builds or test suites.
-The permission prompt update received separate frontend checks and desktop and phone review.
+All six replacement images received visual review.
+The desktop and phone Task captures have no horizontal page overflow.
+README links, image paths, and Git whitespace checks passed.
+No application builds or test suites were required for this documentation-only change.
