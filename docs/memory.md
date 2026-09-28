@@ -1,7 +1,6 @@
-# Memory Contract Index
+# Memory
 
-This file is an index for the current memory direction, not a standalone
-architecture plan.
+Memory stores durable human facts in Markdown articles. This document describes the current implementation.
 
 Current authorities:
 
@@ -12,7 +11,7 @@ Current authorities:
 - [Frontend contract](frontend/current-contract.md): current memory settings
   route and visibility boundaries.
 
-Current implementation direction:
+## Storage and updates
 
 - One Markdown tree under `memory/human/` is the durable memory authority for
   `human:local`; page frontmatter owns semantic metadata, generated footnotes
@@ -75,7 +74,8 @@ Current implementation direction:
 - Direct editing, page history, private memory, additional scopes, and vectors
   are not implemented.
 
-Source page frontmatter uses schema version 2:
+The publisher writes complete frontmatter, including identity, ownership, scope, and timestamps.
+This example shows only selected fields from schema version 2:
 
 ```yaml
 schema: noema.memory.page/v2
@@ -94,3 +94,14 @@ Kevin prefers default reminders. [^1]
 
 Git history preserves older memory proposals. The current authorities above
 define implemented behavior.
+
+## Validation limits
+
+Citation checks validate source identifiers and marker consistency. They do not prove that a source supports the claim.
+Article style and relevance also depend on model judgment.
+See [security](harness/security.md#memory-safety) for the boundary.
+
+Sources: [article storage](../internal/memory/memory.go),
+[publication checks](../internal/memory/publish.go),
+[update preparation](../internal/runtime/memory_consolidation.go), and
+[change validation](../internal/runtime/memory_changes.go).

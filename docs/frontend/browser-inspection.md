@@ -36,7 +36,6 @@ Run an inspection script inside the actual profile:
 codex sandbox -C /root/noema -P noema-build -- node /path/to/inspection.mjs
 ```
 
-The direct profile check passed HTTP access, a GraphQL query, mutation denial, and WebSocket acknowledgement on 2026-09-06.
 The relay unit checks use `node --test scripts/noema-inspection-relay.test.mjs`.
 They cover denied access, HTTP/WebSocket forwarding, ordinary-data preservation, credential protection, and shutdown.
 
@@ -49,7 +48,7 @@ curl --unix-socket /tmp/noema-codex/graphql.sock http://localhost/auth/status
 The response contains `"state":"authenticated"` when socket web access is available.
 The socket serves app pages, assets, GraphQL POST requests, and GraphQL WebSockets.
 It does not create a browser session. Some credential-management queries can remain unavailable.
-See [server security](../server-security.md#local-codex-web-access).
+See [server security](../server-security.md#development-bypass-and-local-access).
 
 [route-browser-inspection.mjs](../../scripts/route-browser-inspection.mjs) forwards Playwright requests directly to this socket.
 It creates no TCP listener. It rejects GraphQL mutations through HTTP and WebSockets.
@@ -95,4 +94,4 @@ For dialogs, check opening focus, keyboard navigation, dismissal, and reachable 
 Open menus and dialogs without submitting live changes. The helper blocks mutations as an additional guard.
 Keep private screenshots outside committed artifacts unless their inclusion is authorized.
 Use sample data in shareable mocks. Label source-based findings when live states are unavailable.
-Record the routes, widths, observed results, and remaining limits in the audit or validation note.
+Report the routes, widths, observed results, and remaining limits with the change.

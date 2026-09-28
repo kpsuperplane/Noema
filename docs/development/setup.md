@@ -9,7 +9,7 @@
 - Bun for frontend dependency installation and builds
 - Air v1.67.4, downloaded automatically by the Go development supervisor
 - Tesseract OCR and `prlimit` for printed English text in raster images
-- A Unix host for `go run ./cmd/noema-dev`
+- A Unix host for development; `tmux` for `./attach`, plus `bindfs` for the Linux root launcher
 - For macOS desktop builds: Xcode and its command-line tools
 - One supported chat provider:
   - OpenAI Platform for `provider: openai`
@@ -29,7 +29,7 @@ uses Tauri transport for its packaged Go sidecar and authenticated remote server
 
 `cmd/noema` owns startup, composition, and dependency-ordered shutdown.
 Packages under `internal/` own runtime, storage, memory, providers, integrations, GraphQL, and HTTP.
-SQLite lives at `${NOEMA_HOME:-$HOME/.noema}/noema.sqlite3`.
+SQLite lives at `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`.
 Durable human memory lives under `${NOEMA_HOME:-$HOME/.noema}/memory/human/`.
 Memory search rebuilds its index in process memory.
 Provider credentials live under `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
@@ -152,8 +152,8 @@ Use `go test` with package paths for focused server checks. Use
 The supervisor coalesces short save bursts. The frontend keeps GraphQL
 generation and Vite's build graph warm between edits.
 
-Frontend assets are built with Bun. The web build is emitted under
-`target/web-assets`. The Go release build validates and embeds those assets:
+Frontend assets are built with Bun. Linux root builds use `/run/noema-dev/web-assets`; other development builds use `target/web-assets`.
+Release packaging selects `target/web-assets` explicitly and embeds those assets:
 
 ```bash
 cd apps/web
@@ -163,12 +163,14 @@ bun run lint
 bun run build
 ```
 
-For standalone web development, run the combined local supervisor from the repo
-root:
+For development, start or attach to the complete session from the repository root:
 
 ```bash
-NOEMA_HOME=.noema-dev go run ./cmd/noema-dev
+./attach
 ```
+
+Use the `noema-build` profile for the Linux root launcher.
+Its default home is `/var/lib/noema-dev`; other users default to `.noema-dev`.
 
 To run the authenticated loopback server without the development asset watcher,
 run the Go command:
@@ -266,5 +268,5 @@ graphql/                      Generated shared GraphQL schema
 crates/noema-desktop/         Tauri shell for local Go and remote servers
 cmd/noema-dev/                Go development supervisor
 cmd/noema-model-evals/        Go model qualification runner
-docs/                         Current contracts, active plans, and dated evidence
+docs/                         Current behavior, contracts, and development instructions
 ```

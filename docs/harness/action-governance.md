@@ -6,9 +6,8 @@ refines the [security model](security.md) and
 
 ## Boundary
 
-Noema treats active model context as potentially hostile. It does not use a
-conversation-level clean or tainted state. It governs effects at the capability
-boundary.
+Noema reviews calls selected by tool and connection policy. Other calls execute directly after their applicable checks.
+There is no universal information-disclosure gate. See [security](security.md) for the implemented limits.
 
 ```text
 agent proposes saved exact arguments
@@ -30,7 +29,7 @@ agent proposes saved exact arguments
 7. Waiting for a human does not retain a worker lease or model request.
 8. Capability results remain untrusted context after an authorized call.
 9. Noema does not retry an external effect with an uncertain outcome.
-10. A human decline blocks an equivalent browser effect in that Task generation.
+10. A declined browser interaction requires new human approval before an equivalent effect can execute.
 11. Clients render server-owned state and valid actions.
 
 ## Authorization context
@@ -50,24 +49,12 @@ The action reviewer receives one bounded authorization context.
 - Action admission supplies current-generation human Task replies, bounded at 64 messages.
   Replies belong to the current run, its parent, or the set not yet consumed.
   Starting a run records its consumption of pending human replies.
-- Explicit grants and prior human decisions remain separate authority inputs.
+- Connector OAuth scopes and saved human decisions have separate checks.
+  No general Noema resource-grant hierarchy exists.
 
 A model-created task contract can narrow human authority. It cannot broaden
 that authority. Tool results, external content, memory, and model output cannot
 create authority independently.
-
-### Structured evidence
-
-Noema makes provenance claims only when structured matching can reproduce the
-origin. Examples include:
-
-- An exact URL from a web result.
-- A recipient copied from a typed connector result.
-- A normalized address matching a structured connector field.
-- A selected task, artifact, file, or resource identifier.
-
-Text similarity does not prove provenance. The action ID, revision, and saved
-exact arguments prove action identity, not the origin of free-form content.
 
 ## Gateway
 
@@ -81,12 +68,13 @@ Preflight checks:
 - The source input schema and payload bounds.
 - Resource and destination constraints.
 - Current tool behavior and connection policy.
-- Grants, hard denies, and authentication state.
+- Connector OAuth scope coverage and authentication state.
 - Secret handling and secure credential bindings.
 - Network and SSRF policy when applicable.
 - Task generation, current-run check, and cancellation state.
 
-A hard violation fails before adapter execution. An LLM review cannot clear it.
+Applicable hard checks fail before adapter execution. An LLM review cannot clear them.
+The checks differ by tool; this list is not one universal authorization service.
 
 The current connection policy selects one execution route:
 
@@ -103,8 +91,7 @@ never-ask execution.
 
 The reviewer receives:
 
-- The bounded authorization context, origin, and execution route.
-- Destination and service metadata when the binding provides them.
+- The bounded authorization context and execution route.
 - The saved exact arguments, safe summary, and argument-shape projection.
 - Current capability, behavior, review route, and source input schema.
 - Trusted session facts for supported browser actions.
@@ -177,7 +164,6 @@ proposed
 awaiting_approval
 executable
 executing
-awaiting_authentication
 succeeded
 failed
 outcome_uncertain
@@ -186,9 +172,8 @@ superseded
 cancelled
 ```
 
-`awaiting_authentication` retains the approved execution claim while an MCP
-credential flow is pending. `outcome_uncertain` records a possible external
-effect whose result is unknown.
+`outcome_uncertain` records a possible external effect whose result is unknown.
+MCP authentication requests use separate saved records, not another action-request state.
 
 ## Human decision
 
@@ -201,11 +186,10 @@ A pending approval becomes `approved` or `declined`. Execution admission
 consumes an approved decision. Live revalidation can supersede a pending or
 approved request before execution.
 
-For browser actions, a decline also blocks an equivalent effect in the same
-Task generation. Snapshot numbers, page titles, and element references do not
-make an effect different. The operation, page URL, target, destination, method,
-and visible submitted values must show a material change before another action
-request can enter review.
+For `web.browse.interact`, a prior decline forces another human decision for an equivalent effect.
+The check covers the same Task generation or Chat turn.
+It compares saved arguments and page/target evidence after removing element references and snapshot revisions.
+It does not ban new proposals or apply to every browser operation.
 
 The decision checks the action revision and owner. A stale decision fails.
 Noema does not infer a decision from free-form text.
@@ -215,7 +199,7 @@ Before execution, the gateway checks:
 - The exact action revision and saved arguments.
 - The approving human and one-shot decision state.
 - Current capability, authentication, behavior, and source schema.
-- Current grants, connection policy, and destination policy.
+- Current connector scope coverage, connection policy, and destination policy.
 - Current Task generation and run when applicable.
 
 The adapter receives the saved arguments. The model does not regenerate them.
@@ -244,28 +228,17 @@ For Tasks:
 Task recovery and cancellation invalidate stale requests. An executing external
 effect can become `outcome_uncertain`, but it cannot be replayed automatically.
 
-## Human attention and interaction
+## Human attention
 
-The **Needs you** projection derives pending decisions from stored state. It is
-not a second action or task authority.
-
-The same decision component appears in primary chat and Task detail. Its
-default view shows:
-
-- The proposed verb and target.
-- The destination or resource.
-- The payload, diff, or export summary.
-- Information leaving Noema and its expected audience.
-- `Approve once` and `Decline` controls.
-
-Reviewer evidence and policy details remain behind disclosure. The client sends
-one semantic decision with the expected action revision. It does not execute
-optimistically or mirror the state machine.
+Chat and Task detail show pending decisions from saved server state.
+The client submits a decision with the expected action revision.
+Browser prompts show the proposed action and target; additional evidence is available in details.
+The client does not execute the action or infer approval from free-form text.
 
 ## Observed URLs
 
 The web adapter stores exact normalized URLs from search results and fetched
-links. These values are ordinary information. The model still calls
+links. The lookup is instance-wide, not restricted to the current run. These values are ordinary information. The model still calls
 `web.fetch` with a normal URL.
 
 A URL fetch can execute without LLM or human review only when:
@@ -276,8 +249,7 @@ A URL fetch can execute without LLM or human review only when:
 4. Conservative normalization changes only details such as a fragment.
 5. Current DNS, redirect, scheme, and SSRF checks pass again.
 
-This path means safe to retrieve automatically. It does not make fetched
-content trusted. A changed query, header, body, method, or unobserved URL returns
+This path admits automatic retrieval. It does not prove the URL contains no private information or make returned content trusted. A changed query, header, body, method, or unobserved URL returns
 to normal execution policy.
 
 A web search sends its query to the configured search provider without a human
@@ -299,4 +271,11 @@ superseded | cancelled
 ```
 
 Events reference the action request instead of duplicating private payloads.
-They exclude secrets and preserve ordinary diagnostic metadata.
+They preserve ordinary diagnostic metadata. The secret-exclusion requirements and implementation limits are described in [security](security.md).
+
+## Implementation
+
+- [Action records, decisions, and execution claims](../../internal/store/action_requests.go).
+- [Saved Task authority and eligible human replies](../../internal/store/task_authorization.go).
+- [Reviewer input and prompt](../../internal/runtime/action_reviewer.go).
+- [Web admission](../../internal/runtime/web_tools.go) and [downloads](../../internal/runtime/file_download.go).

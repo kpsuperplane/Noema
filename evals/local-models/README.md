@@ -7,9 +7,7 @@ The current direct-provider suite covers strict final responses, visible streami
 The production runtime enables prompt reuse with a bounded llama.cpp checkpoint
 cache. The budget is one thirty-second of detected system RAM, capped at 2 GiB,
 so 16 GB and 32 GB machines use 512 MiB and 1 GiB respectively instead of the
-upstream 8 GiB default. Noema keeps one active local generation and prioritizes
-queued interactive work over background memory, task, audit, compaction, and
-task-originated summarization requests.
+upstream 8 GiB default. Noema serializes local generations with one mutex. It does not provide a priority queue for interactive requests.
 
 Candidates live in `candidates.toml`; suite-wide resource limits live in `suite.toml`. Candidate entries pin the Hugging Face repository, immutable revision, exact file, SHA-256, size, license, and provenance. These candidates are experimental and do not alter Noema's curated recommendation catalog.
 

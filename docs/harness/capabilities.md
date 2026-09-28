@@ -9,7 +9,8 @@ The [security model](security.md) controls information handling. The
 
 ## Runtime binding
 
-Each callable tool has one immutable server-only binding. The binding contains:
+External API and MCP tools use server-owned bindings. Core tools have separate runtime dispatch paths.
+Connector bindings carry:
 
 - A provider-visible tool name, description, and source input schema.
 - A server-only invoker key and operation token.
@@ -22,8 +23,9 @@ Each callable tool has one immutable server-only binding. The binding contains:
 The source tool identity controls runtime policy and capability decisions.
 Provider aliases affect only provider wire encoding and model calls.
 
-The model cannot select an invoker, credential, origin, HTTP method, or policy
-revision. The router resolves the exact binding before it validates input.
+For a bound connector operation, the model supplies arguments rather than transport or credential authority.
+The router resolves the binding before input validation.
+Browser and fetch tools separately accept URLs under their network policy.
 
 ## On-demand definitions
 
@@ -90,8 +92,8 @@ Invalid input stops before invocation. Immediate and reviewed paths use the same
 source input check. A provider's strict request schema does not authorize the
 provider's returned arguments.
 
-Secrets use secure bindings. They do not appear in tool input, model context,
-ordinary result payloads, transcripts, logs, artifacts, or exports.
+Noema-managed connector credentials use secure bindings below the model boundary.
+The required secret-exclusion contract and its arbitrary-content limits are documented in [security](security.md).
 
 Authorized private information stays intact. Ordinary URLs, identifiers,
 paths, schemas, and diagnostics also stay intact. Exact protocol sanitizers
@@ -206,13 +208,6 @@ transform so it produces a deliberate compact receipt.
 The 1 MiB response-body limit is a transport boundary. It is not a model-result
 allowance. Remote error details have a separate 4 KiB limit.
 
-Agent Lua permits `math.random`, `math.randomseed`, `os.time`, `os.date`,
-`os.difftime`, and `os.clock`. Each execution owns a fresh random generator.
-Seeding changes only that execution. Date conversion preserves supplied tables.
-Date formats are bounded, and date outputs count against the memory limit.
-The agent profile has no filesystem, network, process, environment, or module access.
-Adapter response, credential, and request-auth profiles keep clocks and randomness disabled.
-
 Response Lua receives only bounded status, body, and content type. It has no
 network, filesystem, process, environment, clock, randomness, credentials,
 modules, or cross-call state. Failure never falls back to raw output.
@@ -285,9 +280,9 @@ policy, secure credential boundary, and normal action request path.
 Tool output is untrusted content. It cannot create authority, modify policy, or
 act as an authenticated human instruction.
 
-Persisted arguments and output follow each binding's explicit view. Secret
-values are excluded. Private payloads can remain in their authorized source and
-use a reference when an inline copy is unnecessary.
+Persisted connector arguments and output follow each binding's configured view.
+Known credential values and declared secret locations receive specific handling.
+This does not prove that arbitrary remote prose contains no secrets.
 
 Adapters return structured success, failure, artifact references, or uncertain
 outcomes. They preserve external identifiers and report whether an effect may
@@ -328,3 +323,8 @@ Current product surfaces can show:
 
 Authentication does not imply authorization. Installation does not make every
 operation available to every run.
+
+Implementation: [API service](../../internal/adapter/service.go),
+[MCP service](../../internal/mcp/service.go),
+[tool loading](../../internal/runtime/tool_loading.go), and
+[provider loading support](../../internal/provider/deferred_tools.go).

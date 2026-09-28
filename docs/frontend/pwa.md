@@ -6,11 +6,13 @@ Noema's browser build is an installable, read-only-offline PWA. It is enabled on
 
 Vite gives every JavaScript and CSS file a content hash. Workbox generates `/assets/sw.js` at one stable URL and precaches the HTML shell, every eager and lazy code/CSS chunk, the manifest, and all icons. Each build receives a distinct Noema cache namespace, so an installing worker cannot modify resources used by the active release; activation cleans the older precache only after the replacement is complete. The server serves the worker, HTML, manifest, and stable image names with `no-cache`; hashed code is immutable for one year. Only the worker receives `Service-Worker-Allowed: /`.
 
-The worker does not cache runtime traffic. GraphQL HTTP and WebSocket requests, authentication and bootstrap URLs, OAuth callbacks, private artifact downloads, and external origins remain network-only and receive `no-store` from the server.
+The worker does not cache runtime traffic. GraphQL, authentication, callbacks, artifact downloads, and external services remain network-only.
+Noema marks its private responses `no-store`; it cannot set cache headers for external services.
 
 After authentication, on an `online` event, and whenever the standalone app returns to the foreground, the current app asks the browser to update the worker with HTTP-cache bypass. Returning while already online verifies the browser session and performs that check in the background without entering recovery or locking writes. A new worker remains waiting until its entire precache succeeds. Noema then waits for mutations, an active chat turn, and passkey/provider-auth ceremonies to finish, locks new writes, flushes drafts and the Apollo snapshot, sends `SKIP_WAITING`, awaits `controllerchange`, and reloads the current URL programmatically. The URL, search parameters, IndexedDB drafts, and durable Apollo state survive this refresh; the human does not need an iPhone reload control.
 
-An install or update failure leaves the current controller and snapshot in place and retries on a later online/foreground transition. During recovery the app remains read-only; a failed background update check while already online leaves the active release interactive. An operational rollback must still publish one final worker at `/assets/sw.js`; that worker must delete caches whose names begin with Noema's Workbox cache prefix, unregister itself, and reload controlled clients. Removing the worker URL before that cleanup release strands installed clients.
+An install or update failure leaves the current controller and snapshot in place and retries on a later online/foreground transition. A failed update check does not prevent recovery from continuing with the active release.
+Writes remain blocked until data reconciliation completes. An operational rollback must still publish one final worker at `/assets/sw.js`; that worker must delete caches whose names begin with Noema's Workbox cache prefix, unregister itself, and reload controlled clients. Removing the worker URL before that cleanup release strands installed clients.
 
 ## Offline storage and privacy
 
@@ -42,7 +44,8 @@ Mutation responses, immutable task/run history, debug profiles, OAuth/setup stat
 
 ## Notifications
 
-Web Push is available only to an installed standalone browser app served from the configured HTTPS `web.public_origin`. Permission is requested only from the Enable action in Chat or Settings. The browser subscription is registered through GraphQL; the daemon retains one stable VAPID keypair, private endpoint/key material, a primary-conversation projection checkpoint, and a bounded delivery outbox in SQLite. A 404 or 410 response removes the expired subscription. Network, 429, and server failures retry after 1, 5, and 30 minutes before becoming terminal.
+Web Push is available only to an installed standalone browser app served from the configured HTTPS `web.public_origin`. Permission is requested only from the Enable action in Chat or Settings. The browser subscription is registered through GraphQL; the server keeps its VAPID private key in the protected `notifications/web-push-vapid.json` file.
+SQLite stores browser subscriptions, notification progress, and the delivery queue. A 404 or 410 response removes the expired subscription. Network, 429, and server failures retry after 1, 5, and 30 minutes before becoming terminal.
 
 Noema notifies for durable `final_answer` items in the local human's primary
 conversation. It also notifies for new `HumanIntervention` projections.
@@ -63,7 +66,10 @@ The daemon always sends the declarative Web Push JSON shape so current WebKit ca
 
 ## Release validation
 
-The browser production build must precede a release server build. `build.rs` requires the manifest, stable worker, HTML, icons, Vite manifest entries, and every file named by the worker's precache. Server tests verify MIME types, cache headers, worker scope, precache completeness, and `no-store` exclusions.
+[scripts/build-go-server](../../scripts/build-go-server) builds web assets, checks required entry files, and embeds them in the Go release.
+[Vite configuration](../../apps/web/vite.config.ts) owns the worker and precache definition.
+[Asset handling](../../internal/web/assets.go) owns server cache headers and worker scope.
+Build success does not prove offline updates work on a physical device.
 
 The manual iPhone check installs from authenticated Safari. It opens Chat,
 Tasks, Memory, Settings, and textual artifact data before an Airplane Mode

@@ -2,8 +2,8 @@
 
 - **Suite status:** Historical 12-case live-product snapshot
 - **Supersession status:** Latest committed live Noema qualification
-- **Current suite:** 31 scored cases plus a separate unscored soak
-- **Recommendation status:** E4B still matches the shipped catalog on 2026-08-16
+- **Current suite:** See [the evaluation guide](../README.md).
+- **Recommendation status:** Historical evidence for the E4B catalog choice.
 
 The expanded suite does not automatically invalidate this recommendation.
 Use the rerun rules in the parent README when its role contract or a named risk changes.
@@ -16,8 +16,8 @@ evaluation context, temperature 0, and one active generation at a time.
 
 ## Decision
 
-Gemma 4 E4B IT Q4_K_M was the only model to pass the 12-case suite, so it
-is the sole curated catalog entry and the recommendation for both projected 16
+Gemma 4 E4B IT Q4_K_M was the only model to pass the 12-case suite, so the decision selected it
+as the sole curated catalog entry and the recommendation for both projected 16
 GB and measured 32 GB Apple unified-memory tiers. Its 5.46 GiB live peak is
 comfortably inside the existing 16 GB fit ceiling. A physical 16 GB acceptance
 run remains separate from this 32 GB projection.
@@ -38,31 +38,12 @@ All four resource probes processed roughly 6,500 input tokens and completed 20
 follow-up turns. E4B's post-turn RSS stayed between 5,864,833,024 and
 5,864,865,792 bytes, a 32 KiB spread.
 
-## Product-path validation
+## Evidence limits
 
-- The final bundled GraphQL catalog exposes one pinned E4B build at priority
-  100, recommends it on this 32 GB Metal machine, and generates the expected
-  hardware-fit explanation from detected memory.
-- Production resumable installation accepted a complete partial transfer,
-  independently verified SHA-256 and GGUF structure, atomically installed the
-  content-addressed blob, activated it, and started the supervised runtime.
-- At the original qualification, the active llama-server bound only to loopback,
-  used Metal offload, ran with `--parallel 1` and `--cache-ram 0`, and reported
-  `RUNNING` through GraphQL. The prompt-cache follow-up below supersedes that
-  cache setting.
-- Activation assigned E4B to the system default, primary agent, task executor,
-  task reviewer, progress audit, web summarizer, and all three task-model pool
-  tiers. A final database check found zero preference mismatches and
-  `PRAGMA quick_check` returned `ok`.
-- A full daemon restart started the active model before serving the first
-  GraphQL request. The first setup response was already `isReady: true` and
-  `runtimeStatus: RUNNING`, with no retry mutation required.
-- The installed E4B blob at `~/.noema/models/blobs/` independently hashes to
-  `90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`.
-
-The two failed Gemma installations and their blobs were removed after the
-run. The pre-existing Bonsai installation remains as an inactive manual choice,
-while E4B remains installed, active, and the Noema-wide default.
+This result used the former Rust backend on one physical 32 GB MacBook Air.
+It supports the catalog decision and hardware estimate, not current Go runtime or cross-platform acceptance.
+The original installation checks verified the pinned model through the production installer and provider.
+Machine-local installation state is not part of the current product contract.
 
 ## Onboarding grammar follow-up
 
@@ -78,25 +59,13 @@ The naming case took 36.34 seconds and 573 output tokens on the concurrently
 running development machine. The complete follow-up report is at
 `target/noema-grammar-fix-eval-2/report.json`.
 
-## Prompt-cache latency follow-up
+## Prompt-cache follow-up
 
-The production supervisor now sizes llama.cpp's checkpoint cache to one
-thirty-second of system RAM, capped at 2 GiB. The rebuilt live runtime on this
-32 GB machine launched with `--cache-ram 1024`; GraphQL reported the active E4B
-installation as `RUNNING` and ready, and the live SQLite database still passed
-`PRAGMA quick_check`.
-
-A direct live-runtime A/B/A probe used two completely different 4,221-token
-prompts. Prompt A was warm in 0.130 seconds with 4,216 cached tokens, prompt B
-was cold in 10.251 seconds with one cached token, and returning to A took 0.164
-seconds with 4,216 cached tokens restored. Under the previous `--cache-ram 0`
-configuration, an intervening request left only one token cached and the same
-class of prompt had to be evaluated again.
-
-Noema also schedules queued foreground generations before queued background
-memory, task, audit, compaction, and task-originated web-summary generations.
-Memory observation waits for its foreground turn to terminate before submitting,
-which removes the deterministic same-turn cache eviction race.
+The historical 32 GB probe used a 1 GiB llama.cpp checkpoint cache.
+A 4,221-token prompt took 0.130 seconds when warm, then 0.164 seconds after an unrelated prompt.
+The intervening cold prompt took 10.251 seconds.
+These measurements describe the recorded host and runtime, not current latency guarantees.
+The [evaluation guide](../README.md) describes the current cache budget and generation serialization.
 
 ## Winning artifact
 

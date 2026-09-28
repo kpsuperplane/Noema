@@ -3,31 +3,20 @@
 SQLite owns Noema's stored structured state. The database file lives at:
 
 ```text
-${NOEMA_HOME:-$HOME/.noema}/noema.sqlite3
+${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3
 ```
 
 SQLite owns Noema records such as humans, agents, provider accounts, provider
 capability bindings, conversations, transcript items, MCP setup/policy
 state, approvals, auxiliary model preferences, and the Memory model preference.
 
-SQLite does not mirror memory pages. Durable memory prose and
-semantic metadata live in Markdown under `memory/human/`. The separate
-`system/indexes/memory.sqlite3` database contains only a rebuildable FTS
-projection and may be deleted without losing memory truth.
+SQLite does not mirror memory pages. Markdown under `memory/human/` owns memory prose and metadata.
+Memory search uses an in-process lexical index rebuilt from those files.
+There is no separate persisted memory search database.
 
-Memory-related Noema home layout:
-
-```text
-~/.noema/
-  noema.sqlite3
-  memory/
-    human/
-      root.md
-      .state.md
-  system/
-    indexes/
-      memory.sqlite3
-```
+Sources: [home paths](../internal/home/home.go),
+[memory search](../internal/memory/search.go), and
+[store startup](../internal/store/store.go).
 
 ## Go row mapping
 
@@ -48,5 +37,6 @@ current version. Fresh databases and upgrades use this same list.
 `internal/store/schema_v*.go` owns each immutable migration. A schema change
 adds one immutable migration to the list and tests upgrades plus fresh convergence.
 
-The Go server uses a fresh Noema home. It does not open or convert a Rust home.
-Unknown and newer schema versions fail without mutation.
+The Go migration list does not provide a supported conversion from a former Rust home.
+Use a separate home for that transition. Existing Go homes use the forward migrations above.
+Schema versions above the supported version fail without mutation.

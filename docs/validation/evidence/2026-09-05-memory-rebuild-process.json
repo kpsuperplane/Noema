@@ -1,6 +1,0 @@
-{
-  "beforePid": 3190170,
-  "watcherPid": 3177623,
-  "trigger": "SIGTERM to the Air server watcher. The existing development supervisor restarts it.",
-  "afterPid": 3198819
-}

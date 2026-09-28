@@ -1,116 +1,29 @@
 # README screenshots
 
-The September 28, 2026 refresh uses the running Noema app after commit `a181cdea`.
-All displayed messages, tool calls, Task documents, and settings are real.
-No browser response substitutions or invented results were used.
+These six images show the real development instance on September 28, 2026.
+Messages, tool calls, Task files, and settings came from normal product operations.
+No response substitutions or invented results were used.
 
-## Fresh session
+The user authorized a fresh session with accounts and settings preserved.
+Short Chat messages requested a Portland itinerary, a camera shortlist, and streetcar fare research.
+The itinerary encountered a browser-provider failure, then continued with web search through normal recovery.
+Later requests revised the itinerary and created a phone checklist.
+No bookings, purchases, or external messages were requested.
 
-The user requested another reset with accounts and settings preserved.
-The server was stopped, and a complete backup was saved in a protected directory.
-Chat, Tasks, memory, and related content were cleared.
-Retained database tables and protected account files matched their values before the reset.
-Database integrity and foreign-key checks passed.
-The development launcher restarted the existing instance.
-
-Short messages established a Portland weekend, a detailed itinerary, and a compact camera shortlist.
-A follow-up asked about streetcar fares while the Tasks ran.
-The CLI sent each message through the normal product API.
-No bookings, purchases, external messages, or account changes were requested.
-The resulting session remains in the development instance.
-
-- Conversation: `conversation:a8973e4c69cf4f7a9147897861dacff4`.
-- Itinerary: `task:280780b7acec2ed862e24303c7076784`.
-- Camera shortlist: `task:a17ef50c91decda2bba8f8c68acebef6`.
-
-Task browser requests received the restored human evidence.
-Their reviews found substantive authorization and low risk, then allowed execution without another prompt.
-The itinerary later encountered a separate browser-provider failure while opening Powell's public website.
-Its recorded action outcome was uncertain, so Noema paused the Task.
-The normal recovery action directed it to continue with web search and label unverified information.
-No saved action or result was rewritten.
-The itinerary then completed execution and passed review at 04:55 UTC.
-The desktop and phone Task images show its actual result.
-All three Task-related images now show a real checklist revision in progress.
-The full itinerary remains visible while the Task prepares a separate phone-friendly checklist.
-Chat is scrolled to the delegation exchange; the transcript shows the current revision work.
-
-The memory update action failed twice because generated pages cited ineligible sources.
-The prior sample memory image has been removed from the README.
-This refresh does not claim that the new preferences reached durable memory.
-The subsequent [memory repair](../validation/memory-source-label-2026-09-28.md) resolved this failure and verified saved preferences in the instance.
-
-## Capture
-
-Playwright used the standard authenticated, read-only browser inspection helper.
-The helper continued to reject mutations.
-Only the local CLI performed the authorized Chat, recovery, and memory-update actions.
-No public authentication setting changed.
-The temporary browser context supplied a UUID function for the HTTP inspection origin.
-No application code changed.
-
-Chat is scrolled to the delegation exchange, with the itinerary transcript beside it.
-The transcript shows the previous review and the current Executor editing the itinerary.
-Earlier browser calls, failures, and recovery remain in the same transcript outside that frame.
-Messages outside the viewport remain available in the conversation.
-The connection image captures the policy and tool sections only.
-The account address is outside that frame; no displayed text was replaced.
-
-| Image | Route | Viewport |
+| Image | Captured state | Viewport |
 | --- | --- | --- |
-| `chat.png` | `/`, with the itinerary transcript open | 1600 × 1000 |
-| `task.png` | `/tasks/<selected-task>` | 1440 × 960 |
-| `connections.png` | `/settings/tools/apis`, cropped to policy and tools | 1440 × 1200 |
-| `models.png` | `/settings/agents` | 1440 × 960 |
-| `web.png` | `/settings/tools/web` | 1440 × 960 |
-| `task-phone.png` | `/tasks/<selected-task>` | 390 × 844 |
+| [chat.png](chat.png) | Chat delegation with the real checklist revision running | 1600 × 1000 |
+| [task.png](task.png) | Itinerary result with the checklist revision running | 1440 × 960 |
+| [task-phone.png](task-phone.png) | The same work in the phone web interface | 390 × 844 |
+| [connections.png](connections.png) | API policy and tools; account address outside the crop | 1440 × 1200 |
+| [models.png](models.png) | Agent model assignments | 1440 × 960 |
+| [web.png](web.png) | Browser and search settings | 1440 × 960 |
 
-The phone image shows the responsive web app, not the native iOS client.
-Native desktop, native iOS, and artifact previews were not captured.
+The Task images record an intermediate state. They do not imply that the Task still runs.
+Native desktop, native iOS, Memory, and artifact previews are not shown.
+All images received visual review. The Task views had no horizontal page overflow.
 
-## Review
-
-Follow the [browser inspection guide](../frontend/browser-inspection.md) for future captures.
-Preserve actual content and review every image before publication.
-Keep credentials, raw response dumps, and private account details outside committed artifacts.
-Documentation and image changes need link, image, and Git whitespace checks rather than application builds.
-
-All six replacement images received visual review.
-The desktop and phone Task captures have no horizontal page overflow.
-README links, image paths, and Git whitespace checks passed.
-No application builds or test suites were required for this documentation-only change.
-
-## Compact Task bar refresh
-
-Chat, desktop Task, and phone Task images were captured again after reducing the shared bar height.
-The bar measures 50 pixels, down from 58 pixels, at all three captured widths.
-Its buttons and icons keep their existing sizes.
-The new-task screen also received desktop and phone visual review.
-The read-only capture helper made no product changes. Follow-up requests used the normal Task API.
-
-The compact-bar change passed frontend type checking and lint.
-The main Vite bundle built successfully; its parent command stopped before the GraphiQL build.
-The remaining `bun run build:graphiql` step passed when run separately.
-`bun run check:generated` passed after committing the required model-settings input correction.
-That correction preserves the existing enabled state when saving a model choice.
-The refreshed screenshots show a running Task, but no approval state.
-
-## Active hero correction
-
-The completed itinerary was reopened through the normal Task API with a short refinement request.
-The request reduces each day to two main stops while retaining transit details, sources, and a rainy-day swap.
-The hero records the real Executor running and writing; its status was not substituted.
-The existing 50-pixel bar remains unchanged.
-The image received visual review, with no horizontal page overflow.
-Only the hero image and these notes changed; no application checks were needed.
-
-## Tighter status and activity lines
-
-The status and activity lines now sit four pixels closer together.
-The bar remains 50 pixels high, with unchanged buttons and icons.
-Both plain-text activity and tool markers use the same spacing adjustment.
-The Task was reopened to create `CHECKLIST.md` while retaining the full itinerary.
-Chat, desktop Task, and phone Task images record that real work in progress.
-All three images received visual review; the lines remain readable without horizontal overflow.
-`bun run check:generated`, `bun run lint`, and `bun run build` passed on this patch.
-No new frontend tests were added.
+For another capture, follow [browser inspection](../frontend/browser-inspection.md).
+Use the read-only inspection helper. Request separate authorization before changing live product data.
+Keep credentials and private account details outside published images.
+Preserve actual content and record the captured state here without adding an execution history.

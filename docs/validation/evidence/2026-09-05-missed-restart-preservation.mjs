@@ -1,7 +1,0 @@
-import http from 'node:http';
-import {readFile,writeFile} from 'node:fs/promises';
-import assert from 'node:assert/strict';
-const root='/var/tmp/noema-suite-run-20260905',socketPath='/tmp/noema-codex/graphql.sock',e=JSON.parse(await readFile(root+'/missed-restart-results.json','utf8'));
-const call=(query,variables={})=>new Promise((resolve,reject)=>{const r=http.request({socketPath,path:'/graphql',method:'POST',headers:{'content-type':'application/json'},timeout:3000},res=>{let text='';res.on('data',d=>text+=d);res.on('end',()=>{try{resolve(JSON.parse(text));}catch(err){reject(err);}});});r.on('error',reject);r.on('timeout',()=>r.destroy(new Error('request timed out')));r.end(JSON.stringify({query,variables}));});
-const gql=async(q,v)=>{const r=await call(q,v);assert.equal(r.errors,undefined,JSON.stringify(r.errors));return r.data;};
-for(const f of e.tasks){const t=(await gql('query($id:String!){task(taskId:$id){taskId title taskDocument stage{key} completedAt schedule{scheduledFor} runs{runId kind status}}}',{id:f.initial.taskId})).task;if(f.policy==='RUN_ONCE')assert.deepEqual(t,e.completion.task);else{assert.equal(t.stage.key,'cancelled');assert.equal(t.runs.length,0);}f.afterSecondRestart=t;}e.secondRestartPreserved=true;await writeFile(root+'/missed-restart-results.json',JSON.stringify(e,null,2));console.log('PASS second restart preserves exact completed Task and run identities');

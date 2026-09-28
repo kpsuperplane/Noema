@@ -1,295 +1,82 @@
-# Noema
+# Noema product and architecture
 
-An open-source personal agent operating system.
+Noema is an opinionated, self-hosted personal assistant for one local owner.
+One main Chat holds the ongoing conversation. Tasks handle delegated work without creating more chat threads.
+The [README](../README.md) provides the feature tour and screenshots.
 
-Noema is an always-on, self-hosted platform for multiple humans, agents, conversations, workspaces, projects, tools, tasks, and memory. It should feel polished and opinionated by default, while remaining inspectable and customizable as the human grows into the system.
+## Product direction
 
-## Values
+- Keep the main assistant as the human's point of contact.
+- Delegate complex work to Tasks with separate execution and review.
+- Preserve useful personal context in inspectable Markdown memory.
+- Enforce action states and exact approvals in server code.
+- Keep records on the owner's server and make work inspectable.
 
-- Opinionated in construction, impartial in use
-- Privacy and security thoughtfully integrated throughout
-- Simple initial setup; complexity grows with the human
-- Self-hosted by default, with a personal server that can run continuously
-- Transparent systems over mysterious AI state
-- Human-owned data, context, and memory
-- Deterministic controls wherever trust depends on them
+Hosted models and connected services receive data during their use.
+Self-hosting does not mean that every operation stays on the host.
+
+## Implemented architecture
+
+One Go server composes authentication, GraphQL, Chat, Task workers, model providers, integrations, and notifications.
+The web app uses React. Tauri provides the desktop shell. SwiftUI provides the iOS client.
+The desktop shell can start a bundled Go server or connect to a remote server.
+
+| Concern | Implementation | Contract |
+| --- | --- | --- |
+| Startup and service composition | [cmd/noema](../cmd/noema/main.go) | [Harness](harness.md) |
+| Chat and Task execution | [internal/runtime](../internal/runtime) | [Tasks](tasks.md) |
+| Structured state and migrations | [internal/store](../internal/store) | [SQLite](sqlite.md) |
+| Human memory | [internal/memory](../internal/memory) | [Memory](memory.md) |
+| HTTP APIs and MCP | [internal/adapter](../internal/adapter), [internal/mcp](../internal/mcp) | [Capabilities](harness/capabilities.md) |
+| Public browsing and downloads | [internal/webtool](../internal/webtool) | [Web tools](harness/web-browsing.md) |
+| Browser and native authentication | [internal/auth](../internal/auth) | [Server access](server-security.md) |
+| Web interface | [apps/web](../apps/web) | [Frontend contract](frontend/current-contract.md) |
+
+Chat and Tasks use separate execution loops with shared storage and services.
+Schedules create or release Task work. Stored changes drive subscriptions and notifications.
+Tasks use the built-in provider Executor. [ACP execution is retired](development/acp-retirement.md).
+See the subsystem contracts for the limits of each path.
 
 ## Information handling
 
-Noema distinguishes secrets, private information, and ordinary information.
-Secrets stay outside model context and ordinary persistence. Private information
-is preserved and controlled through scope-aware authorization plus egress
-policy. Ordinary information is preserved without precautionary redaction.
-Redaction never substitutes for authorization; the detailed authority is
-[`docs/harness/security.md`](harness/security.md#information-classes-and-mechanisms).
-Browser, native-client, recovery, public-ingress, and process-execution
-boundaries are defined in [Server Authentication and Public Access](server-security.md).
+Noema uses exactly three information classes: **secrets**, **private information**, and **ordinary information**.
+Secrets grant authority and belong in protected credential or transient-auth stores.
+Authorized private information and ordinary information remain intact.
 
-## Core product goals
+The [security contract](harness/security.md#information-classes-and-mechanisms) separates required handling from implemented controls and known limits.
+Connection policies and exact action approval exist. General per-scope grants and universal information-flow tracking do not.
+Do not describe those missing controls as product guarantees.
 
-- Support multiple agents, defaulting to one primary agent
-- Support multiple humans, defaulting to one primary human
-- Treat conversations, workspaces, and projects as first-class coordination surfaces
-- Provide a full-featured task system with an operational queue, dependencies, delegation, approvals, and multi-agent orchestration
-- Support tools and integrations through explicit permissions and audit trails
-- Make memory automatic enough to feel effortless and inspectable enough to feel trustworthy
-- Make proactivity customizable globally, by scope, by agent, and by project
-- Expose reliable export, deletion, rebuild, restore, and audit operations
+## Stored data
 
-## Filesystem and storage architecture
+The default data directory is `~/.noema`. `NOEMA_HOME` selects another directory.
+[internal/home](../internal/home/home.go) owns the shared paths.
 
-Noema keeps stored state separate from durable object-owned files. The default
-Noema directory is `~/.noema`. `NOEMA_HOME` can select another directory.
-
-```
-~/.noema/
-  config.yaml
-
-  noema.sqlite3           # Noema-owned structured state
-
-  run/
-    capability-auth/      # protected exact arguments for active auth pauses
-    browser-session.key   # protected browser cookie key
-    native-oauth-retries.json # protected short-lived refresh responses
-    graphql.sock          # process-local GraphQL socket when enabled
-
-  notifications/
-    apns-provider.json     # protected APNs authority, metadata, revision, and tombstone
-
-  adapters/
-    definitions/          # immutable source manifests by semantic SHA-256
-    sources/              # optional exact imported descriptions by source SHA-256
-    oauth-profiles/       # reviewed public OAuth protocol profiles
-    oauth-applications/   # application descriptors and protected client secrets
-    external-accounts/    # stable provider account descriptors
-    oauth-grants/         # grant descriptors and protected token generations
-    connections/          # descriptors and protected credential generations
-    quarantine/           # invalid or intentionally removed adapter objects
-
-  mcp/                    # MCP server configuration and protected credentials
-
-  providers/              # hosted-provider account credentials
-
-  memory/
-    human/                # source local-human Markdown memory tree
-
-  models/
-    blobs/                # checksum-verified, content-addressed GGUF files
-    downloads/            # resumable partial model transfers
-
-  humans/
-    [human_id]/
-      docs/
-      imports/
-      artifacts/
-
-  agents/
-    [agent_id]/
-      docs/
-      skills/
-      runs/
-        [run_id]/
-          artifacts/
-
-  conversations/
-    [conversation_id]/
-      attachments/
-      artifacts/
-
-  tasks/
-    [task_id]/
-      artifacts/
-
-  workspaces/
-    [workspace_id]/
-      docs/
-      projects/
-        [project_id]/
-          docs/
-          artifacts/
-
-  system/                 # derived and rebuildable
-    indexes/
-    cache/
-    tmp/
-```
-
-Source-of-truth rules:
-
-Concrete object rows are the stored state. Shared concepts such
-as actor/principal, governable scope, provenance source, and transcript item
-are interfaces implemented by concrete objects rather than universal parent
-tables.
-
-| Data | Source of truth |
+| Path under `NOEMA_HOME` | Purpose |
 | --- | --- |
-| Structured state: humans, human passkeys, browser sessions, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
-| Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
-| APNs provider authority, metadata, revision, and removal tombstone | `${NOEMA_HOME}/notifications/apns-provider.json` protected file; the private key never enters SQLite |
-| Client notification registrations, Tasks Live Activity projections, and durable delivery queues | SQLite; every native registration is bound to its authenticated OAuth client |
-| Adapter definitions, source bytes, connections, OAuth profiles, applications, accounts, grants, and protected generations | `${NOEMA_HOME}/adapters/`; SQLite adapter tables are disposable public projections |
-| Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
-| Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
-| Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
-| Indexes, caches, temporary files, and derived search/vector state | `system/` |
-| Introspection into database-backed state | chat/task drill-ins, advanced inspection, and explicit export tools |
+| `config.yaml` | Server configuration |
+| `db/noema.sqlite3` | Structured state, history, schedules, and action requests |
+| `memory/human/` | Local-human memory pages and metadata |
+| `tasks/`, `workspaces/`, `conversations/` | Working documents and owned files |
+| `adapters/` | API definitions, accounts, connections, and protected credentials |
+| `mcp/`, `providers/` | Connection settings and protected credentials |
+| `notifications/` | Protected Web Push and APNs authority |
+| `models/` | Model downloads and verified weights |
+| `run/` | Local socket and protected transient authentication state |
+| `system/` | Derived caches and temporary files |
 
-## Primary objects
+SQLite adapter rows are rebuildable indexes of the filesystem adapter records.
+Memory search uses a rebuildable in-process index. It does not use a separate SQLite FTS database.
 
-| Object | Purpose |
-| --- | --- |
-| Humans | People who own, use, collaborate through, or are represented inside Noema |
-| Agents | Specialized assistants with skills, tools, policies, and operational memory |
-| Conversations | Interaction history, working context, decisions, tool calls, and candidate memories |
-| Workspaces | Shared environments for humans, agents, tools, policies, and projects |
-| Projects | Goal-oriented spaces with decisions, tasks, documents, open loops, and agent activity |
-| Tools | Capabilities agents can invoke under permission and audit rules |
+Stop Noema before backup or restore. Copy the complete data directory, including protected files.
+A partial export is not a complete backup.
 
-## Core architecture
+## Scope and limits
 
-```
-Human Interfaces
-  chat, workspaces, command palette, filesystem view, desktop/mobile clients,
-  advanced inspection
-        │
-        ▼
-Agent Runtime
-  agents, planners, schedulers, tool use, task workers, automations
-        │
-        ▼
-Governance Runtime
-  permissions, scopes, policies, approvals, audit, proactivity limits
-        │
-        ▼
-Context Runtime
-  conversations, projects, workspaces, humans, tools, tasks, memory retrieval
-        │
-        ▼
-Stored Data
-  SQLite + source memory Markdown + durable object-owned files
-        │
-        └── System State
-              indexes, caches, vectors, temp files
-```
+The current product serves one local owner. Shared workspaces and multiple human accounts are not available.
+Projects organize Task context; they do not provide independent authorization boundaries.
+Memory belongs to the local human. Project documents provide separate working context.
+There is no general proactivity-level hierarchy or universal event-subscription system.
 
-## First-class governable contexts
-
-Governable scope is a behavior contract implemented by concrete objects. These
-contexts govern visibility, permissions, memory, proactivity, tool access,
-auditability, and default behavior without requiring a universal `scopes` root
-table.
-
-```
-System
-Human
-Agent
-Conversation
-Workspace
-Project
-Task
-Cron
-Tool
-Relationship
-```
-
-## Tasks and orchestration
-
-Noema should include a first-party task system, not just chat reminders.
-
-Task system requirements:
-
-- Operational queue with inline history
-- Dependencies and blocking relationships
-- Human and agent assignees
-- Approval checkpoints
-- Recurring tasks
-- Project-linked and conversation-linked tasks
-- Tool-call audit trails
-- Agent handoffs
-- Task provenance
-
-## Memory as a subsystem
-
-Memory is critical, but it is one subsystem inside the broader agent OS.
-
-Default ownership rules:
-
-```
-Human facts live with the human.
-Project facts live with the project.
-Task-local execution context and open loops live with the task.
-Scheduled trigger state lives with the cron.
-Workspace facts live with the workspace.
-Conversation-local context lives with the conversation.
-Agent skills live with the agent.
-Interaction preferences live with the relationship.
-Participants link memories across conversations without changing ownership.
-Provenance links everything.
-```
-
-`PROJECT.md` is the project context authority. It lives in the working folder,
-or under Noema's workspace files when the project has no folder.
-
-## Proactivity
-
-Proactivity should be customizable and explainable.
-
-```
-0. Never use proactively
-1. Use only when human asks
-2. Use silently to personalize responses
-3. Surface suggestions inside chat
-4. Send proactive notifications
-5. Propose external actions
-6. Take approved automatic actions
-```
-
-## Frontend surfaces
-
-These are target product surfaces. The initial frontend should start with chat as
-the primary experience. Memory, settings, inspection, workspaces, projects,
-tasks, tools, approvals, and audit should reveal incrementally from chat/task
-events and become full management surfaces only when backed state and user
-intent require them.
-
-- Chat and conversation threads
-- Inline memory, task, tool, approval, denial, and recovery events
-- Memory settings and review
-- Workspaces
-- Projects
-- Tasks
-- Tools
-- Permissions
-- Humans and agents
-- Proactivity
-- Audit log
-- Exports and restore
-- Advanced owner/admin inspection
-
-## Backup and portability
-
-Stop Noema before backup or restore. Copy the complete Noema directory with the
-preferred backup tool. The directory defaults to `~/.noema/`.
-
-Do not use a partial directory list as a complete backup. The home contains
-SQLite state, memory, credentials, adapter authority, models, and artifacts.
-Some `system/` data is rebuildable, but a complete backup includes it.
-
-Restore the complete directory before starting Noema. Exports are separate
-from backups. Exports should support machine-readable and human-readable forms.
-
-## Current storage model
-
-SQLite owns stored state. The native Markdown tree owns durable memory prose.
-Memory search builds its lexical index in process memory from Markdown.
-It rebuilds the index at startup and after publication. The filesystem owns
-durable documents, protected credentials, and artifacts.
-
-Chat and task details provide focused inspection. Advanced inspection and
-explicit export tools expose broader database-backed state.
-
-[Memory Contract Index](memory.md)
-
-[Tasks Contract](tasks.md)
-
-[Runtime Harness Architecture](harness.md)
+[Current context](context/current.md) records open work and validation limits.
+Use Git history for completed plans and past verification reports.

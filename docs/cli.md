@@ -142,3 +142,5 @@ noema completion --help
 Running `noema` without a command still starts the server.
 Existing desktop and internal worker entrypoints remain available.
 The CLI uses `urfave/cli/v3` for commands, flags, help, and shell completion.
+
+Sources: [commands](../cmd/noema/cli.go), [local transport](../cmd/noema/cli_transport.go), [Tasks](../cmd/noema/cli_tasks.go), and [Chat](../cmd/noema/cli_chat.go).

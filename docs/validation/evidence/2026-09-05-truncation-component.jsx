@@ -1,4 +1,0 @@
-import React,{useState} from '/root/noema/apps/web/node_modules/react/index.js';
-import {createRoot} from '/root/noema/apps/web/node_modules/react-dom/client.js';
-import {useTruncation} from '/root/noema/apps/web/node_modules/@astryxdesign/core/dist/Text/useTruncation.js';
-function App(){const [lines,setLines]=useState(1),[wide,setWide]=useState(false),[tick,setTick]=useState(0);const t=useTruncation({maxLines:lines});return <><button onClick={()=>setTick(tick+1)}>Rerender {tick}</button><button onClick={()=>setLines(lines?0:1)}>Toggle measurement</button><button onClick={()=>setWide(!wide)}>Resize</button><p ref={node=>t.ref(node)} style={{width:wide?900:60,whiteSpace:'nowrap',overflow:'hidden'}} title={t.fullText}>Ordinary café 日本語 text must remain intact.</p><output>{JSON.stringify({truncated:t.isTruncated,text:t.fullText})}</output></>;}createRoot(document.getElementById('root')).render(<App/>);

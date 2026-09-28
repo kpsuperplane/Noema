@@ -115,11 +115,7 @@ Astryx already provides a tokenized spacing scale through `spacingVars` and
 | `--spacing-4` | 16px | Component padding or section separation in a constrained surface. |
 | `--spacing-6` and above | 24px+ | Major page regions, used deliberately rather than as a default. |
 
-Use tokens instead of raw values. A July 2026 snapshot found 17 distinct raw
-numeric `gap` values and 13 distinct raw numeric `padding` values in the web
-TypeScript while only three spacing declarations referenced Astryx spacing
-variables. That freedom made every component locally plausible but the product
-globally inconsistent.
+Use tokens instead of raw values.
 
 Audit accumulated whitespace, not isolated declarations. A visually excessive
 gap often comes from parent padding, child padding, component defaults, and a

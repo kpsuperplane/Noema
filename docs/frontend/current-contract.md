@@ -81,8 +81,8 @@ Human intervention cards remain part of their existing Chat flow.
 
 - SQLite owns durable conversations, transcript items, tasks, provider and tool
   metadata, policies, approvals, and client state.
-- Native Markdown under `memory/human/` owns durable human memory; SQLite FTS is
-  a rebuildable search projection.
+- Native Markdown under `memory/human/` owns durable human memory. Search uses
+  a rebuildable in-process index.
 - GraphQL queries provide scoped read models, mutations execute explicit
   commands, and subscriptions carry live changes.
 - Each route composes one root query from shared fragments. Mutation payloads
@@ -91,8 +91,8 @@ Human intervention cards remain part of their existing Chat flow.
   when the payload cannot represent server-derived state.
 - Daemon and WebSocket state is coordination state, not a second durable
   transcript or task authority.
-- Browser code never receives credential material. Provider-auth redirects and
-  callbacks remain server-governed flows.
+- Client read models omit saved credential values. Setup forms can accept new
+  credentials. Provider-auth redirects and callbacks remain server-governed flows.
 - Tauri keeps the origin, client identifier, and rotating refresh credential
   in the operating system credential store. Access tokens remain in its native
   process. Its webview receives connection state and the validated server origin.
@@ -211,87 +211,43 @@ contract; do not add hand-maintained mirrors for generated query shapes.
 Transcript styles use unnamed size queries against the nearest container.
 StyleX 0.19 runtime injection retains only the first rule for each named container query.
 
-Task detail uses one Astryx tab bar below the title for files and `Transcript`.
-Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Transcript.
-The wide layout keeps a vertical divider between the views.
-Task details share the outer top border with the task list.
-The floating Task context card occupies the Workspace column in the wide layout.
-Task and recurring task action bars share the document’s 760-pixel width limit and centered side margins.
-The Task loading placeholder uses the same width and placement.
-Transcript fills the right column’s height.
-The Task summary bar is 50 pixels high, including its border. Its 48-pixel header uses compact vertical padding.
-The action bar shows task state above the latest live activity at every width.
-Text and tool activity rows use the same compact overlap with the status line.
-Human attention takes priority and shows its summary. Inactive tasks omit old run activity.
-Activity stays on one line; full content remains in Transcript. Agent identity stays with the avatar.
-At smaller widths, Task detail uses tabs and swipe navigation.
-File tabs select the UTF-8 preview. In wide layouts, Transcript stays visible beside the selected file and has no tab.
-`Result` and `Task` appear first. Other files follow in path order.
-The combined tab bar stays above scrolling content and scrolls horizontally when needed.
-Its first label aligns with the title text; the bar offsets the tabs’ built-in horizontal padding.
-A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
-Completion selects `RESULT.md` once when `TASK.md` was open.
-Result previews preserve provider citations.
-Task, Result, Review, and support-file previews share a 760-pixel reading container with 24-pixel side margins.
+Task detail keeps documents and Transcript together.
+At container widths above 1200 pixels, Transcript occupies a separate 600-pixel column.
+At smaller widths, tabs and swipe navigation select the view.
+A completed Task opens `RESULT.md`; other Tasks open `TASK.md`.
+Completion selects the result once when the request was open.
+File tabs keep Result and Task first, then other files in path order.
+
+The floating Task bar shows state and current activity. Human attention takes priority.
+Inactive Tasks omit old activity. Full content remains available in Transcript.
+Capture and detail reuse `TaskActionBar`. Layout values belong in the components.
 
 Artifact detail previews Markdown and plain text directly. It uses the shared
 file parser for supported spreadsheets. Raster images and PDFs use authorized
 inline routes. HTML runs only in a sandbox after Noema removes active elements,
 navigation, event handlers, and external resources. SVG remains download-only.
 
-Task and project documents share the Markdown viewer and Milkdown editor.
-Task creation uses `/tasks/new` and the normal detail area beside the Tasks list.
-New tasks and Inbox tasks share the title header, document layout, timing summary, and editable body styling.
-The new task title sits above a full-width divider. Project and timing controls precede the instructions.
-The title and instructions have accessible names without visible field labels.
-The instructions fill the remaining height in rich text and source modes.
-Project and Schedule controls use visible labels. Add to Inbox and Run now remain visible together.
-Opening Schedule in capture enables scheduling immediately. Remove schedule at the bottom disables scheduling and closes the popover.
-Capture omits working-folder controls. Creation buttons stay compact and align to the right.
-Capture and task detail use one `TaskActionBar` component for the floating frame, width, border, shadow, and bottom spacing.
-Creation actions use the detail bar’s compact icon style. Run now uses its filled green Play icon.
-A pending creation action replaces only its icon with a spinner. Its label stays visible.
-Above 1200 pixels, capture reserves the same 600-pixel right panel as task details, with no content before creation.
+Task and Project documents share the Markdown viewer and Milkdown editor.
+Task capture uses `/tasks/new` inside the normal Tasks surface.
+Add to Inbox and Run now remain available together.
+Capture omits working-folder controls.
 
-Editable task and recurrence titles and instructions show a light hover background that extends 12 pixels horizontally and 4 pixels vertically beyond the field.
-Body editors add 8 pixels of internal vertical padding, giving the highlight a 12-pixel inset on every side.
-A non-interactive pseudo-element draws the highlight without changing layout. Focus replaces its background with a light border.
-Hover and focus colors use the micro transition; reduced motion removes the transition.
-Task body editors omit the block drag handle and the manual Markdown source switch.
-Task titles have no focus underline. Read-only and busy fields keep their normal appearance.
-Saving and saved states use a muted spinner and checkmark in a fixed field gutter, with screen-reader announcements and no layout shift.
-Error and retry messages remain visible.
-Existing task and recurrence fields save on blur. Both reuse the capture title and Markdown editor.
-The editor reads current text before saving, changing source mode, starting, or leaving a task.
+Existing Task and recurrence titles and instructions save on blur.
+The editor reads current text before saving, starting work, or leaving the Task.
 Failed saves preserve drafts and prevent navigation. Stale saves require acknowledgement before retry.
-Document saves retain revision and digest fences. Active tasks follow server-provided edit availability.
-Project documents retain their existing explicit editing controls.
-The source editor remains available when rich parsing fails. iOS retains its native source editor.
+Document saves retain revision and digest checks. Active Tasks use server-provided edit availability.
+Project documents retain their explicit editing controls.
+The source editor remains available when rich parsing fails. iOS uses its native source editor.
 
-Task titles use smaller text and wrap to show the complete title.
-Task details keep Close on mobile and the combined file/Transcript tabs above scrolling content.
-In the wide layout, the title stays above Workspace within its column.
-Task loading uses the same columns, title position, tabs, and context placement.
-Startup uses a Tasks placeholder when the current route opens a task.
-The header and selected tab remain stable from Inbox through Queued and Running.
-Project and Task agent choices appear in the Workspace body. Working folder and repeated revision/source metadata are omitted.
-Timing appears beside Schedule or Reschedule. Lifecycle controls remain in the existing floating bar.
-An Inbox task says Ready when you are. No separate Progress section appears.
-Task list groups show their names and counts without explanatory description rows.
+Recurrence detail edits the template `TASK.md`; changes affect future runs.
+Run history remains separate from the selected template.
+Skipped slots do not imply an existing Task.
+Schedule editing preserves cron expressions that do not match a preset.
+Cancellation does not require a reason. Starting a Task remains a direct action.
 
-Recurrence detail reads its separate template `TASK.md`. Edits apply to future runs.
-Above 1200 pixels, recurring task details show Run history in a 600-pixel right panel.
-The title, instructions, settings, and schedule actions stay in the left panel.
-Both panels scroll independently. At smaller widths, Run history follows the settings.
-History reuses task list cards and linked task status. Skipped slots do not imply an existing task.
-A recurring template remains selected when it creates a run. Opening that run remains separate navigation.
-Schedule editing recognizes supported presets and preserves unmatched cron expressions.
-Task confirmations and schedule dialogs reuse task cards. Footers keep equal-width actions reachable, with the primary action on the right.
-Cancellation does not ask for a reason. Start task remains a direct action.
-
-Agent and task model settings keep model, reasoning, and Fast controls visible.
-Task models use provider availability without a separate enable setting.
-Device notification settings precede server delivery setup. Provider detail headers align with the list header.
+Agent and Task model settings keep model, reasoning, and Fast controls visible.
+Task models use provider availability without a separate enable control.
+Device notification settings precede server delivery setup.
 
 The Tasks list reads recurring authorities directly. A recurrence remains in
 Scheduled when all of its Task instances are terminal. Instances provide run
@@ -325,8 +281,9 @@ Clients do not parse `[^noema-source-N]` markers or definitions.
 ## Validation
 
 For frontend changes, run `bun run lint` and `bun run build` from `apps/web`.
-Run focused existing tests when the changed logic has coverage. UI work is not
-visually verified unless browser inspection is explicitly authorized.
+UI requests authorize browser inspection unless the user restricts it.
+Follow [browser inspection](browser-inspection.md) at desktop and phone widths.
+Report when a relevant state could not be inspected. Do not add UI tests unless requested.
 
 ## Assistant message bubbles
 

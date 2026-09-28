@@ -77,8 +77,7 @@ instead of only an aggregate quality score.
 `role-policies.toml` is the versioned decision policy. Each role declares its
 incumbent, minimum case and quality coverage, provider-error ceiling, p95 latency
 ceiling, and challenger replacement margin. Ranking is deterministic:
-qualification, quality, reliability, estimated cost, p95 latency, then candidate
-id. A qualified challenger below the replacement margin does not displace a
+qualification, deterministic score, quality, error rate, estimated cost, p95 latency, then candidate ID. A qualified challenger below the replacement margin does not displace a
 qualified incumbent; the report records that reason.
 
 Open-ended cases named by a role policy receive one blinded incumbent-versus-

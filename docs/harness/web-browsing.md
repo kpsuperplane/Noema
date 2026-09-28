@@ -55,8 +55,7 @@ resources. `file.parse` returns bounded text from supported local files.
   session when the task is missing, terminal, or has a new generation.
 - If this task read fails, Noema retains the session and logs the failure.
 - Noema admits the configured number of sessions. The default is two, and the
-  valid range is one through eight. One re-armable task waits for the earliest
-  deadline; it does not poll.
+  valid range is one through eight. Each session has a resettable idle timer.
 - Successful activity extends the 30-minute idle deadline. Explicit close,
   task-generation closure, expiry, and daemon shutdown destroy session data.
 - `close` is idempotent. It clears the cached snapshot context even when no
@@ -91,8 +90,9 @@ uses one bounded worker with a 512 MiB memory limit and a 30-second timeout.
 
 Noema invokes only fixed, source-controlled DOM scripts. Model-provided values
 are JSON encoded into those scripts. Arbitrary JavaScript evaluation, selectors,
-downloads, uploads, multiple tabs, proxies, durable profiles, and cross-owner
-reuse are intentionally absent.
+arbitrary local uploads, multiple tabs, user-supplied proxies, durable profiles, and cross-owner reuse are absent.
+Kernel supports reviewed uploads of an exact Task artifact version through `upload_file`.
+Obscura does not support that upload path.
 
 Kernel sessions use headful stealth mode. Kernel supplies its managed proxy and challenge handling.
 Noema does not add provider-specific challenge detection or waiting.
@@ -114,9 +114,6 @@ A switch to the exact last attempted URL reuses that live session's navigation
 authorization. A different switch URL uses observed admission or normal review.
 `interact` and `history` are non-idempotent open-world actions and use LLM/human review.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
-Each capability binding owns its Task checkpoint policy. Reviewed state changes
-require a current checkpoint by default. `switch_provider` changes only the
-ephemeral browser session, so it does not require a Task checkpoint.
 Ownership and revision are revalidated after approval. Worker loss after a
 reused `open` or mutating dispatch has an uncertain outcome. Noema never replays
 that action. A main-document 5xx response after an interaction also produces
@@ -132,9 +129,9 @@ but they cannot create human authority. Before review and after approval, Noema
 revalidates the session, snapshot revision, and exact target. It supersedes a
 stale request instead of acting on a changed page or missing session.
 
-The browser destination records the complete route through one ordered-route digest.
-The digest includes account order, capability state, and credential revisions.
-Noema recomputes this destination before approved execution.
+Saved browser authority includes the selected account, credential revision, route position, snapshot revision, and URL.
+For uploads, it also includes exact artifact identity and size.
+Noema recomputes that authority before reviewed execution.
 Saving a hosted route permits agent selection, hosted data flow, and hosted charges.
 The switch call remains the disclosure event for its selected URL.
 
@@ -156,6 +153,9 @@ fields remain available to the model, transcript, action result, and diagnostic
 path. Noema does not infer failure meaning from message text. An
 `outcome_uncertain` failure stops automatic continuation and replay.
 
-If `TASK.md` records an active browser session, the Executor snapshots it before
-opening another URL. A missing session permits a new open. This order preserves
-POST results, page state, and filled forms across Task continuations.
+The Executor prompt instructs it to snapshot a recorded active session before opening another URL.
+This guidance helps preserve forms and page state across continuations. It is not an enforced navigation sequence.
+
+Implementation: [browser sessions and review rules](../../internal/webtool/browser.go),
+[reviewed browser dispatch](../../internal/runtime/web_tools.go), and
+[Task prompt guidance](../../internal/runtime/task_prompts.go).

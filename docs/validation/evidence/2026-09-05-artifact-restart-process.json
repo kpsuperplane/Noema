@@ -1,6 +1,0 @@
-{
-  "beforePid": 3176246,
-  "trigger": "SIGTERM to the Air server watcher. The existing noema-dev supervisor restarts it.",
-  "watcherPid": 3093151,
-  "afterPid": 3177662
-}

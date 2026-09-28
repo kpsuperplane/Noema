@@ -40,12 +40,14 @@ The model's judgment operates within rules that the server enforces:
 
 - **Checked tool inputs.** Calls must satisfy their tool's input contract before execution.
 - **Exact approvals.** A human approval applies to one saved action request and is consumed when execution starts.
-- **Connection policies.** Each connection controls information sharing and the review route for risky actions.
+- **Connection policies.** Connection settings select the review route for calls, including risky actions.
 - **Protected credentials.** Credential stores supply secrets to services without placing them in model context or ordinary conversation history.
 - **Recorded outcomes.** Action requests retain their inputs, review, decision, execution state, and result.
 
 This makes much of action enforcement deterministic: the same stored state must satisfy the same code checks.
-Intent and risk assessment still use model judgment. Some authorized actions can run after model review without a human approval prompt.
+Intent and risk assessment still use model judgment.
+Some actions run without human review under the configured connection policy.
+Noema does not provide general per-scope data grants or universal information-flow tracking.
 
 [Security model](docs/harness/security.md) · [Authentication and server access](docs/server-security.md)
 

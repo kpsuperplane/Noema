@@ -55,8 +55,10 @@ report is a circuit breaker: if a budget fails, stop and simplify or request a
 scope decision instead of raising the limit after the fact.
 
 For Go server changes, record authored production, tests, generated GraphQL,
-and their inclusive total. Count only tracked `.go` files. Keep authored
-production and the inclusive total below the migration plan's 80-percent limits.
+and their inclusive total. Count only tracked `.go` files. The retained Rust baseline is commit `a007a4fa984f0d2eaeb2c101337dbbe7881d9379`:
+173,990 production lines and 239,826 inclusive lines.
+Keep Go production below 139,192 lines and its inclusive total below 191,860 lines.
+These are the strict 80-percent migration limits.
 
 ## Design and abstraction
 

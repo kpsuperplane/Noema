@@ -58,16 +58,6 @@ codex sandbox -C /root/noema -P noema-build -- ls /tmp/noema-codex/home
 codex sandbox -C /root/noema -P noema-build -- curl --unix-socket /tmp/noema-codex/graphql.sock http://localhost/auth/status
 ```
 
-## Evidence
-
-The saved profile was checked with `codex sandbox -C /root/noema -P noema-build` on September 9, 2026.
-The previous profile had an empty effective capability set. It could not control the host service manager.
-The revised profile retains the host capability set and can query the service manager.
-A temporary write in `/run/noema-dev` succeeded. The check file was removed.
-The complete `./attach` launcher started under the saved profile.
-It rebuilt `/run/noema-dev/noema`, mounted the inspection view, and returned authenticated socket status.
-The read-only bindfs view still rejects writes independently of the profile.
-
 ## General CLI
 
 Use `noema --socket /tmp/noema-codex/graphql.sock` with the existing development relay.

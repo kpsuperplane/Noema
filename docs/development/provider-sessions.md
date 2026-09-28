@@ -2,7 +2,8 @@
 
 Local replay input is the correctness authority for each generation.
 
-The runtime opens one provider session for each foreground turn, background run, and primary notification.
+Chat keeps one warm provider session across turns when its conversation, model assignment, credentials, base context, and saved history remain compatible.
+A change to these inputs or compaction closes that session. Task runs open their own sessions.
 
 Each session receives complete replay input. It can also receive input added after the prior response.
 
@@ -14,7 +15,7 @@ runtime uses that state to avoid replay compaction during a live continuation.
 
 Codex and OpenAI Responses share one WebSocket transport and one response accumulator.
 
-The session opens its WebSocket connection when the first request starts. The session closes the connection when its handle is dropped.
+The session opens its WebSocket connection when the first request starts. Closing the session closes its connection.
 
 WebSocket requests use the provider's configured request timeout. A timeout after output does not replay the request.
 
@@ -66,3 +67,5 @@ A context reset starts with full sections. Memory root text remains in the base 
 Native tool definitions carry complete descriptions and schemas for every Chat provider.
 The tool visibility section lists callable names and service ownership without repeating tool descriptions.
 Context admission counts ordinary message text without adding JSON string escapes or empty record fields.
+
+Sources: [Chat session ownership](../../internal/runtime/chat_session.go), [Responses transport](../../internal/provider/responses_websocket.go), [Codex requests](../../internal/provider/codex_generation.go), and [OpenAI requests](../../internal/provider/openai_generation.go).

@@ -1,5 +1,0 @@
-import {chromium} from '/tmp/bunx-0-playwright@latest/node_modules/playwright/index.mjs';
-import {writeFile} from 'node:fs/promises';
-const root='/var/tmp/noema-suite-run-20260905';const browser=await chromium.launch({headless:true,args:['--no-sandbox','--host-resolver-rules=MAP noema.kevinpei.com 127.0.0.1']});
-const results=[];
-try {for(const viewport of [{width:1440,height:1000},{width:390,height:844}]){const context=await browser.newContext({serviceWorkers:'block',storageState:'/var/tmp/noema-audit-credentials/browser-session.json',viewport});const page=await context.newPage();await page.goto('https://noema.kevinpei.com/tasks/task%3Af932f3c82add0b649c3ffc5d2328e179');await page.getByRole('button',{name:'Transcript',exact:true}).click();await page.waitForTimeout(1000);results.push({viewport,text:await page.locator('body').innerText(),textboxes:await page.getByRole('textbox').count()});await page.screenshot({path:root+'/human-input-transcript-'+viewport.width+'.png'});await context.close();}}finally{await writeFile(root+'/human-input-transcript-results.json',JSON.stringify(results,null,2)+'\n');await browser.close();}

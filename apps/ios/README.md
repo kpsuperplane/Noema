@@ -102,3 +102,5 @@ Settings → Notifications includes a local Live Activity test when the feature
 is enabled. The test bypasses APNs and does not affect server reconciliation.
 Real ActivityKit sessions report snapshots through the native-client
 registration. Device traces include states and identifiers, but never tokens.
+
+Implementation: [connection and refresh](Noema/Features/Pairing/PairingService.swift), [GraphQL transport](Noema/Core/Networking/NoemaGraphQLClient.swift), and [network recovery](Noema/Core/Networking/NoemaConnectionRecovery.swift).

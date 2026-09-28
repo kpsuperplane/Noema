@@ -43,15 +43,10 @@ Derived labels and valid actions must not become another state machine.
 
 ## Task files and directories
 
-Each Task has one working directory.
-
-- A project Task uses `<project>/<task-slug>/`.
-- A projectless Task uses `${NOEMA_HOME}/tasks/<task-slug>/`.
-- An explicit Task directory base remains supported.
-
-Noema allocates the slug once.
-It adds an integer suffix when a path exists.
-A title change does not move the directory.
+Each Task uses `${NOEMA_HOME}/tasks/<task-id-suffix>/`.
+The directory name comes from the stable Task identifier, not the title or project folder.
+Renaming or assigning a project does not move these files.
+Task and project working-directory settings also feed execution metadata; they do not relocate the Go Task-file store.
 
 `TASK.md` contains the current request, plan, working notes, progress, and open questions.
 `RESULT.md` contains the current submitted result when one exists.
@@ -59,9 +54,8 @@ A title change does not move the directory.
 Agents can create other support files when useful.
 
 `RESULT.md` stores web sources as `[^noema-source-N]` markers and matching
-Markdown footnote definitions. The Runtime resolves provider-private markers
-before an Executor terminal commits. This format keeps citations with the
-mutable result during continuation, review, correction, and reopening.
+Markdown footnote definitions. The Executor prompt requires this format rather than provider-private markers.
+The markers remain with the mutable file through continuation and review.
 
 Task read projections convert this stored format into readable result text and
 structured provider citation metadata. Clients do not parse the reserved footnotes.
@@ -72,14 +66,13 @@ Supported claim.[^noema-source-1]
 [^noema-source-1]: [Source title](<https://example.com/source>)
 ```
 
-Titles must contain text. Source URLs must use HTTP or HTTPS. The Runtime
+Titles must contain text. Web source URLs must use HTTP or HTTPS.
+Artifact citations can use a returned artifact identifier with a precise locator. The Runtime
 numbers unique URLs by first use and writes definitions after one blank line.
 
-Project Tasks can read shared files within the project boundary.
-Relative parent paths can reach those files.
-Paths cannot escape the project boundary.
-Projectless Tasks cannot escape their Task directory.
-Symbolic links cannot bypass either boundary.
+Task file reads first resolve inside the Task directory.
+For a linked project folder, reads can also resolve Task-relative paths inside that folder.
+Writes remain inside the Task directory. Path checks reject symbolic-link escapes.
 
 The Planner and Executor can manage files in the Task directory.
 Task file tools cannot delete `TASK.md` or `RESULT.md`.
@@ -93,7 +86,7 @@ Only the Executor can use `file.download`, and downloads stay in the Task direct
 Task file tools accept relative paths and UTF-8 text.
 Model-facing reads and writes have a 64 KiB limit.
 Writes replace files atomically.
-Task files have no database record, persisted content hash, revision, or snapshot.
+Working files have no version history. Saved human authorization is separate from their current contents.
 Human saves use a transient SHA-256 digest from the latest read.
 Task document saves are available only while a Task is in Inbox.
 The save replaces the complete document and rejects a stale digest without changing other Task data.
@@ -176,21 +169,13 @@ Terminal and human-gated Tasks cannot retain runnable work.
 The Planner reads current `TASK.md`.
 The Executor reads current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md`.
 The Reviewer reads current `TASK.md`, required `RESULT.md`, and optional `REVIEW.md`.
-Role prompts must not prescribe batches, checklists, or document sections.
-For research, the Executor identifies the required evidence and likely source types before it searches.
-Queries use concrete entities and constraints. Search results supply leads, not final evidence.
-The Executor opens sources and verifies claims from their content.
-When freshness, completeness, or a collection matters, the Executor opens and inspects the best available source-owned listing before broad search.
-Hosted search locates source pages. The interactive browser does not open search-engine result pages.
-The Executor inspects current results before it issues speculative query variants.
-After two low-yield searches, it changes the retrieval route, source type, domain, or query structure.
-It does not spend further calls on near-synonym queries.
-Multi-source research keeps concise candidate evidence and rejected leads in Task files.
-Before a continuation, the Executor records completed progress, the exact next action, and needed support-file references in `TASK.md`.
-If `TASK.md` omits a needed value, the Executor reads its referenced support file and does not guess the value.
-The runtime rejects continuation when another tool action occurs after the latest successful `TASK.md` write.
-An audit checkpoint keeps normal file tools available until the Executor saves that state.
-Repeated arguments or failures also request a checkpoint before terminal-only finalization.
+Role prompts guide research, source verification, persistence, and limitation reports.
+These instructions guide model behavior; they do not guarantee research quality or factual correctness.
+The [role prompts](../internal/runtime/task_prompts.go) contain the current instructions.
+
+Before continuation, the Executor must save current progress and the next action in `TASK.md`.
+The runtime requires a successful `TASK.md` write in the reconstructed run state before continuation or completion.
+Later tool calls do not clear that flag. It does not prove the saved prose is current or complete.
 
 Each role receives a fresh current run clock as system context.
 Scheduled Tasks use their schedule timezone.
@@ -270,9 +255,10 @@ Cancellation and reopen increment the generation.
 Old work cannot change the new Task lifetime.
 Answer and retry preserve the generation and resume the recorded role.
 
-SQLite stores operational Task state only.
-This includes workflow, gates, runs, run items, decisions, receipts, events, and notifications.
-Task content remains in Task files.
+SQLite stores workflow, gates, runs, run items, decisions, receipts, events, and notifications.
+It also stores bounded human authorization snapshots for action review.
+Current working documents remain in Task files.
+See [action governance](harness/action-governance.md) for the distinction.
 
 `work_events` provides audit, subscription cursors, and invalidation.
 It is not a replay authority.
@@ -305,7 +291,6 @@ Role terminal tools are:
 - `task.report_blocked`.
 
 External writes remain governed by capability and approval policy.
-ACP and provider agents receive equivalent Task-file behavior.
 
 Task updates appear in the primary conversation with a durable Task reference.
 The reference stores only the Task identity.
