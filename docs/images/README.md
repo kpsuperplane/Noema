@@ -31,8 +31,9 @@ The normal recovery action directed it to continue with web search and label unv
 No saved action or result was rewritten.
 The itinerary then completed execution and passed review at 04:55 UTC.
 The desktop and phone Task images show its actual result.
-Both Tasks had completed when the compact-bar images were captured.
-Chat is scrolled to their earlier delegation exchange.
+Both Tasks had completed when the desktop and phone result images were captured.
+The hero was captured later, during a real itinerary revision.
+Chat is scrolled to the delegation exchange; the transcript shows the current revision work.
 
 The memory update action failed twice because generated pages cited ineligible sources.
 The prior sample memory image has been removed from the README.
@@ -49,8 +50,8 @@ The temporary browser context supplied a UUID function for the HTTP inspection o
 No application code changed.
 
 Chat is scrolled to the delegation exchange, with the itinerary transcript beside it.
-The transcript shows an earlier successful TriMet browser call.
-Later failures and recovery remain in the same transcript outside that frame.
+The transcript shows the previous review and the current Executor editing the itinerary.
+Earlier browser calls, failures, and recovery remain in the same transcript outside that frame.
 Messages outside the viewport remain available in the conversation.
 The connection image captures the policy and tool sections only.
 The account address is outside that frame; no displayed text was replaced.
@@ -92,4 +93,13 @@ The main Vite bundle built successfully; its parent command stopped before the G
 The remaining `bun run build:graphiql` step passed when run separately.
 `bun run check:generated` passed after committing the required model-settings input correction.
 That correction preserves the existing enabled state when saving a model choice.
-Both Tasks were complete, so this refresh did not capture a live running or approval state.
+The result screenshots show completed work. The refreshed hero shows a running Task, but no approval state.
+
+## Active hero correction
+
+The completed itinerary was reopened through the normal Task API with a short refinement request.
+The request reduces each day to two main stops while retaining transit details, sources, and a rainy-day swap.
+The hero records the real Executor running and writing; its status was not substituted.
+The existing 50-pixel bar remains unchanged.
+The image received visual review, with no horizontal page overflow.
+Only the hero image and these notes changed; no application checks were needed.
