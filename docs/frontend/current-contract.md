@@ -221,6 +221,7 @@ The Task loading placeholder uses the same width and placement.
 Transcript fills the right column’s height.
 The Task summary bar is 50 pixels high, including its border. Its 48-pixel header uses compact vertical padding.
 The action bar shows task state above the latest live activity at every width.
+Text and tool activity rows use the same compact overlap with the status line.
 Human attention takes priority and shows its summary. Inactive tasks omit old run activity.
 Activity stays on one line; full content remains in Transcript. Agent identity stays with the avatar.
 At smaller widths, Task detail uses tabs and swipe navigation.

@@ -31,8 +31,8 @@ The normal recovery action directed it to continue with web search and label unv
 No saved action or result was rewritten.
 The itinerary then completed execution and passed review at 04:55 UTC.
 The desktop and phone Task images show its actual result.
-Both Tasks had completed when the desktop and phone result images were captured.
-The hero was captured later, during a real itinerary revision.
+All three Task-related images now show a real checklist revision in progress.
+The full itinerary remains visible while the Task prepares a separate phone-friendly checklist.
 Chat is scrolled to the delegation exchange; the transcript shows the current revision work.
 
 The memory update action failed twice because generated pages cited ineligible sources.
@@ -86,14 +86,14 @@ Chat, desktop Task, and phone Task images were captured again after reducing the
 The bar measures 50 pixels, down from 58 pixels, at all three captured widths.
 Its buttons and icons keep their existing sizes.
 The new-task screen also received desktop and phone visual review.
-These captures used existing data and made no product changes.
+The read-only capture helper made no product changes. Follow-up requests used the normal Task API.
 
 The compact-bar change passed frontend type checking and lint.
 The main Vite bundle built successfully; its parent command stopped before the GraphiQL build.
 The remaining `bun run build:graphiql` step passed when run separately.
 `bun run check:generated` passed after committing the required model-settings input correction.
 That correction preserves the existing enabled state when saving a model choice.
-The result screenshots show completed work. The refreshed hero shows a running Task, but no approval state.
+The refreshed screenshots show a running Task, but no approval state.
 
 ## Active hero correction
 
@@ -103,3 +103,14 @@ The hero records the real Executor running and writing; its status was not subst
 The existing 50-pixel bar remains unchanged.
 The image received visual review, with no horizontal page overflow.
 Only the hero image and these notes changed; no application checks were needed.
+
+## Tighter status and activity lines
+
+The status and activity lines now sit four pixels closer together.
+The bar remains 50 pixels high, with unchanged buttons and icons.
+Both plain-text activity and tool markers use the same spacing adjustment.
+The Task was reopened to create `CHECKLIST.md` while retaining the full itinerary.
+Chat, desktop Task, and phone Task images record that real work in progress.
+All three images received visual review; the lines remain readable without horizontal overflow.
+`bun run check:generated`, `bun run lint`, and `bun run build` passed on this patch.
+No new frontend tests were added.
