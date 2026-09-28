@@ -19,7 +19,7 @@ func (r *Resolver) updateInboxTask(ctx context.Context, input model.UpdateInboxT
 	if input.ProjectID != nil && input.ClearProject != nil && *input.ClearProject || input.CwdOverride != nil && input.ClearCwdOverride != nil && *input.ClearCwdOverride {
 		return nil, taskInputError("replacement fields conflict")
 	}
-	changes := store.TaskUpdate{Title: input.Title, ProjectID: input.ProjectID, ExecutorAgentID: input.ExecutorAgentID, CwdOverride: input.CwdOverride}
+	changes := store.TaskUpdate{HumanEdit: true, HumanDocument: input.TaskDocument, Title: input.Title, ProjectID: input.ProjectID, ExecutorAgentID: input.ExecutorAgentID, CwdOverride: input.CwdOverride}
 	changes.SetProject = input.ProjectID != nil || input.ClearProject != nil && *input.ClearProject
 	changes.SetCwd = input.CwdOverride != nil || input.ClearCwdOverride != nil && *input.ClearCwdOverride
 	if changes.Title == nil && !changes.SetProject && changes.ExecutorAgentID == nil && !changes.SetCwd && input.TaskDocument == nil {

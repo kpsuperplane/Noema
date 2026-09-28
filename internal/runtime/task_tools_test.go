@@ -61,10 +61,14 @@ func TestTaskModelToolCatalogAndStrictArguments(t *testing.T) {
 
 func TestPrimaryTaskToolsCaptureUpdateListScheduleAndReplay(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
+	turn, sourceItem, err := database.BeginConversationTurn(t.Context(), conversation.ID, "Do the requested Task", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	created, success := chat.executeChatTool(ctx, conversation, taskCaptureName,
-		mustToolJSON(t, map[string]any{"title": " First ", "task_document": "# First\n"}), "task-create", "turn:create",
-		chatTaskToolDetails{SourceItemID: "item:user-source", TimeZone: "America/Los_Angeles"})
+		mustToolJSON(t, map[string]any{"title": " First ", "task_document": "# First\n"}), "task-create", turn.ID,
+		chatTaskToolDetails{SourceItemID: sourceItem.ID, TimeZone: "America/Los_Angeles"})
 	if !success {
 		t.Fatalf("capture = %s", created)
 	}
@@ -72,12 +76,12 @@ func TestPrimaryTaskToolsCaptureUpdateListScheduleAndReplay(t *testing.T) {
 	task := createdValue["task"].(map[string]any)
 	taskID := task["task_id"].(string)
 	storedSource, err := database.Task(ctx, taskID)
-	if err != nil || storedSource.Source != (store.ArtifactSource{ConversationID: conversation.ID, TurnID: "turn:create", ItemID: "item:user-source"}) ||
+	if err != nil || storedSource.Source != (store.ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID, ItemID: sourceItem.ID}) ||
 		storedSource.SourceToolCallID != "task-create" || storedSource.SourceClientTimeZone != "America/Los_Angeles" {
 		t.Fatalf("Task source = %#v, %v", storedSource, err)
 	}
 	replayed, success := chat.executeChatTool(ctx, conversation, taskCaptureName,
-		mustToolJSON(t, map[string]any{"title": " First ", "task_document": "# First\n"}), "task-create", "turn:create")
+		mustToolJSON(t, map[string]any{"title": " First ", "task_document": "# First\n"}), "task-create", turn.ID)
 	if !success || mustToolValue(t, replayed)["event_sequence"] != createdValue["event_sequence"] {
 		t.Fatalf("capture replay = %s, %t", replayed, success)
 	}
@@ -127,7 +131,7 @@ func TestPrimaryTaskToolsCaptureUpdateListScheduleAndReplay(t *testing.T) {
 		mustToolJSON(t, map[string]any{"title": "Repeat", "task_document": "# Repeat\n",
 			"schedule": map[string]any{"scheduled_for": first.Format(time.RFC3339Nano), "time_zone": "UTC", "missed_run_policy": "skip",
 				"recurrence": map[string]any{"starts_at": starts.Format(time.RFC3339Nano), "cron_expression": "0 9 * * 1", "overlap_policy": "queue_one"}}}),
-		"task-repeat", "turn:repeat")
+		"task-repeat", turn.ID, chatTaskToolDetails{SourceItemID: sourceItem.ID})
 	if !success {
 		t.Fatalf("recurring capture = %s", recurring)
 	}
@@ -163,8 +167,12 @@ func TestPrimaryTaskToolsCaptureUpdateListScheduleAndReplay(t *testing.T) {
 
 func TestTaskDelegateIsAtomicAndSelectsInitialRun(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
+	turn, sourceItem, err := database.BeginConversationTurn(t.Context(), conversation.ID, "Do the requested Task", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	projectPayload, projectSuccess := chat.executeChatTool(t.Context(), conversation, projectCreateName,
-		projectTestArguments(t, map[string]any{"name": "Delegated"}), "delegate-project", "turn:delegate")
+		projectTestArguments(t, map[string]any{"name": "Delegated"}), "delegate-project", turn.ID)
 	if !projectSuccess {
 		t.Fatalf("create Project = %s", projectPayload)
 	}
@@ -178,11 +186,11 @@ func TestTaskDelegateIsAtomicAndSelectsInitialRun(t *testing.T) {
 	}
 	conflicting["complexity_hint"] = "simple"
 	invalid, accepted := chat.executeChatTool(t.Context(), conversation, taskDelegateName,
-		mustToolJSON(t, conflicting), "delegate-call", "turn:delegate")
+		mustToolJSON(t, conflicting), "delegate-call", turn.ID, chatTaskToolDetails{SourceItemID: sourceItem.ID})
 	if accepted || !bytes.Contains(invalid, []byte("Omit complexity_hint when execution_intent is supplied")) {
 		t.Fatalf("conflicting delegation did not explain correction: %s", invalid)
 	}
-	payload, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName, raw, "delegate-call", "turn:delegate")
+	payload, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName, raw, "delegate-call", turn.ID, chatTaskToolDetails{SourceItemID: sourceItem.ID})
 	if !success {
 		t.Fatalf("delegate = %s", payload)
 	}
@@ -197,7 +205,7 @@ func TestTaskDelegateIsAtomicAndSelectsInitialRun(t *testing.T) {
 	if value["run_id"] != runs[0].ID || value["project"].(map[string]any)["project_id"] != projectID {
 		t.Fatalf("delegated result = %s", payload)
 	}
-	replayed, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName, raw, "delegate-call", "turn:delegate")
+	replayed, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName, raw, "delegate-call", turn.ID, chatTaskToolDetails{SourceItemID: sourceItem.ID})
 	page, _ := database.ListTasks(t.Context(), store.TaskListFilter{Scope: "all"}, 10, nil)
 	if !success || mustToolValue(t, replayed)["event_sequence"] != value["event_sequence"] || len(page.Tasks) != 1 {
 		t.Fatalf("delegate replay = %s, %t; Tasks %d", replayed, success, len(page.Tasks))
@@ -206,11 +214,15 @@ func TestTaskDelegateIsAtomicAndSelectsInitialRun(t *testing.T) {
 
 func TestTaskArtifactToolsFenceOwnershipVersionsAndParse(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
+	turn, sourceItem, err := database.BeginConversationTurn(t.Context(), conversation.ID, "Do the requested Task", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	delegated, success := chat.executeChatTool(t.Context(), conversation, taskDelegateName,
 		mustToolJSON(t, map[string]any{"title": "Artifacts", "task_document": "# Artifacts\n",
 			"project":          map[string]any{"kind": "none"},
 			"execution_intent": map[string]any{"request_markdown": "Create it.", "complexity": "simple"}}),
-		"artifact-delegate", "turn:artifact", chatTaskToolDetails{SourceItemID: "item:artifact-source", TimeZone: "Europe/Paris"})
+		"artifact-delegate", turn.ID, chatTaskToolDetails{SourceItemID: sourceItem.ID, TimeZone: "Europe/Paris"})
 	if !success {
 		t.Fatalf("delegate = %s", delegated)
 	}

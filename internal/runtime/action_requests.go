@@ -39,16 +39,12 @@ func (c *Chat) prepareMCPAction(
 		}
 		return payload, success, nil, nil
 	}
-	authority, err := c.database.ConversationAuthorizationContext(c.ctx, conversation.ID, turn.ID)
-	if err != nil {
-		return nil, false, nil, err
-	}
 	server, err := c.mcp.Server(c.ctx, binding.ServerID)
 	if err != nil {
 		return nil, false, nil, err
 	}
 	contextValue := map[string]any{
-		"origin": "primary_conversation", "context": authority, "conversation_id": conversation.ID,
+		"origin": "primary_conversation", "conversation_id": conversation.ID,
 		"execution_decision": string(binding.ReviewRoute), "provider_selection": modelAssignmentValue(assignment),
 		"provider_round": providerRound,
 		"destination": map[string]any{"service_id": server.DefinitionID, "connection_id": server.ID,
@@ -183,19 +179,13 @@ func (c *Chat) prepareFileDownloadAction(
 		payload := toolFailure("invalid_input", err.Error())
 		return payload, false, nil, nil
 	}
-	authority, err := c.database.ConversationAuthorizationContext(c.ctx, conversation.ID, turn.ID)
-	if err != nil {
-		return nil, false, nil, err
-	}
-	messages, _ := authority["messages"].([]map[string]any)
-	var sourceID any
-	if len(messages) != 0 {
-		sourceID = messages[len(messages)-1]["item_id"]
+	if payload, success, observed, err := executeObservedDownload(c.ctx, c.database, conversation.CWD, arguments); err != nil || observed {
+		return payload, success, nil, err
 	}
 	contextValue := map[string]any{
-		"origin": "primary_conversation", "context": authority,
-		"conversation_id": conversation.ID, "source_human_item_id": sourceID,
-		"cwd": conversation.CWD, "execution_decision": "llm_review",
+		"origin":          "primary_conversation",
+		"conversation_id": conversation.ID,
+		"cwd":             conversation.CWD, "execution_decision": "llm_review",
 		"provider_selection": modelAssignmentValue(assignment), "provider_round": providerRound,
 		"destination": map[string]any{
 			"service_id": "public_web", "connection_id": "file_download", "revision": "1",

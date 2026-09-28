@@ -19,6 +19,8 @@ import (
 
 // TaskUpdate contains the optional Inbox replacements for one Task.
 type TaskUpdate struct {
+	HumanEdit                                      bool
+	HumanDocument                                  *string
 	Title, ProjectID, ExecutorAgentID, CwdOverride *string
 	SetProject, SetCwd                             bool
 	DocumentDigest                                 string
@@ -204,13 +206,20 @@ func (s *Store) UpdateInboxTask(ctx context.Context, id string, revision, genera
 				task.CwdOverride = &value
 			}
 		}
+		if changes.HumanEdit && (changes.Title != nil || changes.HumanDocument != nil) {
+			authority, err := manualTaskAuthority(task.Title, changes.HumanDocument)
+			if err != nil {
+				return TaskCommandResult{}, err
+			}
+			task.AuthorizationContext = authority
+		}
 		task.Revision++
 		task.UpdatedAt = now.UTC()
 		result, err := tx.ExecContext(ctx, `UPDATE tasks SET title=?, project_id=NULLIF(?,''), executor_agent_id=?,
-executor_acp_connection_revision=?, cwd_override=?, revision=?, updated_at_ms=?
+executor_acp_connection_revision=?, cwd_override=?, revision=?, updated_at_ms=?, authorization_context_json=?
 WHERE task_id=? AND revision=? AND generation=?`, task.Title, task.ProjectID, task.ExecutorAgentID,
 			nullableInt(task.ExecutorAcpConnectionRevision), nullableString(task.CwdOverride), task.Revision,
-			millis(task.UpdatedAt), id, revision, generation)
+			millis(task.UpdatedAt), task.AuthorizationContext, id, revision, generation)
 		if err != nil {
 			return TaskCommandResult{}, err
 		}

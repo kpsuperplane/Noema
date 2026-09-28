@@ -64,6 +64,7 @@ type Task struct {
 	CancelledAt                   *time.Time `bun:"cancelled_at_ms"`
 	ExecutionComplexity           string
 	Source                        ArtifactSource `bun:"embed:source_"`
+	AuthorizationContext          string         `bun:"authorization_context_json"`
 	SourceToolCallID              string
 	SourceClientTimeZone          string
 	CreatedAt                     time.Time `bun:"created_at_ms"`

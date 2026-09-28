@@ -28,7 +28,7 @@ var migrations = [...]string{
 	schemaV13SQL, schemaV14SQL, schemaV15SQL, schemaV16SQL, schemaV17SQL, schemaV18SQL,
 	schemaV19SQL, schemaV20SQL, schemaV21SQL, schemaV22SQL, schemaV23SQL, schemaV24SQL,
 	schemaV25SQL, schemaV26SQL, schemaV27SQL, schemaV28SQL, schemaV29SQL, schemaV30SQL,
-	schemaV31SQL, schemaV32SQL, schemaV33SQL, schemaV34SQL, schemaV35SQL, schemaV36SQL, schemaV37SQL, schemaV38SQL, schemaV39SQL,
+	schemaV31SQL, schemaV32SQL, schemaV33SQL, schemaV34SQL, schemaV35SQL, schemaV36SQL, schemaV37SQL, schemaV38SQL, schemaV39SQL, schemaV40SQL, schemaV41SQL,
 }
 
 const schemaVersion = len(migrations)
@@ -125,6 +125,11 @@ func (s *Store) initialize(ctx context.Context) error {
 	for next := version + 1; next <= schemaVersion; next++ {
 		if _, err := tx.ExecContext(ctx, migrations[next-1]); err != nil {
 			return fmt.Errorf("apply schema version %d: %w", next, err)
+		}
+		if next == 40 {
+			if err := backfillTaskAuthorityV40(ctx, tx); err != nil {
+				return fmt.Errorf("backfill Task authority: %w", err)
+			}
 		}
 		if version > 0 && next == 9 {
 			if err := backfillTaskWorkEvents(ctx, tx); err != nil {

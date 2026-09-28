@@ -45,6 +45,11 @@ The action reviewer receives one bounded authorization context.
 - A manually created Task uses its authenticated title and description.
 - Task review uses its saved excerpt and current task identifiers. It does not
   reread mutable conversation history.
+- Human title or document edits replace the saved Task or recurrence authority.
+  Agent edits preserve it. Future recurring Tasks inherit the template snapshot.
+- Action admission supplies current-generation human Task replies, bounded at 64 messages.
+  Replies belong to the current run, its parent, or the set not yet consumed.
+  Starting a run records its consumption of pending human replies.
 - Explicit grants and prior human decisions remain separate authority inputs.
 
 A model-created task contract can narrow human authority. It cannot broaden

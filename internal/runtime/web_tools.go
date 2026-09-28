@@ -174,11 +174,7 @@ func (c *Chat) prepareWebFetchAction(conversation store.Conversation, turn store
 	if err != nil {
 		return nil, false, nil, err
 	}
-	authority, err := c.database.ConversationAuthorizationContext(c.ctx, conversation.ID, turn.ID)
-	if err != nil {
-		return nil, false, nil, err
-	}
-	contextValue := map[string]any{"origin": "primary_conversation", "context": authority,
+	contextValue := map[string]any{"origin": "primary_conversation",
 		"conversation_id": conversation.ID, "execution_decision": "llm_review", "web_binding": binding,
 		"provider_selection": modelAssignmentValue(assignment), "provider_round": providerRound,
 		"destination": map[string]any{"service_id": "public_web", "connection_id": binding.ProviderAccountID, "revision": binding.CredentialRevision},

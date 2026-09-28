@@ -28,6 +28,8 @@ const (
 
 // TaskCreateOptions contains Task placement and optional timing.
 type TaskCreateOptions struct {
+	HumanDocument              *string
+	AuthorityTaskID            string
 	ProjectID, ExecutorAgentID string
 	CwdOverride                *string
 	Schedule                   *schedule.Schedule
@@ -62,6 +64,7 @@ type TaskCommand struct {
 
 // TaskRecurrence is the continuing authority for future Task occurrences.
 type TaskRecurrence struct {
+	AuthorizationContext          string
 	ID                            string
 	WorkspaceID                   string
 	ProjectID                     string
@@ -95,6 +98,8 @@ type RecurrenceOccurrence struct {
 
 // RecurrenceChanges contains optional future-authority replacements.
 type RecurrenceChanges struct {
+	HumanEdit                                  bool
+	HumanDocument                              *string
 	Title, ProjectID, CronExpression, TimeZone *string
 	SetProject                                 bool
 	StartsAt                                   *time.Time
@@ -164,7 +169,11 @@ func (s *Store) CreateTaskWithOptions(
 	if err != nil {
 		return TaskCommandResult{}, err
 	}
-	task := Task{ID: id, ProjectID: options.ProjectID, Title: title, State: TaskCaptured,
+	authority, err := taskCreationAuthority(ctx, tx, title, options)
+	if err != nil {
+		return TaskCommandResult{}, err
+	}
+	task := Task{AuthorizationContext: authority, ID: id, ProjectID: options.ProjectID, Title: title, State: TaskCaptured,
 		Revision: 1, Generation: 1, StageKey: "inbox", ExecutorAgentID: options.ExecutorAgentID,
 		ExecutorAcpConnectionRevision: executorRevision, CwdOverride: cloneString(options.CwdOverride),
 		ExecutionComplexity: options.ExecutionComplexity,
@@ -175,13 +184,13 @@ func (s *Store) CreateTaskWithOptions(
 (task_id, project_id, title, state, current_run_id, revision, executor_agent_id,
  executor_acp_connection_revision, cwd_override, scheduled_for_ms, schedule_time_zone,
  missed_run_policy, recurrence_scheduled_for_ms, execution_complexity, source_conversation_id,
- source_turn_id, source_item_id, source_tool_call_id, source_client_time_zone, created_at_ms, updated_at_ms)
+ source_turn_id, source_item_id, source_tool_call_id, source_client_time_zone, created_at_ms, updated_at_ms, authorization_context_json)
 VALUES (?, NULLIF(?, ''), ?, 'captured', NULL, 1, ?, ?, ?, ?, NULLIF(?, ''),
- NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)`, task.ID, task.ProjectID, task.Title, task.ExecutorAgentID,
+ NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?)`, task.ID, task.ProjectID, task.Title, task.ExecutorAgentID,
 		nullableInt(task.ExecutorAcpConnectionRevision), nullableString(task.CwdOverride),
 		nullableTime(task.ScheduledFor), task.ScheduleTimeZone, task.MissedRunPolicy,
 		nullableTime(task.RecurrenceScheduledFor), task.ExecutionComplexity, task.Source.ConversationID,
-		task.Source.TurnID, task.Source.ItemID, task.SourceToolCallID, task.SourceClientTimeZone, millis(now), millis(now)); err != nil {
+		task.Source.TurnID, task.Source.ItemID, task.SourceToolCallID, task.SourceClientTimeZone, millis(now), millis(now), authority); err != nil {
 		return TaskCommandResult{}, fmt.Errorf("insert Task: %w", err)
 	}
 	recurrenceID, err := createTaskRecurrenceTx(ctx, tx, &task, options.Schedule, now)
@@ -454,13 +463,13 @@ func createTaskRecurrenceTx(
 (recurrence_id, workspace_id, project_id, title, executor_agent_id,
  executor_acp_connection_revision, cwd_override, starts_at_ms, cron_expression,
  time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at_ms,
- created_at_ms, updated_at_ms)
-VALUES (?, 'workspace:personal', NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?)`,
+ created_at_ms, updated_at_ms, authorization_context_json)
+VALUES (?, 'workspace:personal', NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?)`,
 		id, task.ProjectID, task.Title, task.ExecutorAgentID,
 		nullableInt(task.ExecutorAcpConnectionRevision), nullableString(task.CwdOverride),
 		millis(value.Recurrence.StartsAt), value.Recurrence.CronExpression, value.TimeZone,
 		string(value.MissedRunPolicy), string(value.Recurrence.OverlapPolicy), millis(next),
-		millis(now), millis(now)); err != nil {
+		millis(now), millis(now), task.AuthorizationContext); err != nil {
 		return "", fmt.Errorf("insert Task recurrence: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET recurrence_id = ?, recurrence_revision = 1,
@@ -581,6 +590,13 @@ func (s *Store) UpdateTaskRecurrence(
 					return errors.New("invalid recurrence title")
 				}
 			}
+			if changes.HumanEdit && (changes.Title != nil || changes.HumanDocument != nil) {
+				authority, err := manualTaskAuthority(value.Title, changes.HumanDocument)
+				if err != nil {
+					return err
+				}
+				value.AuthorizationContext = authority
+			}
 			timingChanged := changes.StartsAt != nil || changes.CronExpression != nil || changes.TimeZone != nil
 			if changes.StartsAt != nil {
 				value.StartsAt = changes.StartsAt.UTC()
@@ -610,11 +626,11 @@ func (s *Store) UpdateTaskRecurrence(
 			}
 			_, err := tx.ExecContext(ctx, `UPDATE task_recurrences SET project_id = NULLIF(?, ''),
 title = ?, starts_at_ms = ?, cron_expression = ?, time_zone = ?, missed_run_policy = ?,
-overlap_policy = ?, next_run_at_ms = ?, revision = ?, updated_at_ms = ?
+overlap_policy = ?, next_run_at_ms = ?, revision = ?, updated_at_ms = ?, authorization_context_json = ?
 WHERE recurrence_id = ? AND revision = ?`, value.ProjectID, value.Title, millis(value.StartsAt),
 				value.CronExpression, value.TimeZone, string(value.MissedRunPolicy),
 				string(value.OverlapPolicy), nullableTime(value.NextRunAt), value.Revision,
-				millis(value.UpdatedAt), value.ID, expectedRevision)
+				millis(value.UpdatedAt), value.AuthorizationContext, value.ID, expectedRevision)
 			return err
 		})
 }
@@ -1058,7 +1074,7 @@ func materializeOccurrenceTx(
 			return Task{}, WorkEvent{}, err
 		}
 	}
-	task := Task{ID: id, ProjectID: value.ProjectID, Title: value.Title, State: TaskCaptured,
+	task := Task{AuthorizationContext: value.AuthorizationContext, ID: id, ProjectID: value.ProjectID, Title: value.Title, State: TaskCaptured,
 		Revision: 1, Generation: 1, StageKey: "inbox", ExecutorAgentID: value.ExecutorAgentID,
 		ExecutorAcpConnectionRevision: cloneInt(value.ExecutorAcpConnectionRevision),
 		CwdOverride:                   cloneString(value.CwdOverride), ScheduledFor: &due,
@@ -1069,12 +1085,12 @@ func materializeOccurrenceTx(
 (task_id, project_id, title, state, revision, executor_agent_id,
  executor_acp_connection_revision, cwd_override, scheduled_for_ms, schedule_time_zone,
  missed_run_policy, schedule_processed_at_ms, recurrence_id, recurrence_revision,
- recurrence_scheduled_for_ms, created_at_ms, updated_at_ms)
-VALUES (?, NULLIF(?, ''), ?, 'captured', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+ recurrence_scheduled_for_ms, created_at_ms, updated_at_ms, authorization_context_json)
+VALUES (?, NULLIF(?, ''), ?, 'captured', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID, task.ProjectID, task.Title, task.ExecutorAgentID,
 		nullableInt(task.ExecutorAcpConnectionRevision), nullableString(task.CwdOverride), millis(due),
 		task.ScheduleTimeZone, task.MissedRunPolicy, millis(now), value.ID, value.Revision,
-		millis(due), millis(now), millis(now))
+		millis(due), millis(now), millis(now), value.AuthorizationContext)
 	if err != nil {
 		return Task{}, WorkEvent{}, err
 	}
@@ -1139,7 +1155,7 @@ func latestRecurrenceTaskTx(ctx context.Context, tx bun.Tx, id string) (Task, er
 const recurrenceSelect = `SELECT recurrence_id, workspace_id, COALESCE(project_id, ''), title,
 executor_agent_id, executor_acp_connection_revision, cwd_override, starts_at_ms,
 cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision,
-next_run_at_ms, pending_coalesced_at_ms, created_at_ms, updated_at_ms FROM task_recurrences`
+next_run_at_ms, pending_coalesced_at_ms, created_at_ms, updated_at_ms, authorization_context_json FROM task_recurrences`
 
 func scanTaskRecurrence(row rowScanner) (TaskRecurrence, error) {
 	var value TaskRecurrence
@@ -1150,7 +1166,7 @@ func scanTaskRecurrence(row rowScanner) (TaskRecurrence, error) {
 	if err := row.Scan(&value.ID, &value.WorkspaceID, &value.ProjectID, &value.Title,
 		&value.ExecutorAgentID, &revision, &cwd, &starts, &value.CronExpression,
 		&value.TimeZone, &value.MissedRunPolicy, &value.OverlapPolicy, &value.Lifecycle,
-		&value.Revision, &next, &pending, &created, &updated); err != nil {
+		&value.Revision, &next, &pending, &created, &updated, &value.AuthorizationContext); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return TaskRecurrence{}, ErrTaskNotFound
 		}

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -102,7 +103,12 @@ func TestExplicitWebToolsGateChatAndTaskRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	browserChat.openRouter = chat.openRouter
+	browserChat.openRouter = generatorFunc(func(ctx context.Context, request provider.GenerateRequest, emit func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		if !bytes.Contains([]byte(request.Messages[1].Content), []byte(`"role":"human","text":"Browse"`)) {
+			t.Fatalf("browser reviewer lost human request: %s", request.Messages[1].Content)
+		}
+		return chat.openRouter.Generate(ctx, request, emit)
+	})
 	browserConversation, err := browserDatabase.EnsurePrimaryConversation(context.Background(), "openrouter", "/workspace", time.Now())
 	if err != nil {
 		t.Fatal(err)

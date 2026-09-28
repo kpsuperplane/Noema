@@ -301,7 +301,7 @@ func (r *TaskExecution) captureScopedTask(ctx context.Context, parent store.Task
 	if !titleOK || !documentOK {
 		return taskToolInputFailure()
 	}
-	options := store.TaskCreateOptions{ProjectID: parent.ProjectID, ExecutorAgentID: parent.ExecutorAgentID,
+	options := store.TaskCreateOptions{AuthorityTaskID: parent.ID, ProjectID: parent.ProjectID, ExecutorAgentID: parent.ExecutorAgentID,
 		CwdOverride: parent.CwdOverride, Source: parent.Source, SourceClientTimeZone: parent.SourceClientTimeZone}
 	if rawSchedule, exists := fields["schedule"]; exists {
 		value, parseErr := parseTaskSchedule(rawSchedule, time.Now(), parent.SourceClientTimeZone)

@@ -161,7 +161,7 @@ func (r *Resolver) updateTaskRecurrence(
 	if input.ClientMutationID == "" {
 		return nil, errors.New("clientMutationId cannot be empty")
 	}
-	changes := store.RecurrenceChanges{Title: input.Title, CronExpression: input.CronExpression,
+	changes := store.RecurrenceChanges{HumanEdit: true, HumanDocument: input.TaskDocument, Title: input.Title, CronExpression: input.CronExpression,
 		TimeZone: input.TimeZone}
 	if input.ClearProject != nil && *input.ClearProject {
 		changes.SetProject = true

@@ -20,6 +20,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/netpolicy"
 	"github.com/kpsuperplane/noema/internal/provider"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
 const (
@@ -136,6 +137,27 @@ func uniqueDownloadArguments(raw json.RawMessage) (map[string]json.RawMessage, e
 		return nil, errors.New("arguments are invalid")
 	}
 	return fields, nil
+}
+
+// Observed URLs use the same download validation and file-write path as reviewed URLs.
+func executeObservedDownload(ctx context.Context, database *store.Store, cwd string, raw json.RawMessage) (json.RawMessage, bool, bool, error) {
+	request, err := parseFileDownloadArguments(raw)
+	if err != nil {
+		return nil, false, false, err
+	}
+	observed, err := database.URLWasObserved(ctx, request.URL)
+	if err != nil || !observed {
+		return nil, false, false, err
+	}
+	payload, err := executeFileDownload(ctx, cwd, raw)
+	if err != nil {
+		code := "download_failed"
+		if errors.Is(err, errDownloadOutcomeUncertain) {
+			code = "outcome_uncertain"
+		}
+		return toolFailure(code, err.Error()), false, true, nil
+	}
+	return payload, true, true, nil
 }
 
 func executeFileDownload(ctx context.Context, cwd string, raw json.RawMessage) (json.RawMessage, error) {

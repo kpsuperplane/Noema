@@ -1189,6 +1189,10 @@ func TestRustRuntime_notification_delivery_waits_for_foreground_turn_and_publish
 func TestRustRuntime_task_supervisor_starts_distinct_tasks_concurrently(t *testing.T) {
 	// Rust source: crates/noema-runtime/src/daemon/tests/runtime_lifecycle.rs::task_supervisor_starts_distinct_tasks_concurrently.
 	chat, database, conversation := chatFixture(t)
+	turn, item, err := database.BeginConversationTurn(t.Context(), conversation.ID, "Run these two Tasks", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw := json.RawMessage(`{"title":"Concurrent task","task_document":"Do the work","project":{"kind":"none"}}`)
 	var wait sync.WaitGroup
 	results := make(chan bool, 2)
@@ -1197,7 +1201,7 @@ func TestRustRuntime_task_supervisor_starts_distinct_tasks_concurrently(t *testi
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, ok := chat.executeChatTool(context.Background(), conversation, taskDelegateName, raw, "concurrent-"+itoa(index), "turn:concurrent")
+			_, ok := chat.executeChatTool(context.Background(), conversation, taskDelegateName, raw, "concurrent-"+itoa(index), turn.ID, chatTaskToolDetails{SourceItemID: item.ID})
 			results <- ok
 		}()
 	}

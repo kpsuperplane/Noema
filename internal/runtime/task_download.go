@@ -22,6 +22,9 @@ func (r *TaskExecution) prepareTaskDownload(ctx context.Context, task store.Task
 	if _, err := parseFileDownloadArguments(arguments); err != nil {
 		return toolFailure("invalid_input", err.Error()), false, false, nil
 	}
+	if payload, success, observed, err := executeObservedDownload(ctx, r.database, taskWorkspace(r.root, task.ID), arguments); err != nil || observed {
+		return payload, success, false, err
+	}
 	document, err := home.ReadTaskDocument(r.root, task.ID)
 	if err != nil {
 		return nil, false, false, err

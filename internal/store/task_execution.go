@@ -135,6 +135,11 @@ func (s *Store) StartTaskExecution(ctx context.Context, runID string, generation
 		if count, _ := changed.RowsAffected(); count != 1 {
 			return ErrStaleRun
 		}
+		if _, err := tx.ExecContext(ctx, `UPDATE task_messages SET consumed_by_run_id=?,consumed_at_ms=?
+WHERE task_id=? AND task_generation=? AND author_actor_id='actor:human:local' AND consumed_by_run_id IS NULL`,
+			run.ID, millis(now), task.ID, task.Generation); err != nil {
+			return err
+		}
 		task.Revision++
 		task.StageKey, task.UpdatedAt = "doing", now.UTC()
 		if err := updateCurrentTaskTx(ctx, tx, *task, run.ID, "doing", now); err != nil {

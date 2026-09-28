@@ -91,7 +91,7 @@ func (r *Resolver) captureTask(
 		_ = home.DiscardPendingTaskDocument(r.home, taskID)
 		return nil, err
 	}
-	options := store.TaskCreateOptions{ExecutorAgentID: store.TaskExecutorAgentID,
+	options := store.TaskCreateOptions{HumanDocument: &input.TaskDocument, ExecutorAgentID: store.TaskExecutorAgentID,
 		CwdOverride: input.CwdOverride, Schedule: parsedSchedule}
 	if input.ProjectID != nil {
 		options.ProjectID = *input.ProjectID

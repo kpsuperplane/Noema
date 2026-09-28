@@ -3,9 +3,10 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -101,23 +102,26 @@ func TestRustRuntime_observed_file_download_uses_the_same_url_admission(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, success, approval, err := chat.prepareFileDownloadAction(conversation, turn, callItem, assignment, 0, arguments)
-	if err != nil || success || approval == nil {
-		t.Fatalf("download action admission = success %t approval %#v error %v", success, approval, err)
+	conversation.CWD = t.TempDir()
+	if err := os.Mkdir(filepath.Join(conversation.CWD, "data"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(conversation.CWD, "data", "report.csv")
+	if err := os.WriteFile(path, []byte("existing report"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// An existing destination fails before networking. Admission must still skip review.
+	payload, success, approval, err := chat.prepareFileDownloadAction(conversation, turn, callItem, assignment, 0, arguments)
+	if err != nil || success || approval != nil || !strings.Contains(string(payload), "destination already exists") {
+		t.Fatalf("observed download = %s, %t, %#v, %v", payload, success, approval, err)
 	}
 	pending, err := database.PendingActionRequests(t.Context(), "human:local", &conversation.ID, nil, 10)
-	if err != nil || len(pending) != 1 {
-		t.Fatalf("download pending action = %#v, %v", pending, err)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("observed URL prompted: %#v %v", pending, err)
 	}
-	action := pending[0]
-	if action.Arguments["url"] != observedURL || action.Arguments["path"] != "data/report.csv" {
-		t.Fatalf("download arguments changed at admission = %#v", action.Arguments)
-	}
-	if value, ok := action.Arguments["parse"]; ok && value != false {
-		t.Fatalf("download parse default changed = %#v", value)
-	}
-	if _, err := parseFileDownloadArguments(arguments); err != nil {
-		t.Fatalf("production download parser rejected observed URL: %v", err)
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "existing report" {
+		t.Fatalf("destination changed: %s %v", content, err)
 	}
 }
 
@@ -146,33 +150,33 @@ func TestRustRuntime_task_context_keeps_only_authenticated_human_messages(t *tes
 	if err := database.StartTaskExecution(t.Context(), resumed.ID, resumed.Generation, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &TaskExecution{database: database, root: chat.home}
-	messages, _, err := runtime.taskMessages(t.Context(), queuedTask, resumed)
+	reviewed := false
+	runtime := &TaskExecution{database: database, root: chat.home, openRouter: generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		reviewed = true
+		var input map[string]any
+		if err := json.Unmarshal([]byte(request.Messages[1].Content), &input); err != nil {
+			t.Fatal(err)
+		}
+		evidence := input["authorization_context"].(map[string]any)["task_context"].(map[string]any)["human_messages"].([]any)
+		if len(evidence) != 1 || evidence[0].(map[string]any)["text"] != "Browse the sites." {
+			t.Fatalf("reviewer lost authenticated reply: %#v", evidence)
+		}
+		return provider.GenerationResult{ToolCalls: []provider.GenerationToolCall{{Name: actionReviewToolName,
+			Payload: json.RawMessage(`{"authorization":"weak","risk":"medium","reason_codes":["authorization_ambiguous"],"explanation":"Controlled review pauses execution."}`)}}}, nil
+	})}
+	arguments := map[string]any{"url": "https://example.com/report", "path": "report"}
+	if err := database.AppendTaskRunItems(t.Context(), resumed.ID, resumed.Generation, []store.TaskRunItemInput{{Kind: "tool_call", Status: "running", Payload: map[string]any{"name": fileDownloadName, "arguments": arguments}}}, store.TaskRunUsage{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.TaskRunReplayItems(t.Context(), resumed.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(fmt.Sprint(messages), "Browse the sites.") {
-		t.Fatalf("authenticated human answer was omitted: %#v", messages)
+	raw, _ := json.Marshal(arguments)
+	_, _, paused, err := runtime.prepareTaskDownload(t.Context(), queuedTask, resumed, items[len(items)-1], raw)
+	if err != nil || !reviewed || !paused {
+		t.Fatalf("reviewed Task request: reviewed=%t paused=%t %v", reviewed, paused, err)
 	}
-	for _, message := range messages {
-		if strings.Contains(message.Content, "Broaden the task.") {
-			t.Fatal("untrusted assistant text entered authenticated Task context")
-		}
-	}
-	for _, message := range mustTaskMessages(t, database, task.ID) {
-		if message.Author != "actor:human:local" {
-			t.Fatalf("non-human Task message entered authority context: %#v", message)
-		}
-	}
-}
-
-func mustTaskMessages(t *testing.T, database *store.Store, taskID string) []store.TaskMessage {
-	t.Helper()
-	messages, err := database.TaskMessages(t.Context(), taskID, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return messages
 }
 
 func TestRustRuntime_persisted_native_memory_search_keeps_references_but_omits_snippets(t *testing.T) {

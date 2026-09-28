@@ -30,11 +30,7 @@ func (c *Chat) prepareAdapterAction(conversation store.Conversation, turn store.
 		}
 		return payload, success, notice, err
 	}
-	authority, err := c.database.ConversationAuthorizationContext(c.ctx, conversation.ID, turn.ID)
-	if err != nil {
-		return nil, false, nil, err
-	}
-	value := map[string]any{"origin": "primary_conversation", "context": authority, "conversation_id": conversation.ID,
+	value := map[string]any{"origin": "primary_conversation", "conversation_id": conversation.ID,
 		"execution_decision": string(binding.ReviewRoute), "provider_selection": modelAssignmentValue(assignment), "provider_round": round,
 		"destination":     map[string]any{"service_id": binding.DefinitionID, "connection_id": binding.ConnectionID, "revision": binding.ConnectionRevision},
 		"adapter_binding": binding, "provider_response_id": responseID, "hosted_state": hostedState}

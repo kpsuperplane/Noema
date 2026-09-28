@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,12 +25,20 @@ func TestTaskLifecyclePublishesDocumentsAndReadModels(t *testing.T) {
 		t.Fatal("manual capture must not invent a conversation source")
 	}
 	id, digest := captured.Task.TaskID, captured.Task.TaskDocumentDigest
+	initialAuthority, err := r.Store.Task(ctx, id)
+	if err != nil || !strings.Contains(initialAuthority.AuthorizationContext, `"task_document_markdown":"First"`) {
+		t.Fatalf("manual creation lost human authority: %s %v", initialAuthority.AuthorizationContext, err)
+	}
 	updated, err := r.updateInboxTask(ctx, model.UpdateInboxTaskInput{
 		TaskID: id, ExpectedRevision: 1, ExpectedGeneration: 1, Title: stringAddress("Ready"),
 		TaskDocument: stringAddress("Second"), ExpectedTaskDocumentDigest: &digest, ClientMutationID: "update-lifecycle",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	savedAuthority, err := r.Store.Task(ctx, id)
+	if err != nil || !strings.Contains(savedAuthority.AuthorizationContext, `"task_document_markdown":"Second"`) {
+		t.Fatalf("manual edit lost human authority: %s %v", savedAuthority.AuthorizationContext, err)
 	}
 	replay, err := r.updateInboxTask(ctx, model.UpdateInboxTaskInput{
 		TaskID: id, ExpectedRevision: 1, ExpectedGeneration: 1, Title: stringAddress("Ready"),
@@ -89,7 +98,15 @@ func TestTaskDetailPreservesConversationOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := store.TaskCreateOptions{Source: store.ArtifactSource{ConversationID: "conversation:audit"}}
+	conversation, err := r.Store.EnsurePrimaryConversation(ctx, "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, item, err := r.Store.BeginConversationTurn(ctx, conversation.ID, "Chat request", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := store.TaskCreateOptions{Source: store.ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID, ItemID: item.ID}}
 	if _, err := r.Store.CreateTaskWithOptions(ctx, id, "From Chat", command, options, time.Now()); err != nil {
 		t.Fatal(err)
 	}

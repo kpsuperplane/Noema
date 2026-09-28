@@ -102,10 +102,6 @@ func (s *Store) CreateActionRequest(ctx context.Context, input NewActionRequest,
 	if err != nil {
 		return ActionRequest{}, errors.New("action input schema is invalid")
 	}
-	contextJSON, err := json.Marshal(input.AuthorizationContext)
-	if err != nil || len(contextJSON) > actionContextLimit {
-		return ActionRequest{}, errors.New("action authorization context is invalid")
-	}
 	if input.OwnerHumanID != "human:local" || input.RequestingAgentID == "" ||
 		input.CapabilityName == "" || input.OperationToken == "" ||
 		(input.ReviewRoute != ActionHumanReview && input.ReviewRoute != ActionLLMReview) ||
@@ -124,6 +120,10 @@ func (s *Store) CreateActionRequest(ctx context.Context, input NewActionRequest,
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := requireExactActionOrigin(ctx, tx, input, arguments, "running"); err != nil {
+		return ActionRequest{}, err
+	}
+	contextJSON, err := actionAuthorizationContext(ctx, tx, input)
+	if err != nil {
 		return ActionRequest{}, err
 	}
 	_, err = tx.ExecContext(ctx, `
@@ -662,11 +662,15 @@ ORDER BY a.created_at_ms DESC, a.action_id DESC LIMIT ?`, humanID, conversationI
 
 // ConversationAuthorizationContext returns the bounded human authority for a turn.
 func (s *Store) ConversationAuthorizationContext(ctx context.Context, conversationID, turnID string) (map[string]any, error) {
+	return conversationAuthorizationContext(ctx, s.db, conversationID, turnID, "")
+}
+
+func conversationAuthorizationContext(ctx context.Context, db bun.IDB, conversationID, turnID, itemID string) (map[string]any, error) {
 	anchorTurnID := turnID
 	var anchorSequence int64
 	var anchorKind, anchorAuthor string
 	for hops := 0; hops < 16; hops++ {
-		err := s.db.QueryRowContext(ctx, `
+		err := db.QueryRowContext(ctx, `
 SELECT sequence_index, kind, author_actor_id
 FROM conversation_items
 WHERE conversation_id = ? AND turn_id = ? AND deleted_at_ms IS NULL
@@ -681,16 +685,23 @@ ORDER BY sequence_index DESC LIMIT 1`, conversationID, anchorTurnID).
 			return nil, err
 		}
 		var triggerItemID string
-		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(trigger_item_id, '')
+		if err := db.QueryRowContext(ctx, `SELECT COALESCE(trigger_item_id, '')
 FROM conversation_turns WHERE conversation_id = ? AND turn_id = ?`, conversationID, anchorTurnID).Scan(&triggerItemID); err != nil || triggerItemID == "" {
 			return nil, errors.New("action authorization source is unavailable")
 		}
 		var parentTurnID string
-		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(turn_id, '')
+		if err := db.QueryRowContext(ctx, `SELECT COALESCE(turn_id, '')
 FROM conversation_items WHERE conversation_id = ? AND item_id = ? AND deleted_at_ms IS NULL`, conversationID, triggerItemID).Scan(&parentTurnID); err != nil || parentTurnID == "" || parentTurnID == anchorTurnID {
 			return nil, errors.New("action authorization source is unavailable")
 		}
 		anchorTurnID = parentTurnID
+	}
+	if itemID != "" {
+		if err := db.QueryRowContext(ctx, `SELECT sequence_index,kind,author_actor_id FROM conversation_items
+WHERE conversation_id=? AND turn_id=? AND item_id=? AND deleted_at_ms IS NULL AND status='completed'`,
+			conversationID, turnID, itemID).Scan(&anchorSequence, &anchorKind, &anchorAuthor); err != nil {
+			return nil, errors.New("action authorization source is unavailable")
+		}
 	}
 	if anchorSequence == 0 {
 		return nil, errors.New("action authorization source is unavailable")
@@ -698,7 +709,7 @@ FROM conversation_items WHERE conversation_id = ? AND item_id = ? AND deleted_at
 	if anchorAuthor != "human:local" || (anchorKind != "user_text" && anchorKind != "multiple_choice_selection") {
 		return nil, errors.New("action authorization source is unavailable")
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := db.QueryContext(ctx, `
 SELECT item_id, kind, author_actor_id, content_text FROM conversation_items
 WHERE conversation_id = ? AND deleted_at_ms IS NULL AND status = 'completed'
   AND content_text IS NOT NULL AND kind IN ('user_text','assistant_text','multiple_choice_prompt','multiple_choice_selection')

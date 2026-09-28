@@ -4718,7 +4718,7 @@ func TestRustStore_task_notification_suppresses_near_term_same_task_references(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Capture the task.", nil, now)
+	turn, item, err := database.BeginConversationTurn(ctx, conversation.ID, "Capture the task.", nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4730,7 +4730,7 @@ func TestRustStore_task_notification_suppresses_near_term_same_task_references(t
 		t.Fatal(err)
 	}
 	chatResult, err := database.CreateTaskWithOptions(ctx, chatID, "Chat task", testTaskCommand("notification-chat"), TaskCreateOptions{
-		Source: ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID}, SourceToolCallID: "tool_call:notification-chat",
+		Source: ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID, ItemID: item.ID}, SourceToolCallID: "tool_call:notification-chat",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -4887,7 +4887,15 @@ func TestRustStore_agent_inbox_edit_preserves_existing_authorization_context(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := ArtifactSource{ConversationID: "conversation:agent-edit", TurnID: "turn:agent-edit", ItemID: "item:agent-edit"}
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, item, err := database.BeginConversationTurn(ctx, conversation.ID, "Human title", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := ArtifactSource{ConversationID: conversation.ID, TurnID: turn.ID, ItemID: item.ID}
 	created, err := database.CreateTaskWithOptions(ctx, id, "Human title", testTaskCommand("agent-edit:capture"), TaskCreateOptions{
 		Source: source, SourceToolCallID: "tool_call:agent-edit",
 	}, now)
@@ -4905,7 +4913,7 @@ func TestRustStore_agent_inbox_edit_preserves_existing_authorization_context(t *
 	if updated.Task.Title != "Agent rewrite" {
 		t.Fatalf("agent edit title = %q", updated.Task.Title)
 	}
-	if updated.Task.Source != original.Source || updated.Task.SourceToolCallID != original.SourceToolCallID {
+	if updated.Task.AuthorizationContext != original.AuthorizationContext || updated.Task.Source != original.Source || updated.Task.SourceToolCallID != original.SourceToolCallID {
 		t.Fatalf("agent edit changed source context: before=%#v after=%#v", original, updated.Task)
 	}
 	if document, err := home.ReadTaskDocument(root, original.ID); err != nil || document.Content != "captured description" {
