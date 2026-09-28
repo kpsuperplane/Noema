@@ -490,3 +490,23 @@ func waitForMemoryUpdate(t *testing.T, chat *Chat, events <-chan Event) {
 		}
 	}
 }
+
+func TestMemoryCitationsAcceptHumanLabelOnlyForAllowedSources(t *testing.T) {
+	for _, source := range []string{"item:human", "human:item:human", "human:human", "human:item:assistant", "human:item:unknown", "human:unknown"} {
+		t.Run(source, func(t *testing.T) {
+			change := noemamemory.PageChange{
+				Path: "root.md", Body: "Alice likes tea.[^1]",
+				Citations: []noemamemory.Citation{{Sources: []string{source}}},
+			}
+			err := normalizeMemoryCitations(&change, map[string]bool{"item:human": true})
+			valid := source == "item:human" || source == "human:item:human" || source == "human:human"
+			if valid {
+				if err != nil || change.Citations[0].Sources[0] != "item:human" {
+					t.Fatalf("citation = %#v, error = %v", change.Citations, err)
+				}
+			} else if err == nil {
+				t.Fatal("accepted a source outside the allowed evidence")
+			}
+		})
+	}
+}

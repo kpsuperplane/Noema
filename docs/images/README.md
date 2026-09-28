@@ -37,7 +37,7 @@ The earlier Chat image records both Tasks in progress.
 The memory update action failed twice because generated pages cited ineligible sources.
 The prior sample memory image has been removed from the README.
 This refresh does not claim that the new preferences reached durable memory.
-The failure remains visible in the instance and needs a separate investigation.
+The subsequent [memory repair](../validation/memory-source-label-2026-09-28.md) resolved this failure and verified saved preferences in the instance.
 
 ## Capture
 

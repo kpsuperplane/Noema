@@ -245,6 +245,12 @@ func canonicalMemorySource(source string, allowed map[string]bool) string {
 	if allowed[source] {
 		return source
 	}
+	if value, ok := strings.CutPrefix(source, "human:"); ok {
+		source = value
+		if allowed[source] {
+			return source
+		}
+	}
 	qualified := "item:" + source
 	if allowed[qualified] {
 		return qualified
