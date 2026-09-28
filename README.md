@@ -190,39 +190,50 @@ Chat and Tasks have separate execution loops and share storage and service depen
 The diagram follows the [server startup code](cmd/noema/main.go), rather than the product roadmap.
 
 ```mermaid
+%%{init: {"theme": "neutral", "flowchart": {"curve": "linear", "nodeSpacing": 24, "rankSpacing": 35}}}%%
 flowchart TB
-    Clients[Web · desktop · iOS] --> Auth[Authentication]
-    CLI[Local CLI] --> Socket[Private Unix socket]
-    Auth --> API[GraphQL requests and subscriptions]
-    Socket --> API
-    subgraph Server[Go server]
-        API --> Chat[Chat runtime]
-        API --> Tasks[Task workers: plan · execute · review]
-        API --> Store[Shared store]
-        Schedules[Schedules and recurrence] --> Store
-        Store -. work signals .-> Tasks
-        Chat --> Models[Hosted and local models]
-        Tasks --> Models
-        Chat --> Tools[Tool handling and action review]
-        Tasks --> Tools
-        Tools --> Services[MCP · HTTP adapters · web tools]
-        Tools --> Files[Project documents · files · artifacts]
-        Chat --> Memory[Markdown memory]
-        Chat --> Store
-        Tasks --> Store
-        Tools --> Store
-        Store -. change signals .-> API
-        Chat -. live events .-> API
-        Store -. change signals .-> Notifications[Push notifications]
-        Chat -. live events .-> Notifications
+    Clients["Web · desktop · iOS<br/>Local CLI"]
+
+    subgraph Server["Go server"]
+        Access["GraphQL API<br/>Requests · subscriptions<br/>Authentication · local socket"]
+
+        subgraph Execution["Execution"]
+            direction LR
+            Chat["Main Chat<br/>Ongoing conversation"]
+            Tasks["Task workers<br/>Plan · execute · review"]
+            Schedules["Schedules<br/>One-time · recurring"]
+            Chat ~~~ Tasks ~~~ Schedules
+        end
+
+        subgraph Services["Shared services"]
+            direction LR
+            Models["Model providers<br/>Hosted and local models"]
+            Tools["Tools and action review<br/>HTTP APIs · MCP · web"]
+            Notifications["Notifications<br/>Web Push · Apple push"]
+            Models ~~~ Tools ~~~ Notifications
+        end
+
+        subgraph Storage["Stored data · NOEMA_HOME"]
+            direction LR
+            DB[("SQLite<br/>State · history · action requests")]
+            Files[("Files<br/>Task / Project documents · artifacts<br/>Markdown memory · protected credentials")]
+            DB ~~~ Files
+        end
+
+        Access --> Execution
+        Execution --> Services
+        Services --> Storage
     end
-    Services --> External[External services and browser backends]
-    Store --> DB[(SQLite)]
-    Files --> Home[(NOEMA_HOME files)]
-    Memory --> Home
-    Tasks --> Home
-    Notifications --> Clients
+
+    External["External services<br/>Model APIs · browser backends"]
+
+    Clients <--> Access
+    Services <--> External
 ```
+
+Arrows show the main dependency groups, not every call or event.
+Chat can delegate to Tasks while the conversation continues.
+Stored changes and live runtime events drive subscriptions and notifications.
 
 The default data directory is `~/.noema`; `NOEMA_HOME` selects another location.
 SQLite stores structured state. Files hold Task and Project documents, memory, artifacts, and protected credentials.
